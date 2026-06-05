@@ -1,0 +1,347 @@
+{
+  "_meta": "Habilidades disponíveis no perfil LinkedIn de Felipe Armel. ativo=true = já marcado no perfil. Atualizar quando adicionar ou remover habilidades do LinkedIn.",
+  "_fonte": "competencias_linkedin (1).xlsx → Competências",
+  "_atualizado": "2026-05-04",
+  "habilidades": [
+    {
+      "nome": "Microsoft Power BI",
+      "ativo": true
+    },
+    {
+      "nome": "Inteligência de negócios (BI)",
+      "ativo": true
+    },
+    {
+      "nome": "Suporte ao cliente",
+      "ativo": true
+    },
+    {
+      "nome": "Sucesso do cliente",
+      "ativo": false
+    },
+    {
+      "nome": "Inteligência artificial",
+      "ativo": false
+    },
+    {
+      "nome": "Previsão de receitas",
+      "ativo": false
+    },
+    {
+      "nome": "Previsão de demanda",
+      "ativo": false
+    },
+    {
+      "nome": "Análises de mercado",
+      "ativo": false
+    },
+    {
+      "nome": "Mapeamento de processos de negócios",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de riscos de terceiros",
+      "ativo": false
+    },
+    {
+      "nome": "Análise financeira",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de orçamentos",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão logística",
+      "ativo": false
+    },
+    {
+      "nome": "Análise de fusões e aquisições",
+      "ativo": false
+    },
+    {
+      "nome": "MRP (Planejamento das necessidades de materiais)",
+      "ativo": false
+    },
+    {
+      "nome": "Sistemas de gerenciamento de armazéns (WMS)",
+      "ativo": false
+    },
+    {
+      "nome": "Análises de P&L",
+      "ativo": false
+    },
+    {
+      "nome": "VPL (Valor Presente Líquido)",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de projetos",
+      "ativo": false
+    },
+    {
+      "nome": "Planejamento de projetos",
+      "ativo": false
+    },
+    {
+      "nome": "Implementações de ERP",
+      "ativo": false
+    },
+    {
+      "nome": "Python",
+      "ativo": false
+    },
+    {
+      "nome": "Azure Databricks",
+      "ativo": false
+    },
+    {
+      "nome": "Zendesk",
+      "ativo": false
+    },
+    {
+      "nome": "Salesforce.com",
+      "ativo": false
+    },
+    {
+      "nome": "Tableau",
+      "ativo": false
+    },
+    {
+      "nome": "SQL",
+      "ativo": false
+    },
+    {
+      "nome": "VBA (Visual Basic for Applications)",
+      "ativo": false
+    },
+    {
+      "nome": "Marketplace Operations",
+      "ativo": false
+    },
+    {
+      "nome": "Planejamento operacional",
+      "ativo": false
+    },
+    {
+      "nome": "Performance Operacional",
+      "ativo": false
+    },
+    {
+      "nome": "Análise de dados aplicada",
+      "ativo": false
+    },
+    {
+      "nome": "Transformaçāo Operacional",
+      "ativo": false
+    },
+    {
+      "nome": "Customer Operations",
+      "ativo": false
+    },
+    {
+      "nome": "Automação de processos",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão orientada a dados",
+      "ativo": false
+    },
+    {
+      "nome": "Eficiência operacional",
+      "ativo": false
+    },
+    {
+      "nome": "Operações Escaláveis",
+      "ativo": false
+    },
+    {
+      "nome": "Projeções",
+      "ativo": false
+    },
+    {
+      "nome": "Iniciativas estratégicas",
+      "ativo": false
+    },
+    {
+      "nome": "Extração de dados",
+      "ativo": false
+    },
+    {
+      "nome": "Controle de estoque",
+      "ativo": false
+    },
+    {
+      "nome": "Análise de lucratividade",
+      "ativo": false
+    },
+    {
+      "nome": "Dashboards",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de produtos",
+      "ativo": false
+    },
+    {
+      "nome": "Reestruturação",
+      "ativo": false
+    },
+    {
+      "nome": "SaaS",
+      "ativo": false
+    },
+    {
+      "nome": "Parcerias estratégicas",
+      "ativo": false
+    },
+    {
+      "nome": "Estratégia",
+      "ativo": false
+    },
+    {
+      "nome": "Desenvolvimento de novos negócios",
+      "ativo": false
+    },
+    {
+      "nome": "Fusões e aquisições",
+      "ativo": false
+    },
+    {
+      "nome": "Execução de estratégia",
+      "ativo": false
+    },
+    {
+      "nome": "Orçamento",
+      "ativo": false
+    },
+    {
+      "nome": "Eficiência em custo",
+      "ativo": false
+    },
+    {
+      "nome": "Desenvolvimento de negócios",
+      "ativo": false
+    },
+    {
+      "nome": "Melhoria de processos",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de lucros e perdas",
+      "ativo": false
+    },
+    {
+      "nome": "Melhoria de processos empresariais",
+      "ativo": false
+    },
+    {
+      "nome": "Cross team comunication",
+      "ativo": false
+    },
+    {
+      "nome": "Gateways de pagamento",
+      "ativo": false
+    },
+    {
+      "nome": "Controle orçamentário",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de relacionamento com o cliente (CRM)",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de relacionamentos empresariais",
+      "ativo": false
+    },
+    {
+      "nome": "3PL (Fornecedores de logística subcontratada)",
+      "ativo": false
+    },
+    {
+      "nome": "Retenção de clientes",
+      "ativo": false
+    },
+    {
+      "nome": "Gestão de fornecedores",
+      "ativo": false
+    },
+    {
+      "nome": "Satisfação do cliente",
+      "ativo": false
+    },
+    {
+      "nome": "Análise de dados",
+      "ativo": false
+    },
+    {
+      "nome": "Comunicação",
+      "ativo": false
+    },
+    {
+      "nome": "Análise de negócios",
+      "ativo": false
+    },
+    {
+      "nome": "Resolução de problemas",
+      "ativo": false
+    },
+    {
+      "nome": "Implementações de sistema",
+      "ativo": false
+    },
+    {
+      "nome": "Inglês",
+      "ativo": false
+    },
+    {
+      "nome": "Business Planning",
+      "ativo": false
+    },
+    {
+      "nome": "Supply Chain Management",
+      "ativo": false
+    },
+    {
+      "nome": "Strategic Planning",
+      "ativo": false
+    },
+    {
+      "nome": "Business Intelligence",
+      "ativo": false
+    },
+    {
+      "nome": "PDCA",
+      "ativo": false
+    },
+    {
+      "nome": "Supply Chain",
+      "ativo": false
+    },
+    {
+      "nome": "Project management",
+      "ativo": false
+    },
+    {
+      "nome": "S&OP",
+      "ativo": false
+    },
+    {
+      "nome": "Liderança de equipe",
+      "ativo": false
+    },
+    {
+      "nome": "Redução de custos",
+      "ativo": false
+    },
+    {
+      "nome": "Melhoria contínua",
+      "ativo": false
+    },
+    {
+      "nome": "Seis Sigma",
+      "ativo": false
+    }
+  ]
+}

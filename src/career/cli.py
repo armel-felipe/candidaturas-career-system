@@ -1,0 +1,628 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from career.paths import CAREER_STATE, OUTPUTS
+from career.services import agent_guard as agent_guard_service
+from career.services import applications_v2 as applications_v2_service
+from career.services import fit_map as fit_map_service
+from career.services import general_cv as general_cv_service
+from career.services import habilidades_chave as habilidades_chave_service
+from career.services import intake as intake_service
+from career.services import multiagent as multiagent_service
+from career.services import project as project_service
+from career.services import review as review_service
+from career.tasks.registry import run_pipeline, run_task
+from career.utils import CareerError
+from career.workflow.state_store import WorkflowStateStore
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="career")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    notion = subparsers.add_parser("notion")
+    notion_sub = notion.add_subparsers(dest="action", required=True)
+    notion_refresh = notion_sub.add_parser("refresh")
+    notion_refresh.add_argument("--refresh", choices=["missing", "full"], default="missing")
+    notion_sub.add_parser("build-cache")
+
+    agent = subparsers.add_parser("agent")
+    agent_sub = agent.add_subparsers(dest="action", required=True)
+    agent_eval_notion = agent_sub.add_parser("evaluate-notion")
+    agent_eval_notion.add_argument("record_id", type=int)
+    agent_eval_notion_local = agent_sub.add_parser("evaluate-notion-local")
+    agent_eval_notion_local.add_argument("record_id", type=int)
+    agent_sub.add_parser("guard")
+    agent_maestro = agent_sub.add_parser("maestro")
+    agent_maestro.add_argument("step", nargs="?", choices=["fit-map", "cv", "notion-update", "email-draft", "linkedin"])
+    agent_maestro.add_argument("--objective")
+    agent_maestro.add_argument("--extras", default="{}")
+
+    multiagent = subparsers.add_parser("multiagent")
+    multiagent_sub = multiagent.add_subparsers(dest="action", required=True)
+    multiagent_sub.add_parser("runbook")
+    multiagent_sub.add_parser("local-model-map")
+    multiagent_request = multiagent_sub.add_parser("request")
+    multiagent_request.add_argument("step", choices=["fit-map", "cv", "notion-update", "email-draft", "linkedin"])
+    multiagent_request.add_argument("--objective")
+    multiagent_request.add_argument("--extras", default="{}")
+    multiagent_sub.add_parser("validate-workspace-clean")
+
+    intake = subparsers.add_parser("intake")
+    intake_sub = intake.add_subparsers(dest="action", required=True)
+    intake_notion = intake_sub.add_parser("notion-record")
+    intake_notion.add_argument("record_id", type=int)
+    intake_paste = intake_sub.add_parser("paste")
+    intake_paste.add_argument("--company", required=True)
+    intake_paste.add_argument("--role", required=True)
+    intake_paste.add_argument("--text-file")
+    intake_paste.add_argument("--stdin", action="store_true")
+    intake_linkedin_job = intake_sub.add_parser("linkedin-job")
+    intake_linkedin_job.add_argument("--url", required=True)
+    intake_linkedin_post = intake_sub.add_parser("linkedin-post")
+    intake_linkedin_post.add_argument("--url", required=True)
+    intake_linkedin_post.add_argument("--company", required=True)
+    intake_linkedin_post.add_argument("--role", required=True)
+    intake_url = intake_sub.add_parser("url")
+    intake_url.add_argument("--url", required=True)
+    intake_url.add_argument("--company")
+    intake_url.add_argument("--role")
+    intake_sub.add_parser("resume")
+
+    fit_map = subparsers.add_parser("fit-map")
+    fit_map_sub = fit_map.add_subparsers(dest="action", required=True)
+    template = fit_map_sub.add_parser("template")
+    template.add_argument("--output", default=str(CAREER_STATE / "fit_map.draft.json"))
+    validate_draft = fit_map_sub.add_parser("validate-draft")
+    validate_draft.add_argument("--path", default=str(CAREER_STATE / "fit_map.draft.json"))
+    validate_draft.add_argument("--full", action="store_true", help="Print the full validated draft payload.")
+    validate_stage = fit_map_sub.add_parser("validate-stage")
+    validate_stage.add_argument("stage", choices=["extract", "map-evidence", "score-draft", "complete-draft"])
+    validate_stage.add_argument("--path", default=str(CAREER_STATE / "fit_map.draft.json"))
+    summary = fit_map_sub.add_parser("summary")
+    summary.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
+    draft_summary = fit_map_sub.add_parser("draft-summary")
+    draft_summary.add_argument("--path", default=str(CAREER_STATE / "fit_map.draft.json"))
+    quality = fit_map_sub.add_parser("quality")
+    quality.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
+    quality.add_argument("--job-description")
+    registry_summary = fit_map_sub.add_parser("registry-summary")
+    registry_summary.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    registry_summary.add_argument("--registry", default=".opencode/skills/career-system/references/keyword_ats_registry.json")
+    build = fit_map_sub.add_parser("build")
+    build.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
+    build.add_argument("--output", default=str(CAREER_STATE / "fit_map.json"))
+    score = fit_map_sub.add_parser("score")
+    score.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
+    validate = fit_map_sub.add_parser("validate")
+    validate.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
+    validate.add_argument("--full", action="store_true", help="Print the full validated FIT_MAP payload.")
+    finalize = fit_map_sub.add_parser("finalize")
+    finalize.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
+    finalize.add_argument("--output", default=str(CAREER_STATE / "fit_map.json"))
+    status = fit_map_sub.add_parser("status")
+    status.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
+    status.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    status.add_argument("--job-description")
+    resume = fit_map_sub.add_parser("resume")
+    resume.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
+    resume.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    resume.add_argument("--job-description")
+    guard = fit_map_sub.add_parser("guard")
+    guard.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
+    guard.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    guard.add_argument("--job-description")
+
+    cv = subparsers.add_parser("cv")
+    cv_sub = cv.add_subparsers(dest="action", required=True)
+    review = cv_sub.add_parser("review")
+    review.add_argument("--artifact", required=True)
+    review.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    review.add_argument("--registry", required=True)
+    review.add_argument("--report", default=str(OUTPUTS / "_tmp" / "output_review_report.json"))
+    polish = cv_sub.add_parser("polish")
+    polish.add_argument("--artifact", required=True)
+    polish.add_argument("--review-report", default=str(OUTPUTS / "_tmp" / "output_review_report.json"))
+    polish.add_argument("--report", default=str(OUTPUTS / "_tmp" / "polish_review.json"))
+    approve = cv_sub.add_parser("approve")
+    approve.add_argument("--artifact", required=True)
+    approve.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    approve.add_argument("--registry", required=True)
+    approve.add_argument("--report", default=str(OUTPUTS / "_tmp" / "output_review_report.json"))
+    approve.add_argument("--polish-report", default=str(OUTPUTS / "_tmp" / "polish_review.json"))
+
+    general_cv = subparsers.add_parser("general-cv")
+    general_cv_sub = general_cv.add_subparsers(dest="action", required=True)
+    general_strategy = general_cv_sub.add_parser("strategy")
+    general_strategy.add_argument("--mode", choices=["auto", "expanded", "concise"], default="auto")
+    general_strategy.add_argument("--bullet-count", type=int)
+    general_strategy.add_argument("--dominant-cluster")
+    general_strategy.add_argument("--output", default=str(CAREER_STATE / "general_cv_strategy.json"))
+    general_strategy.add_argument("--report", default=str(OUTPUTS / "general_cv_strategy.md"))
+    general_validate = general_cv_sub.add_parser("validate-content")
+    general_validate.add_argument("--path", required=True)
+
+    habilidades = subparsers.add_parser("habilidades-chave")
+    habilidades_sub = habilidades.add_subparsers(dest="action", required=True)
+    habilidades_check = habilidades_sub.add_parser("check")
+    habilidades_check.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    habilidades_validate = habilidades_sub.add_parser("validate")
+    habilidades_validate.add_argument("--artifact", required=True)
+    habilidades_validate.add_argument("--mode", choices=["gupy", "mercado_livre"], required=True)
+    habilidades_validate.add_argument("--expected-count", type=int)
+    habilidades_validate.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+
+    project = subparsers.add_parser("project")
+    project_sub = project.add_subparsers(dest="action", required=True)
+    validate_structure = project_sub.add_parser("validate-structure")
+    validate_structure.set_defaults(action="validate-structure")
+    save_job = project_sub.add_parser("save-job-description")
+    save_job.add_argument("--company", required=True)
+    save_job.add_argument("--role", required=True)
+    save_job.add_argument("--text-file", required=True)
+    save_job.add_argument("--output-dir", default="inbox/job_descriptions")
+    diagnose = project_sub.add_parser("diagnose-runtime")
+    diagnose.add_argument("--output", default=str(OUTPUTS / "_tmp" / "runtime_diagnosis.json"))
+    project_sub.add_parser("local-strict-status")
+    project_sub.add_parser("local-strict-doctor")
+    project_sub.add_parser("local-agent-benchmark")
+
+    memory = subparsers.add_parser("memory")
+    memory_sub = memory.add_subparsers(dest="action", required=True)
+    memory_build = memory_sub.add_parser("build")
+    memory_build.add_argument("--output-dir", default=str(CAREER_STATE / "memory"))
+
+    applications = subparsers.add_parser("applications")
+    applications_sub = applications.add_subparsers(dest="action", required=True)
+    heartbeat = applications_sub.add_parser("heartbeat")
+    heartbeat.add_argument("--max-per-run", type=int, default=None)
+    heartbeat.add_argument("--dry-run", action="store_true")
+    heartbeat.add_argument("--run-agent", action="store_true")
+    heartbeat.add_argument("--model", default=None)
+    heartbeat.add_argument("--variant", default=None)
+    applications_sub.add_parser("write-default-config")
+
+    workflow = subparsers.add_parser("workflow")
+    workflow_sub = workflow.add_subparsers(dest="action", required=True)
+    run_task_parser = workflow_sub.add_parser("run-task")
+    run_task_parser.add_argument("task_name")
+    run_task_parser.add_argument("--arguments", default="{}")
+    pipeline_parser = workflow_sub.add_parser("run-pipeline")
+    pipeline_parser.add_argument("task_names", nargs="+")
+    pipeline_parser.add_argument("--arguments", default="{}")
+    workflow_sub.add_parser("show-state")
+    workflow_sub.add_parser("summary")
+    workflow_sub.add_parser("explain-last-run")
+    workflow_sub.add_parser("reset-state")
+    return parser
+
+
+def _dump(value):
+    print(json.dumps(value, ensure_ascii=False, indent=2, default=str))
+
+
+def _dump_error(exc: Exception) -> None:
+    _dump({"status": "blocked", "error": str(exc)})
+
+
+def _task_cli_summary(task: str, result):
+    if isinstance(result, dict) and result.get("reused"):
+        return {"task": task, "status": "reused"}
+    if task == "fit_map.validate_draft":
+        return {"task": task, "status": "ok", "cargo": result.get("cargo"), "empresa": result.get("empresa")}
+    if task == "fit_map.validate":
+        score = result.get("nota_aderencia", {}) if isinstance(result, dict) else {}
+        return {
+            "task": task,
+            "status": "ok",
+            "cargo": result.get("cargo"),
+            "empresa": result.get("empresa"),
+            "nota_final": score.get("final"),
+        }
+    return {"task": task, "status": "ok", "result": str(result)}
+
+
+def _fit_map_payload_summary(task: str, result):
+    if isinstance(result, dict) and result.get("reused"):
+        return {"task": task, "status": "reused"}
+    if not isinstance(result, dict):
+        return {"task": task, "status": "ok", "result": str(result)}
+
+    score = result.get("nota_aderencia") if isinstance(result.get("nota_aderencia"), dict) else {}
+    dimensions = score.get("dimensoes") if isinstance(score.get("dimensoes"), dict) else {}
+    return {
+        "task": task,
+        "status": "ok",
+        "cargo": result.get("cargo"),
+        "empresa": result.get("empresa"),
+        "nota_final": score.get("final"),
+        "mapa_ajuste_count": len(result.get("mapa_ajuste", []) or []),
+        "keywords_ats_count": len(result.get("keywords_habilidade_ats", []) or []),
+        "gaps_count": len(result.get("gaps_sem_cobertura", []) or []),
+        "dimension_points": {
+            key: value.get("pontos")
+            for key, value in dimensions.items()
+            if isinstance(value, dict) and "pontos" in value
+        },
+    }
+
+
+def _fit_map_draft_summary(result):
+    if isinstance(result, dict) and result.get("reused"):
+        return {"task": "fit_map.validate_draft", "status": "reused"}
+    if not isinstance(result, dict):
+        return {"task": "fit_map.validate_draft", "status": "ok", "result": str(result)}
+    score = result.get("nota_aderencia") if isinstance(result.get("nota_aderencia"), dict) else {}
+    return {
+        "task": "fit_map.validate_draft",
+        "status": "ok",
+        "cargo": result.get("cargo"),
+        "empresa": result.get("empresa"),
+        "mapa_ajuste_count": len(result.get("mapa_ajuste", []) or []),
+        "keywords_vaga_count": len(result.get("keywords_vaga", []) or []),
+        "keywords_ats_count": len(result.get("keywords_habilidade_ats", []) or []),
+        "has_nota_aderencia": bool(score),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "notion":
+        if args.action == "refresh":
+            result = run_task("notion.refresh_cache", {"refresh": args.refresh})
+            _dump(result)
+            return 0
+        if args.action == "build-cache":
+            result = run_task("notion.build_cache")
+            _dump(result)
+            return 0
+
+    if args.command == "agent":
+        try:
+            if args.action == "evaluate-notion":
+                _dump(agent_guard_service.evaluate_notion(args.record_id))
+                return 0
+            if args.action == "evaluate-notion-local":
+                _dump(agent_guard_service.evaluate_notion_local(args.record_id))
+                return 0
+            if args.action == "guard":
+                result = agent_guard_service.guard()
+                _dump(result)
+                return 0 if result.get("status") == "ok" else 1
+            if args.action == "maestro":
+                result = multiagent_service.maestro(
+                    step=args.step,
+                    objective=args.objective,
+                    extras=json.loads(args.extras),
+                )
+                _dump(result)
+                return 0 if result.get("status") == "ok" else 1
+        except CareerError as exc:
+            _dump_error(exc)
+            return 1
+
+    if args.command == "multiagent":
+        try:
+            if args.action == "runbook":
+                _dump(multiagent_service.write_runbook())
+                return 0
+            if args.action == "local-model-map":
+                _dump(multiagent_service.write_local_model_map())
+                return 0
+            if args.action == "request":
+                _dump(
+                    multiagent_service.write_request(
+                        args.step,
+                        objective=args.objective,
+                        extras=json.loads(args.extras),
+                    )
+                )
+                return 0
+            if args.action == "validate-workspace-clean":
+                result = multiagent_service.validate_workspace_clean()
+                _dump(result)
+                return 0 if result.get("status") == "ok" else 1
+        except CareerError as exc:
+            _dump_error(exc)
+            return 1
+
+    if args.command == "intake":
+        try:
+            if args.action == "notion-record":
+                _dump(intake_service.from_notion_record(args.record_id))
+                return 0
+            if args.action == "paste":
+                if args.stdin:
+                    import sys
+
+                    text = sys.stdin.read()
+                elif args.text_file:
+                    text = Path(args.text_file).read_text(encoding="utf-8")
+                else:
+                    raise SystemExit("intake paste requires --text-file or --stdin.")
+                _dump(intake_service.from_paste(company=args.company, role=args.role, text=text))
+                return 0
+            if args.action == "linkedin-job":
+                _dump(intake_service.from_linkedin_job(args.url))
+                return 0
+            if args.action == "linkedin-post":
+                _dump(intake_service.from_linkedin_post(url=args.url, company=args.company, role=args.role))
+                return 0
+            if args.action == "url":
+                _dump(intake_service.from_url(url=args.url, company=args.company, role=args.role))
+                return 0
+            if args.action == "resume":
+                _dump(intake_service.resume())
+                return 0
+        except CareerError as exc:
+            _dump_error(exc)
+            return 1
+
+    if args.command == "fit-map":
+        if args.action == "template":
+            result = run_task("fit_map.template", {"output": args.output})
+            print(result)
+            return 0
+        if args.action == "validate-draft":
+            result = run_task("fit_map.validate_draft", {"path": args.path})
+            _dump(result if args.full else _fit_map_draft_summary(result))
+            return 0
+        if args.action == "validate-stage":
+            result = fit_map_service.validate_draft_stage(Path(args.path), args.stage)
+            _dump(result)
+            return 0
+        if args.action == "summary":
+            _dump(fit_map_service.payload_summary(Path(args.path)))
+            return 0
+        if args.action == "draft-summary":
+            _dump(fit_map_service.draft_summary(Path(args.path)))
+            return 0
+        if args.action == "quality":
+            result = fit_map_service.quality_report(
+                Path(args.path),
+                job_description_path=Path(args.job_description) if args.job_description else None,
+            )
+            _dump(result)
+            return 0 if result.get("status") == "ok" else 1
+        if args.action == "registry-summary":
+            result = fit_map_service.registry_summary(Path(args.registry), Path(args.fit_map))
+            _dump(result)
+            return 0 if result.get("status") == "ok" else 1
+        if args.action == "build":
+            result = run_task("fit_map.build", {"draft": args.draft, "output": args.output})
+            print(result)
+            return 0
+        if args.action == "score":
+            result = run_task("fit_map.score", {"path": args.path})
+            print(result)
+            return 0
+        if args.action == "validate":
+            result = run_task("fit_map.validate", {"path": args.path})
+            _dump(result if args.full else _fit_map_payload_summary("fit_map.validate", result))
+            return 0
+        if args.action == "finalize":
+            task_results = [
+                ("fit_map.validate_draft", run_task("fit_map.validate_draft", {"path": args.draft})),
+                ("fit_map.build", run_task("fit_map.build", {"draft": args.draft, "output": args.output})),
+                ("fit_map.score", run_task("fit_map.score", {"path": args.output})),
+                ("fit_map.validate", run_task("fit_map.validate", {"path": args.output})),
+            ]
+            _dump([_task_cli_summary(task, result) for task, result in task_results])
+            return 0
+        if args.action == "status":
+            result = fit_map_service.status(
+                draft_path=Path(args.draft),
+                fit_map_path=Path(args.fit_map),
+                job_description_path=Path(args.job_description) if args.job_description else None,
+            )
+            _dump(result)
+            return 0
+        if args.action == "resume":
+            result = fit_map_service.resume_guidance(
+                draft_path=Path(args.draft),
+                fit_map_path=Path(args.fit_map),
+                job_description_path=Path(args.job_description) if args.job_description else None,
+            )
+            _dump(result)
+            return 0
+        if args.action == "guard":
+            result = fit_map_service.progress_guard(
+                draft_path=Path(args.draft),
+                fit_map_path=Path(args.fit_map),
+                job_description_path=Path(args.job_description) if args.job_description else None,
+            )
+            _dump(result)
+            return 1 if result.get("blocked") else 0
+
+    if args.command == "cv":
+        if args.action == "review":
+            result = run_task(
+                "cv.review",
+                {
+                    "artifact": args.artifact,
+                    "fit_map": args.fit_map,
+                    "registry": args.registry,
+                    "report": args.report,
+                },
+            )
+            _dump(result)
+            return 0
+        if args.action == "polish":
+            review_report_path = Path(args.review_report)
+            review_report = json.loads(review_report_path.read_text(encoding="utf-8")) if review_report_path.exists() else None
+            result = review_service.polish_cv(
+                artifact=Path(args.artifact),
+                report_path=Path(args.report),
+                review_report=review_report,
+            )
+            _dump(result)
+            return 1 if result.get("approval_blockers") else 0
+        if args.action == "approve":
+            result = run_task(
+                "cv.approve",
+                {
+                    "artifact": args.artifact,
+                    "fit_map": args.fit_map,
+                    "registry": args.registry,
+                    "report": args.report,
+                    "polish_report": args.polish_report,
+                },
+            )
+            if isinstance(result, dict) and result.get("reused"):
+                _dump({"task": "cv.approve", "status": "reused"})
+            else:
+                _dump(
+                    {
+                        "task": "cv.approve",
+                        "status": "ok",
+                        "approved": result.get("approved"),
+                        "approved_for_delivery": result.get("approved_for_delivery"),
+                        "ats_top8": result.get("ats_policy", {}).get("top8"),
+                        "blockers": result.get("blockers", []),
+                        "warnings": result.get("warnings", []),
+                        "artifact": result.get("artifact"),
+                        "report": args.report,
+                        "polish_report": args.polish_report,
+                    }
+                )
+            return 0
+
+    if args.command == "general-cv":
+        if args.action == "strategy":
+            request = general_cv_service.validate_request(args.mode, args.bullet_count, args.dominant_cluster)
+            payload = general_cv_service.strategy_payload(request)
+            general_cv_service.write_strategy(payload, Path(args.output), Path(args.report) if args.report else None)
+            _dump(payload)
+            return 0
+        if args.action == "validate-content":
+            payload = json.loads(Path(args.path).read_text(encoding="utf-8"))
+            _dump(general_cv_service.validate_content(payload))
+            return 0
+
+    if args.command == "habilidades-chave":
+        if args.action == "check":
+            _dump(habilidades_chave_service.check_environment(Path(args.fit_map)))
+            return 0
+        if args.action == "validate":
+            _dump(
+                habilidades_chave_service.validate_artifact(
+                    artifact=Path(args.artifact),
+                    mode=args.mode,
+                    expected_count=args.expected_count,
+                    fit_map_path=Path(args.fit_map),
+                )
+            )
+            return 0
+
+    if args.command == "project":
+        if args.action == "validate-structure":
+            project_service.validate_structure()
+            return 0
+        if args.action == "save-job-description":
+            text = Path(args.text_file).read_text(encoding="utf-8")
+            result = run_task(
+                "project.save_job_description",
+                {
+                    "company": args.company,
+                    "role": args.role,
+                    "text": text,
+                    "output_dir": args.output_dir,
+                },
+            )
+            print(result)
+            return 0
+        if args.action == "diagnose-runtime":
+            result = run_task("project.diagnose_runtime", {"output": args.output})
+            print(result)
+            return 0
+        if args.action == "local-strict-status":
+            result = project_service.local_strict_status()
+            _dump(result)
+            return 0 if result.get("status") == "ok" else 1
+        if args.action == "local-strict-doctor":
+            result = project_service.local_strict_doctor()
+            _dump(result)
+            return 0 if result.get("status") == "ok" else 1
+        if args.action == "local-agent-benchmark":
+            result = project_service.local_agent_benchmark()
+            _dump(result)
+            return 0 if result.get("status") == "ok" else 1
+
+    if args.command == "memory" and args.action == "build":
+        result = run_task("memory.build", {"output_dir": args.output_dir})
+        _dump({key: str(value) for key, value in result.items()})
+        return 0
+
+    if args.command == "applications":
+        if args.action == "write-default-config":
+            path = applications_v2_service.write_default_config()
+            _dump({"config": str(path)})
+            return 0
+        if args.action == "heartbeat":
+            if args.max_per_run is not None and args.max_per_run < 1:
+                raise SystemExit("--max-per-run must be a positive integer.")
+            result = applications_v2_service.run_heartbeat(
+                applications_v2_service.HeartbeatV2Options(
+                    max_per_run=args.max_per_run,
+                    run_agent=args.run_agent,
+                    dry_run=args.dry_run,
+                    model=args.model,
+                    variant=args.variant,
+                )
+            )
+            _dump(result)
+            return 0
+
+    if args.command == "workflow":
+        state_store = WorkflowStateStore()
+        if args.action == "show-state":
+            _dump(state_store.load())
+            return 0
+        if args.action == "summary":
+            payload = state_store.load()
+            active_intake = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
+            active_job = payload.get("active_job") if isinstance(payload.get("active_job"), dict) else {}
+            history = payload.get("task_history", [])
+            _dump(
+                {
+                    "status": "ok",
+                    "active_intake": {
+                        "source_type": active_intake.get("source_type"),
+                        "source_id": active_intake.get("source_id"),
+                        "company": active_intake.get("company"),
+                        "role": active_intake.get("role"),
+                        "job_description_path": active_intake.get("job_description_path"),
+                        "next_required_step": active_intake.get("next_required_step"),
+                    },
+                    "active_job": active_job,
+                    "completed_states_count": len(payload.get("completed_states", [])),
+                    "task_history_count": len(history),
+                    "last_task": history[-1] if history else None,
+                }
+            )
+            return 0
+        if args.action == "explain-last-run":
+            payload = state_store.load()
+            history = payload.get("task_history", [])
+            _dump(history[-1] if history else {})
+            return 0
+        if args.action == "reset-state":
+            state_store.reset()
+            _dump(state_store.load())
+            return 0
+        if args.action == "run-task":
+            result = run_task(args.task_name, json.loads(args.arguments), state_store=state_store)
+            _dump(result)
+            return 0
+        if args.action == "run-pipeline":
+            result = run_pipeline(args.task_names, json.loads(args.arguments), state_store=state_store)
+            _dump(result)
+            return 0
+
+    parser.print_help()
+    return 2
