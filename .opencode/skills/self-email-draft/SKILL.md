@@ -213,8 +213,8 @@ Usar os scripts locais do projeto:
 npm run gmail:auth
 ```
 
-Esse comando prepara a autorizacao OAuth local usando as variaveis definidas em `.env`
-e salva o token em `.secrets/gmail/token.json` por padrao.
+Esse comando prepara a autorizacao OAuth local usando as variaveis definidas em `.env`.
+O token pode ser lido de `GMAIL_TOKEN_JSON_B64` no `.env` ou, como fallback, de `GMAIL_TOKEN_PATH`.
 
 Configuracao esperada no `.env`:
 
@@ -225,6 +225,7 @@ GMAIL_OAUTH_AUTH_URI=https://accounts.google.com/o/oauth2/auth
 GMAIL_OAUTH_TOKEN_URI=https://oauth2.googleapis.com/token
 GMAIL_OAUTH_REDIRECT_URI=http://localhost:8080/
 GMAIL_OAUTH_LOCAL_PORT=8080
+GMAIL_TOKEN_JSON_B64=
 GMAIL_TOKEN_PATH=.secrets/gmail/token.json
 ```
 
