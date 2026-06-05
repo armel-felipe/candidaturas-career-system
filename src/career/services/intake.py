@@ -166,9 +166,9 @@ def _delivery_plan(record_id: int | None = None, job_description_path: Path | No
                 "commands": [
                     "npm run cv:docx",
                     "npm run validate:docx",
-                    "npm run cv:approve -- --artifact outputs/<cv>.docx",
+                    "npm run cv:deliver -- --artifact outputs/<cv>.docx",
                 ],
-                "gate": "DOCX final só é entrega se cv:approve aprovar o artefato em outputs/",
+                "gate": "DOCX final só é entrega se cv:deliver aprovar o artefato em outputs/ e registrar status=delivered; cv:approve isolado é gate local/diagnóstico",
             },
             "feras": {
                 "skill": "feras-pitch",

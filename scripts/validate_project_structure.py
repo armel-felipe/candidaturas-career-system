@@ -116,7 +116,7 @@ DOC_EXPECTATIONS = {
         "antes de preencher `.career-state/fit_map.draft.json`, não escrever subtotais nem nota final na conversa",
         "presumir arquivos intermediários brutos por convenção de nome sem que tenham sido criados no runtime",
         "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
-        "qualquer bloco \"Revisão concluída\" sem esse comando é inválido",
+        "qualquer bloco \"Revisão concluída\" sem `cv:approve` ou `cv:deliver` executado sobre o artefato final é inválido",
     ],
     ".opencode/skills/career-system/SKILL.md": [
         "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",

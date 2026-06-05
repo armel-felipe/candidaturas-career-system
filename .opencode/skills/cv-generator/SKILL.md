@@ -692,13 +692,13 @@ Antes de qualquer `entrega local em outputs/`, chamar a skill `output-reviewer` 
 python scripts/review_output.py --kind cv --artifact <workspace>/outputs/felipe_armel_cv_[escopo].docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
-Comando composto preferencial:
+Gate local/diagnóstico:
 
 ```bash
 npm run cv:approve -- --artifact outputs/felipe_armel_cv_[escopo].docx
 ```
 
-Quando o objetivo incluir entrega no OneDrive, usar o comando composto seguro:
+Quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, usar o comando composto seguro como encerramento do pipeline:
 
 ```bash
 npm run cv:deliver -- --artifact outputs/felipe_armel_cv_[escopo].docx
@@ -733,7 +733,7 @@ Se houver PDF, manter apenas o artefato final em `outputs/`.
 
 O arquivo final já deve estar em `outputs/`.
 
-Chamar `entrega local em outputs/` com `outputs/felipe_armel_cv_[escopo].docx`.
+Se a entrega OneDrive/rclone estiver configurada, confirmar que `cv:deliver` foi executado com `status=delivered` no relatório `outputs/_tmp/delivery_report.json`. Se a entrega remota falhar mas `cv:approve` tiver aprovado o DOCX, declarar execução parcial: arquivo local aprovado em `outputs/`, entrega remota bloqueada.
 
 ---
 
@@ -796,8 +796,8 @@ Entrada obrigatoria:
 Saida obrigatoria:
 - gerar o DOCX em `outputs/`
 - rodar `npm run validate:docx`
-- rodar `npm run cv:approve -- --artifact outputs/<cv>.docx` antes de qualquer entrega
-- para entrega via OneDrive/rclone, preferir `npm run cv:deliver -- --artifact outputs/<cv>.docx`
+- rodar `npm run cv:deliver -- --artifact outputs/<cv>.docx` quando a entrega OneDrive/rclone estiver configurada
+- usar `npm run cv:approve -- --artifact outputs/<cv>.docx` apenas como gate local/diagnóstico ou quando a entrega remota estiver indisponível
 
 Proibido neste modo:
 - aprovar CV por leitura visual ou por inspeção do script gerador

@@ -101,10 +101,16 @@ Gerar DOCX geral a partir do conteúdo validado:
 npm run general-cv:docx
 ```
 
-Aprovar DOCX final:
+Aprovar DOCX final localmente:
 
 ```bash
 npm run general-cv:approve -- --artifact outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx
+```
+
+Quando a entrega OneDrive/rclone estiver configurada, encerrar com:
+
+```bash
+npm run general-cv:deliver -- --artifact outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx
 ```
 
 ## Entregas
@@ -125,7 +131,8 @@ npm run general-cv:approve -- --artifact outputs/felipe_armel_cv_geral_operacoes
 - Cluster sem evidência defensável não pode ser coberto por keyword forçada.
 - Gupy usa apenas `../career-system/references/habilidades_gupy.json`.
 - Mercado Livre usa apenas `references/habilidades_mercado_livre.json` de `habilidades-chave`.
-- O DOCX final só pode ser entregue após `general-cv:approve` retornar `approved_for_delivery=true`.
+- O DOCX final só pode ser entregue por `general-cv:deliver`; `general-cv:approve` isolado é gate local/diagnóstico.
+- Se `general-cv:deliver` falhar apenas por rclone/OneDrive depois de aprovação local confirmada, declarar execução parcial: arquivo local aprovado em `outputs/`, entrega remota bloqueada.
 
 ## Regras Críticas
 

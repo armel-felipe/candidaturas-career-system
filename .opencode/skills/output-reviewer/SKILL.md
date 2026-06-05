@@ -145,16 +145,23 @@ Quando o documento revisado for um CV em DOCX, executar obrigatoriamente:
 python scripts/review_output.py --kind cv --artifact outputs/<cv_final>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
-Comando composto preferencial:
+Gate local/diagnóstico:
 
 ```bash
 npm run cv:approve -- --artifact outputs/<cv_final>.docx
 ```
 
+Quando o documento revisado for um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto do pipeline é:
+
+```bash
+npm run cv:deliver -- --artifact outputs/<cv_final>.docx
+```
+
 Regras:
 - o arquivo em `--artifact` deve ser o artefato final em `outputs/`, nunca o intermediário de `outputs/_tmp/`
 - o gate objetivo deve rodar depois da validação técnica do DOCX final e depois do `register_keywords.py --cv` usando o arquivo final
-- se o comando retornar erro, `Approved for delivery: no`, `approved_for_delivery=false`, ou listar blockers, a revisão está reprovada e a entrega fica bloqueada
+- se `cv:approve` ou `cv:deliver` retornar erro, `Approved for delivery: no`, `approved_for_delivery=false`, ou listar blockers, a revisão está reprovada e a entrega fica bloqueada
+- se `cv:deliver` falhar apenas por rclone/OneDrive depois de aprovação local confirmada, declarar execução parcial: arquivo local aprovado em `outputs/`, entrega remota bloqueada
 - aprovação manual nunca substitui este comando
 - em CV PT-BR, equivalentes canônicos em `.opencode/skills/career-system/references/keyword_translation_registry.json` contam como cobertura aceitável das top 8 keywords
 - o arquivo `.opencode/skills/career-system/references/keyword_translation_candidates.json` deve ser tratado como memória operacional: ele mostra, a partir do histórico real de candidaturas, quais keywords em inglês mais frequentemente pedem tradução ou wording alternativo em PT-BR

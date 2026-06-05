@@ -93,11 +93,11 @@ LOCAL_MODEL_TRIGGER_MAP = [
             "read .career-state/agent_requests/cv_request.md",
             "generate DOCX in outputs/",
             "npm run validate:docx",
-            "npm run cv:approve -- --artifact outputs/<cv>.docx",
+            "npm run cv:deliver -- --artifact outputs/<cv>.docx",
         ],
         "forbidden": [
             "deliver CV as chat text only",
-            "skip cv:approve",
+            "skip cv:deliver when OneDrive/rclone delivery is configured",
             "clean outputs/_tmp before approval gates finish",
         ],
     },
@@ -159,7 +159,7 @@ CONTRACTS: dict[str, AgentContract] = {
         purpose=(
             "Gerar conteudo e DOCX de CV a partir do FIT_MAP ativo, mantendo idioma, "
             "keywords e restricoes do perfil. A entrega so pode ser considerada pronta "
-            "apos validacao DOCX e cv:approve no artefato final."
+            "apos validacao DOCX e cv:deliver no artefato final quando OneDrive/rclone estiver configurado."
         ),
         allowed_files=(
             ".career-state/fit_map.json",
@@ -173,6 +173,7 @@ CONTRACTS: dict[str, AgentContract] = {
             "npm run cv:docx",
             "npm run validate:docx",
             "npm run cv:approve -- --artifact outputs/<cv>.docx",
+            "npm run cv:deliver -- --artifact outputs/<cv>.docx",
         ),
         expected_outputs=(
             "outputs/<cv>.docx",
@@ -181,7 +182,7 @@ CONTRACTS: dict[str, AgentContract] = {
         ),
         forbidden_actions=BASE_FORBIDDEN_ACTIONS
         + (
-            "aprovar CV sem npm run cv:approve",
+            "entregar CV sem npm run cv:deliver quando OneDrive/rclone estiver configurado",
             "limpar outputs/_tmp antes da aprovacao",
             "alterar numeros criticos",
             "entregar CV sem DOCX final em outputs/",
@@ -190,7 +191,7 @@ CONTRACTS: dict[str, AgentContract] = {
         ),
         validation_commands=(
             "npm run validate:docx",
-            "npm run cv:approve -- --artifact outputs/<cv>.docx",
+            "npm run cv:deliver -- --artifact outputs/<cv>.docx",
         ),
     ),
     "notion-update": AgentContract(
@@ -468,8 +469,8 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Confirmar que .career-state/fit_map.json existe e pertence a vaga ativa antes de gerar CV.",
                 "Gerar ou atualizar o conteudo/DOCX em outputs/; nao entregar apenas texto na conversa.",
                 "Rodar npm run validate:docx no DOCX gerado.",
-                "Rodar npm run cv:approve -- --artifact outputs/<cv>.docx no artefato final.",
-                "Se cv:approve falhar ou approved_for_delivery=false, corrigir o artefato e reexecutar o gate.",
+                "Rodar npm run cv:deliver -- --artifact outputs/<cv>.docx no artefato final quando OneDrive/rclone estiver configurado.",
+                "Se cv:deliver falhar por reprovação do gate, corrigir o artefato e reexecutar; se falhar só por rclone, declarar arquivo local aprovado e entrega remota bloqueada.",
                 "Nao limpar outputs/_tmp antes de output_review_report.json e polish_review.json estarem coerentes com o artefato final.",
             ]
         )

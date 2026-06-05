@@ -198,8 +198,10 @@ npm run validate:docx                                        # valida o DOCX ger
 python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 npm run docx:tmp:clean                                       # limpa resíduos em outputs/_tmp/
 
-# Comando composto preferencial para registrar keywords + revisar o DOCX final
+# Gate local para registrar keywords + revisar o DOCX final
 npm run cv:approve -- --artifact outputs/<cv>.docx
+
+# Comando final obrigatório quando o CV aprovado deve ir para OneDrive/rclone
 npm run cv:deliver -- --artifact outputs/<cv>.docx                # aprova e entrega via rclone somente se aprovado
 ```
 
@@ -214,8 +216,8 @@ Regra global para CV em DOCX:
 - política ATS top 8: `covered_exact=1,0`, `covered_similar=0,8`, `declared_gap=0`, `missing_unexplained=0`; aprovação mínima exige score >= 5,2/8 e zero `missing_unexplained`; ótimo exige >= 6,2/8
 - `pt_cv_keyword_shotgun_control` é blocker em CV PT-BR quando o gate detectar cluster artificial de keywords em inglês; naturalidade humana prevalece sobre matching literal
 - todo CV PT-BR passa por polimento textual obrigatório no `output-reviewer`, mesmo quando o gate objetivo aprovar de primeira; se o polimento alterar texto, regenerar DOCX, rerodar `register_keywords.py --cv` e rerodar `review_output.py`
-- qualquer bloco "Revisão concluída" sem esse comando é inválido
-- comando preferencial quando o objetivo for aprovar e enviar para OneDrive: `npm run cv:deliver -- --artifact outputs/<cv>.docx`
+- qualquer bloco "Revisão concluída" sem `cv:approve` ou `cv:deliver` executado sobre o artefato final é inválido
+- quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --artifact outputs/<cv>.docx`; `cv:approve` isolado vale apenas como gate local/diagnóstico
 - `cv:deliver` deve bloquear se `cv:approve` falhar, se `approved_for_delivery=false`, se houver blocker de polimento ou se `deliver:artifact` não retornar `status=delivered`
 
 ## Entrega de artefatos via OneDrive/rclone
@@ -230,7 +232,7 @@ Regra global de entrega:
 - a entrega para nuvem usa `rclone` com `RCLONE_ONEDRIVE_REMOTE` e `RCLONE_ONEDRIVE_DELIVERY_DIR` definidos no `.env` local de cada máquina
 - MacBook e servidor Ubuntu/RPi5 usam o mesmo comando, desde que o `rclone config` tenha sido feito naquela máquina
 - nunca subir configuração real do rclone, tokens ou `.env` para GitHub
-- para CV, só executar entrega depois de `cv:approve` aprovado no artefato final
+- para CV, usar `cv:deliver` como caminho normal de entrega; ele reexecuta `cv:approve` e só chama rclone se o artefato final estiver aprovado
 - cada entrega grava relatório em `outputs/_tmp/delivery_report.json`; sem `status=delivered` ou `dry_run_ok`, não afirmar que o upload funcionou
 
 ## CV geral — comandos exatos
@@ -394,7 +396,7 @@ Regra operacional:
 - scripts legados continuam existindo como compatibilidade técnica e suporte às services
 - quando um comando oficial gravar estado de workflow, não burlar a sequência rodando manualmente uma etapa posterior sem satisfazer as pré-condições
 - o workflow estruturado registra a vaga ativa por fingerprint da descrição salva; pré-requisitos de FIT_MAP devem pertencer à mesma vaga ativa, não a uma análise anterior
-- preferir `npm run fit-map:finalize` quando o draft já estiver preenchido e `npm run cv:approve -- --artifact outputs/<cv>.docx` para o gate final do CV
+- preferir `npm run fit-map:finalize` quando o draft já estiver preenchido; para CV final com entrega configurada, usar `npm run cv:deliver -- --artifact outputs/<cv>.docx`
 - usar `npm run fit-map:status` quando houver dúvida sobre retomada, template com placeholders ou FIT_MAP possivelmente antigo
 - usar `npm run fit-map:resume` quando `fit-map:status` indicar template com placeholders, FIT_MAP antigo ou retomada travada; executar a ação indicada sem reexplicar o workflow
 - usar `npm run fit-map:guard` imediatamente após `fit-map:template` e em qualquer retomada; se retornar `guard=blocked`, a próxima ação deve ser o `required_next_command`, sem análise textual intermediária
@@ -451,7 +453,7 @@ Regras operacionais:
 - o maestro decide o próximo passo, grava requests compactos em `.career-state/agent_requests/` e bloqueia improvisos
 - agentes especialistas devem ler primeiro o request correspondente e só operar nos arquivos/comandos permitidos
 - `fit-map-agent` só preenche `.career-state/fit_map.draft.json`; não finaliza, não entrega score em texto e não edita `.career-state/fit_map.json`
-- `cv-agent` gera conteúdo/DOCX, mas aprovação depende de `npm run cv:approve -- --artifact outputs/<cv>.docx`
+- `cv-agent` gera conteúdo/DOCX e deve encerrar com `npm run cv:deliver -- --artifact outputs/<cv>.docx` quando a entrega OneDrive/rclone estiver configurada; `cv:approve` isolado é apenas gate local/diagnóstico
 - `notion-agent` só faz dry-run até aprovação explícita do usuário
 - `email-agent` só cria draft real após aprovação explícita do usuário; nunca envia email
 - `linkedin-agent` usa apenas scripts locais autenticados; nunca browser/web_search genérico
@@ -459,7 +461,7 @@ Regras operacionais:
 - `fit-map-agent`: se o draft tiver placeholders, deve editar o arquivo; não pode imprimir template bruto nem pedir ao usuário para preencher
 - `fit-map-agent`: se o request indicar `Current FIT_MAP.matches_active_job = false`, o FIT_MAP ativo é antigo e não pode ser reutilizado
 - `fit-map-agent`: depois de editar, deve rodar `npm run validate:fit-map:draft`; se o JSON quebrar ou a validação falhar, deve corrigir antes de responder
-- `cv-agent`: não pode entregar apenas texto; deve produzir DOCX em `outputs/`, validar DOCX e rodar `cv:approve` no artefato final
+- `cv-agent`: não pode entregar apenas texto; deve produzir DOCX em `outputs/`, validar DOCX e rodar `cv:deliver` no artefato final quando a entrega OneDrive/rclone estiver configurada
 - `notion-agent`: escrita real no Notion é proibida sem aprovação explícita depois do dry-run; deve bloquear mismatch, template vazio sem descrição local ou mojibake
 - `email-agent`: deve rodar revisão textual antes do preview e só criar draft real após aprovação explícita; nunca pergunta remetente
 - `linkedin-agent`: deve persistir a descrição e confirmar `active_intake`; se a sessão expirar, usa `linkedin:auth`, não navegador/busca genérica

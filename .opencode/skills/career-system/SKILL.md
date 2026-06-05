@@ -82,8 +82,8 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - se `fit-map:status` apontar template com placeholders ou FIT_MAP antigo, rode `npm run fit-map:resume` e execute a ação indicada sem reexplicar o workflow
 - depois de `npm run fit-map:template` e em qualquer retomada, rode `npm run fit-map:guard`; se retornar `guard=blocked`, a próxima ação deve ser exatamente `required_next_command`, sem análise textual intermediária
 - para forcar persistencia incremental em modelos instaveis, use `npm run fit-map:check:extract`, `npm run fit-map:check:map-evidence`, `npm run fit-map:check:score-draft` e `npm run fit-map:check:complete-draft`
-- para o gate final do CV, prefira `npm run cv:approve -- --artifact outputs/<cv>.docx`
-- para aprovar e entregar o CV via OneDrive/rclone em uma única operação segura, use `npm run cv:deliver -- --artifact outputs/<cv>.docx`
+- para gate local/diagnóstico do CV, use `npm run cv:approve -- --artifact outputs/<cv>.docx`
+- quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --artifact outputs/<cv>.docx`
 - use `npm run memory:build` para regenerar a memória compacta do runtime antes de trabalhos de manutenção ou quando referências canônicas forem atualizadas
 - use `npm run runtime:diagnose` para investigar estado inchado, caches e sinais de custo operacional
 
@@ -205,7 +205,7 @@ Regras:
 - `fit-map-agent`: edita `.career-state/fit_map.draft.json` quando houver placeholders; nao delega o preenchimento ao usuario e nao imprime o template bruto como resposta
 - `fit-map-agent`: se o request indicar `Current FIT_MAP.matches_active_job = false`, tratar `.career-state/fit_map.json` como antigo e nao reutilizar
 - `fit-map-agent`: depois de editar, deve rodar `npm run validate:fit-map:draft`; se o JSON quebrar ou a validação falhar, deve corrigir antes de responder
-- `cv-agent`: produz DOCX em `outputs/`, roda `validate:docx` e `cv:approve`, e nao entrega CV sem gate aprovado no artefato final
+- `cv-agent`: produz DOCX em `outputs/`, roda `validate:docx` e encerra com `cv:deliver` quando OneDrive/rclone estiver configurado; `cv:approve` isolado é gate local/diagnóstico
 - `notion-agent`: prepara somente dry-run ate aprovacao explicita; usa scripts locais, bloqueia mismatch/mojibake e nunca le `.env` ou usa MCP/curl
 - `email-agent`: revisa texto antes do preview, valida anexos, faz dry-run e so cria draft real apos aprovacao explicita; nunca envia email
 - `linkedin-agent`: usa apenas scripts autenticados, persiste a descricao e confirma `active_intake`; se sessao expirar, usa `linkedin:auth`
