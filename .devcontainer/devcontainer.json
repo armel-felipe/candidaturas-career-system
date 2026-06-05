@@ -1,0 +1,35 @@
+{
+  "name": "career-system-opencode",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "postCreateCommand": "npm ci && npm install -g opencode-ai && npm run validate:structure",
+  "forwardPorts": [
+    4096
+  ],
+  "portsAttributes": {
+    "4096": {
+      "label": "OpenCode web",
+      "onAutoForward": "notify"
+    }
+  },
+  "remoteEnv": {
+    "PYTHONUNBUFFERED": "1"
+  }
+}

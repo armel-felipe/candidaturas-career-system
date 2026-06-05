@@ -2,6 +2,9 @@
 .env.*
 !.env.example
 .secrets/
+.auth_token
+.db_id
+.continue/
 
 # Dependencies
 node_modules/
@@ -12,12 +15,14 @@ __pycache__/
 .career-state/
 !.career-state/.gitkeep
 inbox/notion/
+inbox/
 sessions/
 .career-state/browser/
 .career-state/browser-gateway/
 
 # Generated artifacts and temporary outputs
 outputs/
+outputs
 outputs.local-before-onedrive-*/
 
 # Secrets/tokens that should never be versioned
@@ -29,3 +34,13 @@ oauth*.json
 
 # macOS
 .DS_Store
+
+# Local/legacy scratch files
+query.json
+query_*.py
+query_*.sh
+fetch_*.py
+api.py
+teste_conexao.txt
+thhomas_case_apresentacao.txt
+legado/
