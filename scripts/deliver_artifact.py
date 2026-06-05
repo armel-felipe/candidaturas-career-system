@@ -110,7 +110,7 @@ def deliver(args: argparse.Namespace) -> int:
         return 3
 
     destination = _build_remote_path(remote, folder, artifact.name)
-    command = [rclone, "copyto", str(artifact), destination, "--create-empty-src-dirs"]
+    command = [rclone, "copyto", str(artifact), destination]
     if args.dry_run:
         command.append("--dry-run")
     if args.extra_args:
