@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Legacy example only. Reads Notion credentials from .env; no hardcoded token."""
+
+import json
+import os
+import urllib.request
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+for raw_line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+token = os.environ.get("NOTION_TOKEN")
+database_id = os.environ.get("NOTION_APPLICATIONS_DATABASE_ID")
+if not token or not database_id:
+    raise SystemExit("Set NOTION_TOKEN and NOTION_APPLICATIONS_DATABASE_ID in .env before running.")
+
+payload = {
+    "parent": {"database_id": database_id},
+    "properties": {
+        "Vaga": {"title": [{"text": {"content": "Example legacy page"}}]},
+        "DESCRICAO_DA_VAGA": {
+            "rich_text": [{"text": {"content": "Example only. Prefer scripts/notion_sync.py."}}],
+        },
+    },
+}
+
+request = urllib.request.Request(
+    "https://api.notion.com/v1/pages",
+    data=json.dumps(payload).encode("utf-8"),
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    },
+)
+print("Legacy example prepared. Prefer official notion_sync.py commands.")

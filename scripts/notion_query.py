@@ -8,7 +8,6 @@ from pathlib import Path
 
 
 NOTION_VERSION = "2022-06-28"
-DEFAULT_DATABASE_ID = "3130003f948180c09c55f8440fce54fa"
 
 
 def load_dotenv(path: Path = Path(".env")) -> None:
@@ -55,7 +54,7 @@ def main() -> int:
 
     mode = sys.argv[1]
     if mode == "database":
-        database_id = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("NOTION_APPLICATIONS_DATABASE_ID", DEFAULT_DATABASE_ID)
+        database_id = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("NOTION_APPLICATIONS_DATABASE_ID")
         if not database_id:
             print("Provide database_id or set NOTION_APPLICATIONS_DATABASE_ID.", file=sys.stderr)
             return 2

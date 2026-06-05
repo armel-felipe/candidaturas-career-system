@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Legacy note: previous version printed credential fragments.
+
+Use official commands instead:
+
+    npm run notion:list
+    npm run notion:record-summary -- <id_unico>
+
+No credential value is stored or printed here.
+"""

@@ -37,10 +37,5 @@ oauth*.json
 
 # Local/legacy scratch files
 query.json
-query_*.py
-query_*.sh
-fetch_*.py
-api.py
 teste_conexao.txt
 thhomas_case_apresentacao.txt
-legado/

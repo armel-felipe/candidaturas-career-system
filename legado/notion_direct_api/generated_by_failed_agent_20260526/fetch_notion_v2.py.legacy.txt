@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Legacy note: previous version parsed .env incorrectly.
+
+Use the official project command instead:
+
+    npm run notion:list
+
+No credentials are stored in this legacy file.
+"""

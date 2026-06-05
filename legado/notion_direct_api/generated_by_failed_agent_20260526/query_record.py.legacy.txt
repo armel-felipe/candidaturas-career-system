@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Legacy note: previous version was syntactically broken.
+
+Use:
+
+    npm run notion:record-summary -- <id_unico>
+    python3 fetch_270.py <id_unico>
+
+No token or database id is hardcoded here.
+"""

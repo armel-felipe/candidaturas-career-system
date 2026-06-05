@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Legacy note: previous version queried Notion directly.
+
+Use one of the supported commands:
+
+    npm run notion:record-summary -- 270
+    python3 fetch_270.py 270
+
+Credentials must come from .env:
+
+    NOTION_TOKEN
+    NOTION_APPLICATIONS_DATABASE_ID
+"""

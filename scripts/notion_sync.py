@@ -17,7 +17,6 @@ from zoneinfo import ZoneInfo
 
 NOTION_VERSION = "2022-06-28"
 NOTION_TEMPLATE_VERSION = "2026-03-11"
-DEFAULT_DATABASE_ID = "3130003f948180c09c55f8440fce54fa"
 DEFAULT_SWEEP_DIR = Path("inbox/notion/applications_sweep")
 DEFAULT_SWEEP_SUMMARY = Path("inbox/notion/applications_sweep_summary.json")
 DEFAULT_SWEEP_CACHE = Path("inbox/notion/applications_cache.json")
@@ -111,9 +110,11 @@ def validate_notion_payload_text(payload: Any, trail: str = "$") -> None:
 def notion_config() -> tuple[str, str]:
     load_dotenv()
     token = os.environ.get("NOTION_TOKEN")
-    database_id = os.environ.get("NOTION_APPLICATIONS_DATABASE_ID", DEFAULT_DATABASE_ID)
+    database_id = os.environ.get("NOTION_APPLICATIONS_DATABASE_ID")
     if not token:
         raise SystemExit("Set NOTION_TOKEN in the environment or in .env before using Notion sync.")
+    if not database_id:
+        raise SystemExit("Set NOTION_APPLICATIONS_DATABASE_ID in the environment or in .env before using Notion sync.")
     return token, database_id
 
 
