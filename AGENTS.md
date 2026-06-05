@@ -200,6 +200,7 @@ npm run docx:tmp:clean                                       # limpa resíduos e
 
 # Comando composto preferencial para registrar keywords + revisar o DOCX final
 npm run cv:approve -- --artifact outputs/<cv>.docx
+npm run cv:deliver -- --artifact outputs/<cv>.docx                # aprova e entrega via rclone somente se aprovado
 ```
 
 Regra global para CV em DOCX:
@@ -214,6 +215,8 @@ Regra global para CV em DOCX:
 - `pt_cv_keyword_shotgun_control` é blocker em CV PT-BR quando o gate detectar cluster artificial de keywords em inglês; naturalidade humana prevalece sobre matching literal
 - todo CV PT-BR passa por polimento textual obrigatório no `output-reviewer`, mesmo quando o gate objetivo aprovar de primeira; se o polimento alterar texto, regenerar DOCX, rerodar `register_keywords.py --cv` e rerodar `review_output.py`
 - qualquer bloco "Revisão concluída" sem esse comando é inválido
+- comando preferencial quando o objetivo for aprovar e enviar para OneDrive: `npm run cv:deliver -- --artifact outputs/<cv>.docx`
+- `cv:deliver` deve bloquear se `cv:approve` falhar, se `approved_for_delivery=false`, se houver blocker de polimento ou se `deliver:artifact` não retornar `status=delivered`
 
 ## Entrega de artefatos via OneDrive/rclone
 
@@ -239,6 +242,7 @@ npm run general-cv:strategy -- --mode concise --dominant-cluster operacoes_suppl
 npm run general-cv:validate-content -- --path .career-state/general_cv_content.json
 npm run general-cv:docx
 npm run general-cv:approve -- --artifact outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx
+npm run general-cv:deliver -- --artifact outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx
 ```
 
 Regra global para CV geral:

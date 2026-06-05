@@ -83,6 +83,7 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - depois de `npm run fit-map:template` e em qualquer retomada, rode `npm run fit-map:guard`; se retornar `guard=blocked`, a próxima ação deve ser exatamente `required_next_command`, sem análise textual intermediária
 - para forcar persistencia incremental em modelos instaveis, use `npm run fit-map:check:extract`, `npm run fit-map:check:map-evidence`, `npm run fit-map:check:score-draft` e `npm run fit-map:check:complete-draft`
 - para o gate final do CV, prefira `npm run cv:approve -- --artifact outputs/<cv>.docx`
+- para aprovar e entregar o CV via OneDrive/rclone em uma única operação segura, use `npm run cv:deliver -- --artifact outputs/<cv>.docx`
 - use `npm run memory:build` para regenerar a memória compacta do runtime antes de trabalhos de manutenção ou quando referências canônicas forem atualizadas
 - use `npm run runtime:diagnose` para investigar estado inchado, caches e sinais de custo operacional
 

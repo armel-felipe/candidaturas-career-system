@@ -698,6 +698,14 @@ Comando composto preferencial:
 npm run cv:approve -- --artifact outputs/felipe_armel_cv_[escopo].docx
 ```
 
+Quando o objetivo incluir entrega no OneDrive, usar o comando composto seguro:
+
+```bash
+npm run cv:deliver -- --artifact outputs/felipe_armel_cv_[escopo].docx
+```
+
+`cv:deliver` reexecuta o gate de aprovação e só chama `deliver:artifact` quando `approved_for_delivery=true` e o polimento não tem blockers.
+
 Regras obrigatórias:
 - passar o arquivo gerado como input para a skill `output-reviewer`
 - aguardar `approved_for_delivery=true`
@@ -789,6 +797,7 @@ Saida obrigatoria:
 - gerar o DOCX em `outputs/`
 - rodar `npm run validate:docx`
 - rodar `npm run cv:approve -- --artifact outputs/<cv>.docx` antes de qualquer entrega
+- para entrega via OneDrive/rclone, preferir `npm run cv:deliver -- --artifact outputs/<cv>.docx`
 
 Proibido neste modo:
 - aprovar CV por leitura visual ou por inspeção do script gerador
