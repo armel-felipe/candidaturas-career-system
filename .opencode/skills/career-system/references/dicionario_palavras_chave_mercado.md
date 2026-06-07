@@ -36,6 +36,7 @@
 | expansão geográfica | iFood — Diretor | "Expandi cobertura de 400 para 800 cidades" |
 | operadores logísticos / parceiros | iFood — Head/Diretor | "Gerenciei parceiros logísticos e otimizei raios de entrega por bairro" |
 | distribuição de equipamentos | iFood — Head (MPOS) | "Processo reduziu custo de distribuição de MPOS em 80% e prazo de 14 para 2 dias" |
+| TMS | iFood — Head/Diretor | "Roteirizador logístico proprietário que criava a melhor rota com menor custo e monitorava entregas em tempo real — funcionalmente equivalente a um TMS de mercado" |
 | otimização de rotas | iFood — Head | "Criou ferramentas de restrição de raio por bairro; México: -60% cancelamentos" |
 
 ## Supply Chain e Planejamento

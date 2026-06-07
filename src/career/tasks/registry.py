@@ -16,13 +16,13 @@ from career.workflow.state_machine import WorkflowStateMachine
 from career.workflow.state_store import WorkflowStateStore
 
 
-@dataclass(slots=True)
+@dataclass
 class TaskContext:
     arguments: dict[str, Any]
     state_store: WorkflowStateStore
 
 
-@dataclass(slots=True)
+@dataclass
 class Task:
     name: str
     runner: Callable[[TaskContext], Any]

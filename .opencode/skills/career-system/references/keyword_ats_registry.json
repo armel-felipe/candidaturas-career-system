@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-06-05T15:38:56.856015+00:00",
+  "last_updated": "2026-06-06T15:32:40.870399+00:00",
   "applications": [
     {
       "application_key": "mindrift__freelance_supply_chain_consultant_ai_trainer",
@@ -59504,7 +59504,7 @@
       "fit_score": null,
       "central_pain": "Executivo de operações com trajetória de Diretor no iFood (budget logístico de R$300MM/ano, 240 pessoas, 800 cidades) a Head na wehandle (reporte ao CEO, construção do zero), combinando visão executiva com execução prática para escalar operações em empresas de tecnologia — conectando estratégia, dados, operações, pricing, Customer Success e P&L.",
       "cv_path": "outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx",
-      "updated_at": "2026-06-05T15:38:56.851061+00:00",
+      "updated_at": "2026-06-05T19:59:26.178154+00:00",
       "keyword_records": [
         {
           "keyword": "Operations Management",
@@ -59705,6 +59705,2435 @@
         "CX / Customer Experience",
         "Gestão de Orçamento / Budget"
       ]
+    },
+    {
+      "application_key": "grupo_incense__gerente_de_log_stica",
+      "company": "Grupo Incense",
+      "role": "Gerente de Logística",
+      "mode": "Modo 1 - vaga especifica",
+      "fit_score": {
+        "final": 5.0,
+        "dimensoes": {
+          "requisitos_obrigatorios": {
+            "peso": 4.0,
+            "itens": [
+              {
+                "item": "Graduação em Logística, Engenharia, Administração ou áreas correlatas",
+                "tipo": "DIRETO",
+                "evidencia": "Engenharia Química (Faculdades Oswaldo Cruz, 2014) + MBA Corporate Strategy (BSP, 2017)",
+                "resultado": "Engenharia Química + MBA",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:277-280",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Vivência sólida em gestão de operações logísticas ponta a ponta (preferencialmente varejo e/ou e-commerce)",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: operação logística de 800K a 30M pedidos/mês, 800 cidades. Trifil: gestão de centro de expedição com recebimento, armazenagem, picking, packing e expedição.",
+                "resultado": "30M pedidos/mês, 800 cidades, 98% acurácia",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:211-252, dicionario_palavras_chave_mercado.md:19-39",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Experiência prévia em liderança e desenvolvimento de equipes operacionais",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: 28 pessoas (Head) → 240 pessoas (Diretor). WeHandle: 30 pessoas. VivaReal: 33 pessoas.",
+                "resultado": "240 pessoas sob gestão",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:211-252, 255-274",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Domínio do Pacote Office (nível avançado)",
+                "tipo": "DIRETO",
+                "evidencia": "Excel avançado + VBA para sistemas complexos do zero (Trifil: simulador de MRP, alocação de estoque; Renault: discadores programados)",
+                "resultado": "Excel/VBA avançado",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:298-299",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Conhecimentos em sistemas de gestão logística (WMS)",
+                "tipo": "DIRETO",
+                "evidencia": "Trifil: implantou coletores RF e wi-fi para picking, unindo separação e conferência. Key-user ERP LN módulos expedição e planejamento.",
+                "resultado": "Produtividade +35%, perdas -30%",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:138-145, dicionario_palavras_chave_mercado.md:24",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Conhecimentos em TMS",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: roteirizador logístico proprietário que criava a melhor rota com menor custo e monitorava entregas em tempo real — funcionalmente equivalente a um TMS de mercado.",
+                "resultado": "Cancelamentos -60% (México), saving R$70M/ano",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:211-252",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Práticas de mercado: layout de estoque, inventários e metodologias de melhoria contínua",
+                "tipo": "DIRETO",
+                "evidencia": "Trifil: redesenho de layout, inventário rotativo (85%→98%), GPD/PDCA, Green Belt. iFood: dashboards em tempo real.",
+                "resultado": "98% acurácia, R$8M GGF reduzido",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:130-175, dicionario_palavras_chave_mercado.md:62-71",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Forte capacidade analítica para resolução de problemas e tomada de decisão ágil",
+                "tipo": "DIRETO",
+                "evidencia": "Toda a carreira orientada a dados: SQL, Python, Databricks, Grafana, Tableau. Simuladores, dashboards em tempo real, modelagem de dados.",
+                "resultado": "Saving R$70M/ano com simulador",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:1-7, 297-333",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              }
+            ],
+            "contagem_itens": 8,
+            "soma_notas": 4.0,
+            "cobertura_percentual": 50.0,
+            "pontos": 2.0
+          },
+          "responsabilidades_principais": {
+            "peso": 3.0,
+            "itens": [
+              {
+                "item": "Coordenar hubs logísticos e operações de estoque que abastecem Espaços Revendedores e lojas",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "Trifil: centro de expedição abastecendo distribuidores, varejo, Key Accounts e lojas franqueadas. iFood: operação logística em rede com 800 cidades.",
+                "resultado": "40K SKUs gerenciados, 800 cidades",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:134-175, 211-252",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Gestão do ciclo completo da cadeia de suprimentos: Inbound até Outbound",
+                "tipo": "DIRETO",
+                "evidencia": "Trifil: recebimento (inbound), armazenagem, picking, packing e expedição (outbound) com acurácia de 98%.",
+                "resultado": "98% acurácia de estoque",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:134-145, dicionario_palavras_chave_mercado.md:19",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Estratégia de armazenagem, acurácia de estoque, ordenação de mercadorias e melhor aproveitamento dos ativos logísticos",
+                "tipo": "DIRETO",
+                "evidencia": "Trifil: endereçamento de estoque, inventário rotativo, redesenho de layout. Acurácia de 85% para 98%.",
+                "resultado": "85% → 98% acurácia, +35% produtividade",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:134-145, dicionario_palavras_chave_mercado.md:22-28",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Análise de desempenho da operação, definindo metas e planos estratégicos",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: S&OP executivo mensal consolidando demanda, supply, custo e cenários. Trifil: GPD com metas e planos de ação.",
+                "resultado": "Budget R$300MM/ano sob gestão",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:230-252, dicionario_palavras_chave_mercado.md:45-46",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Desenvolver e implementar políticas de gestão de inventário, otimizando custos e reduzindo desperdícios",
+                "tipo": "DIRETO",
+                "evidencia": "Trifil: política de safety stock para SKUs de maior giro, Strategic Sourcing (-27% custo compras, -40% falta estoque). Giro de 8 para 6 meses.",
+                "resultado": "-27% custo compras, giro -2 meses",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:146-175, dicionario_palavras_chave_mercado.md:49-52",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Planejar e otimizar malha logística, transporte e distribuição, negociando com transportadoras",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: otimização de raios de entrega, balanceamento de frota por cidade, ferramentas de restrição de raio. Trifil: expedição com transportadoras, gestão de devoluções.",
+                "resultado": "Cancelamentos -60% (México), frota 5%→0,5% indisponibilidade",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:211-252, dicionario_palavras_chave_mercado.md:30-39",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Acompanhar KPIs logísticos: custo logístico, TAT, On Time, produtividade e eficiência de estoque",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: Grafana com métricas em tempo real correlacionando saturação logística e NDS. Trifil: Projeto Entrega Certa com OTIF, fill rate, acurácia de produção.",
+                "resultado": "Saving R$70M/ano, OTIF estruturado",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:211-252, dicionario_palavras_chave_mercado.md:33-35",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Liderar, engajar e desenvolver o time com foco em processos e cultura de resultados",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: time de 28 a 240 pessoas. WeHandle: 30 pessoas. VivaReal: 33 pessoas, 5 lideranças diretas.",
+                "resultado": "240 pessoas, 5 lideranças diretas",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:211-274, dicionario_palavras_chave_mercado.md:135-143",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Estimular a melhoria contínua e inovação tecnológica, buscando referências de mercado por meio de benchmarks",
+                "tipo": "DIRETO",
+                "evidencia": "Trifil: GPD/PDCA, Green Belt. WeHandle: IA, automação, migração de plataforma. iFood: simuladores, dashboards em tempo real.",
+                "resultado": "R$8M GGF reduzido, -13% custo atendimento",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:130-175, 255-274, dicionario_palavras_chave_mercado.md:62-71",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              }
+            ],
+            "contagem_itens": 9,
+            "soma_notas": 4.5,
+            "cobertura_percentual": 50.0,
+            "pontos": 1.5
+          },
+          "ausencia_gaps_criticos": {
+            "peso": 2.0,
+            "gaps": [
+              {
+                "gap": "Sem experiência em gestão de hubs físicos / CD próprio para varejo físico",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Negociação formal com transportadoras não é o foco principal da trajetória",
+                "severidade": "leve",
+                "desconto": 0.0
+              },
+              {
+                "gap": "Varejo de cosméticos com lojas próprias — experiência indireta (Trifil: varejo têxtil multicanal)",
+                "severidade": "media",
+                "desconto": 0.5
+              }
+            ],
+            "desconto_total": 1.0,
+            "cobertura_percentual": 50.0,
+            "pontos": 1.0
+          },
+          "diferenciais_desejaveis": {
+            "peso": 1.0,
+            "itens": [
+              {
+                "item": "Vivência em varejo e/ou e-commerce",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: e-commerce marketplace de delivery. Trifil: varejo têxtil multicanal (distribuidor, varejo, franquias, Key Accounts).",
+                "resultado": "30M pedidos/mês, 40K SKUs",
+                "nota": 0.5,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:211-252, 128-175",
+                "nota_original": 0.5,
+                "nota_maxima": 1.0,
+                "ponderacao": 0.5
+              }
+            ],
+            "contagem_itens": 1,
+            "soma_notas": 0.5,
+            "cobertura_percentual": 50.0,
+            "pontos": 0.5
+          }
+        }
+      },
+      "central_pain": "Empresa de cosméticos/perfumaria com lojas físicas e rede de revendedores precisa estruturar operação logística ponta a ponta — hubs, estoque, transporte e distribuição — para reduzir custo logístico e escalar com eficiência, mantendo alta performance nos KPIs da área.",
+      "cv_path": "outputs/felipe_armel_cv_gerente_logistica_grupo_incense.docx",
+      "updated_at": "2026-06-06T03:14:51.327104+00:00",
+      "keyword_records": [
+        {
+          "keyword": "Gestão de operações logísticas",
+          "canonical": "Gestão de operações logísticas",
+          "priority": 1,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Cadeia de suprimentos",
+          "canonical": "Cadeia de suprimentos",
+          "priority": 2,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood / Trifil",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Inbound e Outbound",
+          "canonical": "Inbound e Outbound",
+          "priority": 3,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "Trifil — Coord. Expedição",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Outbound",
+          "shared_tokens_with_substitute": [
+            "outbound"
+          ],
+          "substitution_score": 0.615,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Outbound"
+        },
+        {
+          "keyword": "Acurácia de estoque",
+          "canonical": "Acurácia de estoque",
+          "priority": 4,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil — Coord. Expedição",
+          "suggested_bullet_slot": "Consegui",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "WMS",
+          "canonical": "WMS",
+          "priority": 5,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil — Coord. Expedição",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Melhoria contínua",
+          "canonical": "Melhoria contínua",
+          "priority": 6,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil — Analista / Coord. S&OP",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "KPIs logísticos",
+          "canonical": "KPIs logísticos",
+          "priority": 7,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "iFood — Head/Diretor",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Custo logístico",
+          "shared_tokens_with_substitute": [
+            "logistico"
+          ],
+          "substitution_score": 0.733,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Custo logístico"
+        },
+        {
+          "keyword": "Custo logístico",
+          "canonical": "Custo logístico",
+          "priority": 8,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor",
+          "suggested_bullet_slot": "Consegui",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Gestão de inventário",
+          "canonical": "Gestão de inventário",
+          "priority": 9,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "Trifil — Coord. S&OP / Materiais",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Inventário",
+          "shared_tokens_with_substitute": [
+            "inventario"
+          ],
+          "substitution_score": 0.667,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Inventário"
+        },
+        {
+          "keyword": "Liderança de equipes",
+          "canonical": "Liderança de equipes",
+          "priority": 10,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "iFood — Diretor",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Liderança",
+          "shared_tokens_with_substitute": [
+            "lideranca"
+          ],
+          "substitution_score": 0.621,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Liderança"
+        },
+        {
+          "keyword": "Layout de estoque",
+          "canonical": "Layout de estoque",
+          "priority": 11,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "Trifil — Coord. Expedição",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Acurácia de estoque",
+          "shared_tokens_with_substitute": [
+            "estoque"
+          ],
+          "substitution_score": 0.722,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Acurácia de estoque"
+        },
+        {
+          "keyword": "Transporte e distribuição",
+          "canonical": "Transporte e distribuição",
+          "priority": 12,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head/Diretor",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "E-Commerce",
+          "canonical": "E-Commerce",
+          "priority": 13,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head/Diretor",
+          "suggested_bullet_slot": "Resumo",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Capacidade analítica",
+          "canonical": "Capacidade analítica",
+          "priority": 14,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood / WeHandle",
+          "suggested_bullet_slot": "Stack",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "TMS",
+          "canonical": "TMS",
+          "priority": 15,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head/Diretor",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Gestão de logística",
+          "canonical": "Gestão de logística",
+          "priority": null,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "titulo",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Gestão de operações logísticas",
+          "shared_tokens_with_substitute": [
+            "gestao",
+            "logistica"
+          ],
+          "substitution_score": 0.776,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Gestão de operações logísticas"
+        },
+        {
+          "keyword": "Liderança",
+          "canonical": "Liderança",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Gestão de estoque",
+          "canonical": "Gestão de estoque",
+          "priority": null,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Acurácia de estoque",
+          "shared_tokens_with_substitute": [
+            "estoque"
+          ],
+          "substitution_score": 0.667,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Acurácia de estoque"
+        },
+        {
+          "keyword": "Inbound",
+          "canonical": "Inbound",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Outbound",
+          "canonical": "Outbound",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Armazenagem",
+          "canonical": "Armazenagem",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Inventário",
+          "canonical": "Inventário",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "On Time",
+          "canonical": "On Time",
+          "priority": null,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "TAT",
+          "canonical": "TAT",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        }
+      ],
+      "linkedin_bullet_candidates": [
+        {
+          "keyword": "Gestão de operações logísticas",
+          "experience_target": "iFood — Diretor de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Cadeia de suprimentos",
+          "experience_target": "iFood / Trifil",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Acurácia de estoque",
+          "experience_target": "Trifil — Coord. Expedição",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "WMS",
+          "experience_target": "Trifil — Coord. Expedição",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Melhoria contínua",
+          "experience_target": "Trifil — Analista / Coord. S&OP",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Custo logístico",
+          "experience_target": "iFood — Diretor",
+          "source": "covered_cv"
+        }
+      ],
+      "missing_keywords": [
+        "Transporte e distribuição",
+        "E-Commerce",
+        "Capacidade analítica",
+        "On Time"
+      ]
+    },
+    {
+      "application_key": "bytedance_brazil_tiktok__global_product_operations_manager",
+      "company": "ByteDance Brazil (TikTok)",
+      "role": "Global Product Operations Manager",
+      "mode": "Modo 1 - vaga especifica",
+      "fit_score": {
+        "final": 4.31,
+        "dimensoes": {
+          "requisitos_obrigatorios": {
+            "peso": 4.0,
+            "itens": [
+              {
+                "item": "5+ anos em indústria de digital marketing, transações ou internet com responsabilidades de Product Operations",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood (Head/Diretor, 5+ anos): marketplace de transações digitais. A experiência é em operações logísticas de marketplace, não especificamente Product Operations de sistema de incentivos",
+                "resultado": "30M pedidos/mês; 400→800 cidades; R$300MM budget",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L211-L252",
+                "nota_original": 0.5,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.29
+              },
+              {
+                "item": "Advanced analytical skills; SQL, Python/R, BI tools (Tableau, Power BI)",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: SQL, Python, Databricks, Tableau. WeHandle: Python, SQL, Metabase. Trifil: BI, VBA",
+                "resultado": "Saving R$70M via simulador; dashboards Grafana em tempo real; modelo de elasticidade de preço",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L213, L240, L273",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              },
+              {
+                "item": "Business process design, optimization and execution",
+                "tipo": "DIRETO",
+                "evidencia": "WeHandle: migração de plataforma de atendimento IA first. iFood: S&OP executivo. Trifil: GPD/PDCA. VivaReal: estruturação de CS do zero",
+                "resultado": "TME 20→8min; SLA 67%→85%; -R$8M GGF; 18%→50% conversão SDR",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L256-L274, L163-L179",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              },
+              {
+                "item": "Translating business needs to product requirements and driving system adoption",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: interface com time de produto para priorização de roadmap (roteirização, algoritmo, MPOS). WeHandle: ClickUp board conectando insights de atendimento a direcionais de produto",
+                "resultado": "-60% backlog; SLA de execução 67%→85%; -8% contact rate",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L252, L269-L270",
+                "nota_original": 0.5,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.29
+              },
+              {
+                "item": "Cross-functional work with global teams; relationship building, collaboration, negotiation and influence",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: interface com engenharia, produto, marketing, C-level. México: experiência internacional. WeHandle: produto e dados",
+                "resultado": "S&OP executivo mensal com VP/C-level; -60% cancelamentos México",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L244-L250",
+                "nota_original": 0.5,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.29
+              },
+              {
+                "item": "Excellent communication, presentation and analytical skills. Ability to build strong compelling narratives",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: S&OP executivo com C-level. Renault: aprovou projeto em 2 reuniões por apresentar ROI. Essencis: Plano de Negócios para conselho",
+                "resultado": "Aprovação de projeto Renault em 2 reuniões; S&OP mensal com VP",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L199, L198",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              },
+              {
+                "item": "Overall planning and coordination ability; proactive; accepts challenges",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: coordenação logística 800 cidades, budget R$300MM. WeHandle: 2 migrações de plataforma. Trifil: criou S&OP do zero",
+                "resultado": "Orquestração de múltiplos times e frentes em escala",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L230-L252",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              }
+            ],
+            "contagem_itens": 7,
+            "soma_notas": 5.5,
+            "cobertura_percentual": 78.57,
+            "pontos": 3.14
+          },
+          "responsabilidades_principais": {
+            "peso": 3.0,
+            "itens": [
+              {
+                "item": "Product operations owner of client incentive system; settlement/payout process owner",
+                "tipo": "GAP",
+                "evidencia": "Não há experiência como owner de sistema de incentivos a clientes nem processo de settlement/payout",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de sistema de incentivos",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Ensure accuracy of incentive calculation results",
+                "tipo": "GAP",
+                "evidencia": "Experiencia com acuracia de estoque e dados (98% acuracia Trifil), mas nao com calculos de incentivo",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de calculo de incentivo",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Translate client incentive policies into system requirements",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: traduziu políticas de elegibilidade MPOS, regras de pricing por zona e critérios de promoção em ferramentas e sistemas. A disciplina de traduzir regra de negócio em requisito de sistema se transfere",
+                "resultado": "MPOS: 352 cidades zero perda; promoção por zona; gamification",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L220-L228",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Drive system calculation library adoption within policy makers, sales and clients",
+                "tipo": "GAP",
+                "evidencia": "Experiencia em drive adoption de ferramentas operacionais (simulador, MPOS, Zendesk), mas nao de calculation library ou sistema de incentivos",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de calculation library adoption",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Standardize client incentive settlement/payout process and execute timely settlement",
+                "tipo": "GAP",
+                "evidencia": "Sem experiencia em settlement/payout de incentivos",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de settlement/payout",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Be power user and drive system adoption among sales, clients and finance",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: drive de adoção do simulador (times logísticos). WeHandle: drive de adoção de Zendesk e WhatsApp (time de suporte). A disciplina de treinamento e adoção se transfere",
+                "resultado": "WhatsApp: R$1,04→R$0,56; Simulador: saving R$70M/ano",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L258-L267",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Address internal and external escalated system queries and explain calculation details",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "WeHandle: tratamento de escalações de suporte. iFood: escalação de questões logísticas complexas (indisponibilidade de frota, cancelamentos). O padrão de escalação e explicação se transfere, mas o conteúdo (cálculo de incentivo) é novo",
+                "resultado": "Indisponibilidade de frota 5%→1%; TME 20→8min",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L238, L271",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Build client incentive dashboard to meet regional needs",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: Grafana dashboards em tempo real de saturação logística. WeHandle: dashboards de atendimento via API+Metabase. A competência de construir dashboards é direta; o conteúdo (incentivo vs logística) é novo",
+                "resultado": "Dashboards Grafana em tempo real; BI executivo mensal",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L214, L273",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "GTM client-facing tools with external clients by cooperating with sales",
+                "tipo": "GAP",
+                "evidencia": "Experiencia em ferramentas de atendimento ao cliente (Zendesk, WhatsApp), nao em GTM tools para clientes externos como parte de lancamento de produto",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de GTM tools",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              }
+            ],
+            "contagem_itens": 9,
+            "soma_notas": 2.0,
+            "cobertura_percentual": 22.22,
+            "pontos": 0.67
+          },
+          "ausencia_gaps_criticos": {
+            "peso": 2.0,
+            "gaps": [
+              {
+                "gap": "Experiência zero em client incentive systems — core da vaga",
+                "severidade": "forte",
+                "desconto": 1.0
+              },
+              {
+                "gap": "Sem experiência em settlement/payout processes financeiros",
+                "severidade": "forte",
+                "desconto": 1.0
+              },
+              {
+                "gap": "Sem experiência em GTM de ferramentas para clientes externos",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Experiência internacional limitada ao México — vaga exige colaboração global em múltiplos fusos",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Sem experiência em indústria de publicidade digital / adtech",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Sem experiência em cálculo de incentivos ou systems calculation library",
+                "severidade": "forte",
+                "desconto": 1.0
+              }
+            ],
+            "desconto_total": 4.5,
+            "cobertura_percentual": 0.0,
+            "pontos": 0.0
+          },
+          "diferenciais_desejaveis": {
+            "peso": 1.0,
+            "itens": [
+              {
+                "item": "Knowledge and working experience in client incentives",
+                "tipo": "GAP",
+                "evidencia": "Nao ha experiencia com client incentives — o mais proximo sao incentivos a entregadores (promocoes por zona, gamification) em contexto diferente",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de client incentives",
+                "nota_original": 0.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Fast learner with good judgement; thrives in ambiguity",
+                "tipo": "DIRETO",
+                "evidencia": "Movimento iFood→WeHandle demonstra escolha consciente por contexto ambíguo/early-stage. Transições entre setores (farma→indústria→cosméticos→têxtil→proptech→automotiva→foodtech→CXtech)",
+                "resultado": "Resultados em 5+ setores diferentes; WeHandle: do zero em 2 anos",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L22-L23, L256",
+                "nota_original": 1.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.5
+              }
+            ],
+            "contagem_itens": 2,
+            "soma_notas": 1.0,
+            "cobertura_percentual": 50.0,
+            "pontos": 0.5
+          }
+        }
+      },
+      "central_pain": "TikTok/ByteDance precisa padronizar e automatizar o sistema global de incentivos a clientes de publicidade na América Latina — traduzindo políticas regionais em requisitos de sistema, garantindo precisão nos cálculos de settlement/payout e impulsionando a adoção da plataforma por times de vendas, financeiro e clientes.",
+      "cv_path": null,
+      "updated_at": "2026-06-06T13:02:48.144693+00:00",
+      "keyword_records": [
+        {
+          "keyword": "Product Operations",
+          "canonical": "Product Operations",
+          "priority": 1,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Business Process Design",
+          "canonical": "Business Process Design",
+          "priority": 2,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "WeHandle — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Cross-functional Collaboration",
+          "canonical": "Cross-functional Collaboration",
+          "priority": 3,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Data Analytics",
+          "canonical": "Data Analytics",
+          "priority": 4,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "SQL",
+          "canonical": "SQL",
+          "priority": 5,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Python",
+          "canonical": "Python",
+          "priority": 6,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Tableau",
+          "canonical": "Tableau",
+          "priority": 7,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "System Adoption",
+          "canonical": "System Adoption",
+          "priority": 8,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "WeHandle — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Dashboard Development",
+          "canonical": "Dashboard Development",
+          "priority": 9,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Consegui",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Marketplace Operations",
+          "canonical": "Marketplace Operations",
+          "priority": 10,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Incentive Program Management",
+          "canonical": "Incentive Program Management",
+          "priority": 11,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Stakeholder Management",
+          "canonical": "Stakeholder Management",
+          "priority": 12,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Process Standardization",
+          "canonical": "Process Standardization",
+          "priority": 13,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil — Coordenador S&OP",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Power BI",
+          "canonical": "Power BI",
+          "priority": 14,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Pricing Strategy",
+          "canonical": "Pricing Strategy",
+          "priority": 15,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Client Incentive System",
+          "canonical": "Client Incentive System",
+          "priority": null,
+          "status": "gap",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Settlement/Payout Process",
+          "canonical": "Settlement/Payout Process",
+          "priority": null,
+          "status": "gap",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Incentive Calculation",
+          "canonical": "Incentive Calculation",
+          "priority": null,
+          "status": "gap",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "System Requirements",
+          "canonical": "System Requirements",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Dashboard",
+          "canonical": "Dashboard",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Go-to-Market",
+          "canonical": "Go-to-Market",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Cross-functional",
+          "canonical": "Cross-functional",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        }
+      ],
+      "linkedin_bullet_candidates": [],
+      "missing_keywords": [
+        "Client Incentive System",
+        "Settlement/Payout Process",
+        "Incentive Calculation"
+      ]
+    },
+    {
+      "application_key": "bytedance_brazil__global_product_operations_manager",
+      "company": "ByteDance Brazil",
+      "role": "Global Product Operations Manager",
+      "mode": "Modo 1 - vaga especifica",
+      "fit_score": {
+        "final": 4.31,
+        "dimensoes": {
+          "requisitos_obrigatorios": {
+            "peso": 4.0,
+            "itens": [
+              {
+                "item": "5+ anos em indústria de digital marketing, transações ou internet com responsabilidades de Product Operations",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood (Head/Diretor, 5+ anos): marketplace de transações digitais. A experiência é em operações logísticas de marketplace, não especificamente Product Operations de sistema de incentivos",
+                "resultado": "30M pedidos/mês; 400→800 cidades; R$300MM budget",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L211-L252",
+                "nota_original": 0.5,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.29
+              },
+              {
+                "item": "Advanced analytical skills; SQL, Python/R, BI tools (Tableau, Power BI)",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: SQL, Python, Databricks, Tableau. WeHandle: Python, SQL, Metabase. Trifil: BI, VBA",
+                "resultado": "Saving R$70M via simulador; dashboards Grafana em tempo real; modelo de elasticidade de preço",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L213, L240, L273",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              },
+              {
+                "item": "Business process design, optimization and execution",
+                "tipo": "DIRETO",
+                "evidencia": "WeHandle: migração de plataforma de atendimento IA first. iFood: S&OP executivo. Trifil: GPD/PDCA. VivaReal: estruturação de CS do zero",
+                "resultado": "TME 20→8min; SLA 67%→85%; -R$8M GGF; 18%→50% conversão SDR",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L256-L274, L163-L179",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              },
+              {
+                "item": "Translating business needs to product requirements and driving system adoption",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: interface com time de produto para priorização de roadmap (roteirização, algoritmo, MPOS). WeHandle: ClickUp board conectando insights de atendimento a direcionais de produto",
+                "resultado": "-60% backlog; SLA de execução 67%→85%; -8% contact rate",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L252, L269-L270",
+                "nota_original": 0.5,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.29
+              },
+              {
+                "item": "Cross-functional work with global teams; relationship building, collaboration, negotiation and influence",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: interface com engenharia, produto, marketing, C-level. México: experiência internacional. WeHandle: produto e dados",
+                "resultado": "S&OP executivo mensal com VP/C-level; -60% cancelamentos México",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L244-L250",
+                "nota_original": 0.5,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.29
+              },
+              {
+                "item": "Excellent communication, presentation and analytical skills. Ability to build strong compelling narratives",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: S&OP executivo com C-level. Renault: aprovou projeto em 2 reuniões por apresentar ROI. Essencis: Plano de Negócios para conselho",
+                "resultado": "Aprovação de projeto Renault em 2 reuniões; S&OP mensal com VP",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L199, L198",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              },
+              {
+                "item": "Overall planning and coordination ability; proactive; accepts challenges",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: coordenação logística 800 cidades, budget R$300MM. WeHandle: 2 migrações de plataforma. Trifil: criou S&OP do zero",
+                "resultado": "Orquestração de múltiplos times e frentes em escala",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L230-L252",
+                "nota_original": 1.0,
+                "nota_maxima": 0.57,
+                "ponderacao": 0.57
+              }
+            ],
+            "contagem_itens": 7,
+            "soma_notas": 5.5,
+            "cobertura_percentual": 78.57,
+            "pontos": 3.14
+          },
+          "responsabilidades_principais": {
+            "peso": 3.0,
+            "itens": [
+              {
+                "item": "Product operations owner of client incentive system; settlement/payout process owner",
+                "tipo": "GAP",
+                "evidencia": "Não há experiência como owner de sistema de incentivos a clientes nem processo de settlement/payout",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de sistema de incentivos",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Ensure accuracy of incentive calculation results",
+                "tipo": "GAP",
+                "evidencia": "Experiencia com acuracia de estoque e dados (98% acuracia Trifil), mas nao com calculos de incentivo",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de calculo de incentivo",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Translate client incentive policies into system requirements",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: traduziu políticas de elegibilidade MPOS, regras de pricing por zona e critérios de promoção em ferramentas e sistemas. A disciplina de traduzir regra de negócio em requisito de sistema se transfere",
+                "resultado": "MPOS: 352 cidades zero perda; promoção por zona; gamification",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L220-L228",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Drive system calculation library adoption within policy makers, sales and clients",
+                "tipo": "GAP",
+                "evidencia": "Experiencia em drive adoption de ferramentas operacionais (simulador, MPOS, Zendesk), mas nao de calculation library ou sistema de incentivos",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de calculation library adoption",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Standardize client incentive settlement/payout process and execute timely settlement",
+                "tipo": "GAP",
+                "evidencia": "Sem experiencia em settlement/payout de incentivos",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de settlement/payout",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Be power user and drive system adoption among sales, clients and finance",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: drive de adoção do simulador (times logísticos). WeHandle: drive de adoção de Zendesk e WhatsApp (time de suporte). A disciplina de treinamento e adoção se transfere",
+                "resultado": "WhatsApp: R$1,04→R$0,56; Simulador: saving R$70M/ano",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L258-L267",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Address internal and external escalated system queries and explain calculation details",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "WeHandle: tratamento de escalações de suporte. iFood: escalação de questões logísticas complexas (indisponibilidade de frota, cancelamentos). O padrão de escalação e explicação se transfere, mas o conteúdo (cálculo de incentivo) é novo",
+                "resultado": "Indisponibilidade de frota 5%→1%; TME 20→8min",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L238, L271",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "Build client incentive dashboard to meet regional needs",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: Grafana dashboards em tempo real de saturação logística. WeHandle: dashboards de atendimento via API+Metabase. A competência de construir dashboards é direta; o conteúdo (incentivo vs logística) é novo",
+                "resultado": "Dashboards Grafana em tempo real; BI executivo mensal",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md:L214, L273",
+                "nota_original": 0.5,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.17
+              },
+              {
+                "item": "GTM client-facing tools with external clients by cooperating with sales",
+                "tipo": "GAP",
+                "evidencia": "Experiencia em ferramentas de atendimento ao cliente (Zendesk, WhatsApp), nao em GTM tools para clientes externos como parte de lancamento de produto",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de GTM tools",
+                "nota_original": 0.0,
+                "nota_maxima": 0.33,
+                "ponderacao": 0.0
+              }
+            ],
+            "contagem_itens": 9,
+            "soma_notas": 2.0,
+            "cobertura_percentual": 22.22,
+            "pontos": 0.67
+          },
+          "ausencia_gaps_criticos": {
+            "peso": 2.0,
+            "gaps": [
+              {
+                "gap": "Experiência zero em client incentive systems — core da vaga",
+                "severidade": "forte",
+                "desconto": 1.0
+              },
+              {
+                "gap": "Sem experiência em settlement/payout processes financeiros",
+                "severidade": "forte",
+                "desconto": 1.0
+              },
+              {
+                "gap": "Sem experiência em GTM de ferramentas para clientes externos",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Experiência internacional limitada ao México — vaga exige colaboração global em múltiplos fusos",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Sem experiência em indústria de publicidade digital / adtech",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Sem experiência em cálculo de incentivos ou systems calculation library",
+                "severidade": "forte",
+                "desconto": 1.0
+              }
+            ],
+            "desconto_total": 4.5,
+            "cobertura_percentual": 0.0,
+            "pontos": 0.0
+          },
+          "diferenciais_desejaveis": {
+            "peso": 1.0,
+            "itens": [
+              {
+                "item": "Knowledge and working experience in client incentives",
+                "tipo": "GAP",
+                "evidencia": "Nao ha experiencia com client incentives — o mais proximo sao incentivos a entregadores (promocoes por zona, gamification) em contexto diferente",
+                "resultado": "N/A — gap real",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "autoconhecimento.md — sem evidencia de client incentives",
+                "nota_original": 0.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Fast learner with good judgement; thrives in ambiguity",
+                "tipo": "DIRETO",
+                "evidencia": "Movimento iFood→WeHandle demonstra escolha consciente por contexto ambíguo/early-stage. Transições entre setores (farma→indústria→cosméticos→têxtil→proptech→automotiva→foodtech→CXtech)",
+                "resultado": "Resultados em 5+ setores diferentes; WeHandle: do zero em 2 anos",
+                "nota": 1.0,
+                "prova_literal": true,
+                "fonte_base": "autoconhecimento.md:L22-L23, L256",
+                "nota_original": 1.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.5
+              }
+            ],
+            "contagem_itens": 2,
+            "soma_notas": 1.0,
+            "cobertura_percentual": 50.0,
+            "pontos": 0.5
+          }
+        }
+      },
+      "central_pain": "TikTok/ByteDance precisa padronizar e automatizar o sistema global de incentivos a clientes de publicidade na América Latina — traduzindo políticas regionais em requisitos de sistema, garantindo precisão nos cálculos de settlement/payout e impulsionando a adoção da plataforma por times de vendas, financeiro e clientes.",
+      "cv_path": "outputs/felipe_armel_cv_global_product_operations_manager_bytedance_brazil_en.docx",
+      "updated_at": "2026-06-06T13:29:36.112991+00:00",
+      "keyword_records": [
+        {
+          "keyword": "Product Operations",
+          "canonical": "Product Operations",
+          "priority": 1,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Business Process Design",
+          "canonical": "Business Process Design",
+          "priority": 2,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "WeHandle — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Cross-functional Collaboration",
+          "canonical": "Cross-functional Collaboration",
+          "priority": 3,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Data Analytics",
+          "canonical": "Data Analytics",
+          "priority": 4,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "SQL",
+          "canonical": "SQL",
+          "priority": 5,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Python",
+          "canonical": "Python",
+          "priority": 6,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Tableau",
+          "canonical": "Tableau",
+          "priority": 7,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "System Adoption",
+          "canonical": "System Adoption",
+          "priority": 8,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "WeHandle — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "recommended"
+        },
+        {
+          "keyword": "Dashboard Development",
+          "canonical": "Dashboard Development",
+          "priority": 9,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Consegui",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Dashboard",
+          "shared_tokens_with_substitute": [
+            "dashboard"
+          ],
+          "substitution_score": 0.6,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Dashboard"
+        },
+        {
+          "keyword": "Marketplace Operations",
+          "canonical": "Marketplace Operations",
+          "priority": 10,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Product Operations",
+          "shared_tokens_with_substitute": [
+            "operation"
+          ],
+          "substitution_score": 0.65,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Product Operations"
+        },
+        {
+          "keyword": "Incentive Program Management",
+          "canonical": "Incentive Program Management",
+          "priority": 11,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Stakeholder Management",
+          "canonical": "Stakeholder Management",
+          "priority": 12,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Process Standardization",
+          "canonical": "Process Standardization",
+          "priority": 13,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": "Trifil — Coordenador S&OP",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "Business Process Design",
+          "shared_tokens_with_substitute": [
+            "proces"
+          ],
+          "substitution_score": 0.435,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: Business Process Design"
+        },
+        {
+          "keyword": "Power BI",
+          "canonical": "Power BI",
+          "priority": 14,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Diretor de Operações",
+          "suggested_bullet_slot": "Utilizando",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Pricing Strategy",
+          "canonical": "Pricing Strategy",
+          "priority": 15,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood — Head de Operações",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Client Incentive System",
+          "canonical": "Client Incentive System",
+          "priority": null,
+          "status": "gap",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Settlement/Payout Process",
+          "canonical": "Settlement/Payout Process",
+          "priority": null,
+          "status": "gap",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Incentive Calculation",
+          "canonical": "Incentive Calculation",
+          "priority": null,
+          "status": "gap",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "System Requirements",
+          "canonical": "System Requirements",
+          "priority": null,
+          "status": "covered_similar_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": true,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional",
+          "substituted_by_keyword": "System Adoption",
+          "shared_tokens_with_substitute": [
+            "system"
+          ],
+          "substitution_score": 0.529,
+          "coverage_note": "Keyword exata ausente no CV; coberta por wording semelhante: System Adoption"
+        },
+        {
+          "keyword": "Dashboard",
+          "canonical": "Dashboard",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Go-to-Market",
+          "canonical": "Go-to-Market",
+          "priority": null,
+          "status": "missing_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Cross-functional",
+          "canonical": "Cross-functional",
+          "priority": null,
+          "status": "covered_cv",
+          "exact_match_in_cv": true,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        }
+      ],
+      "linkedin_bullet_candidates": [
+        {
+          "keyword": "Product Operations",
+          "experience_target": "iFood — Diretor de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Business Process Design",
+          "experience_target": "WeHandle — Head de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Cross-functional Collaboration",
+          "experience_target": "iFood — Diretor de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Data Analytics",
+          "experience_target": "iFood — Head de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "SQL",
+          "experience_target": "iFood — Diretor de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Python",
+          "experience_target": "iFood — Diretor de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "Tableau",
+          "experience_target": "iFood — Diretor de Operações",
+          "source": "covered_cv"
+        },
+        {
+          "keyword": "System Adoption",
+          "experience_target": "WeHandle — Head de Operações",
+          "source": "covered_cv"
+        }
+      ],
+      "missing_keywords": [
+        "Incentive Program Management",
+        "Stakeholder Management",
+        "Pricing Strategy",
+        "Client Incentive System",
+        "Settlement/Payout Process",
+        "Incentive Calculation",
+        "Go-to-Market"
+      ]
+    },
+    {
+      "application_key": "dassault_falcon_jet__operations_manager_brazil",
+      "company": "Dassault Falcon Jet",
+      "role": "Operations Manager - Brazil",
+      "mode": "Modo 1 - vaga especifica",
+      "fit_score": {
+        "final": 2.45,
+        "dimensoes": {
+          "requisitos_obrigatorios": {
+            "peso": 4.0,
+            "itens": [
+              {
+                "item": "Bachelor's degree in Business Aviation or related aviation field",
+                "tipo": "GAP",
+                "evidencia": "Engenharia Quimica + MBA Corporate Strategy — formacao STEM de negocios, nao aviacao",
+                "resultado": "Sem cobertura — formacao nao e em aviacao",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:19",
+                "nota_original": 0.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Fluency in Portuguese and English",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "Ingles avancado usado profissionalmente em iFood e WeHandle com plataformas e lideranca internacional",
+                "resultado": "Ingles avancado",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:20",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "5 years aviation experience with Aircraft Maintenance Providers",
+                "tipo": "GAP",
+                "evidencia": "Zero experiencia em aviacao",
+                "resultado": "Sem cobertura — zero experiencia em aviacao",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:23-24",
+                "nota_original": 0.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "3 years supervisory/leadership position involving technical personnel",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: 240 pessoas (diretos + indiretos). WeHandle: 30 pessoas. Trifil: equipes de coordenacao",
+                "resultado": "240 pessoas; 30 pessoas; multiplas liderancas",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:24",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "3 years hands-on Falcon aircraft experience",
+                "tipo": "GAP",
+                "evidencia": "Zero experiencia em aeronaves",
+                "resultado": "Sem cobertura — gap absoluto",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:25-27",
+                "nota_original": 0.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Proficient in Excel, Word, Outlook",
+                "tipo": "DIRETO",
+                "evidencia": "Excel/VBA avancado — construiu sistemas complexos (simulador MRP, alocacao de estoque). Palavra-chave: Excel",
+                "resultado": "Excel avancado com VBA",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:28",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Willingness to travel",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: operacao nacional em 800 cidades exigia visitas frequentes. Experiencia previa com viagens a trabalho",
+                "resultado": "Disponibilidade demonstrada",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:32",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Knowledge of Aircraft Maintenance process",
+                "tipo": "GAP",
+                "evidencia": "Sem conhecimento em manutencao aeronautica",
+                "resultado": "Sem cobertura — gap setorial",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:35",
+                "nota_original": 0.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.0
+              }
+            ],
+            "contagem_itens": 8,
+            "soma_notas": 2.0,
+            "cobertura_percentual": 25.0,
+            "pontos": 1.0
+          },
+          "responsabilidades_principais": {
+            "peso": 3.0,
+            "itens": [
+              {
+                "item": "Develop high performing operations team",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: equipe de 240 pessoas com OKRs e desenvolvimento de liderancas. WeHandle: time de 30 pessoas reestruturado",
+                "resultado": "240 pessoas; 30 pessoas",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:15",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Monitor schedules, budgets, personnel and quality",
+                "tipo": "DIRETO",
+                "evidencia": "iFood: budget R$300MM/ano, schedules de frota, qualidade de SLA. Trifil: OTIF, fill rate, GGF",
+                "resultado": "R$300MM/ano budget; OTIF; R$8MM reducao GGF",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:15",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Drive customer satisfaction up and costs down",
+                "tipo": "DIRETO",
+                "evidencia": "WeHandle: CSAT 85%→92%, custo −13%. iFood: saving R$70MM/ano mantendo nivel de servico",
+                "resultado": "CSAT +7pp; custo −13%; saving R$70MM/ano",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:15",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Primary point of contact for the site",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: lideranca de site operacional com interface C-level. WeHandle: ponto focal da operacao de suporte",
+                "resultado": "Ponto focal demonstrado — interface C-level no iFood e lideranca de site na WeHandle",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:15",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Responsible for site personnel, infrastructure, facilities, logistics",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "Trifil: gestao de centro de distribuicao, layout, armazenagem. WeHandle: infraestrutura de operacao de atendimento. Porem em contexto industrial/logistico, nao aeronautico",
+                "resultado": "CD gerenciado; layout redesenhado",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:15",
+                "nota_original": 0.5,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.25
+              },
+              {
+                "item": "Timely and accurate invoicing to customer",
+                "tipo": "GAP",
+                "evidencia": "Sem experiencia comprovada em faturamento direto ao cliente",
+                "resultado": "Sem cobertura — gap de faturamento",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:15",
+                "nota_original": 0.0,
+                "nota_maxima": 0.5,
+                "ponderacao": 0.0
+              }
+            ],
+            "contagem_itens": 6,
+            "soma_notas": 2.5,
+            "cobertura_percentual": 41.67,
+            "pontos": 1.25
+          },
+          "ausencia_gaps_criticos": {
+            "peso": 2.0,
+            "gaps": [
+              {
+                "gap": "Sem experiencia em manutencao aeronautica — requisito eliminatório para MRO",
+                "severidade": "forte",
+                "desconto": 1.0
+              },
+              {
+                "gap": "Sem experiencia hands-on em aeronaves Falcon — requisito especifico sem cobertura",
+                "severidade": "forte",
+                "desconto": 1.0
+              },
+              {
+                "gap": "Sem conhecimento do processo de manutencao de aeronaves",
+                "severidade": "forte",
+                "desconto": 1.0
+              },
+              {
+                "gap": "Sem experiencia em CRM aeronautico (Siebel/Corridor)",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Sem experiencia em faturamento de servicos a clientes",
+                "severidade": "media",
+                "desconto": 0.5
+              },
+              {
+                "gap": "Formacao nao e em aviacao — embora vaga aceite substituicao por experiencia, candidato nao tem experiencia em aviacao",
+                "severidade": "media",
+                "desconto": 0.5
+              }
+            ],
+            "desconto_total": 4.5,
+            "cobertura_percentual": 0.0,
+            "pontos": 0.0
+          },
+          "diferenciais_desejaveis": {
+            "peso": 1.0,
+            "itens": [
+              {
+                "item": "Corridor or maintenance operations software experience",
+                "tipo": "GAP",
+                "evidencia": "Sem experiencia com software de manutencao",
+                "resultado": "Sem cobertura — gap ferramental de manutencao",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:41",
+                "nota_original": 0.0,
+                "nota_maxima": 0.2,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Willing to work unusual hours",
+                "tipo": "REPOSICIONAMENTO",
+                "evidencia": "iFood: operacao 24/7 em logistica, plantoes. Trifil: turnos de producao",
+                "resultado": "Disponibilidade demonstrada",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:42",
+                "nota_original": 0.5,
+                "nota_maxima": 0.2,
+                "ponderacao": 0.1
+              },
+              {
+                "item": "Knowledge of MS Project and Visio",
+                "tipo": "DIRETO",
+                "evidencia": "Trifil S&OP: usou MS-Project com PERT/CPM para calendario de S&OP",
+                "resultado": "MS-Project usado profissionalmente",
+                "nota": 0.5,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:43",
+                "nota_original": 0.5,
+                "nota_maxima": 0.2,
+                "ponderacao": 0.1
+              },
+              {
+                "item": "Certified Project Management Certification (PMP)",
+                "tipo": "GAP",
+                "evidencia": "Sem certificacao PMP",
+                "resultado": "Sem certificacao PMP",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:44",
+                "nota_original": 0.0,
+                "nota_maxima": 0.2,
+                "ponderacao": 0.0
+              },
+              {
+                "item": "Proficient in Siebel",
+                "tipo": "GAP",
+                "evidencia": "Sem experiencia em Siebel",
+                "resultado": "Sem experiencia em Siebel",
+                "nota": 0.0,
+                "prova_literal": false,
+                "fonte_base": "inbox/job_descriptions/dassault_falcon_jet_operations_manager_brazil.md:45",
+                "nota_original": 0.0,
+                "nota_maxima": 0.2,
+                "ponderacao": 0.0
+              }
+            ],
+            "contagem_itens": 5,
+            "soma_notas": 1.0,
+            "cobertura_percentual": 20.0,
+            "pontos": 0.2
+          }
+        }
+      },
+      "central_pain": "Dassault Falcon Jet precisa de um Operations Manager para liderar a operação de manutenção de aeronaves Falcon no Brasil, garantindo execução dentro do prazo, orçamento e qualidade, com foco em satisfação do cliente e eficiência de custos em um ambiente de MRO (Maintenance, Repair & Overhaul) de alto padrão OEM.",
+      "cv_path": null,
+      "updated_at": "2026-06-06T15:32:40.866078+00:00",
+      "keyword_records": [
+        {
+          "keyword": "Operations Management",
+          "canonical": "Operations Management",
+          "priority": 1,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood - Diretor de Operacoes",
+          "suggested_bullet_slot": "Resumo",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Team Leadership",
+          "canonical": "Team Leadership",
+          "priority": 2,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood - Diretor de Operacoes",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Budget Management",
+          "canonical": "Budget Management",
+          "priority": 3,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood - Diretor de Operacoes",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Customer Satisfaction",
+          "canonical": "Customer Satisfaction",
+          "priority": 4,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "wehandle - Head de Operacoes",
+          "suggested_bullet_slot": "Consegui",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Production Scheduling",
+          "canonical": "Production Scheduling",
+          "priority": 5,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil - Coordenador de S&OP",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Cost Reduction",
+          "canonical": "Cost Reduction",
+          "priority": 6,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood - Head de Operacoes",
+          "suggested_bullet_slot": "Consegui",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Quality Management",
+          "canonical": "Quality Management",
+          "priority": 7,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Resinor - Coordenador de Qualidade",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Project Management",
+          "canonical": "Project Management",
+          "priority": 8,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil - Coordenador de S&OP",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Logistics",
+          "canonical": "Logistics",
+          "priority": 9,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood - Head de Operacoes",
+          "suggested_bullet_slot": "Resumo",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Process Improvement",
+          "canonical": "Process Improvement",
+          "priority": 10,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil - Analista de Processos",
+          "suggested_bullet_slot": "Consegui",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Capacity Planning",
+          "canonical": "Capacity Planning",
+          "priority": 11,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood - Diretor de Operacoes",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "adicionada por densidade",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Microsoft Excel",
+          "canonical": "Microsoft Excel",
+          "priority": 12,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Multiplas empresas",
+          "suggested_bullet_slot": "Stack",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "MS Project",
+          "canonical": "MS Project",
+          "priority": 13,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil - Coordenador de S&OP",
+          "suggested_bullet_slot": "Stack",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Facilities Management",
+          "canonical": "Facilities Management",
+          "priority": 14,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "Trifil - Coordenador de Expedicao",
+          "suggested_bullet_slot": "Responsável",
+          "origin": "adicionada por densidade",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "English Proficiency",
+          "canonical": "English Proficiency",
+          "priority": 15,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": "iFood / wehandle",
+          "suggested_bullet_slot": "Stack",
+          "origin": "já selecionada",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Operations Manager",
+          "canonical": "Operations Manager",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "titulo",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Aircraft Maintenance",
+          "canonical": "Aircraft Maintenance",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "OEM MRO",
+          "canonical": "OEM MRO",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Production Schedules",
+          "canonical": "Production Schedules",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Manpower Requirements",
+          "canonical": "Manpower Requirements",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Aviation CRM",
+          "canonical": "Aviation CRM",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "requisitos",
+          "linkedin_use": "optional"
+        },
+        {
+          "keyword": "Invoicing",
+          "canonical": "Invoicing",
+          "priority": null,
+          "status": "pending_cv",
+          "exact_match_in_cv": false,
+          "similar_match_in_cv": false,
+          "experience_target": null,
+          "suggested_bullet_slot": null,
+          "origin": "responsabilidades",
+          "linkedin_use": "optional"
+        }
+      ],
+      "linkedin_bullet_candidates": [],
+      "missing_keywords": []
     }
   ],
   "canonical_keywords": {
@@ -60110,8 +62539,8 @@
     },
     "inbound": {
       "keyword": "Inbound",
-      "times_extracted": 1,
-      "times_covered_cv": 1,
+      "times_extracted": 2,
+      "times_covered_cv": 2,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
@@ -60189,15 +62618,16 @@
     },
     "wms": {
       "keyword": "WMS",
-      "times_extracted": 3,
-      "times_covered_cv": 2,
+      "times_extracted": 4,
+      "times_covered_cv": 3,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
       "recommended_for_linkedin": true,
       "experience_targets": [
         "Scalina (Trifil) - Expedicao",
-        "Trifil"
+        "Trifil",
+        "Trifil — Coord. Expedição"
       ]
     },
     "kpis": {
@@ -60416,13 +62846,15 @@
     },
     "tms": {
       "keyword": "TMS",
-      "times_extracted": 2,
-      "times_covered_cv": 0,
+      "times_extracted": 3,
+      "times_covered_cv": 1,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 2,
       "recommended_for_linkedin": false,
-      "experience_targets": []
+      "experience_targets": [
+        "iFood — Head/Diretor"
+      ]
     },
     "itapeva_mg": {
       "keyword": "Itapeva MG",
@@ -60460,10 +62892,10 @@
     },
     "stakeholder_management": {
       "keyword": "Stakeholder Management",
-      "times_extracted": 16,
+      "times_extracted": 18,
       "times_covered_cv": 3,
       "times_covered_similar_cv": 5,
-      "times_missing_cv": 4,
+      "times_missing_cv": 5,
       "times_gap": 0,
       "recommended_for_linkedin": true,
       "experience_targets": [
@@ -60497,8 +62929,8 @@
     },
     "cross_functional_collaboration": {
       "keyword": "Cross-functional Collaboration",
-      "times_extracted": 8,
-      "times_covered_cv": 3,
+      "times_extracted": 10,
+      "times_covered_cv": 4,
       "times_covered_similar_cv": 1,
       "times_missing_cv": 1,
       "times_gap": 0,
@@ -60561,7 +62993,7 @@
     },
     "team_leadership": {
       "keyword": "Team Leadership",
-      "times_extracted": 14,
+      "times_extracted": 15,
       "times_covered_cv": 2,
       "times_covered_similar_cv": 2,
       "times_missing_cv": 7,
@@ -60854,7 +63286,7 @@
     },
     "cost_reduction": {
       "keyword": "Cost Reduction",
-      "times_extracted": 14,
+      "times_extracted": 15,
       "times_covered_cv": 2,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 9,
@@ -60871,7 +63303,8 @@
         "iFood + WeHandle + Trifil",
         "iFood — Diretor / Trifil",
         "WeHandle / iFood / Trifil",
-        "iFood — Head de Operações"
+        "iFood — Head de Operações",
+        "iFood - Head de Operacoes"
       ]
     },
     "six_sigma_pdca": {
@@ -60964,7 +63397,7 @@
     },
     "capacity_planning": {
       "keyword": "Capacity Planning",
-      "times_extracted": 19,
+      "times_extracted": 20,
       "times_covered_cv": 9,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 5,
@@ -61079,8 +63512,8 @@
     },
     "melhoria_cont_nua": {
       "keyword": "melhoria contínua",
-      "times_extracted": 25,
-      "times_covered_cv": 9,
+      "times_extracted": 26,
+      "times_covered_cv": 10,
       "times_covered_similar_cv": 1,
       "times_missing_cv": 6,
       "times_gap": 1,
@@ -61098,7 +63531,8 @@
         "Trifil — Analista",
         "Scalina (Trifil) — Analista de processos e sistemas",
         "Trifil / WeHandle",
-        "Trifil - Coordenador de S&OP"
+        "Trifil - Coordenador de S&OP",
+        "Trifil — Analista / Coord. S&OP"
       ]
     },
     "auditorias_de_processo": {
@@ -61208,13 +63642,15 @@
     },
     "e_commerce": {
       "keyword": "e-commerce",
-      "times_extracted": 6,
+      "times_extracted": 7,
       "times_covered_cv": 0,
       "times_covered_similar_cv": 0,
-      "times_missing_cv": 2,
+      "times_missing_cv": 3,
       "times_gap": 4,
       "recommended_for_linkedin": false,
-      "experience_targets": []
+      "experience_targets": [
+        "iFood — Head/Diretor"
+      ]
     },
     "transporte": {
       "keyword": "Transporte",
@@ -61333,7 +63769,7 @@
     },
     "process_improvement": {
       "keyword": "Process Improvement",
-      "times_extracted": 9,
+      "times_extracted": 10,
       "times_covered_cv": 6,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 3,
@@ -62019,7 +64455,7 @@
     },
     "quality_management": {
       "keyword": "Quality Management",
-      "times_extracted": 2,
+      "times_extracted": 3,
       "times_covered_cv": 0,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 1,
@@ -62027,7 +64463,8 @@
       "recommended_for_linkedin": false,
       "experience_targets": [
         "Trifil - Expedicacao",
-        "Resinor / Trifil"
+        "Resinor / Trifil",
+        "Resinor - Coordenador de Qualidade"
       ]
     },
     "gerente_de_operacao_logistica": {
@@ -62259,8 +64696,8 @@
     },
     "armazenagem": {
       "keyword": "armazenagem",
-      "times_extracted": 3,
-      "times_covered_cv": 2,
+      "times_extracted": 4,
+      "times_covered_cv": 3,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
@@ -63062,7 +65499,7 @@
     },
     "project_management": {
       "keyword": "project management",
-      "times_extracted": 3,
+      "times_extracted": 4,
       "times_covered_cv": 0,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 2,
@@ -63070,7 +65507,8 @@
       "recommended_for_linkedin": false,
       "experience_targets": [
         "Trifil / iFood / Renault",
-        "iFood — Diretor de Operações"
+        "iFood — Diretor de Operações",
+        "Trifil - Coordenador de S&OP"
       ]
     },
     "process_mapping": {
@@ -63100,8 +65538,8 @@
     },
     "cross_functional": {
       "keyword": "cross-functional",
-      "times_extracted": 2,
-      "times_covered_cv": 1,
+      "times_extracted": 4,
+      "times_covered_cv": 2,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
@@ -63882,8 +66320,8 @@
     },
     "lideran_a": {
       "keyword": "Liderança",
-      "times_extracted": 5,
-      "times_covered_cv": 3,
+      "times_extracted": 6,
+      "times_covered_cv": 4,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
@@ -63920,8 +66358,8 @@
     },
     "sql": {
       "keyword": "SQL",
-      "times_extracted": 13,
-      "times_covered_cv": 10,
+      "times_extracted": 15,
+      "times_covered_cv": 11,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 1,
       "times_gap": 2,
@@ -63934,13 +66372,14 @@
         "iFood / WeHandle",
         "iFood — Head de Operações",
         "wehandle - Head de Operações",
-        "iFood - Diretor de Operacoes"
+        "iFood - Diretor de Operacoes",
+        "iFood — Diretor de Operações"
       ]
     },
     "python": {
       "keyword": "Python",
-      "times_extracted": 7,
-      "times_covered_cv": 6,
+      "times_extracted": 9,
+      "times_covered_cv": 7,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 1,
@@ -64146,9 +66585,9 @@
     },
     "lideran_a_de_equipes": {
       "keyword": "liderança de equipes",
-      "times_extracted": 14,
+      "times_extracted": 15,
       "times_covered_cv": 4,
-      "times_covered_similar_cv": 1,
+      "times_covered_similar_cv": 2,
       "times_missing_cv": 4,
       "times_gap": 0,
       "recommended_for_linkedin": true,
@@ -65182,8 +67621,8 @@
     },
     "power_bi": {
       "keyword": "Power BI",
-      "times_extracted": 10,
-      "times_covered_cv": 7,
+      "times_extracted": 12,
+      "times_covered_cv": 8,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
@@ -65195,7 +67634,8 @@
         "Geral",
         "iFood - Head de Operações",
         "Renault do Brasil - Gerente de Customer Success",
-        "Renault / iFood / wehandle"
+        "Renault / iFood / wehandle",
+        "iFood — Diretor de Operações"
       ]
     },
     "powerpoint": {
@@ -66002,8 +68442,8 @@
     },
     "product_operations": {
       "keyword": "Product Operations",
-      "times_extracted": 2,
-      "times_covered_cv": 1,
+      "times_extracted": 4,
+      "times_covered_cv": 2,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
@@ -66027,7 +68467,7 @@
     },
     "budget_management": {
       "keyword": "Budget Management",
-      "times_extracted": 5,
+      "times_extracted": 6,
       "times_covered_cv": 1,
       "times_covered_similar_cv": 1,
       "times_missing_cv": 2,
@@ -66037,7 +68477,8 @@
         "iFood — Diretor de Operações",
         "iFood Diretor",
         "iFood -- Diretor",
-        "iFood - Diretor de Operações"
+        "iFood - Diretor de Operações",
+        "iFood - Diretor de Operacoes"
       ]
     },
     "portfolio_allocation": {
@@ -66284,7 +68725,7 @@
     },
     "operations_management": {
       "keyword": "Operations Management",
-      "times_extracted": 8,
+      "times_extracted": 9,
       "times_covered_cv": 1,
       "times_covered_similar_cv": 2,
       "times_missing_cv": 4,
@@ -66295,7 +68736,8 @@
         "WeHandle - Head de Operações",
         "WeHandle / iFood",
         "iFood - Diretor de Operações",
-        "iFood — Diretor de Operações"
+        "iFood — Diretor de Operações",
+        "iFood - Diretor de Operacoes"
       ]
     },
     "distribution_center": {
@@ -67239,14 +69681,15 @@
     },
     "logistics": {
       "keyword": "Logistics",
-      "times_extracted": 3,
+      "times_extracted": 4,
       "times_covered_cv": 1,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 2,
       "times_gap": 0,
       "recommended_for_linkedin": false,
       "experience_targets": [
-        "iFood - Diretor de Operacoes"
+        "iFood - Diretor de Operacoes",
+        "iFood - Head de Operacoes"
       ]
     },
     "program_management": {
@@ -68004,14 +70447,15 @@
     },
     "capacidade_anal_tica": {
       "keyword": "Capacidade Analítica",
-      "times_extracted": 4,
+      "times_extracted": 5,
       "times_covered_cv": 0,
       "times_covered_similar_cv": 0,
-      "times_missing_cv": 2,
+      "times_missing_cv": 3,
       "times_gap": 0,
       "recommended_for_linkedin": false,
       "experience_targets": [
-        "iFood"
+        "iFood",
+        "iFood / WeHandle"
       ]
     },
     "benchmarking": {
@@ -68163,17 +70607,18 @@
     },
     "pricing_strategy": {
       "keyword": "Pricing Strategy",
-      "times_extracted": 5,
+      "times_extracted": 7,
       "times_covered_cv": 1,
       "times_covered_similar_cv": 1,
-      "times_missing_cv": 1,
+      "times_missing_cv": 2,
       "times_gap": 0,
       "recommended_for_linkedin": false,
       "experience_targets": [
         "iFood + VivaReal + Trifil",
         "VivaReal — Gerente de Planejamento",
         "iFood — Head/Diretor de Operações",
-        "iFood - Head | Trifil - IC"
+        "iFood - Head | Trifil - IC",
+        "iFood — Head de Operações"
       ]
     },
     "b2b_saas": {
@@ -70287,8 +72732,8 @@
     },
     "gest_o_de_opera_es_log_sticas": {
       "keyword": "Gestão de operações logísticas",
-      "times_extracted": 4,
-      "times_covered_cv": 1,
+      "times_extracted": 5,
+      "times_covered_cv": 2,
       "times_covered_similar_cv": 2,
       "times_missing_cv": 0,
       "times_gap": 0,
@@ -70296,7 +72741,8 @@
       "experience_targets": [
         "iFood - Diretor de Operações",
         "iFood Diretor",
-        "iFood"
+        "iFood",
+        "iFood — Diretor de Operações"
       ]
     },
     "transportes": {
@@ -70515,9 +72961,9 @@
     },
     "marketplace_operations": {
       "keyword": "Marketplace Operations",
-      "times_extracted": 2,
+      "times_extracted": 4,
       "times_covered_cv": 0,
-      "times_covered_similar_cv": 1,
+      "times_covered_similar_cv": 2,
       "times_missing_cv": 1,
       "times_gap": 0,
       "recommended_for_linkedin": false,
@@ -71039,9 +73485,9 @@
     },
     "gest_o_de_estoque": {
       "keyword": "Gestão de estoque",
-      "times_extracted": 2,
+      "times_extracted": 3,
       "times_covered_cv": 1,
-      "times_covered_similar_cv": 0,
+      "times_covered_similar_cv": 1,
       "times_missing_cv": 0,
       "times_gap": 0,
       "recommended_for_linkedin": false,
@@ -72583,10 +75029,10 @@
     },
     "go_to_market": {
       "keyword": "Go-to-Market",
-      "times_extracted": 1,
+      "times_extracted": 3,
       "times_covered_cv": 0,
       "times_covered_similar_cv": 0,
-      "times_missing_cv": 1,
+      "times_missing_cv": 2,
       "times_gap": 0,
       "recommended_for_linkedin": false,
       "experience_targets": [
@@ -72607,15 +75053,16 @@
     },
     "tableau": {
       "keyword": "Tableau",
-      "times_extracted": 2,
-      "times_covered_cv": 2,
+      "times_extracted": 4,
+      "times_covered_cv": 3,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
-      "recommended_for_linkedin": false,
+      "recommended_for_linkedin": true,
       "experience_targets": [
         "iFood - Head de Operacoes",
-        "iFood"
+        "iFood",
+        "iFood — Diretor de Operações"
       ]
     },
     "financial_statements": {
@@ -73672,13 +76119,15 @@
     },
     "customer_satisfaction": {
       "keyword": "customer satisfaction",
-      "times_extracted": 3,
+      "times_extracted": 4,
       "times_covered_cv": 0,
       "times_covered_similar_cv": 2,
       "times_missing_cv": 1,
       "times_gap": 0,
       "recommended_for_linkedin": false,
-      "experience_targets": []
+      "experience_targets": [
+        "wehandle - Head de Operacoes"
+      ]
     },
     "medical_devices": {
       "keyword": "medical devices",
@@ -73939,14 +76388,15 @@
     },
     "acur_cia_de_estoque": {
       "keyword": "Acurácia de estoque",
-      "times_extracted": 1,
-      "times_covered_cv": 0,
+      "times_extracted": 2,
+      "times_covered_cv": 1,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 0,
       "times_gap": 0,
-      "recommended_for_linkedin": false,
+      "recommended_for_linkedin": true,
       "experience_targets": [
-        "Trifil"
+        "Trifil",
+        "Trifil — Coord. Expedição"
       ]
     },
     "gest_o_de_capacidade": {
@@ -74595,14 +77045,15 @@
     },
     "data_analytics": {
       "keyword": "Data Analytics",
-      "times_extracted": 2,
-      "times_covered_cv": 1,
+      "times_extracted": 4,
+      "times_covered_cv": 2,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 1,
       "times_gap": 0,
       "recommended_for_linkedin": true,
       "experience_targets": [
-        "iFood — Head / Diretor"
+        "iFood — Head / Diretor",
+        "iFood — Head de Operações"
       ]
     },
     "kpi_dashboards": {
@@ -74665,13 +77116,15 @@
     },
     "cadeia_de_suprimentos": {
       "keyword": "Cadeia de Suprimentos",
-      "times_extracted": 1,
-      "times_covered_cv": 0,
+      "times_extracted": 2,
+      "times_covered_cv": 1,
       "times_covered_similar_cv": 0,
       "times_missing_cv": 1,
       "times_gap": 0,
-      "recommended_for_linkedin": false,
-      "experience_targets": []
+      "recommended_for_linkedin": true,
+      "experience_targets": [
+        "iFood / Trifil"
+      ]
     },
     "kpis_operacionais": {
       "keyword": "KPIs Operacionais",
@@ -75128,14 +77581,15 @@
     },
     "process_standardization": {
       "keyword": "Process Standardization",
-      "times_extracted": 1,
+      "times_extracted": 3,
       "times_covered_cv": 1,
-      "times_covered_similar_cv": 0,
+      "times_covered_similar_cv": 1,
       "times_missing_cv": 0,
       "times_gap": 0,
       "recommended_for_linkedin": false,
       "experience_targets": [
-        "WeHandle / Trifil / VivaReal"
+        "WeHandle / Trifil / VivaReal",
+        "Trifil — Coordenador S&OP"
       ]
     },
     "delivery_efficiency": {
@@ -77551,14 +80005,15 @@
     },
     "kpis_log_sticos": {
       "keyword": "KPIs Logísticos",
-      "times_extracted": 1,
+      "times_extracted": 2,
       "times_covered_cv": 1,
-      "times_covered_similar_cv": 0,
+      "times_covered_similar_cv": 1,
       "times_missing_cv": 0,
       "times_gap": 0,
       "recommended_for_linkedin": true,
       "experience_targets": [
-        "iFood / Trifil"
+        "iFood / Trifil",
+        "iFood — Head/Diretor"
       ]
     },
     "profissionaliza_o": {
@@ -79136,6 +81591,344 @@
       "experience_targets": [
         "iFood — Diretor de Operações"
       ]
+    },
+    "inbound_e_outbound": {
+      "keyword": "Inbound e Outbound",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 1,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "Trifil — Coord. Expedição"
+      ]
+    },
+    "custo_log_stico": {
+      "keyword": "Custo logístico",
+      "times_extracted": 1,
+      "times_covered_cv": 1,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": true,
+      "experience_targets": [
+        "iFood — Diretor"
+      ]
+    },
+    "gest_o_de_invent_rio": {
+      "keyword": "Gestão de inventário",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 1,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "Trifil — Coord. S&OP / Materiais"
+      ]
+    },
+    "layout_de_estoque": {
+      "keyword": "Layout de estoque",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 1,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "Trifil — Coord. Expedição"
+      ]
+    },
+    "transporte_e_distribui_o": {
+      "keyword": "Transporte e distribuição",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 1,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "iFood — Head/Diretor"
+      ]
+    },
+    "gest_o_de_log_stica": {
+      "keyword": "Gestão de logística",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 1,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "outbound": {
+      "keyword": "Outbound",
+      "times_extracted": 1,
+      "times_covered_cv": 1,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "invent_rio": {
+      "keyword": "Inventário",
+      "times_extracted": 1,
+      "times_covered_cv": 1,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "on_time": {
+      "keyword": "On Time",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 1,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "tat": {
+      "keyword": "TAT",
+      "times_extracted": 1,
+      "times_covered_cv": 1,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "business_process_design": {
+      "keyword": "Business Process Design",
+      "times_extracted": 2,
+      "times_covered_cv": 1,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": true,
+      "experience_targets": [
+        "WeHandle — Head de Operações"
+      ]
+    },
+    "system_adoption": {
+      "keyword": "System Adoption",
+      "times_extracted": 2,
+      "times_covered_cv": 1,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": true,
+      "experience_targets": [
+        "WeHandle — Head de Operações"
+      ]
+    },
+    "dashboard_development": {
+      "keyword": "Dashboard Development",
+      "times_extracted": 2,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 1,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "iFood — Head de Operações"
+      ]
+    },
+    "incentive_program_management": {
+      "keyword": "Incentive Program Management",
+      "times_extracted": 2,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 1,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "iFood — Head de Operações"
+      ]
+    },
+    "client_incentive_system": {
+      "keyword": "Client Incentive System",
+      "times_extracted": 2,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 2,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "settlement_payout_process": {
+      "keyword": "Settlement/Payout Process",
+      "times_extracted": 2,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 2,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "incentive_calculation": {
+      "keyword": "Incentive Calculation",
+      "times_extracted": 2,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 2,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "system_requirements": {
+      "keyword": "System Requirements",
+      "times_extracted": 2,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 1,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "dashboard": {
+      "keyword": "Dashboard",
+      "times_extracted": 2,
+      "times_covered_cv": 1,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "production_scheduling": {
+      "keyword": "Production Scheduling",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "Trifil - Coordenador de S&OP"
+      ]
+    },
+    "microsoft_excel": {
+      "keyword": "Microsoft Excel",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "Multiplas empresas"
+      ]
+    },
+    "ms_project": {
+      "keyword": "MS Project",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "Trifil - Coordenador de S&OP"
+      ]
+    },
+    "facilities_management": {
+      "keyword": "Facilities Management",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "Trifil - Coordenador de Expedicao"
+      ]
+    },
+    "english_proficiency": {
+      "keyword": "English Proficiency",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": [
+        "iFood / wehandle"
+      ]
+    },
+    "operations_manager": {
+      "keyword": "Operations Manager",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "aircraft_maintenance": {
+      "keyword": "Aircraft Maintenance",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "oem_mro": {
+      "keyword": "OEM MRO",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "production_schedules": {
+      "keyword": "Production Schedules",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "manpower_requirements": {
+      "keyword": "Manpower Requirements",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "aviation_crm": {
+      "keyword": "Aviation CRM",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
+    },
+    "invoicing": {
+      "keyword": "Invoicing",
+      "times_extracted": 1,
+      "times_covered_cv": 0,
+      "times_covered_similar_cv": 0,
+      "times_missing_cv": 0,
+      "times_gap": 0,
+      "recommended_for_linkedin": false,
+      "experience_targets": []
     }
   }
 }

@@ -70,6 +70,7 @@ Regras de progressao para agentes locais:
 | Link de vaga do LinkedIn / extrair descrição completa do LinkedIn / URL contendo `linkedin.com/jobs/view/` como `https://www.linkedin.com/jobs/view/4405127989/` | `linkedin-job-extractor` |
 | Link de postagem do LinkedIn divulgando vaga / extrair descrição de post / URL contendo `linkedin.com/feed/update/`, `linkedin.com/posts/` ou `linkedin.com/pulse/` | `linkedin-job-extractor` |
 | Pesquisar/listar/ler vaga no Notion / consultar `Notion <número>` | `notion-transactions`; para avaliar/analisar usar `intake-orchestrator` |
+| Gerar planilha `.xlsx` do Notion / exportar vagas filtradas do Notion / replicar extração de planilha com outros filtros | `notion-xlsx-export` |
 | Listar vagas salvas do LinkedIn / Rastreador de vagas / minhas vagas / saved jobs / escolher URL salva para análise | `linkedin-saved-jobs` |
 | Atualize a vaga ID/Notion `<número>` com a descrição extraída / preencher `Descrição da Vaga` a partir da vaga extraída | `linkedin-job-extractor` se houver URL LinkedIn pendente → `notion-transactions` |
 | Crie/faça/registre a vaga no Notion a partir da descrição extraída, antes de análise/FIT_MAP | `linkedin-job-extractor` se houver URL LinkedIn pendente → `notion-transactions` |
@@ -230,6 +231,7 @@ npm run deliver:artifact -- --file outputs/<arquivo>.docx
 Regra global de entrega:
 - a fonte oficial continua sendo o arquivo local em `outputs/`
 - a entrega para nuvem usa `rclone` com `RCLONE_ONEDRIVE_REMOTE` e `RCLONE_ONEDRIVE_DELIVERY_DIR` definidos no `.env` local de cada máquina
+- o destino canonico e obrigatorio para documentos gerados e `01_armel/Curriculos/personalizados`; subpastas internas sao permitidas, mas qualquer pasta fora dessa arvore deve ser bloqueada
 - MacBook e servidor Ubuntu/RPi5 usam o mesmo comando, desde que o `rclone config` tenha sido feito naquela máquina
 - nunca subir configuração real do rclone, tokens ou `.env` para GitHub
 - para CV, usar `cv:deliver` como caminho normal de entrega; ele reexecuta `cv:approve` e só chama rclone se o artefato final estiver aprovado

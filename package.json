@@ -41,6 +41,7 @@
     "notion:link-record": "python3 scripts/notion_sync.py link-record",
     "notion:record-summary": "python3 scripts/notion_sync.py link-record --compact",
     "notion:templates": "python3 scripts/notion_sync.py templates",
+    "notion:export-xlsx": "python3 scripts/notion_export_xlsx.py",
     "notion:sweep:sync": "python3 scripts/notion_sync.py sync-applications-sweep",
     "notion:sweep:build-cache": "python3 scripts/career_cli.py notion build-cache",
     "notion:sweep:refresh": "python3 scripts/career_cli.py notion refresh",

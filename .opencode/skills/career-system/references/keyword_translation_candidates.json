@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generated_from_registry_at": "2026-06-05T15:38:56.856015+00:00",
+  "generated_from_registry_at": "2026-06-06T15:32:40.870399+00:00",
   "curated_registry_version": 1,
-  "candidate_count": 1527,
+  "candidate_count": 1554,
   "candidates": [
     {
       "canonical_key": "data_driven_decision_making",
@@ -77,11 +77,11 @@
       ],
       "sample_origins": [
         "já selecionada",
-        "perfil",
-        "adicionada por densidade"
+        "adicionada por densidade",
+        "perfil"
       ],
       "stats": {
-        "times_extracted": 19,
+        "times_extracted": 20,
         "times_covered_cv": 9,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 5,
@@ -166,10 +166,52 @@
         "adicionada por densidade"
       ],
       "stats": {
-        "times_extracted": 16,
+        "times_extracted": 18,
         "times_covered_cv": 3,
         "times_covered_similar_cv": 5,
-        "times_missing_cv": 4,
+        "times_missing_cv": 5,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "cost_reduction",
+      "keyword": "Cost Reduction",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "redução de custos",
+      "pt_br_alternatives": [
+        "otimização de custos"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "shopee__gerente_de_opera_es_log_sticas",
+        "confidential_careers__gerente_de_opera_es_transporte_last_mile",
+        "einstein_hospital_israelita__gerente_planejamento_e_log_stica",
+        "ocean_drop__diretor_operacional_coo",
+        "amazon__capacity_planning_manager_transportation_planning",
+        "allied_brasil__gerente_supply_chain_e_pricing",
+        "empresa_confidencial__vp_de_servi_os_opera_es",
+        "loggi__gerente_de_opera_es_log_sticas_last_mile"
+      ],
+      "sample_experience_targets": [
+        "iFood + Trifil",
+        "iFood (R$70MM) + Trifil (R$8MM GGF)",
+        "iFood / Trifil",
+        "Trifil - Coordenador de S&OP",
+        "iFood / Trifil / wehandle",
+        "Scalina (Trifil) — Coord. S&OP"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "responsabilidades",
+        "perfil"
+      ],
+      "stats": {
+        "times_extracted": 15,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 9,
         "times_gap": 0
       }
     },
@@ -218,48 +260,6 @@
       }
     },
     {
-      "canonical_key": "cost_reduction",
-      "keyword": "Cost Reduction",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "redução de custos",
-      "pt_br_alternatives": [
-        "otimização de custos"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "shopee__gerente_de_opera_es_log_sticas",
-        "confidential_careers__gerente_de_opera_es_transporte_last_mile",
-        "einstein_hospital_israelita__gerente_planejamento_e_log_stica",
-        "ocean_drop__diretor_operacional_coo",
-        "amazon__capacity_planning_manager_transportation_planning",
-        "allied_brasil__gerente_supply_chain_e_pricing",
-        "empresa_confidencial__vp_de_servi_os_opera_es",
-        "loggi__gerente_de_opera_es_log_sticas_last_mile"
-      ],
-      "sample_experience_targets": [
-        "iFood + Trifil",
-        "iFood (R$70MM) + Trifil (R$8MM GGF)",
-        "iFood / Trifil",
-        "Trifil - Coordenador de S&OP",
-        "iFood / Trifil / wehandle",
-        "Scalina (Trifil) — Coord. S&OP"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "responsabilidades",
-        "perfil"
-      ],
-      "stats": {
-        "times_extracted": 14,
-        "times_covered_cv": 2,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 9,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "team_leadership",
       "keyword": "Team Leadership",
       "translation_ready": true,
@@ -281,8 +281,8 @@
         "empresa_confidencial_isis_rodrigues__diretor_executivo_ceo_senior"
       ],
       "sample_experience_targets": [
-        "iFood - Diretor de Operações",
         "iFood - Diretor de Operacoes",
+        "iFood - Diretor de Operações",
         "iFood — Diretor de Operações",
         "wehandle (30 pessoas) + iFood (240 pessoas)",
         "iFood",
@@ -294,7 +294,7 @@
         "adicionada por densidade"
       ],
       "stats": {
-        "times_extracted": 14,
+        "times_extracted": 15,
         "times_covered_cv": 2,
         "times_covered_similar_cv": 2,
         "times_missing_cv": 7,
@@ -506,6 +506,47 @@
       }
     },
     {
+      "canonical_key": "process_improvement",
+      "keyword": "Process Improvement",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "melhoria de processos",
+      "pt_br_alternatives": [
+        "aprimoramento de processos"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "confidential_careers__gerente_de_opera_es_transporte_last_mile",
+        "empresa_confidencial__gerente_de_opera_es",
+        "amazon__capacity_planning_manager_transportation_planning",
+        "empresa_confidencial__vp_de_servi_os_opera_es",
+        "loggi__gerente_de_opera_es_log_sticas_last_mile",
+        "wellhub__operations_performance_manager",
+        "uniscience__gerente_de_opera_es",
+        "nestig__customs_and_logistics"
+      ],
+      "sample_experience_targets": [
+        "WeHandle - Head de Operações",
+        "Trifil + WeHandle",
+        "Trifil - Analista de Processos",
+        "Trifil / wehandle",
+        "Trifil - Coordenador de S&OP",
+        "wehandle - Head de Operações"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 10,
+        "times_covered_cv": 6,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 3,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "business_intelligence",
       "keyword": "Business Intelligence",
       "translation_ready": true,
@@ -549,43 +590,43 @@
       }
     },
     {
-      "canonical_key": "process_improvement",
-      "keyword": "Process Improvement",
+      "canonical_key": "operations_management",
+      "keyword": "Operations Management",
       "translation_ready": true,
       "recommended_action": "active",
-      "pt_br_preferred": "melhoria de processos",
+      "pt_br_preferred": "gestão de operações",
       "pt_br_alternatives": [
-        "aprimoramento de processos"
+        "operações"
       ],
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "confidential_careers__gerente_de_opera_es_transporte_last_mile",
+        "grupo_profarma__gerente_de_opera_es_s_nior",
         "empresa_confidencial__gerente_de_opera_es",
-        "amazon__capacity_planning_manager_transportation_planning",
+        "goevo_via_tprime_tecnologia__head_de_opera_es_saas",
         "empresa_confidencial__vp_de_servi_os_opera_es",
-        "loggi__gerente_de_opera_es_log_sticas_last_mile",
-        "wellhub__operations_performance_manager",
-        "uniscience__gerente_de_opera_es",
-        "nestig__customs_and_logistics"
+        "turbo__diretor_de_opera_es_coo",
+        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
+        "grupo_easy_para_grupo_share__gerente_de_opera_es",
+        "busca_ativa_coo__coo_diretor_de_opera_es_scale_up_de_tecnologia"
       ],
       "sample_experience_targets": [
+        "iFood - Diretor de Operações",
+        "iFood — Diretor de Operações",
+        "iFood",
         "WeHandle - Head de Operações",
-        "Trifil + WeHandle",
-        "Trifil / wehandle",
-        "Trifil - Coordenador de S&OP",
-        "Trifil - Analista de Processos",
-        "wehandle - Head de Operações"
+        "WeHandle / iFood",
+        "iFood - Diretor de Operacoes"
       ],
       "sample_origins": [
         "já selecionada",
-        "adicionada por densidade"
+        "perfil"
       ],
       "stats": {
         "times_extracted": 9,
-        "times_covered_cv": 6,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 3,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 2,
+        "times_missing_cv": 4,
         "times_gap": 0
       }
     },
@@ -669,47 +710,6 @@
         "times_covered_cv": 3,
         "times_covered_similar_cv": 2,
         "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "operations_management",
-      "keyword": "Operations Management",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "gestão de operações",
-      "pt_br_alternatives": [
-        "operações"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "grupo_profarma__gerente_de_opera_es_s_nior",
-        "empresa_confidencial__gerente_de_opera_es",
-        "goevo_via_tprime_tecnologia__head_de_opera_es_saas",
-        "empresa_confidencial__vp_de_servi_os_opera_es",
-        "turbo__diretor_de_opera_es_coo",
-        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
-        "grupo_easy_para_grupo_share__gerente_de_opera_es",
-        "busca_ativa_coo__coo_diretor_de_opera_es_scale_up_de_tecnologia"
-      ],
-      "sample_experience_targets": [
-        "iFood - Diretor de Operações",
-        "iFood — Diretor de Operações",
-        "iFood",
-        "WeHandle - Head de Operações",
-        "WeHandle / iFood",
-        "Grupo Profarma — Gerente de operações sênior"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "perfil"
-      ],
-      "stats": {
-        "times_extracted": 8,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 2,
-        "times_missing_cv": 4,
         "times_gap": 0
       }
     },
@@ -880,6 +880,45 @@
       }
     },
     {
+      "canonical_key": "budget_management",
+      "keyword": "Budget Management",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "gestão orçamentária",
+      "pt_br_alternatives": [
+        "budget",
+        "gestão de budget"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "nubank__product_operations_manager_iii",
+        "amazon__capacity_planning_manager_transportation_planning",
+        "alloha_fibra__gerente_de_planejamento_estrategico",
+        "allied_brasil__gerente_supply_chain_e_pricing",
+        "empresa_confidencial__vp_de_servi_os_opera_es",
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "iFood Diretor",
+        "iFood -- Diretor",
+        "iFood - Diretor de Operações",
+        "iFood - Diretor de Operacoes",
+        "Nubank — Product Operations Manager III"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 6,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 2,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "process_automation",
       "keyword": "Process Automation",
       "translation_ready": true,
@@ -911,44 +950,6 @@
       "stats": {
         "times_extracted": 6,
         "times_covered_cv": 2,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 2,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "budget_management",
-      "keyword": "Budget Management",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "gestão orçamentária",
-      "pt_br_alternatives": [
-        "budget",
-        "gestão de budget"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "nubank__product_operations_manager_iii",
-        "amazon__capacity_planning_manager_transportation_planning",
-        "alloha_fibra__gerente_de_planejamento_estrategico",
-        "allied_brasil__gerente_supply_chain_e_pricing",
-        "empresa_confidencial__vp_de_servi_os_opera_es"
-      ],
-      "sample_experience_targets": [
-        "iFood — Diretor de Operações",
-        "iFood Diretor",
-        "iFood -- Diretor",
-        "iFood - Diretor de Operações",
-        "Nubank — Product Operations Manager III",
-        "Amazon — Capacity Planning Manager, Transportation Planning"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 5,
-        "times_covered_cv": 1,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 2,
         "times_gap": 0
@@ -1027,6 +1028,45 @@
         "times_covered_cv": 3,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "marketplace_operations",
+      "keyword": "Marketplace Operations",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "operacoes de marketplace",
+      "pt_br_alternatives": [
+        "operacoes em marketplace",
+        "marketplace"
+      ],
+      "accepted_variants": [
+        "marketplace"
+      ],
+      "usage_notes": "Em CV PT-BR, usar operacoes de marketplace quando o termo em ingles deixar a frase artificial.",
+      "sample_application_keys": [
+        "ifood__gerente_pricing_demanda",
+        "zubale__central_ops_manager_temporary",
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "iFood - Diretor de Operacoes",
+        "iFood — Gerente Pricing Demanda",
+        "Zubale — Central Ops Manager (Temporary)",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 2,
+        "times_missing_cv": 1,
         "times_gap": 0
       }
     },
@@ -1171,6 +1211,43 @@
       "stats": {
         "times_extracted": 3,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "quality_management",
+      "keyword": "Quality Management (ISO 9001)",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "gestão da qualidade ISO 9001",
+      "pt_br_alternatives": [
+        "gestão da qualidade",
+        "sistema de qualidade",
+        "ISO 9001"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'gestão da qualidade' ou menção a normas como ISO 9001 contam como cobertura.",
+      "sample_application_keys": [
+        "mercado_livre__gerente_de_operacao_logistica_mercado_envios",
+        "grupo_easy_para_grupo_share__gerente_de_opera_es",
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Trifil - Expedicacao",
+        "Resinor / Trifil",
+        "Resinor - Coordenador de Qualidade",
+        "Mercado Livre — Gerente de Operacao Logistica - Mercado Envios",
+        "Grupo Easy (para Grupo Share) — Gerente de Operações",
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
         "times_gap": 0
@@ -1343,41 +1420,6 @@
       }
     },
     {
-      "canonical_key": "marketplace_operations",
-      "keyword": "Marketplace Operations",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "operacoes de marketplace",
-      "pt_br_alternatives": [
-        "operacoes em marketplace",
-        "marketplace"
-      ],
-      "accepted_variants": [
-        "marketplace"
-      ],
-      "usage_notes": "Em CV PT-BR, usar operacoes de marketplace quando o termo em ingles deixar a frase artificial.",
-      "sample_application_keys": [
-        "ifood__gerente_pricing_demanda",
-        "zubale__central_ops_manager_temporary"
-      ],
-      "sample_experience_targets": [
-        "iFood — Diretor de Operações",
-        "iFood - Diretor de Operacoes",
-        "iFood — Gerente Pricing Demanda",
-        "Zubale — Central Ops Manager (Temporary)"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "process_governance",
       "keyword": "Process Governance",
       "translation_ready": true,
@@ -1406,40 +1448,6 @@
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 2,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "quality_management",
-      "keyword": "Quality Management (ISO 9001)",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "gestão da qualidade ISO 9001",
-      "pt_br_alternatives": [
-        "gestão da qualidade",
-        "sistema de qualidade",
-        "ISO 9001"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'gestão da qualidade' ou menção a normas como ISO 9001 contam como cobertura.",
-      "sample_application_keys": [
-        "mercado_livre__gerente_de_operacao_logistica_mercado_envios",
-        "grupo_easy_para_grupo_share__gerente_de_opera_es"
-      ],
-      "sample_experience_targets": [
-        "Trifil - Expedicacao",
-        "Resinor / Trifil",
-        "Mercado Livre — Gerente de Operacao Logistica - Mercado Envios",
-        "Grupo Easy (para Grupo Share) — Gerente de Operações"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
         "times_gap": 0
       }
     },
@@ -2874,9 +2882,9 @@
       "sample_experience_targets": [],
       "sample_origins": [],
       "stats": {
-        "times_extracted": 14,
+        "times_extracted": 15,
         "times_covered_cv": 4,
-        "times_covered_similar_cv": 1,
+        "times_covered_similar_cv": 2,
         "times_missing_cv": 4,
         "times_gap": 0
       }
@@ -3001,6 +3009,46 @@
       }
     },
     {
+      "canonical_key": "e_commerce",
+      "keyword": "e-commerce",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "shopee__gerente_de_opera_es_log_sticas",
+        "confidential_careers__gerente_de_opera_es_transporte_last_mile",
+        "ocean_drop__diretor_operacional_coo",
+        "loggi__gerente_de_opera_es_log_sticas_last_mile",
+        "empresa_confidencial_isis_rodrigues__diretor_executivo_ceo_senior",
+        "shein__strategy_operations_manager",
+        "grupo_incense__gerente_de_log_stica"
+      ],
+      "sample_experience_targets": [
+        "iFood — Head/Diretor",
+        "Shopee — Gerente de Operações Logísticas",
+        "Confidential Careers — Gerente de Operações - Transporte & Last Mile",
+        "Ocean Drop — Diretor Operacional (COO)",
+        "Loggi — Gerente de Operações Logísticas Last Mile",
+        "Empresa Confidencial (Isis Rodrigues) — Diretor Executivo CEO Senior"
+      ],
+      "sample_origins": [
+        "requisitos",
+        "diferenciais",
+        "background desejado",
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 7,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 3,
+        "times_gap": 4
+      }
+    },
+    {
       "canonical_key": "melhoria_continua",
       "keyword": "Melhoria Continua",
       "translation_ready": false,
@@ -3044,8 +3092,8 @@
       }
     },
     {
-      "canonical_key": "e_commerce",
-      "keyword": "e-commerce",
+      "canonical_key": "pricing_strategy",
+      "keyword": "Pricing Strategy",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
@@ -3053,32 +3101,32 @@
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "shopee__gerente_de_opera_es_log_sticas",
-        "confidential_careers__gerente_de_opera_es_transporte_last_mile",
-        "ocean_drop__diretor_operacional_coo",
-        "loggi__gerente_de_opera_es_log_sticas_last_mile",
-        "empresa_confidencial_isis_rodrigues__diretor_executivo_ceo_senior",
-        "shein__strategy_operations_manager"
+        "iugu__head_de_revenue_operations",
+        "allied_brasil__gerente_supply_chain_e_pricing",
+        "ifood__gerente_pricing_demanda",
+        "amazon__category_director_brazil_stores",
+        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
       ],
       "sample_experience_targets": [
-        "Shopee — Gerente de Operações Logísticas",
-        "Confidential Careers — Gerente de Operações - Transporte & Last Mile",
-        "Ocean Drop — Diretor Operacional (COO)",
-        "Loggi — Gerente de Operações Logísticas Last Mile",
-        "Empresa Confidencial (Isis Rodrigues) — Diretor Executivo CEO Senior",
-        "SHEIN — Strategy Operations Manager"
+        "iFood — Head de Operações",
+        "iFood + VivaReal + Trifil",
+        "VivaReal — Gerente de Planejamento",
+        "iFood — Head/Diretor de Operações",
+        "iFood - Head | Trifil - IC",
+        "iugu — Head de Revenue Operations"
       ],
       "sample_origins": [
-        "requisitos",
-        "diferenciais",
-        "background desejado"
+        "já selecionada",
+        "perfil"
       ],
       "stats": {
-        "times_extracted": 6,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
+        "times_extracted": 7,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 1,
         "times_missing_cv": 2,
-        "times_gap": 4
+        "times_gap": 0
       }
     },
     {
@@ -3133,6 +3181,26 @@
       ],
       "stats": {
         "times_extracted": 6,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 3,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "capacidade_anal_tica",
+      "keyword": "Capacidade Analítica",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 5,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 3,
@@ -3197,42 +3265,6 @@
       }
     },
     {
-      "canonical_key": "pricing_strategy",
-      "keyword": "Pricing Strategy",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "iugu__head_de_revenue_operations",
-        "allied_brasil__gerente_supply_chain_e_pricing",
-        "ifood__gerente_pricing_demanda",
-        "amazon__category_director_brazil_stores",
-        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica"
-      ],
-      "sample_experience_targets": [
-        "iFood + VivaReal + Trifil",
-        "VivaReal — Gerente de Planejamento",
-        "iFood — Head/Diretor de Operações",
-        "iFood - Head | Trifil - IC",
-        "iugu — Head de Revenue Operations",
-        "Allied Brasil — Gerente Supply Chain e Pricing"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "perfil"
-      ],
-      "stats": {
-        "times_extracted": 5,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "a_b_testing",
       "keyword": "A/B Testing",
       "translation_ready": false,
@@ -3267,22 +3299,36 @@
       }
     },
     {
-      "canonical_key": "capacidade_anal_tica",
-      "keyword": "Capacidade Analítica",
+      "canonical_key": "customer_satisfaction",
+      "keyword": "customer satisfaction",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
       "pt_br_alternatives": [],
       "accepted_variants": [],
       "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
+      "sample_application_keys": [
+        "stryker__logistics_manager_hybrid",
+        "airbnb__partner_operations_manager",
+        "nestig__customs_and_logistics",
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "wehandle - Head de Operacoes",
+        "Stryker — Logistics Manager (Hybrid)",
+        "Airbnb — Partner Operations Manager",
+        "Nestig — Customs and Logistics",
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "responsabilidades",
+        "já selecionada"
+      ],
       "stats": {
         "times_extracted": 4,
         "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 2,
+        "times_covered_similar_cv": 2,
+        "times_missing_cv": 1,
         "times_gap": 0
       }
     },
@@ -3375,6 +3421,42 @@
       "stats": {
         "times_extracted": 4,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 2,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "project_management",
+      "keyword": "project management",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "99__cx_ops_manager",
+        "amazon__capacity_planning_manager_transportation_planning",
+        "keeta__head_of_merchant_growth_cs",
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Trifil / iFood / Renault",
+        "iFood — Diretor de Operações",
+        "Trifil - Coordenador de S&OP",
+        "99 — CX Ops Manager",
+        "Amazon — Capacity Planning Manager, Transportation Planning",
+        "Keeta — Head of Merchant Growth (CS)"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "adicionada por densidade",
+        "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 2,
         "times_gap": 0
@@ -3535,36 +3617,6 @@
       }
     },
     {
-      "canonical_key": "customer_satisfaction",
-      "keyword": "customer satisfaction",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "stryker__logistics_manager_hybrid",
-        "airbnb__partner_operations_manager",
-        "nestig__customs_and_logistics"
-      ],
-      "sample_experience_targets": [
-        "Stryker — Logistics Manager (Hybrid)",
-        "Airbnb — Partner Operations Manager",
-        "Nestig — Customs and Logistics"
-      ],
-      "sample_origins": [
-        "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 3,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 2,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "excel_advanced",
       "keyword": "Excel Advanced",
       "translation_ready": false,
@@ -3614,6 +3666,38 @@
         "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "go_to_market",
+      "keyword": "Go-to-Market",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "spacex__business_operations_manager_starlink_brazil_growth",
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood - Diretor de Operacoes",
+        "SpaceX — Business Operations Manager (Starlink Brazil Growth)",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "responsabilidades",
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 2,
         "times_gap": 0
       }
     },
@@ -3751,40 +3835,6 @@
         "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "project_management",
-      "keyword": "project management",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "99__cx_ops_manager",
-        "amazon__capacity_planning_manager_transportation_planning",
-        "keeta__head_of_merchant_growth_cs"
-      ],
-      "sample_experience_targets": [
-        "Trifil / iFood / Renault",
-        "iFood — Diretor de Operações",
-        "99 — CX Ops Manager",
-        "Amazon — Capacity Planning Manager, Transportation Planning",
-        "Keeta — Head of Merchant Growth (CS)"
-      ],
-      "sample_origins": [
-        "adicionada por densidade",
-        "requisitos",
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 3,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 2,
         "times_gap": 0
       }
     },
@@ -4055,6 +4105,36 @@
       }
     },
     {
+      "canonical_key": "cadeia_de_suprimentos",
+      "keyword": "Cadeia de Suprimentos",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "uniscience__gerente_de_opera_es",
+        "grupo_incense__gerente_de_log_stica"
+      ],
+      "sample_experience_targets": [
+        "iFood / Trifil",
+        "Uniscience — Gerente de Operações",
+        "Grupo Incense — Gerente de Logística"
+      ],
+      "sample_origins": [
+        "requisitos",
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "comunica_o",
       "keyword": "comunicação",
       "translation_ready": false,
@@ -4186,36 +4266,6 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "data_analytics",
-      "keyword": "Data Analytics",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
-        "amazon_log_stica_do_brasil_amazon__capacity_planning_manager_otr_amzl_capacity_planning"
-      ],
-      "sample_experience_targets": [
-        "iFood — Head / Diretor",
-        "Busca Ativa — CV Geral - Operações / Supply Chain / Logística",
-        "Amazon Logística do Brasil (Amazon) — Capacity Planning Manager - OTR, AMZL Capacity Planning"
-      ],
-      "sample_origins": [
-        "perfil",
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
         "times_gap": 0
@@ -4430,6 +4480,35 @@
       }
     },
     {
+      "canonical_key": "incentive_program_management",
+      "keyword": "Incentive Program Management",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood — Head de Operações",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "indicadores_operacionais",
       "keyword": "indicadores operacionais",
       "translation_ready": false,
@@ -4530,10 +4609,10 @@
       "sample_experience_targets": [
         "iFood - Diretor de Operações",
         "iFood — Diretor de Operações",
+        "iFood — Diretor",
         "iFood / wehandle / VivaReal",
         "iFood Head + Diretor",
-        "iFood + Trifil",
-        "iFood — Diretor"
+        "iFood + Trifil"
       ],
       "sample_origins": [
         "já selecionada",
@@ -6564,32 +6643,6 @@
       ],
       "sample_origins": [
         "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "cadeia_de_suprimentos",
-      "keyword": "Cadeia de Suprimentos",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "uniscience__gerente_de_opera_es"
-      ],
-      "sample_experience_targets": [
-        "Uniscience — Gerente de Operações"
-      ],
-      "sample_origins": [
-        "requisitos"
       ],
       "stats": {
         "times_extracted": 1,
@@ -9714,16 +9767,19 @@
       "sample_application_keys": [
         "petlove__gerente_de_operacoes_logisticas",
         "confidencial_empresa_de_servi_os_engenharia_integradora__diretor_de_supply_chain",
-        "empresa_do_setor_farmac_utico_confidencial_wise_and_talented__diretor_de_supply_chain"
+        "empresa_do_setor_farmac_utico_confidencial_wise_and_talented__diretor_de_supply_chain",
+        "grupo_incense__gerente_de_log_stica"
       ],
       "sample_experience_targets": [
         "Petlove — Gerente de Operacoes Logisticas",
         "Confidencial (Empresa de serviços/engenharia/integradora) — Diretor de Supply Chain",
-        "Empresa do Setor Farmacêutico (confidencial) — Wise and Talented — Diretor de Supply Chain"
+        "Empresa do Setor Farmacêutico (confidencial) — Wise and Talented — Diretor de Supply Chain",
+        "Grupo Incense — Gerente de Logística"
       ],
       "sample_origins": [
         "responsabilidades",
-        "responsabilidades/requisitos"
+        "responsabilidades/requisitos",
+        "requisitos"
       ],
       "stats": {
         "times_extracted": 1,
@@ -10236,33 +10292,6 @@
       ],
       "sample_origins": [
         "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "go_to_market",
-      "keyword": "Go-to-Market",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "spacex__business_operations_manager_starlink_brazil_growth"
-      ],
-      "sample_experience_targets": [
-        "iFood - Diretor de Operacoes",
-        "SpaceX — Business Operations Manager (Starlink Brazil Growth)"
-      ],
-      "sample_origins": [
-        "já selecionada"
       ],
       "stats": {
         "times_extracted": 1,
@@ -12199,6 +12228,32 @@
       ],
       "sample_origins": [
         "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "on_time",
+      "keyword": "On Time",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "grupo_incense__gerente_de_log_stica"
+      ],
+      "sample_experience_targets": [
+        "Grupo Incense — Gerente de Logística"
+      ],
+      "sample_origins": [
+        "responsabilidades"
       ],
       "stats": {
         "times_extracted": 1,
@@ -15853,6 +15908,26 @@
       }
     },
     {
+      "canonical_key": "transporte_e_distribui_o",
+      "keyword": "Transporte e distribuição",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "treinamento_de_times_de_vendas",
       "keyword": "Treinamento de times de vendas",
       "translation_ready": false,
@@ -16248,8 +16323,8 @@
       "sample_experience_targets": [],
       "sample_origins": [],
       "stats": {
-        "times_extracted": 25,
-        "times_covered_cv": 9,
+        "times_extracted": 26,
+        "times_covered_cv": 10,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 6,
         "times_gap": 1
@@ -16358,12 +16433,12 @@
         "pravaler__pessoa_gerente_de_planejamento_comercial_estrat_gia"
       ],
       "sample_experience_targets": [
+        "iFood — Diretor de Operações",
         "Renault - Gerente de CS",
         "Wehandle - Head de Operações",
         "Renault - Gerente de Customer Success",
         "Geral",
-        "iFood - Head de Operações",
-        "Renault do Brasil - Gerente de Customer Success"
+        "iFood - Head de Operações"
       ],
       "sample_origins": [
         "já selecionada",
@@ -16371,10 +16446,50 @@
         "adicionada por densidade"
       ],
       "stats": {
-        "times_extracted": 10,
-        "times_covered_cv": 7,
+        "times_extracted": 12,
+        "times_covered_cv": 8,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "cross_functional_collaboration",
+      "keyword": "Cross-functional Collaboration",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "mercado_livre__gerente_de_operacao_logistica_mercado_envios",
+        "99_didi__senior_operations_manager_search_recommendation",
+        "keeta__head_of_merchant_growth_cs",
+        "voy_manual__strategy_operations_manager",
+        "wellhub__operations_performance_manager",
+        "amazon_log_stica_do_brasil_amazon__capacity_planning_manager_otr_amzl_capacity_planning",
+        "shein__strategy_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "iFood - Diretor de Operacoes",
+        "iFood — Diretor / wehandle",
+        "WeHandle - Head de Operações",
+        "Wellhub — Head of Client Operations",
+        "Mercado Livre — Gerente de Operacao Logistica - Mercado Envios"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "requisitos",
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 10,
+        "times_covered_cv": 4,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 1,
         "times_gap": 0
       }
     },
@@ -16434,46 +16549,6 @@
         "times_extracted": 8,
         "times_covered_cv": 2,
         "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "cross_functional_collaboration",
-      "keyword": "Cross-functional Collaboration",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations",
-        "mercado_livre__gerente_de_operacao_logistica_mercado_envios",
-        "99_didi__senior_operations_manager_search_recommendation",
-        "keeta__head_of_merchant_growth_cs",
-        "voy_manual__strategy_operations_manager",
-        "wellhub__operations_performance_manager",
-        "amazon_log_stica_do_brasil_amazon__capacity_planning_manager_otr_amzl_capacity_planning",
-        "shein__strategy_operations_manager"
-      ],
-      "sample_experience_targets": [
-        "iFood - Diretor de Operacoes",
-        "iFood — Diretor de Operações",
-        "iFood — Diretor / wehandle",
-        "WeHandle - Head de Operações",
-        "Wellhub — Head of Client Operations",
-        "Mercado Livre — Gerente de Operacao Logistica - Mercado Envios"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "requisitos",
-        "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 8,
-        "times_covered_cv": 3,
-        "times_covered_similar_cv": 1,
         "times_missing_cv": 1,
         "times_gap": 0
       }
@@ -16575,6 +16650,26 @@
         "times_covered_cv": 2,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "lideran_a",
+      "keyword": "Liderança",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 6,
+        "times_covered_cv": 4,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
         "times_gap": 0
       }
     },
@@ -16692,6 +16787,26 @@
       }
     },
     {
+      "canonical_key": "gest_o_de_opera_es_log_sticas",
+      "keyword": "Gestão de operações logísticas",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 5,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 2,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "gest_o_de_stakeholders",
       "keyword": "Gestão de Stakeholders",
       "translation_ready": false,
@@ -16767,26 +16882,6 @@
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
         "times_gap": 2
-      }
-    },
-    {
-      "canonical_key": "lideran_a",
-      "keyword": "Liderança",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 5,
-        "times_covered_cv": 3,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
       }
     },
     {
@@ -16875,6 +16970,77 @@
       "sample_application_keys": [],
       "sample_experience_targets": [],
       "sample_origins": [],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "cross_functional",
+      "keyword": "cross-functional",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "99__cx_ops_manager",
+        "spacex__business_operations_manager_starlink_brazil_growth",
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood / wehandle / VivaReal",
+        "iFood - Diretor / Head de Operacoes",
+        "99 — CX Ops Manager",
+        "SpaceX — Business Operations Manager (Starlink Brazil Growth)",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "requisitos",
+        "ja selecionada",
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "data_analytics",
+      "keyword": "Data Analytics",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
+        "amazon_log_stica_do_brasil_amazon__capacity_planning_manager_otr_amzl_capacity_planning",
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood — Head de Operações",
+        "iFood — Head / Diretor",
+        "Busca Ativa — CV Geral - Operações / Supply Chain / Logística",
+        "Amazon Logística do Brasil (Amazon) — Capacity Planning Manager - OTR, AMZL Capacity Planning",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "perfil"
+      ],
       "stats": {
         "times_extracted": 4,
         "times_covered_cv": 2,
@@ -17011,26 +17177,6 @@
       }
     },
     {
-      "canonical_key": "gest_o_de_opera_es_log_sticas",
-      "keyword": "Gestão de operações logísticas",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 4,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 2,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "mercado_envios",
       "keyword": "Mercado Envios",
       "translation_ready": false,
@@ -17058,6 +17204,40 @@
       "stats": {
         "times_extracted": 4,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "product_operations",
+      "keyword": "Product Operations",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "nubank__product_operations_manager_iii",
+        "99_didi__senior_operations_manager_search_recommendation",
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "iFood — Head/Diretor de Operações",
+        "Nubank — Product Operations Manager III",
+        "99 (DiDi) — Senior Operations Manager — Search & Recommendation",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 2,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -17221,6 +17401,26 @@
         "times_extracted": 3,
         "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "gest_o_de_estoque",
+      "keyword": "Gestão de estoque",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 1,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -17490,6 +17690,39 @@
       }
     },
     {
+      "canonical_key": "process_standardization",
+      "keyword": "Process Standardization",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "monks__associate_director_delivery_operations",
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "Trifil — Coordenador S&OP",
+        "WeHandle / Trifil / VivaReal",
+        "Monks — Associate Director, Delivery Operations",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "revenue_growth",
       "keyword": "Revenue Growth",
       "translation_ready": false,
@@ -17637,6 +17870,26 @@
       "stats": {
         "times_extracted": 3,
         "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "acur_cia_de_estoque",
+      "keyword": "Acurácia de estoque",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -17791,6 +18044,35 @@
       }
     },
     {
+      "canonical_key": "business_process_design",
+      "keyword": "Business Process Design",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "WeHandle — Head de Operações",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "cadeia_de_abastecimento",
       "keyword": "cadeia de abastecimento",
       "translation_ready": false,
@@ -17880,6 +18162,34 @@
       }
     },
     {
+      "canonical_key": "client_incentive_system",
+      "keyword": "Client Incentive System",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 2
+      }
+    },
+    {
       "canonical_key": "client_retention",
       "keyword": "client retention",
       "translation_ready": false,
@@ -17951,37 +18261,6 @@
       "sample_application_keys": [],
       "sample_experience_targets": [],
       "sample_origins": [],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "cross_functional",
-      "keyword": "cross-functional",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "99__cx_ops_manager",
-        "spacex__business_operations_manager_starlink_brazil_growth"
-      ],
-      "sample_experience_targets": [
-        "iFood / wehandle / VivaReal",
-        "iFood - Diretor / Head de Operacoes",
-        "99 — CX Ops Manager",
-        "SpaceX — Business Operations Manager (Starlink Brazil Growth)"
-      ],
-      "sample_origins": [
-        "ja selecionada",
-        "já selecionada"
-      ],
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 1,
@@ -18076,6 +18355,35 @@
         "times_extracted": 2,
         "times_covered_cv": 2,
         "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "dashboard_development",
+      "keyword": "Dashboard Development",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "iFood — Head de Operações",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -18461,26 +18769,6 @@
       }
     },
     {
-      "canonical_key": "gest_o_de_estoque",
-      "keyword": "Gestão de estoque",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "gest_o_de_mudan_a",
       "keyword": "Gestão de Mudança",
       "translation_ready": false,
@@ -18558,6 +18846,34 @@
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "incentive_calculation",
+      "keyword": "Incentive Calculation",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 2
       }
     },
     {
@@ -18666,6 +18982,26 @@
         "times_extracted": 2,
         "times_covered_cv": 2,
         "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "kpis_log_sticos",
+      "keyword": "KPIs Logísticos",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 1,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -18835,36 +19171,6 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 2,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "product_operations",
-      "keyword": "Product Operations",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "nubank__product_operations_manager_iii",
-        "99_didi__senior_operations_manager_search_recommendation"
-      ],
-      "sample_experience_targets": [
-        "iFood — Head/Diretor de Operações",
-        "iFood — Diretor de Operações",
-        "Nubank — Product Operations Manager III",
-        "99 (DiDi) — Senior Operations Manager — Search & Recommendation"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -19062,6 +19368,34 @@
       }
     },
     {
+      "canonical_key": "settlement_payout_process",
+      "keyword": "Settlement/Payout Process",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 2
+      }
+    },
+    {
       "canonical_key": "sql_python",
       "keyword": "SQL / Python",
       "translation_ready": false,
@@ -19114,6 +19448,63 @@
         "times_extracted": 2,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 2,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "system_adoption",
+      "keyword": "System Adoption",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "WeHandle — Head de Operações",
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "system_requirements",
+      "keyword": "System Requirements",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "bytedance_brazil_tiktok__global_product_operations_manager",
+        "bytedance_brazil__global_product_operations_manager"
+      ],
+      "sample_experience_targets": [
+        "ByteDance Brazil (TikTok) — Global Product Operations Manager",
+        "ByteDance Brazil — Global Product Operations Manager"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -19504,26 +19895,6 @@
       }
     },
     {
-      "canonical_key": "acur_cia_de_estoque",
-      "keyword": "Acurácia de estoque",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "agency_governance",
       "keyword": "Agency Governance",
       "translation_ready": false,
@@ -19751,6 +20122,32 @@
         "times_extracted": 1,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "aircraft_maintenance",
+      "keyword": "Aircraft Maintenance",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -20588,6 +20985,32 @@
       "sample_application_keys": [],
       "sample_experience_targets": [],
       "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "aviation_crm",
+      "keyword": "Aviation CRM",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "requisitos"
+      ],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -23474,6 +23897,26 @@
       }
     },
     {
+      "canonical_key": "custo_log_stico",
+      "keyword": "Custo logístico",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "custo_m_dio_de_reparo",
       "keyword": "Custo médio de reparo",
       "translation_ready": false,
@@ -25275,6 +25718,33 @@
       }
     },
     {
+      "canonical_key": "english_proficiency",
+      "keyword": "English Proficiency",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "iFood / wehandle",
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "entregas_no_prazo",
       "keyword": "entregas no prazo",
       "translation_ready": false,
@@ -26075,6 +26545,33 @@
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 1
+      }
+    },
+    {
+      "canonical_key": "facilities_management",
+      "keyword": "Facilities Management",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Trifil - Coordenador de Expedicao",
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
       }
     },
     {
@@ -27538,6 +28035,46 @@
       }
     },
     {
+      "canonical_key": "gest_o_de_invent_rio",
+      "keyword": "Gestão de inventário",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "gest_o_de_log_stica",
+      "keyword": "Gestão de logística",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "gest_o_de_mudan_a_organizacional",
       "keyword": "Gestão de mudança organizacional",
       "translation_ready": false,
@@ -28721,6 +29258,33 @@
       }
     },
     {
+      "canonical_key": "inbound_e_outbound",
+      "keyword": "Inbound e Outbound",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "grupo_incense__gerente_de_log_stica"
+      ],
+      "sample_experience_targets": [
+        "Trifil — Coord. Expedição",
+        "Grupo Incense — Gerente de Logística"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "incident_and_risk_monitoring",
       "keyword": "Incident and Risk Monitoring",
       "translation_ready": false,
@@ -29382,6 +29946,26 @@
       }
     },
     {
+      "canonical_key": "invent_rio",
+      "keyword": "Inventário",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "itapeva_mg",
       "keyword": "Itapeva MG",
       "translation_ready": false,
@@ -29707,26 +30291,6 @@
       }
     },
     {
-      "canonical_key": "kpis_log_sticos",
-      "keyword": "KPIs Logísticos",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "kpis_operacionais",
       "keyword": "KPIs Operacionais",
       "translation_ready": false,
@@ -29847,6 +30411,33 @@
         "times_extracted": 1,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "layout_de_estoque",
+      "keyword": "Layout de estoque",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "grupo_incense__gerente_de_log_stica"
+      ],
+      "sample_experience_targets": [
+        "Trifil — Coord. Expedição",
+        "Grupo Incense — Gerente de Logística"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -30578,6 +31169,32 @@
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 1
+      }
+    },
+    {
+      "canonical_key": "manpower_requirements",
+      "keyword": "Manpower Requirements",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
       }
     },
     {
@@ -31330,6 +31947,33 @@
       }
     },
     {
+      "canonical_key": "microsoft_excel",
+      "keyword": "Microsoft Excel",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Multiplas empresas",
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "mitigation_strategies",
       "keyword": "Mitigation Strategies",
       "translation_ready": false,
@@ -31536,6 +32180,33 @@
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "ms_project",
+      "keyword": "MS Project",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Trifil - Coordenador de S&OP",
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -32014,6 +32685,32 @@
       }
     },
     {
+      "canonical_key": "oem_mro",
+      "keyword": "OEM MRO",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "okrs_kpis",
       "keyword": "OKRs/KPIs",
       "translation_ready": false,
@@ -32381,6 +33078,32 @@
         "times_extracted": 1,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "operations_manager",
+      "keyword": "Operations Manager",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "titulo"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -34481,33 +35204,6 @@
       }
     },
     {
-      "canonical_key": "process_standardization",
-      "keyword": "Process Standardization",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "monks__associate_director_delivery_operations"
-      ],
-      "sample_experience_targets": [
-        "WeHandle / Trifil / VivaReal",
-        "Monks — Associate Director, Delivery Operations"
-      ],
-      "sample_origins": [
-        "adicionada por densidade"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "processos_eficientes",
       "keyword": "processos eficientes",
       "translation_ready": false,
@@ -34565,6 +35261,59 @@
       "sample_application_keys": [],
       "sample_experience_targets": [],
       "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "production_schedules",
+      "keyword": "Production Schedules",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "production_scheduling",
+      "keyword": "Production Scheduling",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "dassault_falcon_jet__operations_manager_brazil"
+      ],
+      "sample_experience_targets": [
+        "Trifil - Coordenador de S&OP",
+        "Dassault Falcon Jet — Operations Manager - Brazil"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,

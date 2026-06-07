@@ -67,7 +67,7 @@ def _iter_strings(value: Any, trail: str = "$"):
             yield from _iter_strings(item, f"{trail}.{key}")
 
 
-@dataclass(slots=True)
+@dataclass
 class FitMapDraftSchema:
     payload: dict[str, Any]
 
@@ -95,7 +95,7 @@ class FitMapDraftSchema:
         return self.payload
 
 
-@dataclass(slots=True)
+@dataclass
 class FitMapFinalSchema:
     payload: dict[str, Any]
 

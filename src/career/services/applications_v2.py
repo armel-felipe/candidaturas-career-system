@@ -67,8 +67,8 @@ STAGE_METADATA = {
 }
 
 
-@dataclass(slots=True)
-class HeartbeatV2Options:
+@dataclass
+class ApplicationRecordSchema:
     max_per_run: int | None
     run_agent: bool
     dry_run: bool

@@ -6,7 +6,7 @@ from typing import Any
 from career.utils import ensure
 
 
-@dataclass(slots=True)
+@dataclass
 class NotionApplicationRecordSchema:
     payload: dict[str, Any]
 
@@ -19,7 +19,7 @@ class NotionApplicationRecordSchema:
         return self.payload
 
 
-@dataclass(slots=True)
+@dataclass
 class NotionApplicationsCacheSchema:
     payload: dict[str, Any]
 

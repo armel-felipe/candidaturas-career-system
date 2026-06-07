@@ -31,7 +31,8 @@ if hasattr(sys.stderr, "reconfigure"):
 PROPERTY_ALIASES = {
     "record_id": ["ID", "Record ID", "Unique ID"],
     "title": ["Vaga", "Nome", "Name", "Cargo", "Title"],
-    "company": ["Empresa", "Company"],
+    "company": ["empresa_int", "Empresa", "Company"],
+    "company_type": ["tipo de empresa_int", "Tipo de Empresa", "Tipo de empresa", "Company Type"],
     "role": ["Cargo", "Vaga", "Role", "Position"],
     "fit": ["avaliação de aderencia claude", "Fit", "Nota", "Nota de aderência", "Aderência", "Fit Score"],
     "status": ["Etapa Funil", "Status", "Etapa"],
@@ -226,7 +227,48 @@ def plain_rich_text(items: list[dict]) -> str:
     )
 
 
-def prop_text(prop: dict) -> str:
+def retrieve_relation_page_title(token: str, page_id: str, relation_cache: dict[str, str] | None = None) -> str:
+    cache = relation_cache if relation_cache is not None else {}
+    if page_id in cache:
+        return cache[page_id]
+
+    page = retrieve_page(token, page_id)
+    title = ""
+    for prop in page.get("properties", {}).values():
+        if prop.get("type") == "title":
+            title = plain_rich_text(prop.get("title", []))
+            if title:
+                break
+    cache[page_id] = title
+    return title
+
+
+def rollup_text(rollup: dict, *, token: str | None = None, relation_cache: dict[str, str] | None = None) -> str:
+    kind = rollup.get("type")
+    if kind == "array":
+        values: list[str] = []
+        for item in rollup.get("array", []):
+            value = prop_text(item, token=token, relation_cache=relation_cache)
+            if value and value not in values:
+                values.append(value)
+        return ", ".join(values)
+    if kind == "number":
+        value = rollup.get("number")
+        return "" if value is None else str(value)
+    if kind == "date":
+        date = rollup.get("date") or {}
+        return date.get("start", "")
+    if kind == "incomplete":
+        return ""
+    if kind == "unsupported":
+        return ""
+    return ""
+
+
+def prop_text(prop: dict, *, token: str | None = None, relation_cache: dict[str, str] | None = None) -> str:
+    text = prop.get("text")
+    if isinstance(text, str) and text:
+        return text
     kind = prop.get("type")
     if kind == "title":
         return plain_rich_text(prop.get("title", []))
@@ -248,6 +290,21 @@ def prop_text(prop: dict) -> str:
         return date.get("start", "")
     if kind == "checkbox":
         return str(prop.get("checkbox", False))
+    if kind == "formula":
+        formula = prop.get("formula") or {}
+        formula_kind = formula.get("type")
+        if formula_kind == "string":
+            return formula.get("string") or ""
+        if formula_kind == "number":
+            value = formula.get("number")
+            return "" if value is None else str(value)
+        if formula_kind == "boolean":
+            value = formula.get("boolean")
+            return "" if value is None else str(value)
+        if formula_kind == "date":
+            date = formula.get("date") or {}
+            return date.get("start", "")
+        return ""
     if kind == "unique_id":
         unique_id = prop.get("unique_id") or {}
         number = unique_id.get("number")
@@ -255,6 +312,23 @@ def prop_text(prop: dict) -> str:
         if number is None:
             return ""
         return f"{prefix}-{number}" if prefix else str(number)
+    if kind == "relation":
+        relation_entries = prop.get("relation", [])
+        if not relation_entries:
+            return ""
+        if not token:
+            return ", ".join(item.get("id", "") for item in relation_entries if item.get("id"))
+        values: list[str] = []
+        for item in relation_entries:
+            page_id = item.get("id")
+            if not page_id:
+                continue
+            value = retrieve_relation_page_title(token, page_id, relation_cache=relation_cache)
+            if value and value not in values:
+                values.append(value)
+        return ", ".join(values)
+    if kind == "rollup":
+        return rollup_text(prop.get("rollup") or {}, token=token, relation_cache=relation_cache)
     return ""
 
 
@@ -296,10 +370,11 @@ def extract_page_payload(token: str, page_id: str) -> dict:
     page = retrieve_page(token, page_id)
     blocks = retrieve_blocks(token, page_id)
     block_lines = [text for text in (block_text(block) for block in blocks) if text]
+    relation_cache: dict[str, str] = {}
     properties = {
         name: {
             "type": prop.get("type"),
-            "text": prop_text(prop),
+            "text": prop_text(prop, token=token, relation_cache=relation_cache),
         }
         for name, prop in page.get("properties", {}).items()
     }
@@ -670,6 +745,7 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
     description = payload.get("description", "") or ""
     body_text = payload.get("body_text", "") or ""
     company = extract_saved_property(payload, "company")
+    company_type = extract_saved_property(payload, "company_type")
     role = extract_saved_property(payload, "role").strip()
     inferred_company, inferred_role = infer_company_and_role(title)
     if not company:
@@ -694,6 +770,7 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
     search_text = normalize_search_text(
         title,
         company,
+        company_type,
         role,
         status,
         source_url,
@@ -708,6 +785,7 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
         "record_id": record_id,
         "title": title,
         "company": company,
+        "company_type": company_type,
         "role": role,
         "status": status,
         "is_archived": bool(payload.get("archived") or payload.get("is_archived") or payload.get("in_trash")),
@@ -1632,11 +1710,17 @@ def record_link(token: str, database_id: str, record_id: int, *, compact: bool =
     page = resolve_page_by_record_id(token, database_id, record_id)
     props = page.get("properties", {})
     title = ""
+    company = ""
+    company_type = ""
     source_url = ""
     status = ""
     for name, prop in props.items():
         if prop.get("type") == "title" and not title:
             title = prop_text(prop)
+        if name in PROPERTY_ALIASES.get("company", []) and not company:
+            company = prop_text(prop, token=token)
+        if name in PROPERTY_ALIASES.get("company_type", []) and not company_type:
+            company_type = prop_text(prop, token=token)
         if name in PROPERTY_ALIASES.get("source_url", []) and not source_url:
             source_url = prop_text(prop)
         if name in PROPERTY_ALIASES.get("status", []) and not status:
@@ -1649,6 +1733,8 @@ def record_link(token: str, database_id: str, record_id: int, *, compact: bool =
         "notion_url": page.get("url"),
     }
     if not compact:
+        payload["company"] = company or None
+        payload["company_type"] = company_type or None
         payload["source_url"] = source_url or None
     return payload
 

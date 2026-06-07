@@ -6,7 +6,7 @@ from typing import Any
 from career.utils import ensure
 
 
-@dataclass(slots=True)
+@dataclass
 class CvReviewReportSchema:
     payload: dict[str, Any]
 
