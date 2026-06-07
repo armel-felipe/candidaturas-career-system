@@ -24,9 +24,8 @@ AGENTS.md  →  .opencode/skills/career-system/SKILL.md
                          ↓
        .career-state/applications_v2/<ID>/       (memoria canonica da candidatura)
                          ↓
-                         outputs/               (DOCX final e logs entregaveis)
-                         outputs/_tmp/          (intermediarios de geracao; pode limpar apos entrega final)
-                         scripts/generated/     (scripts especificos gerados)
+                         outputs/               (DOCX final e artefatos entregaveis)
+                         outputs/_tmp/          (intermediarios e relatorios de gate; nao limpar antes da aprovacao final)
 ```
 
 O estado fica nos arquivos, nao no runtime. No fluxo novo, cada candidatura tem uma pasta propria em `.career-state/applications_v2/<ID>/`. O arquivo `.career-state/fit_map.json` continua existindo para skills gerais, mas o heartbeat usa a pasta da candidatura como fonte primaria.
@@ -75,7 +74,7 @@ Exemplos:
 python scripts/career_cli.py notion refresh
 python scripts/career_cli.py fit-map template
 python scripts/career_cli.py fit-map status
-python scripts/career_cli.py workflow show-state
+python scripts/career_cli.py workflow summary
 ```
 
 ## 1.3 Caminho canonico de execucao no OpenCode
@@ -87,6 +86,8 @@ Use sempre este caminho, sem variantes:
 3. ler `.opencode/skills/career-system/SKILL.md`
 4. ler `.opencode/skills/{skill}/SKILL.md` da tarefa pedida
 5. executar a proxima acao concreta da skill usando as tools reais do ambiente
+
+Para runtimes Claude, o arquivo `CLAUDE.md` funciona apenas como ponte para esse mesmo fluxo. Em caso de conflito, `AGENTS.md` continua sendo a fonte canonica.
 
 Regra de interpretacao:
 - skill e workflow, nao garantia de tool dedicada
@@ -111,19 +112,19 @@ Em outras palavras: OpenCode e Codex devem operar sobre o mesmo caminho fisico d
 
 | Funcionalidade | Frase gatilho | Skill acionada |
 |---|---|---|
-| Analisar vaga | "Analisa essa vaga: [colar anúncio]" | `career-fit-analysis` |
+| Analisar vaga | "Analisa essa vaga: [colar anúncio]" | `intake-orchestrator` → `career-fit-analysis` |
 | Quais cargos combinam comigo | "Quais cargos são mais aderentes ao meu perfil?" | `career-fit-analysis` modo 2 |
 | Posicionamento para cargo novo | "Quero construir posicionamento para [cargo]" | `career-fit-analysis` modo 3 |
-| Gerar CV | "Gera o CV para essa vaga" | `cv-generator` |
+| Gerar CV | "Gera o CV para essa vaga" | `intake-orchestrator` → `career-fit-analysis` → `cv-generator` |
 | Gerar CV geral | "Gera um CV geral para sites de emprego" / "CV geral conciso" | `general-cv-optimizer` |
-| Gerar pitch / FERAS | "Gera o FERAS" / "Como me apresento para essa vaga?" | `feras-pitch` |
-| Carta de apresentação | "Faz a carta de apresentação" | `cover-letter` |
-| Habilidades Mercado Livre / Gupy | "Traga 10 habilidades Mercado Livre" / "Seleciona as habilidades do Gupy" | `habilidades-chave` |
+| Gerar pitch / FERAS | "Gera o FERAS" / "Como me apresento para essa vaga?" | `career-fit-analysis` → `feras-pitch` |
+| Carta de apresentação | "Faz a carta de apresentação" | `career-fit-analysis` → `cover-letter` |
+| Habilidades Mercado Livre / Gupy | "Traga 10 habilidades Mercado Livre" / "Seleciona as habilidades do Gupy" | `career-fit-analysis` → `habilidades-chave` |
 | Mensagem LinkedIn | "Escreve a mensagem de networking para [perfil]" | `networking-message` |
 | Draft de email / candidatura por Gmail | "Crie um draft de email de candidatura para [email]" | `self-email-draft` |
 | Revisar documento | "Revisa o CV" / "Confere a carta" / "Está bom?" | `output-reviewer` |
-| Candidatura completa via Notion | usar `run_agent_heartbeat_once.sh` | orquestrador por etapa |
-| Sincronizar Notion | "Exporta para o Notion" / "Cria a página no Notion" | via `scripts/notion_sync.py` |
+| Candidatura completa via Notion | "faz tudo" / "analisa e salva" / heartbeat | `unified-job-analysis` ou `applications:heartbeat` |
+| Sincronizar Notion | "Exporta para o Notion" / "Cria a página no Notion" | `notion-transactions` |
 
 ---
 
@@ -135,7 +136,7 @@ OpenCode e acionado no terminal. Dois modos:
 
 ```bash
 # Iniciar sessão no diretório do projeto
-cd "/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/llm server/projetos/candidaturas"
+cd "/Users/mac/llm server/projetos/candidaturas"
 opencode
 ```
 
@@ -154,24 +155,24 @@ opencode run "Seleciona as habilidades do Gupy usando o FIT_MAP ativo"
 
 ### 2.3 Heartbeat automatico no MacBook
 
-Para operar o fluxo automatico de candidaturas, prefira os arquivos `.sh` da raiz do projeto:
+Para operar o fluxo automatico de candidaturas, prefira os comandos canonicos do `package.json`:
 
 ```bash
-./run_agent_heartbeat_once.sh
-./stop_active_agent_run.sh
-# pausa: descarregue o LaunchAgent em ~/Library/LaunchAgents/com.felipe.candidaturas.heartbeat.plist
-# retomar: reinstale com ./install_agent_heartbeat_60min.sh
-./install_agent_heartbeat_60min.sh
+npm run applications:config
+npm run applications:heartbeat -- --dry-run --max-per-run 1
+npm run applications:heartbeat -- --max-per-run 3
+npm run applications:agent-heartbeat -- --max-per-run 3
+npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
 ```
 
 Regras praticas:
-- `run_agent_heartbeat_once.sh` pede confirmacao `RUN` antes de consumir modelo.
-- `stop_active_agent_run.sh` pede confirmacao `STOP`, encerra heartbeat/OpenCode ativo e limpa locks locais.
-- o arquivo `run_agent_heartbeat_once.sh` controla `--max-per-run`; ajuste ali quando quiser testar 1, 2 ou mais vagas.
+- `applications:heartbeat` processa vagas elegiveis em sequencia, nunca em paralelo.
+- `applications:agent-heartbeat` executa as etapas `analyze` e `generate` com modelo; render, reviewer, polish e finalize continuam locais.
+- `--max-per-run` define o tamanho do lote, mas a execucao segue serial.
 - o modelo padrao fica em `.career-state/applications_v2/config.json`; para trocar, ajuste `active_model` e `active_variant`.
 - o status `Reprocessar` no Notion limpa o pacote local da candidatura e força nova execução no próximo heartbeat.
-- o heartbeat processa vagas em sequencia, nunca em paralelo.
-- o modelo entra apenas nas etapas `analyze` e `generate`; render, reviewer, polish e update no Notion ficam com o orquestrador local.
+- a vaga precisa estar com status de tratamento automatico `Fila Agente`.
+- vaga sem `Descrição da Vaga` deve ser movida para `Sem descrição de vaga`.
 
 ### 2.4 Fluxo manual por candidatura
 
@@ -189,10 +190,11 @@ npm run general-cv:strategy -- --mode concise --dominant-cluster operacoes_suppl
 ```
 
 Regras principais:
-- `CV geral` sem modo usa expandido com 8 bullets por experiência
-- `CV geral com X bullets` aceita X entre 4 e 8
+- `CV geral` sem modo usa `concise` com `bullet_count=3`
+- modo expandido so deve ser usado quando o usuario pedir explicitamente
+- `CV geral com X bullets` aceita X entre 4 e 8 apenas no modo expandido
 - cada bullet narrativo expandido deve ter 270 a 330 caracteres
-- `CV geral conciso` exige escolher um cluster dominante antes de gerar
+- `CV geral conciso` usa `operacoes_supply_logistica` como cluster dominante padrao quando o usuario nao informar outro
 - o DOCX geral final deve ser aprovado com `npm run general-cv:approve -- --artifact outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx`
 
 ### 2.3 Gmail — drafts de email e candidatura
@@ -396,14 +398,20 @@ npm run notion:list
 **Sincronizar o snapshot local de candidaturas do Notion:**
 
 ```bash
+npm run notion:sweep:refresh
+```
+
+Esse e o comando padrao para sincronizar o snapshot local do Notion e reescrever o cache consolidado antes de consultas de historico, porque pode haver edicoes feitas diretamente no Notion sem passar por este repositorio.
+
+Se voce precisar apenas sincronizar o sweep bruto, o comando legado continua disponivel:
+
+```bash
 npm run notion:sweep:sync
 ```
 
-Esse comando compara o banco do Notion com `inbox/notion/applications_sweep/`, baixa as candidaturas faltantes e reescreve:
+Ele compara o banco do Notion com `inbox/notion/applications_sweep/`, baixa as candidaturas faltantes e reescreve:
 - `inbox/notion/applications_sweep_summary.json`
 - `inbox/notion/applications_cache.json`
-
-Regra recomendada do projeto: quando a consulta depender do historico de candidaturas do Notion, prefira sempre `npm run notion:sweep:refresh`, porque pode haver edicoes feitas diretamente no Notion sem passar por este repositorio.
 
 **Atualizar do Notion e reescrever o cache consolidado:**
 
@@ -424,7 +432,7 @@ Esse comando usa apenas os arquivos ja salvos em `inbox/notion/applications_swee
 **Inspecionar o estado do workflow:**
 
 ```bash
-python scripts/career_cli.py workflow show-state
+python scripts/career_cli.py workflow summary
 ```
 
 O estado e persistido em `.career-state/workflow_state.json` e registra quais etapas estruturadas ja foram concluidas.

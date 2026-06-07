@@ -58,6 +58,12 @@ RCLONE_ONEDRIVE_DELIVERY_DIR=01_armel/Curriculos/personalizados
 
 Não coloque tokens do rclone no GitHub. A configuração real do rclone fica no perfil do usuário da máquina.
 
+Regra dura do projeto:
+
+- todo artefato deve ir para `01_armel/Curriculos/personalizados`
+- subpastas dentro de `01_armel/Curriculos/personalizados/` sao permitidas
+- destinos fora dessa arvore sao bloqueados pelo script de entrega, mesmo se vierem de `--folder` ou de `.env` incorreto
+
 ## Testar se o OneDrive responde
 
 ```bash
@@ -97,7 +103,7 @@ Status esperados:
 - `delivered`: upload feito e verificado no OneDrive.
 - `failed`: falhou; ver `error`, `stdout` e `stderr` no relatório.
 
-## Comando com pasta diferente
+## Comando com subpasta permitida
 
 ```bash
 npm run deliver:artifact -- --file outputs/<arquivo>.docx --folder "01_armel/Curriculos/personalizados/2026_06"
