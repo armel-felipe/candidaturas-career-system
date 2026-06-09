@@ -68,7 +68,7 @@ STAGE_METADATA = {
 
 
 @dataclass
-class ApplicationRecordSchema:
+class HeartbeatV2Options:
     max_per_run: int | None
     run_agent: bool
     dry_run: bool
@@ -126,6 +126,10 @@ def _app_paths(app_dir: Path) -> dict[str, Path]:
         "generation_request_md": app_dir / "generation_request.md",
         "repair_request_json": app_dir / "repair_request.json",
         "repair_request_md": app_dir / "repair_request.md",
+        "cv_input_pack": app_dir / "cv_input_pack.json",
+        "cv_content_seed": app_dir / "cv_content_seed.json",
+        "feras_input_pack": app_dir / "feras_input_pack.json",
+        "habilidades_input_pack": app_dir / "habilidades_input_pack.json",
         "fit_map_notion_payload": app_dir / "fit_map_notion_payload.json",
         "conversation_context": app_dir / "conversation_context.md",
         "cv_content": app_dir / "cv_content.json",
@@ -387,6 +391,95 @@ def _expected_cv_docx_path(paths: dict[str, Path]) -> Path:
     return OUTPUTS / output_name
 
 
+def _extract_job_lines(text: str, limit: int) -> list[str]:
+    items: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip(" -•\t")
+        if len(line) < 25:
+            continue
+        if not any(ch.isalpha() for ch in line):
+            continue
+        items.append(line)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _write_generation_inputs(paths: dict[str, Path]) -> dict[str, str]:
+    manifest = read_json(paths["manifest"])
+    fit_map = read_json(paths["fit_map"])
+    job_text = paths["job_description"].read_text(encoding="utf-8") if paths["job_description"].exists() else ""
+    role = str(fit_map.get("cargo") or manifest.get("role") or manifest.get("title") or "vaga")
+    company = str(fit_map.get("empresa") or manifest.get("company") or "empresa")
+    language = str(manifest.get("required_cv_language") or "pt-BR")
+    extracted_lines = _extract_job_lines(job_text, 12)
+    requirements = extracted_lines[:6]
+    responsibilities = extracted_lines[6:12]
+    if not responsibilities:
+        responsibilities = requirements[:4]
+    selected = fit_map.get("historias_selecionadas", {}) if isinstance(fit_map.get("historias_selecionadas"), dict) else {}
+    top8 = [
+        str(item.get("keyword") or "").strip()
+        for item in sorted(
+            [entry for entry in fit_map.get("keywords_habilidade_ats", []) if isinstance(entry, dict)],
+            key=lambda item: int(item.get("prioridade") or 999),
+        )[:8]
+        if str(item.get("keyword") or "").strip()
+    ]
+    cv_input_pack = {
+        "kind": "cv_input_pack",
+        "created_at": utc_now_iso(),
+        "source": {
+            "fit_map_path": str(paths["fit_map"].relative_to(ROOT)),
+            "job_description_path": str(paths["job_description"].relative_to(ROOT)),
+        },
+        "job_identity": {"cargo": role, "empresa": company, "language": language},
+        "dor_central": fit_map.get("dor_central"),
+        "requirements": requirements,
+        "responsibilities": responsibilities,
+        "selected_stories": selected,
+        "keywords_para_ats": fit_map.get("keywords_para_ats", []),
+        "top8_keywords": top8,
+        "objecoes": fit_map.get("objecoes", []),
+        "required_output_name": _expected_cv_docx_path(paths).name,
+    }
+    cv_content_seed = {
+        "kind": "cv_content_seed",
+        "created_at": utc_now_iso(),
+        "job_identity": {"cargo": role, "empresa": company, "language": language},
+        "persona_hint": "concise",
+        "top8_keywords": top8,
+        "selected_stories": selected,
+        "required_output_name": _expected_cv_docx_path(paths).name,
+    }
+    feras_input_pack = {
+        "kind": "feras_input_pack",
+        "created_at": utc_now_iso(),
+        "job_identity": {"cargo": role, "empresa": company, "language": language},
+        "dor_central": fit_map.get("dor_central"),
+        "selected_stories": selected,
+        "keywords_para_ats": fit_map.get("keywords_para_ats", []),
+        "objecoes": fit_map.get("objecoes", []),
+    }
+    habilidades_input_pack = {
+        "kind": "habilidades_input_pack",
+        "created_at": utc_now_iso(),
+        "job_identity": {"cargo": role, "empresa": company, "language": language},
+        "keywords_para_ats": fit_map.get("keywords_para_ats", []),
+        "gaps_sem_cobertura": fit_map.get("gaps_sem_cobertura", []),
+        "selected_stories": selected,
+    }
+    payloads = {
+        "cv_input_pack": cv_input_pack,
+        "cv_content_seed": cv_content_seed,
+        "feras_input_pack": feras_input_pack,
+        "habilidades_input_pack": habilidades_input_pack,
+    }
+    for key, payload in payloads.items():
+        write_json(paths[key], payload)
+    return {key: str(paths[key].relative_to(ROOT)) for key in payloads}
+
+
 def _is_review_approved(paths: dict[str, Path]) -> bool:
     artifact = _expected_cv_docx_path(paths)
     if not artifact.exists():
@@ -484,6 +577,7 @@ def _analysis_retry_request(application: dict[str, Any], paths: dict[str, Path],
 def _generation_request(application: dict[str, Any], paths: dict[str, Path]) -> dict[str, Any]:
     manifest = read_json(paths["manifest"])
     fit_map = read_json(paths["fit_map"])
+    compact_inputs = _write_generation_inputs(paths)
     top8_keywords = [
         {
             "priority": item.get("prioridade"),
@@ -505,15 +599,18 @@ def _generation_request(application: dict[str, Any], paths: dict[str, Path]) -> 
             "company": application.get("company"),
             "role": application.get("role"),
         },
-        "fit_map_path": str(paths["fit_map"].relative_to(ROOT)),
-        "fit_map_snapshot": {
-            "cargo": fit_map.get("cargo"),
-            "empresa": fit_map.get("empresa"),
-            "dor_central": fit_map.get("dor_central"),
-            "keywords_para_ats": fit_map.get("keywords_para_ats"),
-            "objecoes": fit_map.get("objecoes"),
-            "historias_selecionadas": fit_map.get("historias_selecionadas"),
-            "nota_final": fit_map.get("nota_aderencia", {}).get("final"),
+        "compact_inputs": {
+            "primary_files": compact_inputs,
+            "fallback_files": {
+                "fit_map_path": str(paths["fit_map"].relative_to(ROOT)),
+                "job_description_path": str(paths["job_description"].relative_to(ROOT)),
+            },
+            "fit_map_snapshot": {
+                "cargo": fit_map.get("cargo"),
+                "empresa": fit_map.get("empresa"),
+                "dor_central": fit_map.get("dor_central"),
+                "nota_final": fit_map.get("nota_aderencia", {}).get("final"),
+            },
         },
         "required_output": {
             "cv_content_path": str(paths["cv_content"].relative_to(ROOT)),
@@ -548,7 +645,8 @@ def _generation_request(application: dict[str, Any], paths: dict[str, Path]) -> 
         },
         "top8_keywords_must_cover": top8_keywords,
         "instructions": [
-            "Leia primeiro o FIT_MAP e a descrição da vaga nos caminhos informados.",
+            "Leia primeiro os arquivos em compact_inputs.primary_files.",
+            "Use FIT_MAP e job_description apenas como fallback quando os packs compactos não forem suficientes para uma lacuna objetiva.",
             "Gere somente os artefatos textuais pedidos.",
             "Não renderize DOCX, não rode reviewers e não atualize Notion.",
             f"Use idioma visível {manifest.get('required_cv_language')}.",

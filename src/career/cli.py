@@ -7,6 +7,10 @@ from pathlib import Path
 from career.paths import CAREER_STATE, OUTPUTS
 from career.services import agent_guard as agent_guard_service
 from career.services import applications_v2 as applications_v2_service
+from career.services import cover_letter as cover_letter_service
+from career.services import cv_content as cv_content_service
+from career.services import derived_context as derived_context_service
+from career.services import feras as feras_service
 from career.services import fit_map as fit_map_service
 from career.services import general_cv as general_cv_service
 from career.services import habilidades_chave as habilidades_chave_service
@@ -37,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_eval_notion_local.add_argument("record_id", type=int)
     agent_sub.add_parser("guard")
     agent_maestro = agent_sub.add_parser("maestro")
-    agent_maestro.add_argument("step", nargs="?", choices=["fit-map", "cv", "notion-update", "email-draft", "linkedin"])
+    agent_maestro.add_argument("step", nargs="?", choices=["fit-map", "cv", "cover-letter", "feras", "notion-update", "email-draft", "linkedin"])
     agent_maestro.add_argument("--objective")
     agent_maestro.add_argument("--extras", default="{}")
 
@@ -46,9 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
     multiagent_sub.add_parser("runbook")
     multiagent_sub.add_parser("local-model-map")
     multiagent_request = multiagent_sub.add_parser("request")
-    multiagent_request.add_argument("step", choices=["fit-map", "cv", "notion-update", "email-draft", "linkedin"])
+    multiagent_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "notion-update", "email-draft", "linkedin"])
     multiagent_request.add_argument("--objective")
     multiagent_request.add_argument("--extras", default="{}")
+    multiagent_validate_request = multiagent_sub.add_parser("validate-request")
+    multiagent_validate_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "notion-update", "email-draft", "linkedin"])
     multiagent_sub.add_parser("validate-workspace-clean")
 
     intake = subparsers.add_parser("intake")
@@ -118,6 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     cv = subparsers.add_parser("cv")
     cv_sub = cv.add_subparsers(dest="action", required=True)
+    cv_sub.add_parser("build-content")
+    cv_validate_content = cv_sub.add_parser("validate-content")
+    cv_validate_content.add_argument("--path", default=str(CAREER_STATE / "cv_content.json"))
     review = cv_sub.add_parser("review")
     review.add_argument("--artifact", required=True)
     review.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
@@ -184,6 +193,35 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat.add_argument("--model", default=None)
     heartbeat.add_argument("--variant", default=None)
     applications_sub.add_parser("write-default-config")
+
+    derive = subparsers.add_parser("derive")
+    derive_sub = derive.add_subparsers(dest="action", required=True)
+    derive_sub.add_parser("job-pack")
+    derive_sub.add_parser("job-sections")
+    derive_sub.add_parser("job-keywords")
+    derive_sub.add_parser("reference-digest")
+    derive_sub.add_parser("evidence-pack")
+    derive_sub.add_parser("fit-map-seed")
+    derive_sub.add_parser("cv-input-pack")
+    derive_sub.add_parser("cv-content-seed")
+    derive_sub.add_parser("habilidades-input-pack")
+    derive_sub.add_parser("feras-input-pack")
+    derive_sub.add_parser("cover-letter-input-pack")
+    derive_sub.add_parser("all-for-fit-map")
+    derive_sub.add_parser("validate-manifest")
+    derive_sub.add_parser("context-doctor")
+    derive_sub.add_parser("assert-active")
+    derive_sub.add_parser("invalidate-stale")
+
+    cover_letter = subparsers.add_parser("cover-letter")
+    cover_letter_sub = cover_letter.add_subparsers(dest="action", required=True)
+    cover_build = cover_letter_sub.add_parser("build")
+    cover_build.add_argument("--output")
+
+    feras = subparsers.add_parser("feras")
+    feras_sub = feras.add_subparsers(dest="action", required=True)
+    feras_build = feras_sub.add_parser("build")
+    feras_build.add_argument("--output")
 
     workflow = subparsers.add_parser("workflow")
     workflow_sub = workflow.add_subparsers(dest="action", required=True)
@@ -323,6 +361,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
                 return 0
+            if args.action == "validate-request":
+                result = multiagent_service.validate_request(args.step)
+                _dump(result)
+                return 0 if result.get("status") == "ok" else 1
             if args.action == "validate-workspace-clean":
                 result = multiagent_service.validate_workspace_clean()
                 _dump(result)
@@ -440,6 +482,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if result.get("blocked") else 0
 
     if args.command == "cv":
+        if args.action == "build-content":
+            _dump(cv_content_service.build_current_cv_content())
+            return 0
+        if args.action == "validate-content":
+            result = cv_content_service.validate_cv_content(Path(args.path))
+            _dump(result)
+            return 0
         if args.action == "review":
             result = run_task(
                 "cv.review",
@@ -577,6 +626,73 @@ def main(argv: list[str] | None = None) -> int:
             )
             _dump(result)
             return 0
+
+    if args.command == "derive":
+        try:
+            if args.action == "job-pack":
+                _dump(derived_context_service.build_job_extract())
+                return 0
+            if args.action == "job-sections":
+                _dump(derived_context_service.build_job_sections())
+                return 0
+            if args.action == "job-keywords":
+                _dump(derived_context_service.build_job_keywords())
+                return 0
+            if args.action == "reference-digest":
+                _dump(derived_context_service.build_reference_digest())
+                return 0
+            if args.action == "evidence-pack":
+                _dump(derived_context_service.build_candidate_evidence_pack())
+                return 0
+            if args.action == "fit-map-seed":
+                _dump(derived_context_service.build_fit_map_seed())
+                return 0
+            if args.action == "cv-input-pack":
+                _dump(derived_context_service.build_cv_input_pack())
+                return 0
+            if args.action == "cv-content-seed":
+                _dump(derived_context_service.build_cv_content_seed())
+                return 0
+            if args.action == "habilidades-input-pack":
+                _dump(derived_context_service.build_habilidades_input_pack())
+                return 0
+            if args.action == "feras-input-pack":
+                _dump(derived_context_service.build_feras_input_pack())
+                return 0
+            if args.action == "cover-letter-input-pack":
+                _dump(derived_context_service.build_cover_letter_input_pack())
+                return 0
+            if args.action == "all-for-fit-map":
+                _dump(derived_context_service.build_all_for_fit_map())
+                return 0
+            if args.action == "validate-manifest":
+                result = derived_context_service.validate_manifest()
+                _dump(result)
+                return 0 if result.get("status") == "ok" else 1
+            if args.action == "context-doctor":
+                result = derived_context_service.context_doctor()
+                _dump(result)
+                return 0 if result.get("status") == "ok" else 1
+            if args.action == "assert-active":
+                result = cv_content_service.active_artifact_status()
+                _dump(result)
+                return 0 if result.get("status") == "ok" else 1
+            if args.action == "invalidate-stale":
+                _dump(cv_content_service.invalidate_stale_artifacts())
+                return 0
+        except CareerError as exc:
+            _dump_error(exc)
+            return 1
+
+    if args.command == "cover-letter":
+        result = cover_letter_service.build_current_cover_letter(Path(args.output) if args.output else None)
+        _dump(result)
+        return 0
+
+    if args.command == "feras":
+        result = feras_service.build_current_feras(Path(args.output) if args.output else None)
+        _dump(result)
+        return 0
 
     if args.command == "workflow":
         state_store = WorkflowStateStore()

@@ -29,7 +29,8 @@ TASK_REQUIREMENTS = {
 }
 
 
-@dataclass(slots=True)
+@dataclass
+
 class WorkflowStateMachine:
     completed_states: set[str]
     fingerprints: dict

@@ -18,13 +18,20 @@ Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/sk
 
 ## Adaptação Local OpenCode
 
-Leia também `../career-system/SKILL.md`. Substitua `<workspace>` pelo workspace local, `outputs` por `outputs/` e `entrega local em outputs/` por entrega local do arquivo gerado. Use `.career-state/fit_map.json` como FIT_MAP ativo. Os scripts locais ficam em `scripts/docx/`: `generate_cv_docx.js`, `validate_docx.py` e `convert_pdf.sh`.
+Leia também `../career-system/SKILL.md`. Substitua `<workspace>` pelo workspace local, `outputs` por `outputs/` e `entrega local em outputs/` por entrega local do arquivo gerado. Use `.career-state/fit_map.json` como FIT_MAP ativo. Os scripts locais ficam em `scripts/docx/`: `generate_custom_cv.js`, `validate_docx.py` e `convert_pdf.sh`.
 
 Quando esta skill for acionada a partir do orquestrador de candidaturas:
 - leia primeiro `generation_request.json/md` da candidatura;
+- leia primeiro os arquivos apontados em `compact_inputs.primary_files`;
 - produza somente os artefatos textuais pedidos, com `cv_content.json` como fonte principal do CV;
 - não renderize DOCX, não rode ATS/reviewer e não atualize Notion;
-- trate referências longas como fallback, não como leitura inicial obrigatória.
+- trate `fit_map.json`, `job_description.md` e referências longas como fallback, não como leitura inicial obrigatória.
+
+Quando esta skill for acionada no fluxo manual/local fora do heartbeat:
+- rode `npm run context:assert-active` antes de reaproveitar `FIT_MAP` ou `cv_content`;
+- gere `cv_content.json` com `npm run cv:build-content`;
+- valide o contrato com `npm run cv:validate-content`;
+- só então renderize o DOCX com `npm run cv:docx`.
 
 Gera o CV de Felipe Armel em DOCX ou PDF, aderente a todas as regras do prompt v8, consumindo o FIT_MAP
 produzido pela career-fit-analysis.

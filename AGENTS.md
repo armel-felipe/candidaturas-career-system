@@ -194,7 +194,10 @@ Observação:
 ## CV em DOCX — comandos exatos
 
 ```bash
-npm run cv:docx                                              # gera via Node.js (docx lib)
+npm run context:assert-active                                # bloqueia reuse de FIT_MAP/cv_content stale
+npm run cv:build-content                                     # gera .career-state/cv_content.json da vaga ativa
+npm run cv:validate-content                                  # valida contrato e fingerprint do cv_content
+npm run cv:docx                                              # gera via Node.js (generate_custom_cv.js)
 npm run validate:docx                                        # valida o DOCX gerado
 python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 npm run docx:tmp:clean                                       # limpa resíduos em outputs/_tmp/
@@ -205,6 +208,25 @@ npm run cv:approve -- --artifact outputs/<cv>.docx
 # Comando final obrigatório quando o CV aprovado deve ir para OneDrive/rclone
 npm run cv:deliver -- --artifact outputs/<cv>.docx                # aprova e entrega via rclone somente se aprovado
 ```
+
+## Artefatos compactos derivados — comandos exatos
+
+```bash
+npm run derive:cv-input-pack
+npm run derive:cv-content-seed
+npm run derive:feras-input-pack
+npm run derive:cover-letter-input-pack
+npm run derive:all-for-fit-map
+npm run context:validate
+npm run context:doctor
+npm run context:invalidate-stale
+```
+
+Regra global para artefatos compactos:
+- os arquivos derivados em `.career-state/derived/` são a primeira camada de contexto para modelos locais
+- `job_description`, FIT_MAP completo e referências longas viram fallback; não leitura inicial obrigatória
+- `context:assert-active` e `context:invalidate-stale` existem para impedir reaproveitamento silencioso de artefatos de outra vaga
+- quando `context:doctor` marcar `oversized_outputs`, a manutenção correta é reduzir payload e não empurrar mais contexto para o agente
 
 Regra global para CV em DOCX:
 - o idioma do CV segue o idioma da descrição da vaga: descrição em inglês gera CV em inglês; descrição em português gera CV em português
@@ -328,11 +350,14 @@ Regra operacional do heartbeat:
 - o modelo e variant ficam em `.career-state/applications_v2/config.json` e também podem ser sobrescritos por execução com `--model provider/model --variant medium`
 - o heartbeat não marca uma candidatura como pronta se faltar FIT_MAP, DOCX final em `outputs/`, reviewer objetivo aprovado ou `polish_review.json`
 - CV PT-BR só pode ser aprovado com `outputs/_tmp/output_review_report.json` e `outputs/_tmp/polish_review.json` compatíveis
+- o estágio `generate` deve ler primeiro `generation_request.json/md` e usar os packs compactos persistidos na própria candidatura como contexto primário
+- no `v2`, FIT_MAP completo e `job_description.md` são fallback; não leitura inicial obrigatória do agente de geração
 
 Entrega e persistência por candidatura:
 - a memória permanente da candidatura fica em `.career-state/applications_v2/<ID>/` até remoção manual ou rotina explícita de limpeza
 - FIT_MAP canônico da candidatura: `.career-state/applications_v2/<ID>/fit_map.json`
 - descrição da vaga: `.career-state/applications_v2/<ID>/job_description.md`
+- packs compactos de geração: `.career-state/applications_v2/<ID>/{cv_input_pack.json,cv_content_seed.json,feras_input_pack.json,habilidades_input_pack.json}`
 - FERAS: `.career-state/applications_v2/<ID>/feras_formal.md`
 - habilidades Gupy: `.career-state/applications_v2/<ID>/habilidades_gupy.md`
 - habilidades Mercado Livre: `.career-state/applications_v2/<ID>/habilidades_mercado_livre.md`
@@ -439,6 +464,8 @@ Comandos oficiais:
 npm run agent:maestro
 npm run agent:maestro -- fit-map
 npm run agent:maestro -- cv
+npm run agent:maestro -- cover-letter
+npm run agent:maestro -- feras
 npm run agent:maestro -- notion-update
 npm run agent:maestro -- email-draft
 npm run agent:maestro -- linkedin
@@ -447,6 +474,9 @@ npm run agent:evaluate-notion-local -- <id_unico>          # alias explícito
 npm run multiagent:runbook
 npm run multiagent:local-model-map
 npm run multiagent:request -- fit-map
+npm run multiagent:request -- cv
+npm run multiagent:request -- cover-letter
+npm run multiagent:request -- feras
 npm run validate:workspace-clean
 ```
 
@@ -455,7 +485,10 @@ Regras operacionais:
 - o maestro decide o próximo passo, grava requests compactos em `.career-state/agent_requests/` e bloqueia improvisos
 - agentes especialistas devem ler primeiro o request correspondente e só operar nos arquivos/comandos permitidos
 - `fit-map-agent` só preenche `.career-state/fit_map.draft.json`; não finaliza, não entrega score em texto e não edita `.career-state/fit_map.json`
-- `cv-agent` gera conteúdo/DOCX e deve encerrar com `npm run cv:deliver -- --artifact outputs/<cv>.docx` quando a entrega OneDrive/rclone estiver configurada; `cv:approve` isolado é apenas gate local/diagnóstico
+- `cv-agent` gera conteúdo/DOCX e deve rodar `context:assert-active`, `cv:build-content`, `cv:validate-content` e então encerrar com `npm run cv:deliver -- --artifact outputs/<cv>.docx` quando a entrega OneDrive/rclone estiver configurada; `cv:approve` isolado é apenas gate local/diagnóstico
+- `cv-agent` usa `.career-state/derived/cv_input_pack.json` e `.career-state/derived/cv_content_seed.json` como contexto primário; referências longas só entram como fallback
+- `cover-letter-agent` usa `.career-state/derived/cover_letter_input_pack.json` como contexto primário e persiste primeiro `.md`; PDF/entrega vêm depois, se pedidos
+- `feras-agent` usa `.career-state/derived/feras_input_pack.json` como contexto primário e persiste primeiro o artefato local em `outputs/`
 - `notion-agent` só faz dry-run até aprovação explícita do usuário
 - `email-agent` só cria draft real após aprovação explícita do usuário; nunca envia email
 - `linkedin-agent` usa apenas scripts locais autenticados; nunca browser/web_search genérico
@@ -505,12 +538,13 @@ Ao avaliar modelos locais neste projeto, usar este criterio minimo:
 | FIT_MAP canônico por candidatura | `.career-state/applications_v2/<ID>/fit_map.json` |
 | FIT_MAP ativo legado / espelho | `.career-state/fit_map.json` |
 | Estado do workflow | `.career-state/workflow_state.json` |
+| Derivados compactos da vaga ativa | `.career-state/derived/` |
 | Vagas coladas / salvas | `inbox/job_descriptions/` |
 | Outputs entregues | `outputs/` para DOCX final e logs |
 | Temporários DOCX | `outputs/_tmp/` (gitignored, limpar com `npm run docx:tmp:clean`) |
 | Scripts | `scripts/` |
 | Pacote estruturado | `src/career/` |
-| Scripts DOCX | `scripts/docx/` (`generate_cv_docx.js`, `validate_docx.py`, `convert_pdf.sh`) |
+| Scripts DOCX | `scripts/docx/` (`generate_custom_cv.js`, `validate_docx.py`, `convert_pdf.sh`) |
 
 ## Notion — integração exclusiva via scripts
 

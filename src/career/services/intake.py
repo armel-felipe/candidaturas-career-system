@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from career.paths import CAREER_STATE, INBOX, ROOT
+from career.services import derived_context as derived_context_service
 from career.services import fit_map as fit_map_service
 from career.services import notion as notion_service
 from career.services import project as project_service
@@ -241,6 +242,10 @@ def _status_payload(
     }
     if extra:
         payload["extract"] = extra
+    try:
+        payload["derived_context"] = derived_context_service.derived_summary()
+    except ValidationFailure:
+        payload["derived_context"] = {"status": "blocked", "missing_outputs": ["derived_context_unavailable"]}
     return payload
 
 
@@ -275,6 +280,7 @@ def _run_ready_pipeline(
         role=role,
     )
     _prepare_template(state_store)
+    derived_context_service.build_all_for_fit_map()
     result = _status_payload(
         source_type=source_type,
         source_id=source_id,

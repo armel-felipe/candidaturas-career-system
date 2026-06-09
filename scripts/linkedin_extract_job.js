@@ -107,6 +107,17 @@ function cleanText(value) {
     .trim();
 }
 
+function firstMatch(text, patterns) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const value = cleanText(match[1]);
+      if (value) return value;
+    }
+  }
+  return "";
+}
+
 async function promptEnter(message) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   await new Promise((resolve) => {
@@ -201,16 +212,18 @@ async function extractJob(page) {
 
   const inferred = inferTitleAndCompany(title, company, description);
   description = trimLinkedInNoise(description);
+  const inferredLocation = inferLocation(location, description);
 
   return {
     title: inferred.title || "Cargo LinkedIn",
     company: inferred.company || "Empresa LinkedIn",
-    location: location || "",
+    location: inferredLocation,
     description,
   };
 }
 
 function inferTitleAndCompany(title, company, description) {
+  const normalizedDescription = cleanText(description);
   const genericTitle = !title || title === "Cargo LinkedIn";
   const genericCompany = !company || company === "Empresa LinkedIn";
   const result = {
@@ -220,24 +233,30 @@ function inferTitleAndCompany(title, company, description) {
   if (!isPlausibleLabel(result.title, 120)) result.title = "";
   if (!isPlausibleLabel(result.company, 80)) result.company = "";
 
-  const lines = cleanText(description)
+  const lines = normalizedDescription
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
   const meaningful = lines.filter((line) => !/^(Sobre a vaga|About the job|Descrição da vaga)$/i.test(line));
   const firstLine = meaningful[0] || "";
-  const positionMatch = cleanText(description).match(/\bPosition:\s*([^\n]+)/i);
-  if (!result.title && positionMatch) {
-    result.title = positionMatch[1].trim();
+  if (!result.title) {
+    result.title = firstMatch(normalizedDescription, [
+      /\bPosition:\s*([^\n]+)/i,
+      /\bVeja nossa oportunidade para\s+([^\n.!]+)/i,
+      /\bOportunidade para\s+([^\n.!]+)/i,
+      /\bVaga para\s+([^\n.!]+)/i,
+      /\bOpportunity for\s+([^\n.!]+)/i,
+      /\bOpening for\s+([^\n.!]+)/i,
+      /\bWe are looking for an?\s+([A-Z][^.\n,;]+?)(?:\s+with|\s+who|,|\.|\n)/i,
+      /\bWe are hiring an?\s+([A-Z][^.\n,;]+?)(?:\s+with|\s+who|,|\.|\n)/i,
+      /\bseeking an?\s+(?:standout\s+)?([A-Z][^.\n,;]+?)(?:\s+to\s+|\s+who|,|\.|\n)/i,
+      /\bAs\s+([^,\n]+(?:,\s*[^,\n]+)?),\s+you\s+will\b/i,
+    ]);
   }
   if (!result.title) {
-    const lookingForMatch = cleanText(description).match(/\bWe are looking for an?\s+([A-Z][^.\n,;]+?)(?:\s+with|\s+who|,|\.|\n)/i);
-    if (lookingForMatch) result.title = lookingForMatch[1].trim();
-  }
-  if (!result.title) {
-    const seekingMatch = cleanText(description).match(/\bseeking an?\s+(?:standout\s+)?([A-Z][^.\n,;]+?)(?:\s+to\s+|\s+who|,|\.|\n)/i);
-    if (seekingMatch) result.title = seekingMatch[1].trim();
+    const roleLine = meaningful.find((line) => isPlausibleLabel(line, 120) && /\b(gerente|manager|director|head|coordinator|coordenador|analyst|analista|specialist|especialista|engineer|engenheiro)\b/i.test(line));
+    if (roleLine) result.title = roleLine;
   }
 
   const dashMatch = firstLine.match(/^(.+?)\s+[-–—]\s+(.+)$/);
@@ -251,37 +270,24 @@ function inferTitleAndCompany(title, company, description) {
   if (!isPlausibleLabel(result.company, 80)) result.company = "";
 
   if (!result.company) {
-    const aboutMatch = cleanText(description).match(/\bAbout\s+([A-Z][A-Za-z0-9&.\s-]{1,60})\n/);
-    if (aboutMatch) result.company = aboutMatch[1].trim();
+    result.company = firstMatch(normalizedDescription, [
+      /\bJunte-se [^\n]*?\b(?:na|no)\s+([A-Z][A-Za-zÀ-ÿ0-9&.\- ]{1,60})(?:[!,.]|\s|$)/i,
+      /\bJoin [^\n]*?\bat\s+([A-Z][A-Za-z0-9&.\- ]{1,60})(?:[!,.]|\s|$)/i,
+      /(?:^|\n)Na\s+([A-Z][A-Za-zÀ-ÿ0-9&.\- ]{1,60})(?:,|\s)/,
+      /(?:^|\n)No\s+([A-Z][A-Za-zÀ-ÿ0-9&.\- ]{1,60})(?:,|\s)/,
+      /\bAbout\s+([A-Z][A-Za-z0-9&.\s-]{1,60})\n/,
+      /\b([A-Z][A-Za-zÀ-ÿ0-9&.\- ]{1,60})\s+no Brasil\b/,
+      /\b([A-Z][A-Za-zÀ-ÿ0-9&.\- ]{1,60})\s+combina os mundos\b/i,
+      /\bWho we are\s+([A-Z][A-Za-z0-9&.\- ]{2,40})\s+is\b/i,
+      /(?:^|\n)([A-Z][A-Za-z0-9&.\- ]{2,40})\s+is\s+(?:a|an|the)\b/,
+      /\bCompany Description\b[\s\S]{0,400}?\b([A-Z][A-Za-z0-9&.\- ]{2,40})\s+is\b/,
+      /(?:^|\s)(?:a|o|na|no)\s+([A-Z][A-Za-zÀ-ÿ0-9&.\- ]{2,40})\s+(?:é|e)(?:\s|,|\.)/,
+    ]);
   }
   if (!isPlausibleLabel(result.company, 80)) result.company = "";
-  if (!result.company) {
-    const whoWeAreMatch = cleanText(description).match(/\bWho we are\s+([A-Z][A-Za-z0-9&.\- ]{2,40})\s+is\b/i);
-    if (whoWeAreMatch) result.company = whoWeAreMatch[1].trim();
-  }
-  if (!isPlausibleLabel(result.company, 80)) result.company = "";
-  if (!result.company) {
-    const companyIsMatch = cleanText(description).match(/(?:^|\n)([A-Z][A-Za-z0-9&.\- ]{2,40})\s+is\s+(?:a|an|the)\b/);
-    if (companyIsMatch) result.company = companyIsMatch[1].trim();
-  }
-
-  if (!result.title) {
-    const asRoleMatch = cleanText(description).match(/\bAs\s+([^,\n]+(?:,\s*[^,\n]+)?),\s+you\s+will\b/i);
-    if (asRoleMatch) result.title = asRoleMatch[1].trim();
-  }
 
   if (!result.company && /\bAt Monks\b|\bAbout Monks\b/i.test(description)) {
     result.company = "Monks";
-  }
-  if (!isPlausibleLabel(result.company, 80)) result.company = "";
-  if (!result.company) {
-    const companyDescriptionMatch = cleanText(description).match(/\bCompany Description\b[\s\S]{0,400}?\b([A-Z][A-Za-z0-9&.\- ]{2,40})\s+is\b/);
-    if (companyDescriptionMatch) result.company = companyDescriptionMatch[1].trim();
-  }
-  if (!isPlausibleLabel(result.company, 80)) result.company = "";
-  if (!result.company) {
-    const ptCompanyMatch = cleanText(description).match(/(?:^|\s)(?:a|o|na|no)\s+([A-Z][A-Za-zÀ-ÿ0-9&.\- ]{2,40})\s+(?:é|e)(?:\s|,|\.)/);
-    if (ptCompanyMatch) result.company = ptCompanyMatch[1].trim();
   }
 
   if (!isPlausibleLabel(result.title, 120)) result.title = "";
@@ -290,12 +296,26 @@ function inferTitleAndCompany(title, company, description) {
   return result;
 }
 
+function inferLocation(location, description) {
+  const current = cleanText(location);
+  if (current) return current;
+
+  const normalizedDescription = cleanText(description);
+  const inferred = firstMatch(normalizedDescription, [
+    /\bLocal de trabalho\s*[–:-]\s*([^\n]+)/i,
+    /\bLocation\s*[–:-]\s*([^\n]+)/i,
+    /\bModelo de trabalho\s*[–:-]\s*([^\n]+)/i,
+  ]);
+  return inferred || "";
+}
+
 function isPlausibleLabel(value, maxLength) {
   const text = cleanText(value);
   if (!text || text.length > maxLength) return false;
   if (/^(the role|the job|the position|a vaga|sobre a vaga|descrição da vaga|descricao da vaga)$/i.test(text)) return false;
   if (/^(mexico|méxico|brazil|brasil|chile|peru|colombia|costa rica|sao paulo|são paulo)$/i.test(text)) return false;
   if (/^(cargo linkedin|empresa linkedin)$/i.test(text)) return false;
+  if (/[:;]/.test(text) && text.split(/\s+/).length > 6) return false;
   if (text.split(/\s+/).length > 14) return false;
   if (/[.!?]\s/.test(text)) return false;
   return true;

@@ -13,7 +13,7 @@ DEFAULT_STATE_PATH = CAREER_STATE / "workflow_state.json"
 DEFAULT_PAYLOAD = {"completed_states": [], "task_history": [], "fingerprints": {}, "active_job": None}
 
 
-@dataclass(slots=True)
+@dataclass
 class WorkflowStateStore:
     path: Path = DEFAULT_STATE_PATH
     payload: dict[str, Any] = field(default_factory=dict)

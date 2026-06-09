@@ -75,6 +75,10 @@ def local_strict_status() -> dict[str, Any]:
         "validate:fit-map:quality",
         "workflow:summary",
         "registry:summary",
+        "derive:all-for-fit-map",
+        "context:doctor",
+        "context:validate-fit-map-request",
+        "context:validate-cv-request",
         "notion:link-record",
         "notion:record-summary",
         "local:strict:status",
@@ -89,6 +93,7 @@ def local_strict_status() -> dict[str, Any]:
         "missing_scripts": missing_scripts,
         "rules": [
             "use compact npm commands before ad hoc shell inspection",
+            "prefer derived context artifacts and request validators before opening long references",
             "do not cat FIT_MAP, draft, Notion cache, ATS registry, or long references",
             "do not run broad grep/rg over inbox/notion, .career-state, outputs, or .opencode",
             "answer with paths, counts, status, blockers, and next command",
@@ -112,6 +117,8 @@ def local_strict_doctor() -> dict[str, Any]:
         },
         "recommended_agent_entrypoints": [
             "npm run agent:evaluate-notion -- <id>",
+            "npm run derive:all-for-fit-map",
+            "npm run context:validate-fit-map-request",
             "npm run fit-map:summary",
             "npm run validate:fit-map:quality",
             "npm run notion:link-record -- <id>",

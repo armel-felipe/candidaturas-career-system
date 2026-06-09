@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generated_from_registry_at": "2026-06-06T15:32:40.870399+00:00",
+  "generated_from_registry_at": "2026-06-09T19:20:47.384275+00:00",
   "curated_registry_version": 1,
-  "candidate_count": 1554,
+  "candidate_count": 1600,
   "candidates": [
     {
       "canonical_key": "data_driven_decision_making",
@@ -124,10 +124,10 @@
         "adicionada por densidade"
       ],
       "stats": {
-        "times_extracted": 19,
+        "times_extracted": 20,
         "times_covered_cv": 6,
         "times_covered_similar_cv": 0,
-        "times_missing_cv": 9,
+        "times_missing_cv": 10,
         "times_gap": 0
       }
     },
@@ -166,10 +166,52 @@
         "adicionada por densidade"
       ],
       "stats": {
-        "times_extracted": 18,
+        "times_extracted": 19,
         "times_covered_cv": 3,
         "times_covered_similar_cv": 5,
         "times_missing_cv": 5,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "team_leadership",
+      "keyword": "Team Leadership",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "liderança de equipes",
+      "pt_br_alternatives": [
+        "liderança de times"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "mercado_livre__gerente_de_operacao_logistica_mercado_envios",
+        "empresa_confidencial__gerente_de_opera_es",
+        "natura__gerente_de_transforma_o_do_planejamento_comercial_latam",
+        "loggi__gerente_de_opera_es_log_sticas_last_mile",
+        "amazon__category_director_brazil_stores",
+        "turbo__diretor_de_opera_es_coo",
+        "empresa_confidencial_isis_rodrigues__diretor_executivo_ceo_senior"
+      ],
+      "sample_experience_targets": [
+        "iFood - Diretor de Operacoes",
+        "iFood - Diretor de Operações",
+        "iFood — Diretor de Operações",
+        "wehandle (30 pessoas) + iFood (240 pessoas)",
+        "iFood",
+        "iFood + VivaReal"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "perfil",
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 16,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 2,
+        "times_missing_cv": 7,
         "times_gap": 0
       }
     },
@@ -260,48 +302,6 @@
       }
     },
     {
-      "canonical_key": "team_leadership",
-      "keyword": "Team Leadership",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "liderança de equipes",
-      "pt_br_alternatives": [
-        "liderança de times"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations",
-        "mercado_livre__gerente_de_operacao_logistica_mercado_envios",
-        "empresa_confidencial__gerente_de_opera_es",
-        "natura__gerente_de_transforma_o_do_planejamento_comercial_latam",
-        "loggi__gerente_de_opera_es_log_sticas_last_mile",
-        "amazon__category_director_brazil_stores",
-        "turbo__diretor_de_opera_es_coo",
-        "empresa_confidencial_isis_rodrigues__diretor_executivo_ceo_senior"
-      ],
-      "sample_experience_targets": [
-        "iFood - Diretor de Operacoes",
-        "iFood - Diretor de Operações",
-        "iFood — Diretor de Operações",
-        "wehandle (30 pessoas) + iFood (240 pessoas)",
-        "iFood",
-        "iFood + VivaReal"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "perfil",
-        "adicionada por densidade"
-      ],
-      "stats": {
-        "times_extracted": 15,
-        "times_covered_cv": 2,
-        "times_covered_similar_cv": 2,
-        "times_missing_cv": 7,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "continuous_improvement",
       "keyword": "Continuous Improvement",
       "translation_ready": true,
@@ -336,7 +336,7 @@
         "responsabilidades"
       ],
       "stats": {
-        "times_extracted": 13,
+        "times_extracted": 14,
         "times_covered_cv": 2,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 6,
@@ -631,6 +631,50 @@
       }
     },
     {
+      "canonical_key": "sla_management",
+      "keyword": "SLA Management",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "gestão de SLA",
+      "pt_br_alternatives": [
+        "gestão de SLAs",
+        "gestão de nível de serviço",
+        "cumprimento dos SLAs"
+      ],
+      "accepted_variants": [
+        "SLA"
+      ],
+      "usage_notes": "SLA é sigla natural em PT-BR; a cobertura deve aparecer ligada a gestão, cumprimento ou nível de serviço.",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "einstein_hospital_israelita__gerente_planejamento_e_log_stica",
+        "empresa_confidencial__gerente_de_opera_es",
+        "empresa_confidencial__vp_de_servi_os_opera_es",
+        "loggi__gerente_de_opera_es_log_sticas_last_mile",
+        "wellhub__operations_performance_manager",
+        "airbnb__partner_operations_manager",
+        "book_fair__gerente_de_customer_service"
+      ],
+      "sample_experience_targets": [
+        "WeHandle - Head de Operações",
+        "wehandle - Head de Operações",
+        "wehandle (SLA 95%)",
+        "iFood - Head de Operações",
+        "iFood + WeHandle",
+        "WeHandle"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 9,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 3,
+        "times_missing_cv": 2,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "change_management",
       "keyword": "Change Management",
       "translation_ready": true,
@@ -710,50 +754,6 @@
         "times_covered_cv": 3,
         "times_covered_similar_cv": 2,
         "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "sla_management",
-      "keyword": "SLA Management",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "gestão de SLA",
-      "pt_br_alternatives": [
-        "gestão de SLAs",
-        "gestão de nível de serviço",
-        "cumprimento dos SLAs"
-      ],
-      "accepted_variants": [
-        "SLA"
-      ],
-      "usage_notes": "SLA é sigla natural em PT-BR; a cobertura deve aparecer ligada a gestão, cumprimento ou nível de serviço.",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations",
-        "einstein_hospital_israelita__gerente_planejamento_e_log_stica",
-        "empresa_confidencial__gerente_de_opera_es",
-        "empresa_confidencial__vp_de_servi_os_opera_es",
-        "loggi__gerente_de_opera_es_log_sticas_last_mile",
-        "wellhub__operations_performance_manager",
-        "airbnb__partner_operations_manager",
-        "book_fair__gerente_de_customer_service"
-      ],
-      "sample_experience_targets": [
-        "WeHandle - Head de Operações",
-        "wehandle (SLA 95%)",
-        "iFood - Head de Operações",
-        "wehandle - Head de Operações",
-        "iFood + WeHandle",
-        "WeHandle"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 8,
-        "times_covered_cv": 2,
-        "times_covered_similar_cv": 3,
-        "times_missing_cv": 2,
         "times_gap": 0
       }
     },
@@ -880,6 +880,44 @@
       }
     },
     {
+      "canonical_key": "process_automation",
+      "keyword": "Process Automation",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "automação de processos",
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "grupo_profarma__gerente_de_opera_es_s_nior",
+        "natura__gerente_de_transforma_o_do_planejamento_comercial_latam",
+        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
+        "us_dtc_brand_via_paired__head_of_business_operations",
+        "zubale__central_ops_manager_temporary",
+        "busca_ativa_coo__coo_diretor_de_opera_es_scale_up_de_tecnologia",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "Trifil",
+        "WeHandle + Trifil",
+        "WeHandle Head de Operações",
+        "wehandle - Head de Operacoes",
+        "WeHandle — Head de Operações",
+        "wehandle - Head de Operações"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "perfil"
+      ],
+      "stats": {
+        "times_extracted": 7,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 2,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "budget_management",
       "keyword": "Budget Management",
       "translation_ready": true,
@@ -919,39 +957,42 @@
       }
     },
     {
-      "canonical_key": "process_automation",
-      "keyword": "Process Automation",
+      "canonical_key": "strategic_sourcing",
+      "keyword": "Strategic Sourcing",
       "translation_ready": true,
       "recommended_action": "active",
-      "pt_br_preferred": "automação de processos",
-      "pt_br_alternatives": [],
+      "pt_br_preferred": "sourcing estratégico",
+      "pt_br_alternatives": [
+        "abastecimento estratégico"
+      ],
       "accepted_variants": [],
-      "usage_notes": "",
+      "usage_notes": "No Brasil, 'sourcing estratégico' costuma soar mais natural do que tradução literal.",
       "sample_application_keys": [
-        "grupo_profarma__gerente_de_opera_es_s_nior",
-        "natura__gerente_de_transforma_o_do_planejamento_comercial_latam",
-        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
-        "us_dtc_brand_via_paired__head_of_business_operations",
-        "zubale__central_ops_manager_temporary",
-        "busca_ativa_coo__coo_diretor_de_opera_es_scale_up_de_tecnologia"
+        "mindrift__freelance_supply_chain_consultant_ai_trainer",
+        "ocean_drop__diretor_operacional_coo",
+        "allied_brasil__gerente_supply_chain_e_pricing",
+        "confidencial_empresa_de_servi_os_engenharia_integradora__diretor_de_supply_chain",
+        "amazon_log_stica_do_brasil_amazon__capacity_planning_manager_otr_amzl_capacity_planning",
+        "tirolez__gerente_executivo_de_planejamento_integrado"
       ],
       "sample_experience_targets": [
-        "Trifil",
-        "WeHandle + Trifil",
-        "WeHandle Head de Operações",
-        "wehandle - Head de Operacoes",
-        "WeHandle — Head de Operações",
-        "Grupo Profarma — Gerente de operações sênior"
+        "Trifil - Coordenador de Planejamento de Materiais",
+        "Trifil — Coord. Materiais",
+        "Scalina (Trifil) — Coord. Materiais",
+        "Trifil (Coord. Materiais)",
+        "Trifil — Coordenador Materiais",
+        "Mindrift — Freelance Supply Chain Consultant - AI Trainer"
       ],
       "sample_origins": [
         "já selecionada",
-        "perfil"
+        "ja selecionada",
+        "adicionada por densidade"
       ],
       "stats": {
         "times_extracted": 6,
-        "times_covered_cv": 2,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 2,
+        "times_covered_cv": 3,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
         "times_gap": 0
       }
     },
@@ -990,44 +1031,6 @@
         "times_covered_cv": 2,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "strategic_sourcing",
-      "keyword": "Strategic Sourcing",
-      "translation_ready": true,
-      "recommended_action": "active",
-      "pt_br_preferred": "sourcing estratégico",
-      "pt_br_alternatives": [
-        "abastecimento estratégico"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "No Brasil, 'sourcing estratégico' costuma soar mais natural do que tradução literal.",
-      "sample_application_keys": [
-        "mindrift__freelance_supply_chain_consultant_ai_trainer",
-        "ocean_drop__diretor_operacional_coo",
-        "allied_brasil__gerente_supply_chain_e_pricing",
-        "confidencial_empresa_de_servi_os_engenharia_integradora__diretor_de_supply_chain",
-        "amazon_log_stica_do_brasil_amazon__capacity_planning_manager_otr_amzl_capacity_planning"
-      ],
-      "sample_experience_targets": [
-        "Trifil - Coordenador de Planejamento de Materiais",
-        "Trifil — Coord. Materiais",
-        "Scalina (Trifil) — Coord. Materiais",
-        "Trifil (Coord. Materiais)",
-        "Trifil — Coordenador Materiais",
-        "Mindrift — Freelance Supply Chain Consultant - AI Trainer"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "ja selecionada"
-      ],
-      "stats": {
-        "times_extracted": 5,
-        "times_covered_cv": 3,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
         "times_gap": 0
       }
     },
@@ -1286,6 +1289,39 @@
       }
     },
     {
+      "canonical_key": "executive_reporting",
+      "keyword": "Executive Reporting",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "reportes executivos",
+      "pt_br_alternatives": [
+        "relatórios executivos",
+        "reports para C-level",
+        "reportes para alta liderança"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'relatórios executivos' ou 'reportes para C-level' cobrem o termo canônico.",
+      "sample_application_keys": [
+        "shein__strategy_operations_manager",
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "SHEIN — Strategy Operations Manager",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "financial_management",
       "keyword": "Financial Management",
       "translation_ready": true,
@@ -1416,6 +1452,39 @@
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 2,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "performance_management",
+      "keyword": "Performance Management",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "gestão de performance",
+      "pt_br_alternatives": [
+        "gestão de desempenho",
+        "indicadores de performance"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'gestão de performance' cobre o termo canônico.",
+      "sample_application_keys": [
+        "airbnb__partner_operations_manager",
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood / WeHandle",
+        "iFood — Diretor de Operações",
+        "Airbnb — Partner Operations Manager",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 2,
+        "times_missing_cv": 0,
         "times_gap": 0
       }
     },
@@ -1574,6 +1643,36 @@
       }
     },
     {
+      "canonical_key": "business_strategy",
+      "keyword": "Business Strategy",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "estratégia de negócios",
+      "pt_br_alternatives": [
+        "planejamento estratégico",
+        "estratégia"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'planejamento estratégico' cobre o termo canônico.",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "customer_success_cx_operations",
       "keyword": "Customer Success / CX Operations",
       "translation_ready": true,
@@ -1592,6 +1691,37 @@
       "sample_experience_targets": [
         "WeHandle — Head de Operações",
         "Busca Ativa - COO — COO / Diretor de Operações — Scale-up de Tecnologia"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "data_analytics_sql",
+      "keyword": "Data Analytics & SQL",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "análise de dados e SQL",
+      "pt_br_alternatives": [
+        "modelagem de dados",
+        "SQL",
+        "análise de dados"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'SQL' e 'modelagem de dados' cobrem o termo canônico.",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood + WeHandle",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
       ],
       "sample_origins": [
         "já selecionada"
@@ -1818,6 +1948,37 @@
       }
     },
     {
+      "canonical_key": "kpi_definition_dashboards",
+      "keyword": "KPI Definition & Dashboards",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "KPIs e dashboards",
+      "pt_br_alternatives": [
+        "definição de KPIs",
+        "dashboards",
+        "indicadores"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'KPIs' e 'dashboards' são termos naturais que cobrem o termo canônico.",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood — Head de Operações",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "kpi_governance",
       "keyword": "KPI Governance",
       "translation_ready": true,
@@ -1899,6 +2060,36 @@
       "sample_experience_targets": [
         "iFood — Head/Diretor de Operações",
         "Busca Ativa - COO — COO / Diretor de Operações — Scale-up de Tecnologia"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "market_intelligence",
+      "keyword": "Market Intelligence",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "inteligência de mercado",
+      "pt_br_alternatives": [
+        "inteligência comercial",
+        "inteligência de mercado"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'inteligência comercial' ou 'inteligência de mercado' são equivalentes aceitos.",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Trifil — Coord. Inteligência Comercial",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
       ],
       "sample_origins": [
         "já selecionada"
@@ -2200,6 +2391,37 @@
       "sample_experience_targets": [
         "WeHandle Head de Operacoes / VivaReal",
         "iFood — Gerente de Growth"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "sales_compensation_variable_pay",
+      "keyword": "Sales Compensation & Variable Pay",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "remuneração variável comercial",
+      "pt_br_alternatives": [
+        "comissionamento",
+        "remuneração variável",
+        "comissões"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'comissionamento' ou 'remuneração variável' cobrem o termo canônico.",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "VivaReal — Gerente de Planejamento Comercial",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
       ],
       "sample_origins": [
         "já selecionada"
@@ -2825,6 +3047,30 @@
       }
     },
     {
+      "canonical_key": "sop_integrated_planning",
+      "keyword": "S&OP / Integrated Planning",
+      "translation_ready": true,
+      "recommended_action": "active",
+      "pt_br_preferred": "S&OP e planejamento integrado",
+      "pt_br_alternatives": [
+        "S&OP",
+        "planejamento integrado",
+        "S&OP executivo"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'S&OP' e 'planejamento integrado' são termos naturais que cobrem o termo canônico.",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 0,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "s&op_executive",
       "keyword": "S&OP Executive",
       "translation_ready": true,
@@ -2910,6 +3156,26 @@
       }
     },
     {
+      "canonical_key": "ingl_s_avan_ado",
+      "keyword": "inglês avançado",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 11,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 8,
+        "times_gap": 2
+      }
+    },
+    {
       "canonical_key": "p_l_management",
       "keyword": "P&L Management",
       "translation_ready": false,
@@ -2949,8 +3215,8 @@
       }
     },
     {
-      "canonical_key": "ingl_s_avan_ado",
-      "keyword": "inglês avançado",
+      "canonical_key": "excel_avan_ado",
+      "keyword": "Excel Avançado",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
@@ -2961,11 +3227,11 @@
       "sample_experience_targets": [],
       "sample_origins": [],
       "stats": {
-        "times_extracted": 10,
-        "times_covered_cv": 0,
+        "times_extracted": 9,
+        "times_covered_cv": 3,
         "times_covered_similar_cv": 0,
-        "times_missing_cv": 7,
-        "times_gap": 2
+        "times_missing_cv": 3,
+        "times_gap": 0
       }
     },
     {
@@ -2984,26 +3250,6 @@
         "times_extracted": 9,
         "times_covered_cv": 1,
         "times_covered_similar_cv": 3,
-        "times_missing_cv": 3,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "excel_avan_ado",
-      "keyword": "Excel Avançado",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 8,
-        "times_covered_cv": 3,
-        "times_covered_similar_cv": 0,
         "times_missing_cv": 3,
         "times_gap": 0
       }
@@ -3072,8 +3318,8 @@
         "Trifil",
         "Scalina (Trifil) - Analista de Processos e Sistemas",
         "Trifil — Analista de Processos",
-        "Scalina (Trifil) - Processos",
-        "Trifil - Analista / Expedicao"
+        "Trifil - Coordenador de S&OP",
+        "Scalina (Trifil) - Processos"
       ],
       "sample_origins": [
         "já selecionada",
@@ -3265,6 +3511,26 @@
       }
     },
     {
+      "canonical_key": "projetos_estrat_gicos",
+      "keyword": "projetos estratégicos",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 5,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 2,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "a_b_testing",
       "keyword": "A/B Testing",
       "translation_ready": false,
@@ -3295,6 +3561,41 @@
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 3,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "b2b",
+      "keyword": "B2B",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "iugu__head_de_revenue_operations",
+        "empresa_confidencial_isis_rodrigues__diretor_executivo_ceo_senior",
+        "book_fair__gerente_de_customer_service",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "Trifil / WeHandle",
+        "iugu — Head de Revenue Operations",
+        "Empresa Confidencial (Isis Rodrigues) — Diretor Executivo CEO Senior",
+        "Book Fair — Gerente de Customer Service",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "requisitos",
+        "responsabilidades",
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 2,
         "times_gap": 0
       }
     },
@@ -3407,6 +3708,26 @@
       }
     },
     {
+      "canonical_key": "lideran_a_de_equipe",
+      "keyword": "Liderança de Equipe",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "lideran_a_de_times",
       "keyword": "liderança de times",
       "translation_ready": false,
@@ -3459,26 +3780,6 @@
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 2,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "projetos_estrat_gicos",
-      "keyword": "projetos estratégicos",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 4,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
         "times_gap": 0
       }
     },
@@ -3552,8 +3853,8 @@
       }
     },
     {
-      "canonical_key": "b2b",
-      "keyword": "B2B",
+      "canonical_key": "business_transformation",
+      "keyword": "Business Transformation",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
@@ -3561,26 +3862,57 @@
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "iugu__head_de_revenue_operations",
-        "empresa_confidencial_isis_rodrigues__diretor_executivo_ceo_senior",
-        "book_fair__gerente_de_customer_service"
+        "wellhub__operations_performance_manager",
+        "accenture__sales_operations",
+        "wellhub__director_of_client_operations"
       ],
       "sample_experience_targets": [
-        "Trifil / WeHandle",
-        "iugu — Head de Revenue Operations",
-        "Empresa Confidencial (Isis Rodrigues) — Diretor Executivo CEO Senior",
-        "Book Fair — Gerente de Customer Service"
+        "WeHandle - Head de Operações",
+        "WeHandle — Head de Operações",
+        "ifood - Diretor de Operações",
+        "Wellhub — Operations Performance Manager",
+        "Accenture — Sales Operations",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "cross_functional_teams",
+      "keyword": "cross-functional teams",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "99__cx_ops_manager",
+        "amazon__capacity_planning_manager_transportation_planning",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "99 — CX Ops Manager",
+        "Amazon — Capacity Planning Manager, Transportation Planning",
+        "Wellhub — Director of Client Operations"
       ],
       "sample_origins": [
         "requisitos",
-        "responsabilidades",
-        "já selecionada"
+        "descricao"
       ],
       "stats": {
         "times_extracted": 3,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
-        "times_missing_cv": 2,
+        "times_missing_cv": 1,
         "times_gap": 0
       }
     },
@@ -3670,6 +4002,40 @@
       }
     },
     {
+      "canonical_key": "global_operations",
+      "keyword": "Global Operations",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "nestig__customs_and_logistics",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "iFood — Head de Operações (México)",
+        "iFood - Head de Operações",
+        "Wellhub — Head of Client Operations",
+        "Nestig — Customs and Logistics",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "adicionada por densidade",
+        "diferenciais"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "go_to_market",
       "keyword": "Go-to-Market",
       "translation_ready": false,
@@ -3704,26 +4070,6 @@
     {
       "canonical_key": "ind_stria_farmac_utica",
       "keyword": "Indústria farmacêutica",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 3,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "lideran_a_de_equipe",
-      "keyword": "Liderança de Equipe",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
@@ -3909,6 +4255,26 @@
       }
     },
     {
+      "canonical_key": "alta_lideran_a",
+      "keyword": "Alta Liderança",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "alta_performance",
       "keyword": "alta performance",
       "translation_ready": false,
@@ -4075,36 +4441,6 @@
       }
     },
     {
-      "canonical_key": "business_transformation",
-      "keyword": "Business Transformation",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__operations_performance_manager",
-        "accenture__sales_operations"
-      ],
-      "sample_experience_targets": [
-        "WeHandle - Head de Operações",
-        "WeHandle — Head de Operações",
-        "Wellhub — Operations Performance Manager",
-        "Accenture — Sales Operations"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "cadeia_de_suprimentos",
       "keyword": "Cadeia de Suprimentos",
       "translation_ready": false,
@@ -4129,6 +4465,37 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "competitive_analysis",
+      "keyword": "Competitive Analysis",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "99_didi__senior_operations_manager_search_recommendation",
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor / Trifil — IC",
+        "Trifil — Coord. Inteligência Comercial",
+        "99 (DiDi) — Senior Operations Manager — Search & Recommendation",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "adicionada por densidade",
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
         "times_gap": 0
@@ -4213,8 +4580,8 @@
       }
     },
     {
-      "canonical_key": "cross_functional_teams",
-      "keyword": "cross-functional teams",
+      "canonical_key": "cross_sell",
+      "keyword": "cross-sell",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
@@ -4222,16 +4589,47 @@
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "99__cx_ops_manager",
-        "amazon__capacity_planning_manager_transportation_planning"
+        "iugu__head_de_revenue_operations",
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
       ],
       "sample_experience_targets": [
-        "99 — CX Ops Manager",
-        "Amazon — Capacity Planning Manager, Transportation Planning"
+        "VivaReal — operações de receita e carteira",
+        "iugu — Head de Revenue Operations",
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
       ],
       "sample_origins": [
-        "descricao",
-        "requisitos"
+        "responsabilidades",
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 1
+      }
+    },
+    {
+      "canonical_key": "csat_nps",
+      "keyword": "CSAT / NPS",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "wehandle (85%→92%) + VivaReal (NPS 80%)",
+        "wehandle - Head de Operações",
+        "Wellhub — Head of Client Operations",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada"
       ],
       "stats": {
         "times_extracted": 2,
@@ -4263,6 +4661,26 @@
         "ja selecionada",
         "perfil"
       ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "digitaliza_o",
+      "keyword": "Digitalização",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 0,
@@ -4413,37 +4831,6 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "global_operations",
-      "keyword": "Global Operations",
-      "translation_ready": false,
-      "recommended_action": "high_priority",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations",
-        "nestig__customs_and_logistics"
-      ],
-      "sample_experience_targets": [
-        "iFood — Head de Operações (México)",
-        "iFood - Head de Operações",
-        "Wellhub — Head of Client Operations",
-        "Nestig — Customs and Logistics"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "adicionada por densidade"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
         "times_gap": 0
@@ -5142,6 +5529,36 @@
         "times_extracted": 2,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "s_op_integrated_planning",
+      "keyword": "S&OP / Integrated Planning",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "amazon__category_director_brazil_stores",
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Trifil - S&OP | iFood - Diretor",
+        "iFood — Diretor / Trifil — Coord. S&OP",
+        "Amazon — Category Director, Brazil Stores",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
         "times_missing_cv": 1,
         "times_gap": 0
       }
@@ -6417,6 +6834,33 @@
       }
     },
     {
+      "canonical_key": "budget_management_p_l_analysis",
+      "keyword": "Budget Management & P&L Analysis",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "budget_planning",
       "keyword": "Budget Planning",
       "translation_ready": false,
@@ -7231,6 +7675,32 @@
       }
     },
     {
+      "canonical_key": "conceitos_financeiros",
+      "keyword": "conceitos financeiros",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "concorrentes_potenciais",
       "keyword": "concorrentes potenciais",
       "translation_ready": false,
@@ -7247,6 +7717,33 @@
       ],
       "sample_origins": [
         "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "consumer_goods_industry",
+      "keyword": "Consumer Goods Industry",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Trifil — Coord. S&OP",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
       ],
       "stats": {
         "times_extracted": 1,
@@ -7692,24 +8189,17 @@
       }
     },
     {
-      "canonical_key": "csat_nps",
-      "keyword": "CSAT / NPS",
+      "canonical_key": "cultura_de_experimenta_o",
+      "keyword": "Cultura de Experimentação",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
       "pt_br_alternatives": [],
       "accepted_variants": [],
       "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations"
-      ],
-      "sample_experience_targets": [
-        "wehandle (85%→92%) + VivaReal (NPS 80%)",
-        "Wellhub — Head of Client Operations"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -8151,14 +8641,18 @@
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "leadec__gerente_de_operacoes"
+        "leadec__gerente_de_operacoes",
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
       ],
       "sample_experience_targets": [
         "Trifil / iFood / Estre",
-        "Leadec — Gerente de Operacoes"
+        "VivaReal — Gerente de Planejamento Comercial e Operações",
+        "Leadec — Gerente de Operacoes",
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
       ],
       "sample_origins": [
-        "ja selecionada"
+        "ja selecionada",
+        "já selecionada"
       ],
       "stats": {
         "times_extracted": 1,
@@ -8182,6 +8676,32 @@
       ],
       "sample_experience_targets": [
         "Empresa Confidencial — Gerente de operações sênior"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "desvios_e_riscos",
+      "keyword": "desvios e riscos",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
       ],
       "sample_origins": [
         "responsabilidades"
@@ -8648,6 +9168,26 @@
       "sample_origins": [
         "já selecionada"
       ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "estrat_gia",
+      "keyword": "Estratégia",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -9720,6 +10260,26 @@
       "sample_origins": [
         "titulo"
       ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "gerir_mudan_as",
+      "keyword": "gerir mudanças",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -10896,6 +11456,32 @@
       }
     },
     {
+      "canonical_key": "integridade_de_dados",
+      "keyword": "integridade de dados",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "inteligencia_artificial",
       "keyword": "inteligencia artificial",
       "translation_ready": false,
@@ -10905,13 +11491,17 @@
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "ifood__gerente_de_growth"
+        "ifood__gerente_de_growth",
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
       ],
       "sample_experience_targets": [
-        "iFood — Gerente de Growth"
+        "wehandle — Head de Operações",
+        "iFood — Gerente de Growth",
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
       ],
       "sample_origins": [
-        "responsabilidades"
+        "responsabilidades",
+        "já selecionada"
       ],
       "stats": {
         "times_extracted": 1,
@@ -11711,6 +12301,32 @@
       }
     },
     {
+      "canonical_key": "metodologia_ooda",
+      "keyword": "metodologia OODA",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
+      ],
+      "sample_experience_targets": [
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "metrics_and_impact_measurement",
       "keyword": "metrics and impact measurement",
       "translation_ready": false,
@@ -11821,6 +12437,26 @@
       "sample_origins": [
         "requisitos"
       ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "monitorar_a_es_da_concorr_ncia",
+      "keyword": "monitorar ações da concorrência",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -13126,6 +13762,26 @@
       }
     },
     {
+      "canonical_key": "pensamento_estrat_gico",
+      "keyword": "pensamento estratégico",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "people_leader",
       "keyword": "People Leader",
       "translation_ready": false,
@@ -13189,6 +13845,32 @@
       "sample_application_keys": [],
       "sample_experience_targets": [],
       "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "perfil_de_consumo",
+      "keyword": "perfil de consumo",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -13380,6 +14062,26 @@
       "sample_origins": [
         "responsabilidades"
       ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "plano_t_tico",
+      "keyword": "plano tático",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -13969,7 +14671,8 @@
         "einstein_hospital_israelita__gerente_planejamento_e_log_stica",
         "mercado_livre__gerente_de_transforma_o_mercado_envios",
         "natura__gerente_de_transforma_o_do_planejamento_comercial_latam",
-        "loggi__gerente_de_opera_es_log_sticas_last_mile"
+        "loggi__gerente_de_opera_es_log_sticas_last_mile",
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
       ],
       "sample_experience_targets": [
         "iFood",
@@ -13980,8 +14683,8 @@
         "Loggi — Gerente de Operações Logísticas Last Mile"
       ],
       "sample_origins": [
-        "requisitos",
         "responsabilidades",
+        "requisitos",
         "adicionada por densidade"
       ],
       "stats": {
@@ -14422,6 +15125,26 @@
       }
     },
     {
+      "canonical_key": "remunera_o_vari_vel",
+      "keyword": "remuneração variável",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "reporte_ao_conselho",
       "keyword": "Reporte ao Conselho",
       "translation_ready": false,
@@ -14439,6 +15162,32 @@
       ],
       "sample_origins": [
         "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "reports_executivos",
+      "keyword": "reports executivos",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "requisitos"
       ],
       "stats": {
         "times_extracted": 1,
@@ -14579,6 +15328,33 @@
       "sample_application_keys": [],
       "sample_experience_targets": [],
       "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "risk_deviation_analysis",
+      "keyword": "Risk & Deviation Analysis",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "iFood — Diretor de Operações",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -15737,6 +16513,32 @@
       }
     },
     {
+      "canonical_key": "time_comercial",
+      "keyword": "time Comercial",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "time_series",
       "keyword": "time series",
       "translation_ready": false,
@@ -15837,6 +16639,26 @@
     {
       "canonical_key": "transformar_dados_complexos_em_recomenda_es",
       "keyword": "transformar dados complexos em recomendações",
+      "translation_ready": false,
+      "recommended_action": "high_priority",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "transforma_es_estruturais",
+      "keyword": "transformações estruturais",
       "translation_ready": false,
       "recommended_action": "high_priority",
       "pt_br_preferred": null,
@@ -16288,8 +17110,8 @@
         "nubank__product_operations_manager_iii"
       ],
       "sample_experience_targets": [
-        "Trifil / iFood",
         "Trifil - Coordenador de S&OP",
+        "Trifil / iFood",
         "iFood — Diretor de Operações",
         "Trifil - Coord. S&OP",
         "iFood + Trifil",
@@ -16303,7 +17125,7 @@
         "adicionada por densidade"
       ],
       "stats": {
-        "times_extracted": 30,
+        "times_extracted": 31,
         "times_covered_cv": 17,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
@@ -16323,7 +17145,7 @@
       "sample_experience_targets": [],
       "sample_origins": [],
       "stats": {
-        "times_extracted": 26,
+        "times_extracted": 27,
         "times_covered_cv": 10,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 6,
@@ -16477,8 +17299,8 @@
         "iFood - Diretor de Operacoes",
         "iFood — Diretor / wehandle",
         "WeHandle - Head de Operações",
-        "Wellhub — Head of Client Operations",
-        "Mercado Livre — Gerente de Operacao Logistica - Mercado Envios"
+        "ifood - Diretor de Operações",
+        "Wellhub — Head of Client Operations"
       ],
       "sample_origins": [
         "já selecionada",
@@ -16486,7 +17308,7 @@
         "responsabilidades"
       ],
       "stats": {
-        "times_extracted": 10,
+        "times_extracted": 11,
         "times_covered_cv": 4,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 1,
@@ -16554,6 +17376,47 @@
       }
     },
     {
+      "canonical_key": "customer_success",
+      "keyword": "Customer Success",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "goevo_via_tprime_tecnologia__head_de_opera_es_saas",
+        "arco_educa_o__gerente_s_nior_de_planejamento_e_performance",
+        "turbo__diretor_de_opera_es_coo",
+        "wellhub__operations_performance_manager",
+        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
+        "wellhub__client_success_director",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "VivaReal — Gerente / WeHandle — Head",
+        "VivaReal — Gerente de Planejamento",
+        "WeHandle — Head de Operações",
+        "Wellhub — Head of Client Operations",
+        "GOEVO (via TPrime Tecnologia) — Head de Operações SaaS",
+        "Arco Educação — Gerente Sênior de Planejamento e Performance"
+      ],
+      "sample_origins": [
+        "responsabilidades",
+        "já selecionada",
+        "perfil",
+        "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 8,
+        "times_covered_cv": 5,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "governan_a",
       "keyword": "Governança",
       "translation_ready": false,
@@ -16594,46 +17457,6 @@
       }
     },
     {
-      "canonical_key": "customer_success",
-      "keyword": "Customer Success",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations",
-        "goevo_via_tprime_tecnologia__head_de_opera_es_saas",
-        "arco_educa_o__gerente_s_nior_de_planejamento_e_performance",
-        "turbo__diretor_de_opera_es_coo",
-        "wellhub__operations_performance_manager",
-        "busca_ativa__cv_geral_opera_es_supply_chain_log_stica",
-        "wellhub__client_success_director"
-      ],
-      "sample_experience_targets": [
-        "VivaReal — Gerente / WeHandle — Head",
-        "VivaReal — Gerente de Planejamento",
-        "WeHandle — Head de Operações",
-        "Wellhub — Head of Client Operations",
-        "GOEVO (via TPrime Tecnologia) — Head de Operações SaaS",
-        "Arco Educação — Gerente Sênior de Planejamento e Performance"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "responsabilidades",
-        "perfil",
-        "requisitos"
-      ],
-      "stats": {
-        "times_extracted": 7,
-        "times_covered_cv": 5,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "gest_o_de_projetos",
       "keyword": "Gestão de Projetos",
       "translation_ready": false,
@@ -16666,8 +17489,8 @@
       "sample_experience_targets": [],
       "sample_origins": [],
       "stats": {
-        "times_extracted": 6,
-        "times_covered_cv": 4,
+        "times_extracted": 7,
+        "times_covered_cv": 5,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -16710,6 +17533,44 @@
         "times_covered_cv": 5,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "planejamento_de_demanda",
+      "keyword": "planejamento de demanda",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "einstein_hospital_israelita__gerente_planejamento_e_logistica",
+        "einstein_hospital_israelita__gerente_planejamento_e_log_stica",
+        "confidencial_empresa_de_servi_os_engenharia_integradora__diretor_de_supply_chain",
+        "uniscience__gerente_de_opera_es",
+        "empresa_do_setor_farmac_utico_confidencial_wise_and_talented__diretor_de_supply_chain",
+        "tirolez__gerente_executivo_de_planejamento_integrado"
+      ],
+      "sample_experience_targets": [
+        "Trifil - Coordenador de S&OP",
+        "Trifil / iFood",
+        "Einstein Hospital Israelita — Gerente Planejamento e Logistica",
+        "Einstein Hospital Israelita — Gerente Planejamento e Logística",
+        "Confidencial (Empresa de serviços/engenharia/integradora) — Diretor de Supply Chain",
+        "Uniscience — Gerente de Operações"
+      ],
+      "sample_origins": [
+        "responsabilidades",
+        "já selecionada",
+        "ja selecionada"
+      ],
+      "stats": {
+        "times_extracted": 6,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 1,
         "times_gap": 0
       }
     },
@@ -16922,8 +17783,8 @@
       }
     },
     {
-      "canonical_key": "planejamento_de_demanda",
-      "keyword": "planejamento de demanda",
+      "canonical_key": "root_cause_analysis",
+      "keyword": "Root Cause Analysis",
       "translation_ready": false,
       "recommended_action": "review",
       "pt_br_preferred": null,
@@ -16931,28 +17792,26 @@
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "einstein_hospital_israelita__gerente_planejamento_e_logistica",
-        "einstein_hospital_israelita__gerente_planejamento_e_log_stica",
-        "confidencial_empresa_de_servi_os_engenharia_integradora__diretor_de_supply_chain",
-        "uniscience__gerente_de_opera_es",
-        "empresa_do_setor_farmac_utico_confidencial_wise_and_talented__diretor_de_supply_chain"
+        "wellhub__head_of_client_operations",
+        "chep__logistics_distribution_manager",
+        "wellhub__operations_performance_manager",
+        "airbnb__partner_operations_manager",
+        "wellhub__director_of_client_operations"
       ],
       "sample_experience_targets": [
-        "Trifil - Coordenador de S&OP",
-        "Trifil / iFood",
-        "Einstein Hospital Israelita — Gerente Planejamento e Logistica",
-        "Einstein Hospital Israelita — Gerente Planejamento e Logística",
-        "Confidencial (Empresa de serviços/engenharia/integradora) — Diretor de Supply Chain",
-        "Uniscience — Gerente de Operações"
+        "wehandle — Head de Operações",
+        "WeHandle",
+        "WeHandle - Head de Operações",
+        "iFood",
+        "wehandle - Head de Operações",
+        "Wellhub — Head of Client Operations"
       ],
       "sample_origins": [
-        "responsabilidades",
-        "ja selecionada",
         "já selecionada"
       ],
       "stats": {
         "times_extracted": 5,
-        "times_covered_cv": 2,
+        "times_covered_cv": 3,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 1,
         "times_gap": 0
@@ -17177,6 +18036,26 @@
       }
     },
     {
+      "canonical_key": "gest_o_de_estoques",
+      "keyword": "Gestão de Estoques",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 4,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "mercado_envios",
       "keyword": "Mercado Envios",
       "translation_ready": false,
@@ -17244,8 +18123,8 @@
       }
     },
     {
-      "canonical_key": "root_cause_analysis",
-      "keyword": "Root Cause Analysis",
+      "canonical_key": "six_sigma",
+      "keyword": "Six Sigma",
       "translation_ready": false,
       "recommended_action": "review",
       "pt_br_preferred": null,
@@ -17253,28 +18132,30 @@
       "accepted_variants": [],
       "usage_notes": "",
       "sample_application_keys": [
-        "wellhub__head_of_client_operations",
-        "chep__logistics_distribution_manager",
-        "wellhub__operations_performance_manager",
-        "airbnb__partner_operations_manager"
+        "petlove__gerente_de_operacoes_logisticas",
+        "shopee__gerente_de_opera_es_log_sticas",
+        "99__cx_ops_manager",
+        "tirolez__gerente_executivo_de_planejamento_integrado"
       ],
       "sample_experience_targets": [
-        "wehandle — Head de Operações",
-        "WeHandle",
-        "WeHandle - Head de Operações",
-        "iFood",
-        "Wellhub — Head of Client Operations",
-        "CHEP — Logistics Distribution Manager"
+        "Formacao / Scalina (Trifil)",
+        "Trifil",
+        "Petlove — Gerente de Operacoes Logisticas",
+        "Shopee — Gerente de Operações Logísticas",
+        "99 — CX Ops Manager",
+        "Tirolez — Gerente Executivo de Planejamento Integrado"
       ],
       "sample_origins": [
+        "requisitos",
+        "ja selecionada",
         "já selecionada"
       ],
       "stats": {
         "times_extracted": 4,
-        "times_covered_cv": 3,
+        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
-        "times_missing_cv": 1,
-        "times_gap": 0
+        "times_missing_cv": 0,
+        "times_gap": 1
       }
     },
     {
@@ -17421,26 +18302,6 @@
         "times_extracted": 3,
         "times_covered_cv": 1,
         "times_covered_similar_cv": 1,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "gest_o_de_estoques",
-      "keyword": "Gestão de Estoques",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 3,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -17650,6 +18511,39 @@
       }
     },
     {
+      "canonical_key": "performance_monitoring",
+      "keyword": "Performance Monitoring",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "shein__strategy_operations_manager",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "wehandle (KPIs em tempo real) + iFood (Grafana)",
+        "wehandle - Head de Operações",
+        "Wellhub — Head of Client Operations",
+        "SHEIN — Strategy Operations Manager",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "planejamento_estrategico",
       "keyword": "planejamento estrategico",
       "translation_ready": false,
@@ -17685,6 +18579,39 @@
         "times_extracted": 3,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "planejamento_integrado",
+      "keyword": "Planejamento Integrado",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "atvos__gerente_de_planejamento_integrado_s_op_s_oe",
+        "arco_educa_o__gerente_s_nior_de_planejamento_e_performance",
+        "tirolez__gerente_executivo_de_planejamento_integrado"
+      ],
+      "sample_experience_targets": [
+        "iFood Diretor",
+        "iFood — Diretor de Operações",
+        "Atvos — Gerente de Planejamento Integrado (S&OP | S&OE)",
+        "Arco Educação — Gerente Sênior de Planejamento e Performance",
+        "Tirolez — Gerente Executivo de Planejamento Integrado"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "titulo"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -17791,38 +18718,6 @@
       }
     },
     {
-      "canonical_key": "six_sigma",
-      "keyword": "Six Sigma",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "petlove__gerente_de_operacoes_logisticas",
-        "shopee__gerente_de_opera_es_log_sticas",
-        "99__cx_ops_manager"
-      ],
-      "sample_experience_targets": [
-        "Formacao / Scalina (Trifil)",
-        "Petlove — Gerente de Operacoes Logisticas",
-        "Shopee — Gerente de Operações Logísticas",
-        "99 — CX Ops Manager"
-      ],
-      "sample_origins": [
-        "requisitos",
-        "ja selecionada"
-      ],
-      "stats": {
-        "times_extracted": 3,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 1
-      }
-    },
-    {
       "canonical_key": "strategy_operations",
       "keyword": "Strategy Operations",
       "translation_ready": false,
@@ -17856,6 +18751,37 @@
       }
     },
     {
+      "canonical_key": "team_management",
+      "keyword": "team management",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "nestig__customs_and_logistics",
+        "shein__strategy_operations_manager",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "Nestig — Customs and Logistics",
+        "SHEIN — Strategy Operations Manager",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "requisitos",
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 2,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "tomada_de_decis_o",
       "keyword": "Tomada de decisão",
       "translation_ready": false,
@@ -17870,6 +18796,26 @@
       "stats": {
         "times_extracted": 3,
         "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "transforma_o_digital",
+      "keyword": "Transformação digital",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 3,
+        "times_covered_cv": 3,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -18044,6 +18990,35 @@
       }
     },
     {
+      "canonical_key": "bens_de_consumo",
+      "keyword": "bens de consumo",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "ocean_drop__diretor_operacional_coo",
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Ocean Drop — Diretor Operacional (COO)",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "diferenciais",
+        "requisitos"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 1
+      }
+    },
+    {
       "canonical_key": "business_process_design",
       "keyword": "Business Process Design",
       "translation_ready": false,
@@ -18068,6 +19043,36 @@
         "times_extracted": 2,
         "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "business_process_transformation",
+      "keyword": "Business Process Transformation",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "braze__director_business_operations",
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "WeHandle — Head de Operacoes",
+        "WeHandle — Head de Operações",
+        "Braze — Director, Business Operations",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 2,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -18190,6 +19195,36 @@
       }
     },
     {
+      "canonical_key": "client_operations",
+      "keyword": "client operations",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "wehandle - Head de Operações",
+        "Wellhub — Head of Client Operations",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "título / responsabilidades",
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "client_retention",
       "keyword": "client retention",
       "translation_ready": false,
@@ -18300,6 +19335,36 @@
       }
     },
     {
+      "canonical_key": "customer_experience_cx",
+      "keyword": "Customer Experience (CX)",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__head_of_client_operations",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "wehandle + VivaReal",
+        "wehandle - Head de Operações",
+        "Wellhub — Head of Client Operations",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "customer_retention",
       "keyword": "Customer Retention",
       "translation_ready": false,
@@ -18354,6 +19419,64 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 2,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "customer_support",
+      "keyword": "customer support",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "us_dtc_brand_via_paired__head_of_business_operations",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "US DTC Brand (via Paired) — Head of Business Operations",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "customer_support_management",
+      "keyword": "Customer Support Management",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "us_dtc_brand_via_paired__head_of_business_operations",
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "WeHandle Head de Operações",
+        "wehandle - Head de Operações",
+        "US DTC Brand (via Paired) — Head of Business Operations",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -19047,36 +20170,6 @@
       }
     },
     {
-      "canonical_key": "performance_monitoring",
-      "keyword": "Performance Monitoring",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations",
-        "shein__strategy_operations_manager"
-      ],
-      "sample_experience_targets": [
-        "wehandle (KPIs em tempo real) + iFood (Grafana)",
-        "Wellhub — Head of Client Operations",
-        "SHEIN — Strategy Operations Manager"
-      ],
-      "sample_origins": [
-        "já selecionada",
-        "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "planejamento_comercial",
       "keyword": "Planejamento Comercial",
       "translation_ready": false,
@@ -19101,36 +20194,6 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "planejamento_integrado",
-      "keyword": "Planejamento Integrado",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "atvos__gerente_de_planejamento_integrado_s_op_s_oe",
-        "arco_educa_o__gerente_s_nior_de_planejamento_e_performance"
-      ],
-      "sample_experience_targets": [
-        "iFood Diretor",
-        "iFood — Diretor de Operações",
-        "Atvos — Gerente de Planejamento Integrado (S&OP | S&OE)",
-        "Arco Educação — Gerente Sênior de Planejamento e Performance"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 2,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -19302,6 +20365,36 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "s_oe",
+      "keyword": "S&OE",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "atvos__gerente_de_planejamento_integrado_s_op_s_oe",
+        "tirolez__gerente_executivo_de_planejamento_integrado"
+      ],
+      "sample_experience_targets": [
+        "Scalina (Trifil) S&OP",
+        "Atvos — Gerente de Planejamento Integrado (S&OP | S&OE)",
+        "Tirolez — Gerente Executivo de Planejamento Integrado"
+      ],
+      "sample_origins": [
+        "já selecionada",
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 2,
+        "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -19510,35 +20603,6 @@
       }
     },
     {
-      "canonical_key": "team_management",
-      "keyword": "team management",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "nestig__customs_and_logistics",
-        "shein__strategy_operations_manager"
-      ],
-      "sample_experience_targets": [
-        "Nestig — Customs and Logistics",
-        "SHEIN — Strategy Operations Manager"
-      ],
-      "sample_origins": [
-        "requisitos",
-        "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 2,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "temperatura_controlada",
       "keyword": "temperatura controlada",
       "translation_ready": false,
@@ -19599,26 +20663,6 @@
       "stats": {
         "times_extracted": 2,
         "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "transforma_o_digital",
-      "keyword": "Transformação digital",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 2,
-        "times_covered_cv": 2,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -20287,26 +21331,6 @@
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "alta_lideran_a",
-      "keyword": "Alta Liderança",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -21047,6 +22071,33 @@
       }
     },
     {
+      "canonical_key": "b2b_operations",
+      "keyword": "B2B Operations",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "vivareal - Gerente de Operações",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "b2b_prospecting_sales_funnel",
       "keyword": "B2B Prospecting / Sales Funnel",
       "translation_ready": false,
@@ -21143,32 +22194,6 @@
       ],
       "sample_origins": [
         "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "bens_de_consumo",
-      "keyword": "bens de consumo",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "ocean_drop__diretor_operacional_coo"
-      ],
-      "sample_experience_targets": [
-        "Ocean Drop — Diretor Operacional (COO)"
-      ],
-      "sample_origins": [
-        "diferenciais"
       ],
       "stats": {
         "times_extracted": 1,
@@ -21297,6 +22322,26 @@
       "sample_origins": [
         "já selecionada"
       ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "budget_planejamento_or_ament_rio",
+      "keyword": "Budget / Planejamento Orçamentário",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -21545,33 +22590,6 @@
       }
     },
     {
-      "canonical_key": "business_process_transformation",
-      "keyword": "Business Process Transformation",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "braze__director_business_operations"
-      ],
-      "sample_experience_targets": [
-        "WeHandle — Head de Operacoes",
-        "Braze — Director, Business Operations"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "business_reviews",
       "keyword": "Business Reviews",
       "translation_ready": false,
@@ -21783,6 +22801,26 @@
       }
     },
     {
+      "canonical_key": "cadeia_log_stica",
+      "keyword": "Cadeia Logística",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "call_center",
       "keyword": "Call Center",
       "translation_ready": false,
@@ -21900,6 +22938,33 @@
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 1
+      }
+    },
+    {
+      "canonical_key": "canais_de_vendas",
+      "keyword": "canais de vendas",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
+      ],
+      "sample_experience_targets": [
+        "VivaReal — Gerente de Planejamento Comercial e Operações",
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
       }
     },
     {
@@ -22293,6 +23358,33 @@
       }
     },
     {
+      "canonical_key": "channel_distribution_strategy",
+      "keyword": "Channel & Distribution Strategy",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "empresa_confidencial__gerente_de_performance_e_intelig_ncia_de_mercado_b2b"
+      ],
+      "sample_experience_targets": [
+        "Trifil — Coord. Inteligência Comercial",
+        "Empresa Confidencial — Gerente de Performance e Inteligência de Mercado B2B"
+      ],
+      "sample_origins": [
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "churn_reduction",
       "keyword": "Churn Reduction",
       "translation_ready": false,
@@ -22360,6 +23452,32 @@
       }
     },
     {
+      "canonical_key": "client_experience",
+      "keyword": "Client Experience",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "client_onboarding",
       "keyword": "Client Onboarding",
       "translation_ready": false,
@@ -22382,32 +23500,6 @@
         "times_extracted": 1,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "client_operations",
-      "keyword": "client operations",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations"
-      ],
-      "sample_experience_targets": [
-        "Wellhub — Head of Client Operations"
-      ],
-      "sample_origins": [
-        "título / responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -22734,33 +23826,6 @@
       }
     },
     {
-      "canonical_key": "competitive_analysis",
-      "keyword": "Competitive Analysis",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "99_didi__senior_operations_manager_search_recommendation"
-      ],
-      "sample_experience_targets": [
-        "iFood — Diretor / Trifil — IC",
-        "99 (DiDi) — Senior Operations Manager — Search & Recommendation"
-      ],
-      "sample_origins": [
-        "adicionada por densidade"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "compliance_quality_control",
       "keyword": "Compliance / Quality Control",
       "translation_ready": false,
@@ -23038,6 +24103,26 @@
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 1
+      }
+    },
+    {
+      "canonical_key": "concorr_ncia",
+      "keyword": "concorrência",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
       }
     },
     {
@@ -23746,32 +24831,6 @@
       }
     },
     {
-      "canonical_key": "cross_sell",
-      "keyword": "cross-sell",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "iugu__head_de_revenue_operations"
-      ],
-      "sample_experience_targets": [
-        "iugu — Head de Revenue Operations"
-      ],
-      "sample_origins": [
-        "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 1
-      }
-    },
-    {
       "canonical_key": "cr_dito",
       "keyword": "crédito",
       "translation_ready": false,
@@ -23931,33 +24990,6 @@
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "customer_experience_cx",
-      "keyword": "Customer Experience (CX)",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "wellhub__head_of_client_operations"
-      ],
-      "sample_experience_targets": [
-        "wehandle + VivaReal",
-        "Wellhub — Head of Client Operations"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -24199,59 +25231,6 @@
         "times_extracted": 1,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "customer_support",
-      "keyword": "customer support",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "us_dtc_brand_via_paired__head_of_business_operations"
-      ],
-      "sample_experience_targets": [
-        "US DTC Brand (via Paired) — Head of Business Operations"
-      ],
-      "sample_origins": [
-        "responsabilidades"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "customer_support_management",
-      "keyword": "Customer Support Management",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "us_dtc_brand_via_paired__head_of_business_operations"
-      ],
-      "sample_experience_targets": [
-        "WeHandle Head de Operações",
-        "US DTC Brand (via Paired) — Head of Business Operations"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
-        "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -24760,6 +25739,33 @@
       }
     },
     {
+      "canonical_key": "data_driven_growth",
+      "keyword": "Data-driven Growth",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
+      ],
+      "sample_experience_targets": [
+        "Scalina (Trifil) — Coord. Inteligência Comercial",
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "data_driven_recommendations",
       "keyword": "Data-Driven Recommendations",
       "translation_ready": false,
@@ -25044,6 +26050,26 @@
       }
     },
     {
+      "canonical_key": "desenvolvimento_de_neg_cios",
+      "keyword": "desenvolvimento de negócios",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "desenvolvimento_de_pessoas",
       "keyword": "desenvolvimento de pessoas",
       "translation_ready": false,
@@ -25207,26 +26233,6 @@
       "sample_origins": [
         "ja selecionada"
       ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "digitaliza_o",
-      "keyword": "Digitalização",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [],
-      "sample_experience_targets": [],
-      "sample_origins": [],
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
@@ -26190,8 +27196,8 @@
         "Trifil — Coord. de Inteligência Comercial / Stack",
         "Trifil - Coord. IC",
         "Trifil — Coord. Inteligência Comercial",
-        "Shopee — Gerente de Operações Logísticas",
-        "Aché Laboratórios Farmacêuticos — Gerente de Planejamento Estratégico"
+        "Geral",
+        "Shopee — Gerente de Operações Logísticas"
       ],
       "sample_origins": [
         "já selecionada",
@@ -26381,33 +27387,6 @@
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
-        "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "executive_reporting",
-      "keyword": "Executive Reporting",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "shein__strategy_operations_manager"
-      ],
-      "sample_experience_targets": [
-        "iFood — Diretor de Operações",
-        "SHEIN — Strategy Operations Manager"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -27361,6 +28340,26 @@
       }
     },
     {
+      "canonical_key": "gerente_de_performance_e_intelig_ncia_de_mercado_b2b",
+      "keyword": "Gerente de Performance e Inteligência de Mercado B2B",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "gerente_de_planejamento_e_estrat_gia_de_growth_s_nior",
       "keyword": "Gerente de Planejamento e Estratégia de Growth Sênior",
       "translation_ready": false,
@@ -27468,15 +28467,16 @@
         "einstein_hospital_israelita__gerente_planejamento_e_logistica",
         "kovi__gerente_de_planejamento_e_controle_de_produ_o_e_log_stica",
         "grupo_integralm_dica__gerente_de_pcp_planejamento_e_controle_da_produ_o",
-        "empresa_do_setor_farmac_utico_confidencial_wise_and_talented__diretor_de_supply_chain"
+        "empresa_do_setor_farmac_utico_confidencial_wise_and_talented__diretor_de_supply_chain",
+        "tirolez__gerente_executivo_de_planejamento_integrado"
       ],
       "sample_experience_targets": [
         "Trifil - Coordenador de S&OP / Materiais",
         "Trifil - Coord. Materiais",
         "Trifil - Coordenador de Expedição e Planejamento",
         "Trifil",
-        "Einstein Hospital Israelita — Gerente Planejamento e Logistica",
-        "Kovi — Gerente de Planejamento e Controle de Produção e Logística"
+        "Trifil - Coordenador de Expedição",
+        "Einstein Hospital Israelita — Gerente Planejamento e Logistica"
       ],
       "sample_origins": [
         "já selecionada",
@@ -28887,6 +29887,32 @@
       }
     },
     {
+      "canonical_key": "growth_levers",
+      "keyword": "Growth Levers",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
+      ],
+      "sample_experience_targets": [
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "gtm_frameworks",
       "keyword": "GTM Frameworks",
       "translation_ready": false,
@@ -29003,6 +30029,32 @@
       ],
       "sample_origins": [
         "título"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "head_of_growth",
+      "keyword": "Head of Growth",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "siemens__gerente_de_desenvolvimento_de_neg_cios_e_head_of_growth"
+      ],
+      "sample_experience_targets": [
+        "Siemens — Gerente de Desenvolvimento de Negócios e Head of Growth"
+      ],
+      "sample_origins": [
+        "titulo"
       ],
       "stats": {
         "times_extracted": 1,
@@ -29660,6 +30712,33 @@
       }
     },
     {
+      "canonical_key": "integrated_business_planning_ibp",
+      "keyword": "Integrated Business Planning (IBP)",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "tirolez__gerente_executivo_de_planejamento_integrado"
+      ],
+      "sample_experience_targets": [
+        "Trifil / iFood",
+        "Tirolez — Gerente Executivo de Planejamento Integrado"
+      ],
+      "sample_origins": [
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "integra_o_com_ti",
       "keyword": "integração com TI",
       "translation_ready": false,
@@ -29742,6 +30821,26 @@
     {
       "canonical_key": "integra_es",
       "keyword": "Integrações",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "intelig_ncia_artificial",
+      "keyword": "inteligência artificial",
       "translation_ready": false,
       "recommended_action": "review",
       "pt_br_preferred": null,
@@ -30635,12 +31734,13 @@
         "fenix_foods_distribuidora__gestor_de_logistica_senior",
         "fenix_foods_distribuidora__gestor_de_log_stica_s_nior",
         "flash__coordenador_a_de_opera_es_cx",
-        "pravaler__pessoa_gerente_de_planejamento_comercial_estrat_gia"
+        "pravaler__pessoa_gerente_de_planejamento_comercial_estrat_gia",
+        "tirolez__gerente_executivo_de_planejamento_integrado"
       ],
       "sample_experience_targets": [
+        "iFood - Diretor de Operações",
         "iFood / VivaReal / WeHandle",
         "WeHandle — Head de Operações",
-        "iFood - Diretor de Operações",
         "Fenix Foods Distribuidora — Gestor de Logistica Senior",
         "Fenix Foods Distribuidora — Gestor de Logística Sênior",
         "Flash — Coordenador(a) de Operações CX"
@@ -31571,6 +32671,26 @@
       }
     },
     {
+      "canonical_key": "mat_ria_prima",
+      "keyword": "Matéria-Prima",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "maximiza_o_de_margem",
       "keyword": "maximização de margem",
       "translation_ready": false,
@@ -32180,6 +33300,33 @@
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "mps_master_production_schedule",
+      "keyword": "MPS (Master Production Schedule)",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "tirolez__gerente_executivo_de_planejamento_integrado"
+      ],
+      "sample_experience_targets": [
+        "Trifil - Coordenador de Planejamento de Materiais",
+        "Tirolez — Gerente Executivo de Planejamento Integrado"
+      ],
+      "sample_origins": [
+        "adicionada por densidade"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -32943,6 +34090,59 @@
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "operational_issues",
+      "keyword": "Operational Issues",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "responsabilidades"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "operational_quality",
+      "keyword": "Operational Quality",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [
+        "wellhub__director_of_client_operations"
+      ],
+      "sample_experience_targets": [
+        "wehandle - Head de Operações",
+        "Wellhub — Director of Client Operations"
+      ],
+      "sample_origins": [
+        "já selecionada"
+      ],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
@@ -33713,6 +34913,26 @@
       }
     },
     {
+      "canonical_key": "pain_is_de_mercado",
+      "keyword": "painéis de mercado",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 1
+      }
+    },
+    {
       "canonical_key": "parceiros_log_sticos",
       "keyword": "parceiros logísticos",
       "translation_ready": false,
@@ -34119,33 +35339,6 @@
         "times_extracted": 1,
         "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "performance_management",
-      "keyword": "Performance Management",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "airbnb__partner_operations_manager"
-      ],
-      "sample_experience_targets": [
-        "iFood / WeHandle",
-        "Airbnb — Partner Operations Manager"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 1,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -34768,6 +35961,26 @@
         "times_extracted": 1,
         "times_covered_cv": 0,
         "times_covered_similar_cv": 1,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "pol_tica_de_pre_os",
+      "keyword": "política de preços",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0
       }
@@ -36806,60 +38019,6 @@
       }
     },
     {
-      "canonical_key": "s_oe",
-      "keyword": "S&OE",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "atvos__gerente_de_planejamento_integrado_s_op_s_oe"
-      ],
-      "sample_experience_targets": [
-        "Scalina (Trifil) S&OP",
-        "Atvos — Gerente de Planejamento Integrado (S&OP | S&OE)"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
-      "canonical_key": "s_op_integrated_planning",
-      "keyword": "S&OP / Integrated Planning",
-      "translation_ready": false,
-      "recommended_action": "review",
-      "pt_br_preferred": null,
-      "pt_br_alternatives": [],
-      "accepted_variants": [],
-      "usage_notes": "",
-      "sample_application_keys": [
-        "amazon__category_director_brazil_stores"
-      ],
-      "sample_experience_targets": [
-        "Trifil - S&OP | iFood - Diretor",
-        "Amazon — Category Director, Brazil Stores"
-      ],
-      "sample_origins": [
-        "já selecionada"
-      ],
-      "stats": {
-        "times_extracted": 1,
-        "times_covered_cv": 0,
-        "times_covered_similar_cv": 1,
-        "times_missing_cv": 0,
-        "times_gap": 0
-      }
-    },
-    {
       "canonical_key": "s_op_e_planejamento_integrado",
       "keyword": "S&OP e Planejamento Integrado",
       "translation_ready": false,
@@ -38343,6 +39502,26 @@
       }
     },
     {
+      "canonical_key": "taxa_de_convers_o",
+      "keyword": "taxa de conversão",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
       "canonical_key": "team_capacity_and_workload",
       "keyword": "team capacity and workload",
       "translation_ready": false,
@@ -38416,6 +39595,26 @@
       "stats": {
         "times_extracted": 1,
         "times_covered_cv": 0,
+        "times_covered_similar_cv": 0,
+        "times_missing_cv": 0,
+        "times_gap": 0
+      }
+    },
+    {
+      "canonical_key": "tend_ncias",
+      "keyword": "tendências",
+      "translation_ready": false,
+      "recommended_action": "review",
+      "pt_br_preferred": null,
+      "pt_br_alternatives": [],
+      "accepted_variants": [],
+      "usage_notes": "",
+      "sample_application_keys": [],
+      "sample_experience_targets": [],
+      "sample_origins": [],
+      "stats": {
+        "times_extracted": 1,
+        "times_covered_cv": 1,
         "times_covered_similar_cv": 0,
         "times_missing_cv": 0,
         "times_gap": 0

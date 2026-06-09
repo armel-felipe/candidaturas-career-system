@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from career.paths import CAREER_STATE, OUTPUTS, ROOT
+from career.services import derived_context as derived_context_service
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, write_text
 from career.workflow.state_store import WorkflowStateStore
 
@@ -21,7 +22,7 @@ WORKSPACE_FORBIDDEN_PATTERNS = [
 ]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AgentContract:
     step: str
     agent: str
@@ -116,13 +117,16 @@ CONTRACTS: dict[str, AgentContract] = {
         allowed_files=(
             ".career-state/workflow_state.json",
             ".career-state/fit_map.draft.json",
+            ".career-state/derived/job_extract.json",
+            ".career-state/derived/job_sections.json",
+            ".career-state/derived/job_keywords.json",
+            ".career-state/derived/reference_digest.json",
+            ".career-state/derived/candidate_evidence_pack.json",
+            ".career-state/derived/fit_map_seed.json",
+            ".career-state/derived/manifest.json",
             ".career-state/memory/profile_facts.json",
             ".career-state/memory/application_rules.json",
             ".career-state/memory/evidence_index.json",
-            ".opencode/skills/career-system/references/dicionario_palavras_chave_mercado.md",
-            ".opencode/skills/career-system/references/palavras_chave_carreira.md",
-            ".opencode/skills/career-system/references/autoconhecimento.md",
-            ".opencode/skills/career-system/references/perfil_restricoes.md",
         ),
         allowed_commands=(
             "npm run agent:guard",
@@ -157,19 +161,26 @@ CONTRACTS: dict[str, AgentContract] = {
         step="cv",
         agent="cv-agent",
         purpose=(
-            "Gerar conteudo e DOCX de CV a partir do FIT_MAP ativo, mantendo idioma, "
+            "Gerar cv_content persistido e DOCX de CV a partir do FIT_MAP ativo, mantendo idioma, "
             "keywords e restricoes do perfil. A entrega so pode ser considerada pronta "
             "apos validacao DOCX e cv:deliver no artefato final quando OneDrive/rclone estiver configurado."
         ),
         allowed_files=(
             ".career-state/fit_map.json",
+            ".career-state/derived/cv_input_pack.json",
+            ".career-state/derived/cv_content_seed.json",
+            ".career-state/cv_content.json",
+            ".career-state/derived/reference_digest.json",
+            ".career-state/derived/manifest.json",
             ".career-state/memory/profile_facts.json",
             ".career-state/memory/application_rules.json",
             ".opencode/skills/cv-generator/SKILL.md",
-            ".opencode/skills/career-system/references/perfil_restricoes.md",
-            "scripts/docx/generate_cv_docx.js",
+            "scripts/docx/generate_custom_cv.js",
         ),
         allowed_commands=(
+            "npm run context:assert-active",
+            "npm run cv:build-content",
+            "npm run cv:validate-content",
             "npm run cv:docx",
             "npm run validate:docx",
             "npm run cv:approve -- --artifact outputs/<cv>.docx",
@@ -190,9 +201,66 @@ CONTRACTS: dict[str, AgentContract] = {
             "ignorar idioma requerido pela descricao da vaga",
         ),
         validation_commands=(
+            "npm run cv:validate-content",
             "npm run validate:docx",
             "npm run cv:deliver -- --artifact outputs/<cv>.docx",
         ),
+    ),
+    "cover-letter": AgentContract(
+        step="cover-letter",
+        agent="cover-letter-agent",
+        purpose=(
+            "Gerar carta de apresentacao a partir de pack compacto persistido, sem reler "
+            "referencias longas no caminho feliz. O artefato deve nascer em arquivo local antes de qualquer entrega."
+        ),
+        allowed_files=(
+            ".career-state/fit_map.json",
+            ".career-state/derived/cover_letter_input_pack.json",
+            ".career-state/derived/reference_digest.json",
+            ".career-state/derived/manifest.json",
+            ".opencode/skills/cover-letter/SKILL.md",
+        ),
+        allowed_commands=(
+            "npm run cover-letter:build",
+            "python3 scripts/cover_letter_to_pdf.py --input <arquivo.md> --output <arquivo.pdf>",
+            "npm run deliver:artifact -- --file outputs/<arquivo.pdf>",
+        ),
+        expected_outputs=(
+            "outputs/<cover_letter>.md",
+            "outputs/<cover_letter>.pdf",
+        ),
+        forbidden_actions=BASE_FORBIDDEN_ACTIONS
+        + (
+            "entregar carta apenas na conversa",
+            "reabrir referencias longas sem necessidade objetiva",
+            "usar tom genérico ou claims nao defensaveis",
+            "prosseguir para entrega sem arquivo local persistido",
+        ),
+        validation_commands=("npm run cover-letter:build",),
+    ),
+    "feras": AgentContract(
+        step="feras",
+        agent="feras-agent",
+        purpose=(
+            "Gerar FERAS estruturado e pitch fluido a partir de pack compacto persistido, "
+            "mantendo consistencia com FIT_MAP e sem recarregar referencias longas no caminho feliz."
+        ),
+        allowed_files=(
+            ".career-state/fit_map.json",
+            ".career-state/derived/feras_input_pack.json",
+            ".career-state/derived/reference_digest.json",
+            ".career-state/derived/manifest.json",
+            ".opencode/skills/feras-pitch/SKILL.md",
+        ),
+        allowed_commands=("npm run feras:build",),
+        expected_outputs=("outputs/<feras>.md",),
+        forbidden_actions=BASE_FORBIDDEN_ACTIONS
+        + (
+            "entregar feras apenas na conversa sem artefato local",
+            "usar tom de coach ou claims nao defensaveis",
+            "reabrir referencias longas sem necessidade objetiva",
+        ),
+        validation_commands=("npm run feras:build",),
     ),
     "notion-update": AgentContract(
         step="notion-update",
@@ -203,8 +271,9 @@ CONTRACTS: dict[str, AgentContract] = {
         ),
         allowed_files=(
             ".career-state/fit_map.json",
-            ".career-state/workflow_state.json",
-            "inbox/job_descriptions/<descricao>.md",
+            ".career-state/derived/active_context.json",
+            ".career-state/derived/job_extract.json",
+            ".career-state/derived/manifest.json",
             ".opencode/skills/notion-transactions/SKILL.md",
         ),
         allowed_commands=(
@@ -344,6 +413,7 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
     if not contract:
         raise ValidationFailure(f"Unknown multiagent step: {step}")
     active = _active_intake()
+    _prepare_compact_inputs_for_step(step, active)
     payload = {
         "created_at": utc_now_iso(),
         "step": contract.step,
@@ -352,6 +422,8 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
         "active_intake": active,
         "fit_map": _fit_map_summary(active),
         "allowed_files": _allowed_files_for(contract, active),
+        "fallback_reference_files": _fallback_reference_files_for(contract),
+        "derived_context": _derived_context_payload(contract),
         "allowed_commands": list(contract.allowed_commands),
         "expected_outputs": list(contract.expected_outputs),
         "forbidden_actions": list(contract.forbidden_actions),
@@ -376,9 +448,52 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
     return {"status": "ok", "step": step, "request_json": str(json_path.relative_to(ROOT)), "request_md": str(md_path.relative_to(ROOT))}
 
 
+def validate_request(step: str) -> dict[str, Any]:
+    request_path = REQUEST_DIR / f"{step}_request.json"
+    if not request_path.exists():
+        return {
+            "status": "blocked",
+            "reason": "request_missing",
+            "request_json": str(request_path.relative_to(ROOT)),
+        }
+    payload = read_json(request_path)
+    allowed_files = payload.get("allowed_files", []) if isinstance(payload.get("allowed_files"), list) else []
+    fallback_files = payload.get("fallback_reference_files", []) if isinstance(payload.get("fallback_reference_files"), list) else []
+    fit_map = payload.get("fit_map", {}) if isinstance(payload.get("fit_map"), dict) else {}
+    oversized: list[str] = []
+    forbidden_long_refs: list[str] = []
+    missing: list[str] = []
+    for item in allowed_files:
+        if not isinstance(item, str) or "<" in item or item.endswith("(missing_ok)"):
+            continue
+        path = ROOT / item
+        if not path.exists():
+            missing.append(item)
+            continue
+        if path.stat().st_size > 50_000:
+            oversized.append(item)
+        if step == "fit-map" and "/references/" in item and "/career-system/" in item:
+            forbidden_long_refs.append(item)
+    stale_fit_map = step in {"cv", "notion-update"} and (
+        not fit_map.get("exists") or not fit_map.get("matches_active_job")
+    )
+    return {
+        "status": "blocked" if missing or oversized or forbidden_long_refs or stale_fit_map else "ok",
+        "step": step,
+        "request_json": str(request_path.relative_to(ROOT)),
+        "allowed_files_count": len(allowed_files),
+        "fallback_reference_files_count": len(fallback_files),
+        "missing_files": missing,
+        "oversized_allowed_files": oversized,
+        "forbidden_long_refs_in_allowed_files": forbidden_long_refs,
+        "stale_fit_map_for_active_job": stale_fit_map,
+    }
+
+
 def _request_markdown(payload: dict[str, Any]) -> str:
     active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
     fit_map = payload.get("fit_map") if isinstance(payload.get("fit_map"), dict) else {}
+    derived = payload.get("derived_context") if isinstance(payload.get("derived_context"), dict) else {}
     lines = [
         f"# {payload['agent']} — {payload['step']}",
         "",
@@ -403,8 +518,16 @@ def _request_markdown(payload: dict[str, Any]) -> str:
         f"- matches_active_job: `{fit_map.get('matches_active_job')}`",
         f"- warning: `{'do_not_reuse_stale_fit_map' if fit_map.get('exists') and not fit_map.get('matches_active_job') else 'none'}`",
         "",
+        "## Derived Context",
+        f"- status: `{derived.get('status') or 'none'}`",
+        f"- fingerprint: `{derived.get('fingerprint') or 'none'}`",
+        f"- missing_outputs: `{', '.join(derived.get('missing_outputs', [])) if derived.get('missing_outputs') else 'none'}`",
+        "",
         "## Allowed Files",
         *[f"- `{item}`" for item in payload["allowed_files"]],
+        "",
+        "## Fallback Reference Files",
+        *[f"- `{item}`" for item in payload.get("fallback_reference_files", [])],
         "",
         "## Allowed Commands",
         *[f"- `{item}`" for item in payload["allowed_commands"]],
@@ -427,11 +550,56 @@ def _request_markdown(payload: dict[str, Any]) -> str:
 
 def _allowed_files_for(contract: AgentContract, active: dict[str, Any] | None) -> list[str]:
     files = list(contract.allowed_files)
+    if contract.step == "fit-map":
+        files = derived_context_service.fit_map_compact_files()
+    elif contract.step == "cv":
+        files = derived_context_service.cv_compact_files() + [
+            ".opencode/skills/cv-generator/SKILL.md",
+            "scripts/docx/generate_custom_cv.js",
+        ]
+    elif contract.step == "cover-letter":
+        files = [
+            ".career-state/fit_map.json",
+            ".career-state/derived/cover_letter_input_pack.json",
+            ".career-state/derived/reference_digest.json",
+            ".career-state/derived/manifest.json",
+            ".opencode/skills/cover-letter/SKILL.md",
+        ]
+    elif contract.step == "feras":
+        files = [
+            ".career-state/fit_map.json",
+            ".career-state/derived/feras_input_pack.json",
+            ".career-state/derived/reference_digest.json",
+            ".career-state/derived/manifest.json",
+            ".opencode/skills/feras-pitch/SKILL.md",
+        ]
     if contract.step in {"fit-map", "notion-update"} and active:
         job_description_path = active.get("job_description_path")
         if isinstance(job_description_path, str) and job_description_path.strip():
-            files.insert(1, job_description_path)
+            files.insert(2 if contract.step == "fit-map" else 1, job_description_path)
     return _relative_existing(tuple(files))
+
+
+def _fallback_reference_files_for(contract: AgentContract) -> list[str]:
+    if contract.step == "fit-map":
+        return _relative_existing(tuple(derived_context_service.fit_map_fallback_reference_files()))
+    return []
+
+
+def _derived_context_payload(contract: AgentContract) -> dict[str, Any] | None:
+    if contract.step not in {"fit-map", "cv", "cover-letter", "feras", "notion-update"}:
+        return None
+    try:
+        return derived_context_service.derived_summary()
+    except ValidationFailure:
+        return {"status": "blocked", "missing_outputs": ["derived_context_unavailable"]}
+
+
+def _prepare_compact_inputs_for_step(step: str, active: dict[str, Any] | None) -> None:
+    if step in {"fit-map", "notion-update", "cover-letter", "feras"} and active:
+        derived_context_service.build_all_for_fit_map()
+    elif step == "cv":
+        derived_context_service.build_all_for_fit_map()
 
 
 def _operational_rules(contract: AgentContract) -> list[str]:
@@ -447,7 +615,10 @@ def _operational_rules(contract: AgentContract) -> list[str]:
     if contract.step == "fit-map":
         rules.extend(
             [
-                "Ler active_intake.job_description_path antes de editar o draft.",
+                "Caminho feliz: ler primeiro os arquivos compactos em .career-state/derived/ e usar active_intake.job_description_path apenas como fallback.",
+                "Ler active_intake.job_description_path antes de editar o draft somente se os arquivos derivados nao forem suficientes.",
+                "Usar reference_digest, candidate_evidence_pack e fit_map_seed como contexto primario.",
+                "Arquivos de referencia longa ficam em Fallback Reference Files; abrir apenas se evidence_pack ou digest nao resolverem uma lacuna objetiva.",
                 "Se Current FIT_MAP.matches_active_job for false, tratar .career-state/fit_map.json como antigo e nao reutilizar.",
                 "Se fit-map:status indicar draft.valid_json=false, rodar npm run fit-map:template antes de editar.",
                 "Se .career-state/fit_map.draft.json tiver placeholders, a proxima acao e editar o arquivo.",
@@ -466,7 +637,11 @@ def _operational_rules(contract: AgentContract) -> list[str]:
     elif contract.step == "cv":
         rules.extend(
             [
+                "Usar .career-state/derived/cv_input_pack.json como contexto primario; nao reabrir referencias longas no caminho feliz.",
+                "Gerar .career-state/cv_content.json antes do DOCX e validar se ele pertence a vaga ativa.",
                 "Confirmar que .career-state/fit_map.json existe e pertence a vaga ativa antes de gerar CV.",
+                "Rodar npm run context:assert-active antes do DOCX; se acusar stale, regenerar artefatos em vez de reaproveitar estado residual.",
+                "Rodar npm run cv:build-content e npm run cv:validate-content antes do DOCX.",
                 "Gerar ou atualizar o conteudo/DOCX em outputs/; nao entregar apenas texto na conversa.",
                 "Rodar npm run validate:docx no DOCX gerado.",
                 "Rodar npm run cv:deliver -- --artifact outputs/<cv>.docx no artefato final quando OneDrive/rclone estiver configurado.",
@@ -474,9 +649,28 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Nao limpar outputs/_tmp antes de output_review_report.json e polish_review.json estarem coerentes com o artefato final.",
             ]
         )
+    elif contract.step == "cover-letter":
+        rules.extend(
+            [
+                "Usar .career-state/derived/cover_letter_input_pack.json como contexto primario; nao reler referencias longas no caminho feliz.",
+                "Persistir primeiro a carta em Markdown e depois converter/entregar o PDF se a etapa pedir.",
+                "Bloquear se o pack estiver faltando, se houver placeholders ou se o texto usar claims nao defensaveis.",
+                "Responder com caminho, status e validacao objetiva; nao colar a carta completa na conversa como substituto do arquivo.",
+            ]
+        )
+    elif contract.step == "feras":
+        rules.extend(
+            [
+                "Usar .career-state/derived/feras_input_pack.json como contexto primario; nao reler referencias longas no caminho feliz.",
+                "Persistir o FERAS em arquivo local antes de qualquer exibicao longa na conversa.",
+                "A entrega precisa conter FERAS estruturado, pitch fluido e auditoria de keywords usadas/omitidas.",
+                "Bloquear se houver placeholders, claims nao defensaveis ou tom promocional.",
+            ]
+        )
     elif contract.step == "notion-update":
         rules.extend(
             [
+                "Usar .career-state/derived/job_extract.json e o FIT_MAP ativo como contexto primario para o dry-run.",
                 "Resolver a origem pelo estado ativo e preferir atualizar a mesma pagina quando a vaga nasceu no Notion.",
                 "Executar somente dry-run ate o usuario aprovar explicitamente a escrita real.",
                 "Usar apenas scripts locais de Notion; MCP, curl, API direta e leitura de .env sao proibidos.",

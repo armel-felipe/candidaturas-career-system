@@ -25,7 +25,7 @@ class CvReviewReportSchema:
         return self.payload
 
 
-@dataclass(slots=True)
+@dataclass
 class CvPolishReportSchema:
     payload: dict[str, Any]
 

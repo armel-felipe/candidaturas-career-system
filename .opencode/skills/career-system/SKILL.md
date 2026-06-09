@@ -180,6 +180,8 @@ Comandos:
 npm run agent:maestro
 npm run agent:maestro -- fit-map
 npm run agent:maestro -- cv
+npm run agent:maestro -- cover-letter
+npm run agent:maestro -- feras
 npm run agent:maestro -- notion-update
 npm run agent:maestro -- email-draft
 npm run agent:maestro -- linkedin
@@ -187,6 +189,12 @@ npm run agent:evaluate-notion-local -- <id_unico>
 npm run multiagent:runbook
 npm run multiagent:local-model-map
 npm run multiagent:request -- fit-map
+npm run multiagent:request -- cv
+npm run multiagent:request -- cover-letter
+npm run multiagent:request -- feras
+npm run context:assert-active
+npm run cv:build-content
+npm run cv:validate-content
 npm run validate:workspace-clean
 ```
 
@@ -205,12 +213,21 @@ Regras:
 - `fit-map-agent`: edita `.career-state/fit_map.draft.json` quando houver placeholders; nao delega o preenchimento ao usuario e nao imprime o template bruto como resposta
 - `fit-map-agent`: se o request indicar `Current FIT_MAP.matches_active_job = false`, tratar `.career-state/fit_map.json` como antigo e nao reutilizar
 - `fit-map-agent`: depois de editar, deve rodar `npm run validate:fit-map:draft`; se o JSON quebrar ou a validação falhar, deve corrigir antes de responder
-- `cv-agent`: produz DOCX em `outputs/`, roda `validate:docx` e encerra com `cv:deliver` quando OneDrive/rclone estiver configurado; `cv:approve` isolado é gate local/diagnóstico
+- `cv-agent`: roda `context:assert-active`, `cv:build-content`, `cv:validate-content`, produz DOCX em `outputs/`, roda `validate:docx` e encerra com `cv:deliver` quando OneDrive/rclone estiver configurado; `cv:approve` isolado é gate local/diagnóstico
+- `cv-agent`: usa `.career-state/derived/cv_input_pack.json` e `.career-state/derived/cv_content_seed.json` como contexto primário; referências longas ficam em fallback
+- `cover-letter-agent`: usa `.career-state/derived/cover_letter_input_pack.json` como contexto primário e persiste primeiro `.md`; PDF/entrega só quando a etapa pedir
+- `feras-agent`: usa `.career-state/derived/feras_input_pack.json` como contexto primário e persiste primeiro o artefato local em `outputs/`
 - `notion-agent`: prepara somente dry-run ate aprovacao explicita; usa scripts locais, bloqueia mismatch/mojibake e nunca le `.env` ou usa MCP/curl
 - `email-agent`: revisa texto antes do preview, valida anexos, faz dry-run e so cria draft real apos aprovacao explicita; nunca envia email
 - `linkedin-agent`: usa apenas scripts autenticados, persiste a descricao e confirma `active_intake`; se sessao expirar, usa `linkedin:auth`
 - arquivos temporarios na raiz como `gen_*.py`, `generate_*fitmap*.py`, `create_draft.py`, `create_drafi.py` e `tmp_*.py` sao proibidos
 - `validate:workspace-clean` deve passar antes de considerar uma execucao multiagente saudavel
+
+No `applications_v2`:
+- o agente de `generate` deve ler primeiro `generation_request.json/md`
+- `compact_inputs.primary_files` define os packs pequenos da candidatura e é a leitura inicial obrigatória
+- `fit_map.json` e `job_description.md` da candidatura viram fallback para lacunas objetivas; não leitura inicial obrigatória
+- os packs compactos por candidatura ficam em `.career-state/applications_v2/<ID>/{cv_input_pack.json,cv_content_seed.json,feras_input_pack.json,habilidades_input_pack.json}`
 
 ## Memória Obrigatória
 

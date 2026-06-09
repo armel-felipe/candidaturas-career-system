@@ -546,6 +546,100 @@
       "canonical_keyword": "Change Management",
       "pt_br_preferred": "gestão de mudança",
       "pt_br_alternatives": [
+        "gestão de mudanças"
+      ],
+      "accepted_variants": [],
+      "usage_notes": ""
+    },
+    "performance_management": {
+      "canonical_keyword": "Performance Management",
+      "pt_br_preferred": "gestão de performance",
+      "pt_br_alternatives": [
+        "gestão de desempenho",
+        "indicadores de performance"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'gestão de performance' cobre o termo canônico."
+    },
+    "market_intelligence": {
+      "canonical_keyword": "Market Intelligence",
+      "pt_br_preferred": "inteligência de mercado",
+      "pt_br_alternatives": [
+        "inteligência comercial",
+        "inteligência de mercado"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'inteligência comercial' ou 'inteligência de mercado' são equivalentes aceitos."
+    },
+    "business_strategy": {
+      "canonical_keyword": "Business Strategy",
+      "pt_br_preferred": "estratégia de negócios",
+      "pt_br_alternatives": [
+        "planejamento estratégico",
+        "estratégia"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'planejamento estratégico' cobre o termo canônico."
+    },
+    "kpi_definition_dashboards": {
+      "canonical_keyword": "KPI Definition & Dashboards",
+      "pt_br_preferred": "KPIs e dashboards",
+      "pt_br_alternatives": [
+        "definição de KPIs",
+        "dashboards",
+        "indicadores"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'KPIs' e 'dashboards' são termos naturais que cobrem o termo canônico."
+    },
+    "sales_compensation_variable_pay": {
+      "canonical_keyword": "Sales Compensation & Variable Pay",
+      "pt_br_preferred": "remuneração variável comercial",
+      "pt_br_alternatives": [
+        "comissionamento",
+        "remuneração variável",
+        "comissões"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'comissionamento' ou 'remuneração variável' cobrem o termo canônico."
+    },
+    "data_analytics_sql": {
+      "canonical_keyword": "Data Analytics & SQL",
+      "pt_br_preferred": "análise de dados e SQL",
+      "pt_br_alternatives": [
+        "modelagem de dados",
+        "SQL",
+        "análise de dados"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'SQL' e 'modelagem de dados' cobrem o termo canônico."
+    },
+    "executive_reporting": {
+      "canonical_keyword": "Executive Reporting",
+      "pt_br_preferred": "reportes executivos",
+      "pt_br_alternatives": [
+        "relatórios executivos",
+        "reports para C-level",
+        "reportes para alta liderança"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'relatórios executivos' ou 'reportes para C-level' cobrem o termo canônico."
+    },
+    "sop_integrated_planning": {
+      "canonical_keyword": "S&OP / Integrated Planning",
+      "pt_br_preferred": "S&OP e planejamento integrado",
+      "pt_br_alternatives": [
+        "S&OP",
+        "planejamento integrado",
+        "S&OP executivo"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'S&OP' e 'planejamento integrado' são termos naturais que cobrem o termo canônico."
+    },
+    "change_management": {
+      "canonical_keyword": "Change Management",
+      "pt_br_preferred": "gestão de mudança",
+      "pt_br_alternatives": [
         "gestão de mudanças",
         "gestão da transformação",
         "migrações de plataforma"
