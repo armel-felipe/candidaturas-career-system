@@ -653,7 +653,7 @@ Estas regras se aplicam a cada linha do script Node.js. Violar qualquer uma dela
 
 **Passo 1 — Escrever script Node.js completo**
 
-Salvar em `<workspace>/scripts/generated/cv_[escopo].js`. O script deve:
+Salvar em `<workspace>/outputs/_tmp/generated_scripts/cv_[escopo].js`. O script deve:
 - Ter `const pt = n => n * 2` no topo — verificar antes de qualquer `size`
 - Incluir todas as funções auxiliares (secao, espaco, cargoParagraph, bullet)
 - Ter numbering config com LevelFormat.BULLET
@@ -662,10 +662,15 @@ Salvar em `<workspace>/scripts/generated/cv_[escopo].js`. O script deve:
 - Usar ExternalHyperlink para todos os links do cabeçalho
 - Output intermediário: `Packer.toBuffer(doc).then(buffer => { fs.writeFileSync("<workspace>/outputs/_tmp/cv_[escopo].docx", buffer); console.log("ok"); })`
 
+Regra de caminho:
+- `scripts/generated/` é legado histórico do projeto; não criar novos `.js` ali
+- geração futura de scripts intermediários deve ficar em `outputs/_tmp/generated_scripts/`
+- se a pasta não existir, criar antes de salvar o script
+
 **Passo 2 — Executar**
 
 ```bash
-cd <workspace> && node scripts/generated/cv_[escopo].js
+cd <workspace> && node outputs/_tmp/generated_scripts/cv_[escopo].js
 ```
 
 Verificar que stdout retornou "ok". Se erro: corrigir e re-executar antes de prosseguir.

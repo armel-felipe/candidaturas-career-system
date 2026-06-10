@@ -258,6 +258,8 @@ Regra global de entrega:
 - nunca subir configuração real do rclone, tokens ou `.env` para GitHub
 - para CV, usar `cv:deliver` como caminho normal de entrega; ele reexecuta `cv:approve` e só chama rclone se o artefato final estiver aprovado
 - cada entrega grava relatório em `outputs/_tmp/delivery_report.json`; sem `status=delivered` ou `dry_run_ok`, não afirmar que o upload funcionou
+- `scripts/generated/` é camada legada explícita; não criar novos `.js` intermediários ali
+- novos scripts temporários de geração DOCX devem ficar em `outputs/_tmp/generated_scripts/` ou em memória operacional de candidatura quando houver necessidade real de persistência técnica
 
 ## CV geral — comandos exatos
 

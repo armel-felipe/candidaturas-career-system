@@ -95,6 +95,8 @@ Política de contexto compacto:
 - nunca imprimir FIT_MAP, draft, registry ATS, cache Notion, descrição longa, payload de validação completo ou diff gigante
 - para JSON, usar projeções pequenas (`jq`/campos específicos) ou comandos compactos do projeto; não usar `cat` em `.career-state/fit_map*.json`, `applications_cache.json`, registries ou referências longas
 - validações devem retornar apenas `passed/failed`, contagens, score/path e erros objetivos; payload completo só com flag explícita de manutenção
+- `scripts/generated/` existe como legado; novos scripts intermediários por vaga não devem mais nascer ali
+- quando um runtime ainda precisar materializar JS intermediário para DOCX, usar `outputs/_tmp/generated_scripts/`
 - para link ou página Notion por ID único, usar `npm run notion:link-record -- <id_unico>` ou comandos canônicos por ID; não varrer cache/sweep com `grep -r`
 - para diagnóstico de prontidão local strict, usar `npm run local:strict:doctor`
 - para dry-run de atualização Notion por modelo local, preferir `npm run notion:update-record-current:compact -- <id_unico> --dry-run`

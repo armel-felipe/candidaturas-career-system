@@ -24,6 +24,8 @@ sessions/
 outputs/
 outputs
 outputs.local-before-onedrive-*/
+scripts/generated/*.js
+scripts/generated/*.js`
 
 # Secrets/tokens that should never be versioned
 *.token
