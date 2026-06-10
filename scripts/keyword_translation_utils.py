@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 DEFAULT_TRANSLATION_REGISTRY = Path(".opencode/skills/career-system/references/keyword_translation_registry.json")
-DEFAULT_TRANSLATION_CANDIDATES = Path(".opencode/skills/career-system/references/keyword_translation_candidates.json")
+DEFAULT_TRANSLATION_CANDIDATES = Path(".career-state/derived/keyword_translation_candidates.json")
 
 
 def normalize_text(text: str) -> str:

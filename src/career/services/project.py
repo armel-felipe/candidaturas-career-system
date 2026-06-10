@@ -30,8 +30,8 @@ def save_job_description(company: str, role: str, text: str, output_dir: Path) -
 def diagnose_runtime() -> dict[str, Any]:
     workflow_state = CAREER_STATE / "workflow_state.json"
     python_wrapper = ROOT / "scripts" / "python.sh"
-    keyword_registry = ROOT / ".opencode" / "skills" / "career-system" / "references" / "keyword_ats_registry.json"
-    translation_candidates = ROOT / ".opencode" / "skills" / "career-system" / "references" / "keyword_translation_candidates.json"
+    keyword_registry = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
+    translation_candidates = ROOT / ".career-state" / "derived" / "keyword_translation_candidates.json"
     macos_soffice = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
     soffice = shutil.which("libreoffice") or shutil.which("soffice") or (str(macos_soffice) if macos_soffice.exists() else None)
     payload = read_json(workflow_state) if workflow_state.exists() else {}

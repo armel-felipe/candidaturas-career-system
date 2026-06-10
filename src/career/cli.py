@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from career.paths import CAREER_STATE, OUTPUTS
 from career.services import agent_guard as agent_guard_service
@@ -32,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     notion_refresh = notion_sub.add_parser("refresh")
     notion_refresh.add_argument("--refresh", choices=["missing", "full"], default="missing")
     notion_sub.add_parser("build-cache")
+    notion_sync_memory = notion_sub.add_parser("sync-memory")
+    notion_sync_memory.add_argument("--refresh", choices=["missing", "full"], default="missing")
 
     agent = subparsers.add_parser("agent")
     agent_sub = agent.add_subparsers(dest="action", required=True)
@@ -97,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     quality.add_argument("--job-description")
     registry_summary = fit_map_sub.add_parser("registry-summary")
     registry_summary.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
-    registry_summary.add_argument("--registry", default=".opencode/skills/career-system/references/keyword_ats_registry.json")
+    registry_summary.add_argument("--registry", default=".career-state/derived/keyword_ats_registry.json")
     build = fit_map_sub.add_parser("build")
     build.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
     build.add_argument("--output", default=str(CAREER_STATE / "fit_map.json"))
@@ -192,6 +195,11 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat.add_argument("--run-agent", action="store_true")
     heartbeat.add_argument("--model", default=None)
     heartbeat.add_argument("--variant", default=None)
+    heartbeat.add_argument("--skip-maintenance", action="store_true")
+    heartbeat.add_argument("--maintenance-refresh", choices=["missing", "full"], default=None)
+    heartbeat.add_argument("--format", choices=["json", "human", "both"], default="both")
+    status = applications_sub.add_parser("status")
+    status.add_argument("--format", choices=["json", "human", "both"], default="both")
     applications_sub.add_parser("write-default-config")
 
     derive = subparsers.add_parser("derive")
@@ -240,6 +248,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _dump(value):
     print(json.dumps(value, ensure_ascii=False, indent=2, default=str))
+
+
+def _print_human(value: str) -> None:
+    print(value, file=sys.stderr)
 
 
 def _dump_error(exc: Exception) -> None:
@@ -306,6 +318,74 @@ def _fit_map_draft_summary(result):
     }
 
 
+def _heartbeat_human_summary(result: dict) -> str:
+    maintenance = result.get("maintenance") or {}
+    lines = [
+        f"Heartbeat: {result.get('selected', 0)} item(ns) selecionado(s); dry_run={bool(result.get('dry_run'))}; run_agent={bool(result.get('run_agent'))}",
+    ]
+    if maintenance.get("executed"):
+        refresh = (maintenance.get("refresh") or {}).get("summary") or {}
+        coverage = refresh.get("coverage") or {}
+        registry = maintenance.get("registry") or {}
+        lines.append(
+            "Maintenance: "
+            f"refresh={maintenance.get('refresh_mode') or '-'}; "
+            f"pages={refresh.get('total_pages') or '-'}; "
+            f"descricoes={refresh.get('applications_with_description') or '-'}; "
+            f"registry_apps={registry.get('applications_exported') or '-'}; "
+            f"keywords={registry.get('canonical_keywords') or '-'}; "
+            f"complete={coverage.get('is_complete')}"
+        )
+    else:
+        lines.append(f"Maintenance: skipped ({maintenance.get('reason') or 'unknown'})")
+    for item in result.get("results", []) or []:
+        lines.append(
+            f"- {item.get('record_id') or item.get('record_key')}: "
+            f"{item.get('status')} | score={item.get('score') if item.get('score') is not None else '-'} | "
+            f"title={item.get('title') or item.get('role') or '-'}"
+        )
+    lines.append(f"Log: {result.get('log') or '-'}")
+    return "\n".join(lines)
+
+
+def _applications_status_human_summary(result: dict) -> str:
+    maintenance = result.get("maintenance") or {}
+    queue = result.get("queue") or {}
+    notion = result.get("notion") or {}
+    runtime = result.get("local_runtime") or {}
+    lines = [
+        "Applications status",
+        (
+            f"Maintenance: last={maintenance.get('last_refresh_mode') or '-'}; "
+            f"runs_since_full={maintenance.get('runs_since_full') if maintenance.get('runs_since_full') is not None else '-'}; "
+            f"hours_since_full={round(float(maintenance.get('hours_since_full') or 0), 1) if maintenance.get('hours_since_full') is not None else '-'}"
+        ),
+        (
+            f"Queue: eligible={queue.get('eligible_now') or 0}; "
+            f"reprocess={queue.get('reprocess_now') or 0}; "
+            f"missing_description={queue.get('missing_description_now') or 0}"
+        ),
+        (
+            f"Runtime: tracked={runtime.get('tracked_applications') or 0}; "
+            f"retryable={runtime.get('retryable_count') or 0}; "
+            f"errors={runtime.get('error_count') or 0}"
+        ),
+        f"Notion active: {notion.get('total_active') or 0}",
+    ]
+    top_candidates = queue.get("top_candidates") or []
+    if top_candidates:
+        lines.append("Top queue:")
+        for item in top_candidates:
+            lines.append(
+                f"- {item.get('record_id')}: {item.get('status')} | chars={item.get('description_chars') or 0} | {item.get('title') or '-'}"
+            )
+    stage_counts = runtime.get("stage_counts") or {}
+    if stage_counts:
+        ordered = ", ".join(f"{key}={value}" for key, value in sorted(stage_counts.items()))
+        lines.append(f"Stages: {ordered}")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -318,6 +398,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "build-cache":
             result = run_task("notion.build_cache")
             _dump(result)
+            return 0
+        if args.action == "sync-memory":
+            refresh_result = run_task("notion.refresh_cache", {"refresh": args.refresh})
+            registry_result = run_task("registry.rebuild")
+            memory_result = run_task("memory.build")
+            _dump({
+                "refresh": refresh_result,
+                "registry": registry_result,
+                "memory": {key: str(value) for key, value in memory_result.items()},
+            })
             return 0
 
     if args.command == "agent":
@@ -612,6 +702,13 @@ def main(argv: list[str] | None = None) -> int:
             path = applications_v2_service.write_default_config()
             _dump({"config": str(path)})
             return 0
+        if args.action == "status":
+            result = applications_v2_service.heartbeat_status()
+            if args.format in {"human", "both"}:
+                _print_human(_applications_status_human_summary(result))
+            if args.format in {"json", "both"}:
+                _dump(result)
+            return 0
         if args.action == "heartbeat":
             if args.max_per_run is not None and args.max_per_run < 1:
                 raise SystemExit("--max-per-run must be a positive integer.")
@@ -622,9 +719,14 @@ def main(argv: list[str] | None = None) -> int:
                     dry_run=args.dry_run,
                     model=args.model,
                     variant=args.variant,
+                    skip_maintenance=args.skip_maintenance,
+                    maintenance_refresh=args.maintenance_refresh,
                 )
             )
-            _dump(result)
+            if args.format in {"human", "both"}:
+                _print_human(_heartbeat_human_summary(result))
+            if args.format in {"json", "both"}:
+                _dump(result)
             return 0
 
     if args.command == "derive":

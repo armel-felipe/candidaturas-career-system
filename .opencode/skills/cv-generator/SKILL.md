@@ -154,6 +154,20 @@ Regra explicita para CV em ingles:
 
 Exceção somente com pedido explícito do usuário.
 
+### Regra de labels de seção — CV em inglês
+
+Em CV `_en` (inglês), todas as labels de seção visíveis no DOCX devem estar em inglês:
+
+| Seção | PT-BR | EN |
+|---|---|---|
+| Resumo / Summary | (não tem label) | (não tem label) |
+| Experiência | Experiência | Experience |
+| Formação | Formação | Education |
+| Stack técnica | Stack técnica | Technical Stack |
+| Idiomas | Idiomas | Languages |
+
+Esta regra é diferente da tradução de cargos/períodos/bullets. Mesmo que o conteúdo do bullet esteja em inglês, se a label da seção ficar em português o CV parece inconsistente.
+
 Todos os arquivos gerados devem seguir o padrão:
 
 ```
@@ -544,13 +558,13 @@ Esta etapa não é opcional. Pular o Passo 0 invalida toda a execução subseque
 Antes de escrever os bullets do CV, consumir `keywords_habilidade_ats` do FIT_MAP:
 
 Referências obrigatórias para CV em PT-BR:
-- `.opencode/skills/career-system/references/keyword_ats_registry.json`
+- `.career-state/derived/keyword_ats_registry.json`
 - `.opencode/skills/career-system/references/keyword_translation_registry.json`
-- `.opencode/skills/career-system/references/keyword_translation_candidates.json`
+- `.career-state/derived/keyword_translation_candidates.json`
 
 Uso correto dessas referências:
 - `keyword_translation_registry.json` é a fonte canônica de equivalentes PT-BR aceitos pelo reviewer.
-- `keyword_translation_candidates.json` é retroalimentado pelo histórico de candidaturas e ajuda a escolher quais termos em inglês valem tradução prioritária.
+- `keyword_translation_candidates.json` é derivado do histórico de candidaturas e ajuda a escolher quais termos em inglês valem tradução prioritária. O caminho canônico é `.career-state/derived/keyword_translation_candidates.json`.
 - quando uma keyword-habilidade em inglês de duas ou mais palavras soar artificial em prosa PT-BR, priorizar o equivalente canônico em português antes de insistir no termo exato.
 - termos consagrados no mercado brasileiro como `S&OP`, `OTIF`, `WMS`, `MRP` e equivalentes similares podem continuar em inglês/sigla se soarem naturais.
 
@@ -704,7 +718,7 @@ Antes de prosseguir, verificar explicitamente:
 Antes de qualquer `entrega local em outputs/`, chamar a skill `output-reviewer` e executar o gate objetivo:
 
 ```bash
-python scripts/review_output.py --kind cv --artifact <workspace>/outputs/felipe_armel_cv_[escopo].docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
+python scripts/review_output.py --kind cv --artifact <workspace>/outputs/felipe_armel_cv_[escopo].docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
 Gate local/diagnóstico:

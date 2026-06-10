@@ -29,6 +29,8 @@ Não mover scripts para dentro da skill: eles são compartilhados pelo heartbeat
 - Quando o usuário disser `Notion <número>`, tratar o número como o campo único `ID`, não como `page_id`.
 - Nunca usar `--allow-mismatch` para contornar descrição/FIT_MAP incompatível.
 - Todo texto enviado ao Notion deve permanecer UTF-8 legível, sem mojibake.
+- Fluxo padrão para vaga nova: `análise -> FIT_MAP final -> decisão de prosseguir -> Notion`.
+- Criar página nova no Notion antes do FIT_MAP é exceção; só fazer isso quando o usuário pedir explicitamente capturar/registrar cedo a vaga antes da análise final.
 
 ## Configuração
 
@@ -91,6 +93,13 @@ python3 scripts/notion_sync.py update-description-record <id_unico> --job-descri
 python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo.md> --source-url "<url>"
 ```
 
+Criar registro a partir do FIT_MAP ativo, sempre com dry-run antes quando a operação exigir preview:
+
+```bash
+npm run notion:create-current -- --dry-run
+npm run notion:create-current
+```
+
 Criar registro a partir de descrição salva, sempre com dry-run antes:
 
 ```bash
@@ -110,7 +119,15 @@ Sincronizar histórico/cache antes de consultar candidaturas anteriores:
 
 ```bash
 npm run notion:sweep:refresh
+npm run notion:memory:sync -- --refresh missing
+npm run notion:memory:sync -- --refresh full
 ```
+
+Uso recomendado:
+
+- `notion:sweep:refresh`: quando o objetivo é apenas atualizar o espelho bruto do Notion e o cache consolidado.
+- `notion:memory:sync -- --refresh missing`: caminho padrão de manutenção, pois além do sweep incremental também reconstrói o registry técnico local e a memória compacta.
+- `notion:memory:sync -- --refresh full`: usar quando houver suspeita de drift maior entre Notion e espelho local, ou quando for necessário auditar cobertura total do sweep.
 
 ## Fluxos
 
@@ -135,7 +152,16 @@ Não procurar o link com `grep -r` em `applications_cache.json`, `applications_s
 
 ### Criar registro novo
 
-1. Confirmar pedido explícito de criação no Notion.
+Fluxo padrão:
+
+1. Confirmar que o `FIT_MAP` final da vaga já existe e pertence à vaga ativa.
+2. Executar `npm run notion:create-current -- --dry-run` quando precisar de preview.
+3. Validar título, status, template, score e campos consolidados que voltarão ao Notion.
+4. Executar `npm run notion:create-current` apenas após autorização explícita.
+
+Exceção deliberada:
+
+1. Confirmar pedido explícito de criação precoce no Notion antes do FIT_MAP final.
 2. Confirmar empresa, cargo e arquivo de descrição.
 3. Executar `create-description-record ... --dry-run`.
 4. Validar título, status, template e tamanho da descrição no payload.

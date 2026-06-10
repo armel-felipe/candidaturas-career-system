@@ -14,7 +14,7 @@ from keyword_translation_utils import (
 )
 
 
-DEFAULT_KEYWORD_REGISTRY = Path(".opencode/skills/career-system/references/keyword_ats_registry.json")
+DEFAULT_KEYWORD_REGISTRY = Path(".career-state/derived/keyword_ats_registry.json")
 
 
 def main() -> int:
@@ -27,9 +27,10 @@ def main() -> int:
     keyword_registry = read_json(Path(args.keyword_registry), default={"applications": [], "canonical_keywords": {}})
     translation_registry = load_translation_registry(Path(args.translation_registry))
     payload = build_translation_candidates(keyword_registry, translation_registry)
-    write_json(Path(args.output), payload)
+    output_path = Path(args.output)
+    write_json(output_path, payload)
 
-    print(f"Translation candidates updated: {args.output}")
+    print(f"Translation candidates updated: {output_path}")
     print(f"Candidates: {payload['candidate_count']}")
     return 0
 

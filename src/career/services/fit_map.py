@@ -18,7 +18,7 @@ from career.schemas.fit_map import (
 from career.utils import ValidationFailure, read_json, sha256_file, write_json
 
 
-KEYWORD_REGISTRY = Path(".opencode/skills/career-system/references/keyword_ats_registry.json")
+KEYWORD_REGISTRY = Path(".career-state/derived/keyword_ats_registry.json")
 SUSPICIOUS_TEXT_MARKERS = (
     "B2P",
     "Engineiro",

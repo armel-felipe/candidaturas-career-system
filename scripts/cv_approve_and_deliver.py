@@ -12,7 +12,7 @@ from _bootstrap import bootstrap
 
 
 ROOT = bootstrap()
-DEFAULT_REGISTRY = ROOT / ".opencode" / "skills" / "career-system" / "references" / "keyword_ats_registry.json"
+DEFAULT_REGISTRY = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
 DEFAULT_FIT_MAP = ROOT / ".career-state" / "fit_map.json"
 DEFAULT_REVIEW_REPORT = ROOT / "outputs" / "_tmp" / "output_review_report.json"
 DEFAULT_POLISH_REPORT = ROOT / "outputs" / "_tmp" / "polish_review.json"

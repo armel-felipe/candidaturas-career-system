@@ -115,7 +115,7 @@ Exemplos de âncora por tipo de vaga:
 
 ### Sobre LinkedIn / Perfil LinkedIn
 - Seguir modelo semelhante ao CV, em **4 a 8 bullet points**.
-- Ler `.opencode/skills/career-system/references/keyword_ats_registry.json` quando existir.
+- Ler `.career-state/derived/keyword_ats_registry.json` quando existir.
 - Priorizar keywords com `status = covered_cv` e `linkedin_use = recommended`.
 - Cada bullet deve combinar: keyword/capacidade + escopo real + número validado.
 - Não usar keyword marcada como `gap`.

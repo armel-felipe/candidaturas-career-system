@@ -13,7 +13,7 @@ This registry improves future CVs and LinkedIn profiles by recording which marke
 
 ## Files
 
-- `.opencode/skills/career-system/references/keyword_ats_registry.json`: machine-readable registry.
+- `.career-state/derived/keyword_ats_registry.json`: machine-readable registry.
 - `scripts/register_keywords.py`: updates the registry from `.career-state/fit_map.json` and, when provided, a generated DOCX.
 
 ## When To Update

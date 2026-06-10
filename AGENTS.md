@@ -35,7 +35,7 @@ Comportamentos proibidos:
 - preencher checklist ou bloco de validação operacional sem evidência real dos comandos executados
 - presumir arquivos intermediários brutos por convenção de nome sem que tenham sido criados no runtime
 - reutilizar estado ativo como se fosse análise nova quando o usuário colou uma nova vaga e a persistência inicial ainda não aconteceu
-- aprovar CV em DOCX sem executar `python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json`
+- aprovar CV em DOCX sem executar `python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json`
 - tratar inspeção do script gerador como substituto da revisão do artefato final em `outputs/`
 - limpar `outputs/_tmp/` antes de o gate objetivo de revisão do CV ter aprovado o artefato final
 
@@ -199,7 +199,7 @@ npm run cv:build-content                                     # gera .career-stat
 npm run cv:validate-content                                  # valida contrato e fingerprint do cv_content
 npm run cv:docx                                              # gera via Node.js (generate_custom_cv.js)
 npm run validate:docx                                        # valida o DOCX gerado
-python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
+python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 npm run docx:tmp:clean                                       # limpa resíduos em outputs/_tmp/
 
 # Gate local para registrar keywords + revisar o DOCX final
@@ -310,6 +310,8 @@ npm run notion:record-summary -- <id_unico>                 # alias compacto do 
 npm run notion:templates                                     # lista templates disponíveis
 npm run notion:sweep:refresh                                 # sincroniza o snapshot local a partir do Notion e reescreve o cache consolidado
 npm run notion:sweep:build-cache                             # apenas reconstrói o cache local a partir do sweep já salvo
+npm run notion:memory:sync -- --refresh missing              # refresh incremental + rebuild do registry tecnico local + rebuild da memoria compacta
+npm run notion:memory:sync -- --refresh full                 # full sync remoto + rebuild do registry tecnico local + rebuild da memoria compacta
 npm run notion:create-current                                # cria página a partir do FIT_MAP ativo
 python3 scripts/notion_sync.py create-description-record --job-description <arquivo.md> --company "<empresa>" --role "<cargo>" --source-url "<url>" --dry-run
 python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo.md> --source-url "<url>" --dry-run
@@ -322,6 +324,11 @@ npm run notion:update-record-current -- <id_unico> --dry-run # prévia da devolu
 npm run notion:update-record-current:compact -- <id_unico> --dry-run # prévia compacta sem blocos/payloads
 ```
 
+Regra operacional padrão para vaga nova:
+- `análise -> fit_map final -> decisão de prosseguir -> Notion`
+- quando a vaga ainda não existir no Notion, preferir `npm run notion:create-current` depois do `FIT_MAP` final
+- `create-description-record` fica restrito a captura precoce deliberada antes do `FIT_MAP`
+
 ## Orquestrador automático de candidaturas
 
 ```bash
@@ -331,11 +338,16 @@ npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
+./scripts/python.sh scripts/career_cli.py applications status --format human
+./scripts/python.sh scripts/career_cli.py applications heartbeat --dry-run --max-per-run 1 --format json
+./scripts/python.sh scripts/career_cli.py applications heartbeat --max-per-run 3 --format both
 ```
 
 Regra operacional do heartbeat:
 - processa vagas elegíveis do Notion em sequência, nunca em paralelo
 - `max_per_run` define quantas vagas entram no lote do ciclo; a execução continua serial, uma vaga por vez
+- antes de montar a fila, o heartbeat executa a manutenção local equivalente a `npm run notion:memory:sync -- --refresh missing`, salvo override explícito de manutenção
+- cadência padrão de manutenção: `missing` em toda execução; `full` automático quando completar 24 execuções sem full ou 24 horas desde o último full; `--maintenance-refresh full` continua disponível como override explícito
 - status de tratamento automático deve ser `Fila Agente`
 - status `Reprocessar` força limpeza completa do pacote local da candidatura antes do próximo ciclo
 - status final configurado para vagas processadas é `Aplicação andamento`
@@ -347,6 +359,10 @@ Regra operacional do heartbeat:
 - o índice leve para conversa futura fica em `.career-state/applications_v2/index.json`
 - o launchd apenas dispara o comando; o orquestrador local decide fila, lock, status, memória e gates
 - `applications:agent-heartbeat` executa `analyze` e `generate`; render, review, polish e finalize são locais
+- por padrão, o heartbeat mantém alinhados `inbox/notion/applications_sweep/`, `inbox/notion/applications_cache.json`, `.career-state/derived/keyword_ats_registry.json` e `.career-state/memory/` antes da leitura da fila
+- o heartbeat aceita `--format human|json|both`; usar `both` para terminal humano e `json` para integrações/bot
+- para consumo automatizado do JSON por bot/Telegram, preferir `./scripts/python.sh scripts/career_cli.py applications heartbeat ... --format json`; evitar `npm run ...` porque o próprio npm injeta banner no `stdout`
+- para observabilidade diária, usar `./scripts/python.sh scripts/career_cli.py applications status --format human`
 - o modelo e variant ficam em `.career-state/applications_v2/config.json` e também podem ser sobrescritos por execução com `--model provider/model --variant medium`
 - o heartbeat não marca uma candidatura como pronta se faltar FIT_MAP, DOCX final em `outputs/`, reviewer objetivo aprovado ou `polish_review.json`
 - CV PT-BR só pode ser aprovado com `outputs/_tmp/output_review_report.json` e `outputs/_tmp/polish_review.json` compatíveis
@@ -378,14 +394,15 @@ Regra de payload compacto para agentes:
 - referências longas são fallback, não leitura inicial obrigatória
 
 Condições suportadas para atualização no Notion:
-- vaga colada no chat e depois criação de página no Notion: usar `npm run notion:create-current`/`create-from-fit-map` com a descrição salva em `inbox/job_descriptions/`
+- vaga colada no chat, análise concluída e decisão de seguir: usar `npm run notion:create-current`/`create-from-fit-map` com a descrição salva em `inbox/job_descriptions/`
 - vaga colada no chat e template aberto manualmente no Notion: usar `npm run notion:update-record-current -- <id_unico> --dry-run`; quando a página ainda tiver texto de template, o script deve usar automaticamente a descrição salva que combina com o FIT_MAP ativo
 - parte da vaga já registrada no Notion e depois análise local: usar `npm run notion:prepare-record -- <id_unico>`, executar `career-fit-analysis`, e devolver com `npm run notion:update-record-current -- <id_unico> --dry-run`
 
 Regra para template manual:
 - nunca usar `--allow-mismatch` para contornar descrição errada
 - para "atualize a vaga ID/Notion <número> com a descrição extraída", usar `update-description-record <id_unico> --job-description <arquivo.md> --source-url "<url>" --dry-run` antes da escrita real
-- para "crie/faça/registre a vaga no Notion" a partir de uma descrição extraída e ainda sem FIT_MAP, usar `create-description-record --job-description <arquivo.md> --company "<empresa>" --role "<cargo>" --source-url "<url>" --dry-run` antes da escrita real
+- para "crie/faça/registre a vaga no Notion" depois da análise da vaga e com `FIT_MAP` final, usar `npm run notion:create-current`/`create-from-fit-map`
+- para "crie/faça/registre a vaga no Notion" a partir de uma descrição extraída e ainda sem FIT_MAP, usar `create-description-record --job-description <arquivo.md> --company "<empresa>" --role "<cargo>" --source-url "<url>" --dry-run` apenas quando o objetivo for captura precoce deliberada
 - se o dry-run mostrar `job_description_source = saved_job_description`, a atualização está usando a vaga salva localmente
 - se mostrar `job_description_source = notion_page.description`, a atualização está usando o texto que já está no Notion
 - se a propriedade `Descrição da Vaga` ainda for apenas template e não houver descrição local compatível, bloquear e pedir/salvar a vaga antes de atualizar
@@ -394,6 +411,9 @@ Regra operacional para histórico do Notion:
 - se a tarefa depender de consultar candidaturas anteriores salvas no Notion, atualizar sempre com `npm run notion:sweep:refresh` antes de usar `inbox/notion/applications_cache.json`
 - motivo: pode haver edições feitas diretamente no Notion fora deste projeto
 - `npm run notion:sweep:build-cache` fica restrito a reindexação local deliberada ou manutenção técnica do cache, não como passo padrão de leitura
+- quando a manutencao envolver memoria historica local, usar preferencialmente `npm run notion:memory:sync -- --refresh missing`
+- usar `npm run notion:memory:sync -- --refresh full` quando houver suspeita de drift maior, páginas novas não refletidas no sweep local ou necessidade de auditoria completa do espelho Notion -> cache -> derivados
+- o ciclo `notion:memory:sync` deve deixar alinhados: `inbox/notion/applications_sweep/`, `inbox/notion/applications_cache.json`, `.career-state/derived/keyword_ats_registry.json` e `.career-state/memory/`
 
 ## OpenCode local
 
@@ -557,6 +577,7 @@ Também é proibido consultar `.env`, copiar `NOTION_TOKEN`, montar `curl` manua
 Motivo: o projeto precisa operar com o mesmo canal de acesso ao Notion, independente de modelo ou runtime, para garantir rastreabilidade e consistência.
 
 Criação no Notion exige pedido explícito do usuário e usa sempre o template cadastrado.
+Para vaga nova, o fluxo padrão é criar no Notion somente depois de análise concluída e `FIT_MAP` final válido; criação só com descrição é exceção deliberada de captura precoce.
 Na criação por `create-from-fit-map`, além das propriedades, o corpo da página deve receber a análise de aderência do FIT_MAP (nota, dor central, resumo das notas, gaps, objeções e defesas, e tabela/lista das 15 keywords-habilidade para ATS), inserida abaixo de `Pesquisa Inicial` quando esse bloco existir.
 
 Atualização de uma página já existente no Notion também exige pedido explícito do usuário. Quando a vaga nascer no Notion, preferir atualizar a mesma página via `update-from-fit-map` em vez de criar uma duplicata.

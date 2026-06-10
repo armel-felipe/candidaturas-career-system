@@ -115,11 +115,11 @@ DOC_EXPECTATIONS = {
         "python scripts/diagnose_session_stall.py <session.md>",
         "antes de preencher `.career-state/fit_map.draft.json`, não escrever subtotais nem nota final na conversa",
         "presumir arquivos intermediários brutos por convenção de nome sem que tenham sido criados no runtime",
-        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
+        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
         "qualquer bloco \"Revisão concluída\" sem `cv:approve` ou `cv:deliver` executado sobre o artefato final é inválido",
     ],
     ".opencode/skills/career-system/SKILL.md": [
-        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
+        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
         "aprovar CV em DOCX sem executar o gate objetivo `scripts/review_output.py` sobre o artefato final em `outputs/`",
         "tratar inspeção do script gerador como substituto da revisão do DOCX final",
         "npm run fit-map:status",

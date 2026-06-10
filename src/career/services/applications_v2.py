@@ -13,6 +13,7 @@ from typing import Any
 from career.paths import CAREER_STATE, INBOX, OUTPUTS, ROOT
 from career.services import fit_map as fit_map_service
 from career.services import habilidades_chave as habilidades_chave_service
+from career.services import memory as memory_service
 from career.services import notion as notion_service
 from career.services import review as review_service
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, write_text
@@ -22,7 +23,9 @@ V2_DIR = CAREER_STATE / "applications_v2"
 V2_CONFIG = V2_DIR / "config.json"
 V2_INDEX = V2_DIR / "index.json"
 V2_LOG_DIR = V2_DIR / "_logs"
-KEYWORD_REGISTRY = ROOT / ".opencode" / "skills" / "career-system" / "references" / "keyword_ats_registry.json"
+V2_MAINTENANCE_STATE = V2_DIR / "maintenance_state.json"
+NOTION_CACHE = ROOT / "inbox" / "notion" / "applications_cache.json"
+KEYWORD_REGISTRY = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
 
 DEFAULT_CONFIG = {
     "active_model": "ollama-cloud/deepseek-v4-flash",
@@ -38,6 +41,12 @@ DEFAULT_CONFIG = {
     "blocked_review_status": "Aplicação andamento",
     "no_description_status": "Sem descrição de vaga",
     "repair_max_attempts": 2,
+    "maintenance": {
+        "enabled": True,
+        "refresh": "missing",
+        "full_refresh_every_runs": 24,
+        "force_full_after_hours": 24,
+    },
     "analysis_runner": {
         "command": "hermes",
         "agent": "build",
@@ -74,10 +83,12 @@ class HeartbeatV2Options:
     dry_run: bool
     model: str | None = None
     variant: str | None = None
+    skip_maintenance: bool = False
+    maintenance_refresh: str | None = None
 
 
 def _emit(message: str) -> None:
-    print(f"[applications-v2] {message}", flush=True)
+    print(f"[applications-v2] {message}", file=sys.stderr, flush=True)
 
 
 def _slug(value: str) -> str:
@@ -174,9 +185,115 @@ def _load_config() -> dict[str, Any]:
     _write_default_config()
     payload = read_json(V2_CONFIG)
     merged = {**DEFAULT_CONFIG, **payload}
+    merged["maintenance"] = {**DEFAULT_CONFIG["maintenance"], **payload.get("maintenance", {})}
     merged["analysis_runner"] = {**DEFAULT_CONFIG["analysis_runner"], **payload.get("analysis_runner", {})}
     merged["generation_runner"] = {**DEFAULT_CONFIG["generation_runner"], **payload.get("generation_runner", {})}
     return merged
+
+
+def _run_maintenance_sync(config: dict[str, Any], options: HeartbeatV2Options) -> dict[str, Any] | None:
+    maintenance = config.get("maintenance", {}) if isinstance(config.get("maintenance"), dict) else {}
+    if options.skip_maintenance or not bool(maintenance.get("enabled", True)):
+        return {
+            "executed": False,
+            "reason": "disabled" if not bool(maintenance.get("enabled", True)) else "skipped_by_option",
+        }
+    refresh_mode, cadence_reason = _decide_maintenance_refresh_mode(maintenance, options)
+    token, database_id = notion_service.notion_config()
+    refresh_result = notion_service.refresh_cache(token, database_id, refresh=refresh_mode)
+    registry_result = memory_service.rebuild_keyword_registry_from_cache()
+    memory_result = memory_service.build_memory_bundle()
+    _write_maintenance_state(refresh_mode)
+    outputs_summary = (
+        ((refresh_result.get("outputs") or {}).get("summary") or {})
+        if isinstance(refresh_result, dict)
+        else {}
+    )
+    sync_summary = ((refresh_result.get("sync") or {}) if isinstance(refresh_result, dict) else {})
+    return {
+        "executed": True,
+        "refresh_mode": refresh_mode,
+        "cadence_reason": cadence_reason,
+        "refresh": {
+            "sync": {
+                "generated_at": sync_summary.get("generated_at"),
+                "refresh_mode": sync_summary.get("refresh_mode"),
+                "remote_total_pages": sync_summary.get("remote_total_pages"),
+                "local_files_before": sync_summary.get("local_files_before"),
+                "synced_pages": sync_summary.get("synced_pages"),
+                "missing_before_sync": sync_summary.get("missing_before_sync"),
+                "orphan_local_files": sync_summary.get("orphan_local_files"),
+                "invalid_local_files": sync_summary.get("invalid_local_files"),
+            },
+            "summary": {
+                "generated_at": outputs_summary.get("generated_at"),
+                "total_pages": outputs_summary.get("total_pages"),
+                "applications_with_description": outputs_summary.get("applications_with_description"),
+                "coverage": outputs_summary.get("coverage"),
+            },
+        },
+        "registry": {
+            "cache_path": registry_result.get("cache_path"),
+            "output_path": registry_result.get("output_path"),
+            "applications_exported": registry_result.get("applications_exported"),
+            "canonical_keywords": registry_result.get("canonical_keywords"),
+        },
+        "memory": {key: str(value) for key, value in memory_result.items()},
+    }
+
+
+def _read_maintenance_state() -> dict[str, Any]:
+    if V2_MAINTENANCE_STATE.exists():
+        payload = read_json(V2_MAINTENANCE_STATE)
+        if isinstance(payload, dict):
+            return payload
+    return {
+        "last_refresh_mode": None,
+        "last_sync_at": None,
+        "last_full_sync_at": None,
+        "runs_since_full": 0,
+    }
+
+
+def _write_maintenance_state(refresh_mode: str) -> None:
+    state = _read_maintenance_state()
+    runs_since_full = 0 if refresh_mode == "full" else int(state.get("runs_since_full") or 0) + 1
+    payload = {
+        "last_refresh_mode": refresh_mode,
+        "last_sync_at": utc_now_iso(),
+        "last_full_sync_at": utc_now_iso() if refresh_mode == "full" else state.get("last_full_sync_at"),
+        "runs_since_full": runs_since_full,
+    }
+    write_json(V2_MAINTENANCE_STATE, payload)
+
+
+def _hours_since(iso_value: str | None) -> float | None:
+    if not iso_value:
+        return None
+    try:
+        timestamp = notion_service.legacy_notion.datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    delta = notion_service.legacy_notion.datetime.now(notion_service.legacy_notion.timezone.utc) - timestamp
+    return max(delta.total_seconds() / 3600, 0.0)
+
+
+def _decide_maintenance_refresh_mode(maintenance: dict[str, Any], options: HeartbeatV2Options) -> tuple[str, str]:
+    if options.maintenance_refresh:
+        return str(options.maintenance_refresh), "explicit_override"
+    default_mode = str(maintenance.get("refresh") or "missing").strip() or "missing"
+    state = _read_maintenance_state()
+    full_every_runs = int(maintenance.get("full_refresh_every_runs") or 0)
+    force_full_after_hours = float(maintenance.get("force_full_after_hours") or 0)
+    runs_since_full = int(state.get("runs_since_full") or 0)
+    hours_since_full = _hours_since(state.get("last_full_sync_at"))
+    if not state.get("last_sync_at"):
+        return default_mode, "bootstrap_default_missing"
+    if full_every_runs > 0 and runs_since_full >= full_every_runs:
+        return "full", f"cadence_runs>={full_every_runs}"
+    if force_full_after_hours > 0 and (hours_since_full is None or hours_since_full >= force_full_after_hours):
+        return "full", f"cadence_hours>={int(force_full_after_hours)}"
+    return default_mode, "default_missing"
 
 
 def _load_queue(token: str, database_id: str) -> list[dict[str, Any]]:
@@ -799,9 +916,9 @@ def _run_agent(stage: str, application: dict[str, Any], paths: dict[str, Path], 
         stderr_preview=result.stderr[:2000],
     )
     if result.stdout.strip():
-        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+        print(result.stdout, file=sys.stderr, end="" if result.stdout.endswith("\n") else "\n")
     elif result.stderr.strip():
-        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n")
+        print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
     if result.returncode != 0:
         raise SystemExit(f"OpenCode {stage} failed for application {_record_key(application)}")
 
@@ -1246,18 +1363,27 @@ def _fit_map_for_notion(
     polish_report: dict | None = None,
 ) -> Path:
     fit_map = read_json(paths["fit_map"])
+    manifest = read_json(paths["manifest"]) if paths["manifest"].exists() else {}
     report = review_report if isinstance(review_report, dict) else (read_json(paths["cv_review_report"]) if paths["cv_review_report"].exists() else {})
     polish = polish_report if isinstance(polish_report, dict) else (read_json(paths["polish_review"]) if paths["polish_review"].exists() else {})
     top8 = report.get("top8_keywords", []) if isinstance(report, dict) else []
     missing_top8 = [str(item.get("keyword")) for item in top8 if item.get("coverage_class") == "missing_unexplained"]
+    covered_top8 = [str(item.get("keyword")) for item in top8 if item.get("covered")]
+    declared_gap_keywords = [str(item.get("keyword")) for item in top8 if item.get("coverage_class") == "declared_gap"]
     fit_map["service_status"] = state.get("service_status") or state.get("stage")
     fit_map["service_stage"] = state.get("stage")
     fit_map["service_stage_status"] = state.get("stage_status")
     fit_map["service_next_action"] = state.get("next_action")
+    fit_map["service_review_status"] = state.get("review_status") or ("approved" if report.get("approved_for_delivery") else "pending")
     fit_map["service_review_blockers"] = [item.get("id") for item in report.get("blockers", [])] if isinstance(report, dict) else []
     fit_map["service_missing_top8"] = missing_top8
+    fit_map["service_covered_top8_keywords"] = covered_top8
+    fit_map["service_declared_gap_keywords"] = declared_gap_keywords
     fit_map["service_repair_attempt_count"] = int(state.get("repair_attempt_count") or 0)
     fit_map["service_polish_blockers"] = polish.get("approval_blockers", []) if isinstance(polish, dict) else []
+    fit_map["service_required_cv_language"] = manifest.get("required_cv_language")
+    if report.get("approved_for_delivery"):
+        fit_map["service_final_cv_language"] = manifest.get("required_cv_language")
     fit_map["service_summary"] = (
         f"status_servico={fit_map['service_status']} | "
         f"score={state.get('score')} | "
@@ -1429,6 +1555,7 @@ def run_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
     V2_LOG_DIR.mkdir(parents=True, exist_ok=True)
     started_at = utc_now_iso()
     config = _load_config()
+    maintenance_report = _run_maintenance_sync(config, options)
     token, database_id = notion_service.notion_config()
     applications = _load_queue(token, database_id)
     effective_max = options.max_per_run if options.max_per_run is not None else int(config["max_per_run"])
@@ -1568,6 +1695,7 @@ def run_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         "finished_at": utc_now_iso(),
         "dry_run": options.dry_run,
         "run_agent": options.run_agent,
+        "maintenance": maintenance_report,
         "max_per_run": effective_max,
         "selected": len(selected),
         "results": results,
@@ -1577,3 +1705,73 @@ def run_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
     write_json(log_path, summary)
     summary["log"] = str(log_path.relative_to(ROOT))
     return summary
+
+
+def heartbeat_status() -> dict[str, Any]:
+    config = _load_config()
+    queue_aliases = {_normalize_status(item) for item in config.get("queue_status_aliases", [])}
+    reprocess_aliases = {_normalize_status(item) for item in config.get("reprocess_status_aliases", [])}
+    cache = read_json(NOTION_CACHE) if NOTION_CACHE.exists() else {"applications": []}
+    applications = cache.get("applications", []) if isinstance(cache, dict) else []
+    active_applications = [item for item in applications if not item.get("is_archived")]
+    queue_items = []
+    no_description = 0
+    for item in active_applications:
+        status_norm = _normalize_status(str(item.get("status") or ""))
+        description_chars = int(item.get("description_chars") or 0)
+        if description_chars <= 0:
+            no_description += 1
+        if status_norm in queue_aliases or status_norm in reprocess_aliases:
+            queue_items.append(item)
+
+    notion_status_counts: dict[str, int] = {}
+    for item in active_applications:
+        status = str(item.get("status") or "Sem status").strip() or "Sem status"
+        notion_status_counts[status] = notion_status_counts.get(status, 0) + 1
+
+    index_payload = read_json(V2_INDEX) if V2_INDEX.exists() else {"applications": []}
+    indexed = index_payload.get("applications", []) if isinstance(index_payload, dict) else []
+    stage_counts: dict[str, int] = {}
+    retryable = 0
+    errors = 0
+    for item in indexed:
+        stage = str(item.get("status") or "unknown")
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+        if item.get("retryable"):
+            retryable += 1
+        if stage == "error":
+            errors += 1
+
+    maintenance_state = _read_maintenance_state()
+    payload = {
+        "generated_at": utc_now_iso(),
+        "maintenance": {
+            **maintenance_state,
+            "hours_since_full": _hours_since(maintenance_state.get("last_full_sync_at")),
+        },
+        "queue": {
+            "eligible_now": len(queue_items),
+            "reprocess_now": sum(1 for item in queue_items if _normalize_status(str(item.get("status") or "")) in reprocess_aliases),
+            "missing_description_now": no_description,
+            "top_candidates": [
+                {
+                    "record_id": item.get("record_id"),
+                    "title": item.get("title"),
+                    "status": item.get("status"),
+                    "description_chars": item.get("description_chars"),
+                }
+                for item in queue_items[:5]
+            ],
+        },
+        "notion": {
+            "total_active": len(active_applications),
+            "status_counts": dict(sorted(notion_status_counts.items(), key=lambda entry: (-entry[1], entry[0]))[:10]),
+        },
+        "local_runtime": {
+            "tracked_applications": len(indexed),
+            "stage_counts": stage_counts,
+            "retryable_count": retryable,
+            "error_count": errors,
+        },
+    }
+    return payload

@@ -144,7 +144,7 @@ Também quando acionada manualmente pelo usuário.
 Quando o documento revisado for um CV em DOCX, executar obrigatoriamente:
 
 ```bash
-python scripts/review_output.py --kind cv --artifact outputs/<cv_final>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
+python scripts/review_output.py --kind cv --artifact outputs/<cv_final>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
 Gate local/diagnóstico:
@@ -166,7 +166,7 @@ Regras:
 - se `cv:deliver` falhar apenas por rclone/OneDrive depois de aprovação local confirmada, declarar execução parcial: arquivo local aprovado em `outputs/`, entrega remota bloqueada
 - aprovação manual nunca substitui este comando
 - em CV PT-BR, equivalentes canônicos em `.opencode/skills/career-system/references/keyword_translation_registry.json` contam como cobertura aceitável das top 8 keywords
-- o arquivo `.opencode/skills/career-system/references/keyword_translation_candidates.json` deve ser tratado como memória operacional: ele mostra, a partir do histórico real de candidaturas, quais keywords em inglês mais frequentemente pedem tradução ou wording alternativo em PT-BR
+- o arquivo canônico é `.career-state/derived/keyword_translation_candidates.json`: ele mostra, a partir do histórico real de candidaturas, quais keywords em inglês mais frequentemente pedem tradução ou wording alternativo em PT-BR
 
 Política ATS para CV:
 - Top 8 keywords: `covered_exact=1,0`, `covered_similar=0,8`, `declared_gap=0`, `missing_unexplained=0`

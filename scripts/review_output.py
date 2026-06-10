@@ -18,7 +18,7 @@ from keyword_translation_utils import (
 )
 
 
-DEFAULT_REGISTRY = Path(".opencode/skills/career-system/references/keyword_ats_registry.json")
+DEFAULT_REGISTRY = Path(".career-state/derived/keyword_ats_registry.json")
 ATS_TOP8_OPTIMAL_SCORE = 6.2
 ATS_TOP8_MINIMUM_SCORE = 5.2
 ATS_TOP15_OPTIMAL_SCORE = 9.0

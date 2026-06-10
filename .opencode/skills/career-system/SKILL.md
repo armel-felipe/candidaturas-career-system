@@ -25,9 +25,9 @@ Use esta skill como camada orquestradora antes de qualquer rotina de candidatura
 - Estado ativo: `.career-state/fit_map.json`.
 - Saídas finais: `outputs/`.
 - Scripts locais: `scripts/`.
-- Registro de keywords ATS: `.opencode/skills/career-system/references/keyword_ats_registry.json`.
+- Registro técnico local de keywords ATS: `.career-state/derived/keyword_ats_registry.json`.
 - Dicionário canônico de equivalentes PT-BR para keywords ATS: `.opencode/skills/career-system/references/keyword_translation_registry.json`.
-- Memória gerada a partir do histórico de candidaturas para priorizar traduções PT-BR: `.opencode/skills/career-system/references/keyword_translation_candidates.json`.
+- Memória derivada a partir do histórico de candidaturas para priorizar traduções PT-BR: `.career-state/derived/keyword_translation_candidates.json`.
 - Integração Notion: `scripts/notion_sync.py`.
 - Caminhos do runtime devem ser resolvidos a partir da raiz local do workspace.
 
@@ -85,7 +85,9 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - para gate local/diagnóstico do CV, use `npm run cv:approve -- --artifact outputs/<cv>.docx`
 - quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --artifact outputs/<cv>.docx`
 - use `npm run memory:build` para regenerar a memória compacta do runtime antes de trabalhos de manutenção ou quando referências canônicas forem atualizadas
+- para manutencao historica do espelho Notion e dos derivados locais, prefira `npm run notion:memory:sync -- --refresh missing`; use `--refresh full` em auditorias completas ou suspeita de drift
 - use `npm run runtime:diagnose` para investigar estado inchado, caches e sinais de custo operacional
+- quando a vaga ainda não existir no Notion, o fluxo padrão é `análise -> FIT_MAP final -> decisão de prosseguir -> notion:create-current`; `create-description-record` fica restrito a captura precoce deliberada antes do FIT_MAP
 
 Política de contexto compacto:
 
@@ -103,7 +105,7 @@ Gate global para CV em DOCX:
 
 ```bash
 python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx
-python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .opencode/skills/career-system/references/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
+python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
 Regras:
@@ -248,7 +250,7 @@ Use as referências nesta ordem:
 4. `perfil_restricoes.md` para validar números críticos, narrativas protegidas e restrições.
 5. `.opencode/skills/habilidades-chave/references/habilidades_mercado_livre.json` para listas derivadas de catálogos externos. `habilidades_gupy.json` somente para Gupy — lista oficial de 30 habilidades selecionáveis. Nunca usar habilidade fora da fonte ativa do modo selecionado e nunca normalizar o texto de um catálogo para parecer o do outro.
 6. `competencias_matrix.json` e `competencias_por_experiencia.json` para comparativos de competências e análises de fit por cargo quando solicitado. `competencias_linkedin.json` para gestão das habilidades do perfil LinkedIn.
-7. `keyword_ats_registry.json` para aprender quais keywords foram extraídas, cobertas no CV, ficaram faltando e devem alimentar CVs/LinkedIn futuros.
+7. `keyword_ats_registry.json` como artefato técnico local para gate, reviewer e estatística operacional da vaga.
 
 Nenhum número, ferramenta, experiência, idioma, certificação ou escopo pode ser inventado.
 
@@ -353,12 +355,20 @@ npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
+./scripts/python.sh scripts/career_cli.py applications status --format human
+./scripts/python.sh scripts/career_cli.py applications heartbeat --dry-run --max-per-run 1 --format json
+./scripts/python.sh scripts/career_cli.py applications heartbeat --max-per-run 3 --format both
 ```
 
 Regras:
 - o heartbeat lê a fila a partir do cache/sweep do Notion e processa candidaturas sequencialmente;
+- antes de ler a fila, o heartbeat roda a manutenção local equivalente a `notion:memory:sync -- --refresh missing`, salvo override explícito;
+- cadência padrão de manutenção: `missing` em toda execução; `full` automático quando completar 24 execuções sem full ou 24 horas desde o último full; `--maintenance-refresh full` continua disponível como override explícito;
 - nunca executar candidaturas em paralelo enquanto houver escrita em `.career-state/applications/<ID>/`;
 - `max_per_run` padrão é 3, configurado em `.career-state/applications_v2/config.json`;
+- o heartbeat aceita `--format human|json|both`; usar `both` para terminal humano e `json` para integrações/bot;
+- para consumo automatizado do JSON por bot/Telegram, preferir a CLI direta `./scripts/python.sh scripts/career_cli.py applications heartbeat ... --format json`; não usar `npm run` como canal de parsing porque o banner do npm entra no `stdout`;
+- para observabilidade diária, usar `./scripts/python.sh scripts/career_cli.py applications status --format human`;
 - o status de tratamento automático é `Fila Agente`;
 - o status final configurado é `Aplicação andamento`;
 - vaga em fila sem campo `Descrição da Vaga` preenchido deve ser ignorada pelo agente e movida para `Sem descrição de vaga`;
@@ -397,7 +407,7 @@ python scripts/notion_sync.py prepare-analysis-from-page <page_id>
 python scripts/notion_sync.py prepare-analysis-from-record <id_unico>
 ```
 
-2. **Criação de registro no tracker Aplicações** — só executar quando o usuário pedir explicitamente para criar/salvar/registrar a candidatura no Notion. Usar sempre o template cadastrado e preencher, no mínimo: `Vaga`, `avaliação de aderencia claude` e `Descrição da Vaga`. A criação também deve anexar ao corpo da página a análise de aderência produzida a partir do FIT_MAP, salvo quando `--no-append-summary` for pedido deliberadamente.
+2. **Criação de registro no tracker Aplicações** — fluxo padrão só depois de a vaga ter análise concluída, `FIT_MAP` final válido e decisão explícita de prosseguir. Executar apenas quando o usuário pedir explicitamente para criar/salvar/registrar a candidatura no Notion. Usar sempre o template cadastrado e preencher, no mínimo: `Vaga`, `avaliação de aderencia claude` e `Descrição da Vaga`. A criação também deve anexar ao corpo da página a análise de aderência produzida a partir do FIT_MAP, salvo quando `--no-append-summary` for pedido deliberadamente.
 
 ```bash
 python scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
@@ -431,7 +441,7 @@ python scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .c
 python scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
 ```
 
-4. **Registro ou atualização apenas da descrição extraída** — quando o usuário pedir "atualize a vaga ID/Notion
+4. **Registro ou atualização apenas da descrição extraída** — exceção deliberada para captura precoce, quando o usuário pedir "atualize a vaga ID/Notion
 `<número>` com a descrição extraída" ou "crie/faça/registre a vaga no Notion" antes de haver FIT_MAP:
 
 ```bash
@@ -442,12 +452,11 @@ python scripts/notion_sync.py create-description-record --job-description <arqui
 ```
 
 Use `update-description-record` quando o usuário mencionar `ID`, `Notion <número>` ou uma vaga já existente no tracker.
-Use `create-description-record` quando o usuário pedir para criar/registrar a vaga extraída no Notion sem um registro
-existente. Esses comandos só preenchem propriedades de intake como `Descrição da Vaga`, `Link`, empresa/cargo quando a
-base permitir; análise de aderência continua sendo produzida depois pelo FIT_MAP.
+Use `create-description-record` somente quando o usuário quiser capturar cedo a vaga no Notion sem esperar o FIT_MAP.
+Esses comandos só preenchem propriedades de intake como `Descrição da Vaga`, `Link`, empresa/cargo quando a base permitir; análise de aderência continua sendo produzida depois pelo FIT_MAP.
 
 Variações operacionais suportadas:
-- se a vaga foi colada no chat e depois o usuário pedir para registrar no Notion, usar a descrição salva em `inbox/job_descriptions/` no `create-from-fit-map`
+- se a vaga foi colada no chat e depois o usuário pedir para registrar no Notion após a análise, usar a descrição salva em `inbox/job_descriptions/` no `create-from-fit-map`
 - se a vaga foi colada no chat, o usuário abriu manualmente um template no Notion e depois pediu para atualizar pelo `ID`, usar `update-from-fit-map-record <id_unico>`; quando o registro ainda tiver apenas texto de template, o script deve selecionar automaticamente a descrição local que combina com o FIT_MAP ativo
 - se a vaga nasceu no Notion com descrição parcial ou completa, usar `prepare-analysis-from-record <id_unico>` como entrada da análise e devolver o resultado para o mesmo registro com `update-from-fit-map-record <id_unico>`
 

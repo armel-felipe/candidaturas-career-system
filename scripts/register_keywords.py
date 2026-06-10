@@ -18,7 +18,7 @@ from keyword_translation_utils import (
 )
 
 
-DEFAULT_REGISTRY = Path(".opencode/skills/career-system/references/keyword_ats_registry.json")
+DEFAULT_REGISTRY = Path(".career-state/derived/keyword_ats_registry.json")
 
 
 def normalize_key(text: str) -> str:
@@ -296,13 +296,14 @@ def main() -> int:
     write_json(registry_path, registry)
     translation_registry = load_translation_registry(Path(args.translation_registry))
     translation_candidates = build_translation_candidates(registry, translation_registry)
-    write_translation_json(Path(args.translation_candidates), translation_candidates)
+    translation_candidates_path = Path(args.translation_candidates)
+    write_translation_json(translation_candidates_path, translation_candidates)
 
     covered = [r["keyword"] for r in application["keyword_records"] if r["status"] == "covered_cv"]
     covered_similar = [r["keyword"] for r in application["keyword_records"] if r["status"] == "covered_similar_cv"]
     missing = application["missing_keywords"]
     print(f"Keyword registry updated: {registry_path}")
-    print(f"Translation candidates updated: {args.translation_candidates}")
+    print(f"Translation candidates updated: {translation_candidates_path}")
     print(f"Application: {application['company']} - {application['role']}")
     print(f"Covered in CV: {len(covered)}")
     print(f"Covered by similar wording: {len(covered_similar)}")

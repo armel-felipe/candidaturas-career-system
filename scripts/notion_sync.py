@@ -20,6 +20,7 @@ NOTION_TEMPLATE_VERSION = "2026-03-11"
 DEFAULT_SWEEP_DIR = Path("inbox/notion/applications_sweep")
 DEFAULT_SWEEP_SUMMARY = Path("inbox/notion/applications_sweep_summary.json")
 DEFAULT_SWEEP_CACHE = Path("inbox/notion/applications_cache.json")
+DEFAULT_GOVERNANCE_BACKFILL_REPORT = Path("outputs/_tmp/notion_governance_backfill_report.json")
 MOJIBAKE_MARKERS = ("Ã", "Â", "â€“", "â€”", "â€™", "â€œ", "â€", "ï¿½")
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -43,7 +44,173 @@ PROPERTY_ALIASES = {
     "source_url": ["Link", "URL", "Link da vaga", "Job URL"],
     "service_status": ["Status serviço", "Status Serviço", "Status Servico", "Service Status"],
     "final_state": ["Estado final", "Estado Final", "Final State"],
+    "required_cv_language": ["Idioma CV requerido", "Idioma CV Requerido", "Required CV Language"],
+    "final_cv_language": ["Idioma final do CV", "Idioma Final do CV", "Final CV Language"],
+    "review_status": ["Status revisão CV", "Status Revisão CV", "CV Review Status"],
+    "review_blockers": ["Blockers revisão CV", "Blockers Revisão CV", "CV Review Blockers"],
+    "narrative_decisions": ["Decisões narrativas", "Decisoes narrativas", "Narrative Decisions"],
+    "human_feedback": ["Feedback humano", "Human Feedback"],
+    "top8_keywords": ["Top 8 keywords", "Top 8 Keywords"],
+    "covered_keywords": ["Keywords cobertas no CV", "Keywords Cobertas no CV", "Covered CV Keywords"],
+    "declared_gap_keywords": ["Keywords em gap declarado", "Declared Gap Keywords"],
+    "persona_angle": ["Persona / Ângulo narrativo", "Persona / Angulo narrativo", "Persona / Narrative Angle"],
+    "prioritized_experiences": ["Experiências priorizadas", "Experiencias priorizadas", "Prioritized Experiences"],
+    "labels_verified": ["Labels verificadas", "Section Labels Verified"],
+    "final_artifact": ["Arquivo final aprovado", "Final Approved Artifact", "cv especifico"],
 }
+
+GOVERNANCE_SCHEMA_FIELDS = [
+    {
+        "name": "Keywords ATS",
+        "logical_name": "keywords",
+        "schema": {"rich_text": {}},
+        "description": "Keywords ATS consolidadas da vaga/FIT_MAP.",
+    },
+    {
+        "name": "Gaps sem cobertura",
+        "logical_name": "gaps",
+        "schema": {"rich_text": {}},
+        "description": "Gaps declarados ou sem cobertura defensável.",
+    },
+    {
+        "name": "Idioma CV requerido",
+        "logical_name": "required_cv_language",
+        "schema": {
+            "select": {
+                "options": [
+                    {"name": "pt-BR", "color": "blue"},
+                    {"name": "en", "color": "green"},
+                ]
+            }
+        },
+        "description": "Idioma exigido pela vaga para o CV.",
+    },
+    {
+        "name": "Idioma final do CV",
+        "logical_name": "final_cv_language",
+        "schema": {
+            "select": {
+                "options": [
+                    {"name": "pt-BR", "color": "blue"},
+                    {"name": "en", "color": "green"},
+                ]
+            }
+        },
+        "description": "Idioma efetivamente aprovado no CV final.",
+    },
+    {
+        "name": "Status revisão CV",
+        "logical_name": "review_status",
+        "schema": {
+            "select": {
+                "options": [
+                    {"name": "pending", "color": "yellow"},
+                    {"name": "approved", "color": "green"},
+                    {"name": "blocked", "color": "red"},
+                    {"name": "not_started", "color": "gray"},
+                ]
+            }
+        },
+        "description": "Estado consolidado da revisão objetiva/polimento do CV.",
+    },
+    {
+        "name": "Blockers revisão CV",
+        "logical_name": "review_blockers",
+        "schema": {"rich_text": {}},
+        "description": "Lista resumida dos blockers atuais do reviewer.",
+    },
+    {
+        "name": "Decisões narrativas",
+        "logical_name": "narrative_decisions",
+        "schema": {"rich_text": {}},
+        "description": "Decisões de reposicionamento e narrativa usadas na candidatura.",
+    },
+    {
+        "name": "Feedback humano",
+        "logical_name": "human_feedback",
+        "schema": {"rich_text": {}},
+        "description": "Campo livre para feedback manual posterior.",
+    },
+    {
+        "name": "Top 8 keywords",
+        "logical_name": "top8_keywords",
+        "schema": {"rich_text": {}},
+        "description": "Top 8 keywords-habilidade ATS priorizadas.",
+    },
+    {
+        "name": "Keywords cobertas no CV",
+        "logical_name": "covered_keywords",
+        "schema": {"rich_text": {}},
+        "description": "Keywords top 8 cobertas no CV final.",
+    },
+    {
+        "name": "Keywords em gap declarado",
+        "logical_name": "declared_gap_keywords",
+        "schema": {"rich_text": {}},
+        "description": "Keywords mantidas como gap declarado.",
+    },
+    {
+        "name": "Persona / Ângulo narrativo",
+        "logical_name": "persona_angle",
+        "schema": {"rich_text": {}},
+        "description": "Persona e ângulo narrativo consolidado.",
+    },
+    {
+        "name": "Experiências priorizadas",
+        "logical_name": "prioritized_experiences",
+        "schema": {"rich_text": {}},
+        "description": "Experiências/histórias selecionadas para a vaga.",
+    },
+    {
+        "name": "Labels verificadas",
+        "logical_name": "labels_verified",
+        "schema": {"checkbox": {}},
+        "description": "Confirmação de labels/sections coerentes com o idioma final.",
+    },
+    {
+        "name": "Status serviço",
+        "logical_name": "service_status",
+        "schema": {
+            "select": {
+                "options": [
+                    {"name": "pending", "color": "yellow"},
+                    {"name": "analyze_pending", "color": "yellow"},
+                    {"name": "analyze_running", "color": "blue"},
+                    {"name": "generate_pending", "color": "yellow"},
+                    {"name": "generate_running", "color": "blue"},
+                    {"name": "repair_pending", "color": "orange"},
+                    {"name": "repair_running", "color": "orange"},
+                    {"name": "blocked_review", "color": "red"},
+                    {"name": "blocked_review_exhausted", "color": "red"},
+                    {"name": "done", "color": "green"},
+                    {"name": "low_fit", "color": "gray"},
+                    {"name": "no_description", "color": "gray"},
+                ]
+            }
+        },
+        "description": "Status operacional do serviço local para a candidatura.",
+    },
+    {
+        "name": "Estado final",
+        "logical_name": "final_state",
+        "schema": {
+            "select": {
+                "options": [
+                    {"name": "analyze_pending", "color": "yellow"},
+                    {"name": "analyze_retry_pending", "color": "orange"},
+                    {"name": "generate_pending", "color": "yellow"},
+                    {"name": "repair_pending", "color": "orange"},
+                    {"name": "blocked_review", "color": "red"},
+                    {"name": "blocked_review_exhausted", "color": "red"},
+                    {"name": "low_fit", "color": "gray"},
+                    {"name": "done", "color": "green"},
+                    {"name": "no_description", "color": "gray"},
+                ]
+            }
+        },
+        "description": "Estado técnico/final da candidatura no pipeline local.",
+    },
+]
 
 
 def load_dotenv(path: Path = Path(".env")) -> None:
@@ -80,6 +247,10 @@ def request(method: str, url: str, token: str, payload=None, notion_version: str
 def write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def mojibake_hits(text: str) -> list[str]:
@@ -183,6 +354,10 @@ def retrieve_page(token: str, page_id: str) -> dict:
 
 def update_page(token: str, page_id: str, payload: dict) -> dict:
     return request("PATCH", notion_url(f"pages/{page_id}"), token, payload, notion_version=NOTION_TEMPLATE_VERSION)
+
+
+def update_data_source(token: str, data_source_id: str, payload: dict) -> dict:
+    return request("PATCH", notion_url(f"data_sources/{data_source_id}"), token, payload, notion_version=NOTION_TEMPLATE_VERSION)
 
 
 def retrieve_blocks(token: str, block_id: str) -> list[dict]:
@@ -700,6 +875,20 @@ def split_terms(value: str) -> list[str]:
     return [term.strip() for term in re.split(r"[,\n;|]+", value) if term.strip()]
 
 
+def split_numbered_lines(value: str) -> list[str]:
+    if not value:
+        return []
+    items: list[str] = []
+    for raw_line in str(value).splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^\d+\.\s*", "", line).strip()
+        if line:
+            items.append(line)
+    return items
+
+
 def normalize_search_text(*parts: str) -> str:
     normalized_parts = [normalize_text(part) for part in parts if part]
     return " ".join(part for part in normalized_parts if part).strip()
@@ -756,10 +945,23 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
         role = inferred_role or title
     keywords = split_terms(extract_saved_property(payload, "keywords"))
     gaps = split_terms(extract_saved_property(payload, "gaps"))
+    top8_keywords = split_numbered_lines(extract_saved_property(payload, "top8_keywords"))
+    covered_keywords = split_terms(extract_saved_property(payload, "covered_keywords"))
+    declared_gap_keywords = split_terms(extract_saved_property(payload, "declared_gap_keywords"))
     status = extract_saved_property(payload, "status")
     application_date = extract_saved_property(payload, "application_date")
     fit_raw = extract_saved_property(payload, "fit")
     source_url = extract_saved_property(payload, "source_url")
+    required_cv_language = extract_saved_property(payload, "required_cv_language")
+    final_cv_language = extract_saved_property(payload, "final_cv_language")
+    review_status = extract_saved_property(payload, "review_status")
+    review_blockers = extract_saved_property(payload, "review_blockers")
+    narrative_decisions = extract_saved_property(payload, "narrative_decisions")
+    human_feedback = extract_saved_property(payload, "human_feedback")
+    persona_angle = extract_saved_property(payload, "persona_angle")
+    prioritized_experiences = extract_saved_property(payload, "prioritized_experiences")
+    labels_verified_raw = extract_saved_property(payload, "labels_verified")
+    final_artifact = extract_saved_property(payload, "final_artifact")
     fit_score = None
     if fit_raw:
         try:
@@ -778,6 +980,15 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
         body_text,
         " ".join(keywords),
         " ".join(gaps),
+        " ".join(top8_keywords),
+        " ".join(covered_keywords),
+        " ".join(declared_gap_keywords),
+        required_cv_language,
+        final_cv_language,
+        review_status,
+        narrative_decisions,
+        persona_angle,
+        prioritized_experiences,
     )
 
     return {
@@ -795,6 +1006,19 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
         "source_url": source_url,
         "keywords": keywords,
         "gaps": gaps,
+        "top8_keywords": top8_keywords,
+        "covered_keywords": covered_keywords,
+        "declared_gap_keywords": declared_gap_keywords,
+        "required_cv_language": required_cv_language,
+        "final_cv_language": final_cv_language,
+        "review_status": review_status,
+        "review_blockers": split_terms(review_blockers),
+        "narrative_decisions": narrative_decisions,
+        "human_feedback": human_feedback,
+        "persona_angle": persona_angle,
+        "prioritized_experiences": split_numbered_lines(prioritized_experiences) or split_terms(prioritized_experiences),
+        "labels_verified": str(labels_verified_raw).strip().casefold() in {"1", "true", "yes", "sim", "checked"},
+        "final_artifact": final_artifact,
         "description": description,
         "body_text": body_text,
         "description_chars": len(description),
@@ -965,6 +1189,10 @@ def property_value(prop, value: Any):
     if kind == "title":
         return {"title": rich_text_chunks(str(value))[:1]}
     if kind == "rich_text":
+        if isinstance(value, list):
+            value = "; ".join(str(item).strip() for item in value if str(item).strip())
+            if not value:
+                return None
         return {"rich_text": rich_text_chunks(str(value))}
     if kind == "number":
         try:
@@ -982,7 +1210,482 @@ def property_value(prop, value: Any):
     if kind == "multi_select":
         values = value if isinstance(value, list) else [str(value)]
         return {"multi_select": [{"name": str(item)} for item in values if str(item).strip()][:100]}
+    if kind == "checkbox":
+        if isinstance(value, bool):
+            return {"checkbox": value}
+        lowered = str(value).strip().casefold()
+        return {"checkbox": lowered in {"1", "true", "yes", "sim", "checked"}}
     return None
+
+
+def top8_keyword_entries(fit_map: dict) -> list[dict]:
+    entries = [item for item in fit_map.get("keywords_habilidade_ats", []) if isinstance(item, dict)]
+    return sorted(entries, key=lambda item: item.get("prioridade", 999))[:8]
+
+
+def _string_list(items: list[Any]) -> list[str]:
+    result = []
+    for item in items or []:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
+def _story_entries(fit_map: dict) -> list[dict]:
+    stories = fit_map.get("historias_selecionadas", {}) if isinstance(fit_map.get("historias_selecionadas"), dict) else {}
+    ordered = []
+    for key in ["principal", "secundaria", "terceira"]:
+        story = stories.get(key)
+        if isinstance(story, dict):
+            ordered.append(story)
+    return ordered
+
+
+def narrative_decisions_text(fit_map: dict) -> str:
+    lines: list[str] = []
+    stories = _story_entries(fit_map)
+    if stories:
+        first_angle = str(stories[0].get("angulo") or "").strip()
+        if first_angle:
+            lines.append(f"Angulo principal: {first_angle}")
+    adjustments = fit_map.get("mapa_ajuste", []) if isinstance(fit_map.get("mapa_ajuste"), list) else []
+    repositioned = []
+    for item in adjustments:
+        if not isinstance(item, dict):
+            continue
+        if item.get("tipo_ajuste") != "REPOSICIONAMENTO":
+            continue
+        term = str(item.get("termo_vaga") or "").strip()
+        angle = str(item.get("angulo_sugerido") or "").strip()
+        if term and angle:
+            repositioned.append(f"{term}: {angle}")
+    if repositioned:
+        lines.append("Reposicionamentos: " + " | ".join(repositioned[:3]))
+    return "\n".join(lines).strip()
+
+
+def prioritized_experiences_text(fit_map: dict) -> str:
+    parts = []
+    for story in _story_entries(fit_map):
+        company = str(story.get("empresa") or "").strip()
+        result = str(story.get("resultado") or "").strip()
+        angle = str(story.get("angulo") or "").strip()
+        text = company
+        if result:
+            text += f": {result}"
+        if angle:
+            text += f" | angulo: {angle}"
+        if text.strip():
+            parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def governance_field_values(fit_map: dict) -> dict[str, Any]:
+    top8 = top8_keyword_entries(fit_map)
+    covered_keywords = _string_list(fit_map.get("service_covered_top8_keywords", []))
+    declared_gap_keywords = _string_list(fit_map.get("service_declared_gap_keywords", []))
+    review_blockers = _string_list(fit_map.get("service_review_blockers", []))
+    service_polish_blockers = _string_list(fit_map.get("service_polish_blockers", []))
+    if service_polish_blockers:
+        review_blockers.extend(item for item in service_polish_blockers if item not in review_blockers)
+    persona = str(fit_map.get("persona") or fit_map.get("cv_persona") or "").strip()
+    stories = _story_entries(fit_map)
+    primary_angle = str(stories[0].get("angulo") or "").strip() if stories else ""
+    persona_angle = " | ".join(part for part in [persona, primary_angle] if part)
+    return {
+        "keywords": "; ".join(_string_list(fit_map.get("keywords_para_ats", []))),
+        "gaps": "; ".join(_string_list(fit_map.get("gaps_sem_cobertura", []))),
+        "required_cv_language": str(fit_map.get("service_required_cv_language") or "").strip(),
+        "final_cv_language": str(fit_map.get("service_final_cv_language") or "").strip(),
+        "review_status": str(fit_map.get("service_review_status") or "").strip(),
+        "review_blockers": "\n".join(review_blockers),
+        "narrative_decisions": narrative_decisions_text(fit_map),
+        "human_feedback": str(fit_map.get("human_feedback") or "").strip(),
+        "top8_keywords": "\n".join(
+            f"{item.get('prioridade')}. {item.get('keyword')}"
+            for item in top8
+            if str(item.get("keyword") or "").strip()
+        ),
+        "covered_keywords": "; ".join(covered_keywords),
+        "declared_gap_keywords": "; ".join(declared_gap_keywords),
+        "persona_angle": persona_angle,
+        "prioritized_experiences": prioritized_experiences_text(fit_map),
+        "labels_verified": fit_map.get("service_labels_verified"),
+        "service_status": str(fit_map.get("service_status") or "").strip(),
+        "final_state": str(fit_map.get("service_stage") or "").strip(),
+    }
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, list):
+        return any(_has_value(item) for item in value)
+    return bool(str(value).strip())
+
+
+def _prefer_value(current: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    for key, value in updates.items():
+        if key not in current and _has_value(value):
+            current[key] = value
+    return current
+
+
+def _split_nonempty_lines(text: str) -> list[str]:
+    return [line.strip() for line in (text or "").splitlines() if line.strip()]
+
+
+def _extract_section_lines(text: str, heading: str, stop_headings: list[str]) -> list[str]:
+    lines = _split_nonempty_lines(text)
+    target = normalize_text(heading)
+    normalized_stop = {normalize_text(item) for item in stop_headings}
+    start_index = None
+    for index, line in enumerate(lines):
+        if normalize_text(line) == target:
+            start_index = index + 1
+            break
+    if start_index is None:
+        return []
+    section: list[str] = []
+    for line in lines[start_index:]:
+        normalized_line = normalize_text(line)
+        if normalized_line in normalized_stop:
+            break
+        section.append(line)
+    return section
+
+
+def _extract_body_derived_values(body_text: str, description: str, cache_keywords: list[str], cache_gaps: list[str]) -> dict[str, Any]:
+    text = body_text or ""
+    values: dict[str, Any] = {}
+
+    keywords_lines = _extract_section_lines(
+        text,
+        "Keywords-habilidade para ATS",
+        ["Status do serviço", "Pesquisa Inicial", "Análise de aderência"],
+    )
+    top8_lines = [line for line in keywords_lines if re.match(r"^\d+\.\s+", line)]
+    top8_keywords = []
+    prioritized_experiences = []
+    for line in top8_lines[:8]:
+        match = re.match(r"^\d+\.\s+(.+?)(?:\s+\|\s+experiência alvo:\s+(.+?))?(?:\s+\|.*)?$", line)
+        if not match:
+            top8_keywords.append(line)
+            continue
+        keyword = match.group(1).strip()
+        target = (match.group(2) or "").strip()
+        if keyword:
+            top8_keywords.append(keyword)
+        if target and target not in prioritized_experiences:
+            prioritized_experiences.append(target)
+    if top8_keywords:
+        values["top8_keywords"] = "\n".join(f"{index}. {keyword}" for index, keyword in enumerate(top8_keywords, start=1))
+    if cache_keywords:
+        values["keywords"] = "; ".join(cache_keywords)
+    elif top8_keywords:
+        values["keywords"] = "; ".join(top8_keywords)
+
+    gaps_lines = _extract_section_lines(
+        text,
+        "Gaps ainda abertos",
+        ["Objeções do recrutador e defesa", "Keywords-habilidade para ATS", "Status do serviço"],
+    )
+    cleaned_gaps = [line.lstrip("- ").strip() for line in gaps_lines if line.strip()]
+    if cache_gaps:
+        values["gaps"] = "; ".join(cache_gaps)
+    elif cleaned_gaps:
+        values["gaps"] = "; ".join(cleaned_gaps)
+
+    reposition_lines = _extract_section_lines(
+        text,
+        "Gaps mitigados por reposicionamento",
+        ["Gaps ainda abertos", "Objeções do recrutador e defesa", "Keywords-habilidade para ATS"],
+    )
+    if reposition_lines:
+        values["narrative_decisions"] = "\n".join(reposition_lines[:3])
+        if not prioritized_experiences:
+            for line in reposition_lines[:3]:
+                experience = line.split(":", 1)[0].strip()
+                if experience and experience not in prioritized_experiences:
+                    prioritized_experiences.append(experience)
+    if prioritized_experiences:
+        values["prioritized_experiences"] = "\n".join(prioritized_experiences[:8])
+        values["persona_angle"] = prioritized_experiences[0]
+
+    service_lines = _extract_section_lines(
+        text,
+        "Status do serviço",
+        ["Pesquisa Inicial", "Análise de aderência"],
+    )
+    for line in service_lines:
+        if line.startswith("Status serviço:"):
+            values["service_status"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Estado final:"):
+            values["final_state"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Blockers atuais:"):
+            values["review_blockers"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Keywords top 8 faltantes:"):
+            values["declared_gap_keywords"] = line.split(":", 1)[1].strip()
+
+    if description and not values.get("keywords"):
+        existing_keywords = split_terms(description)
+        if existing_keywords:
+            values["keywords"] = "; ".join(existing_keywords[:15])
+
+    return values
+
+
+def _local_governance_values(record_id: int | None, app_v2_dir: Path) -> dict[str, Any]:
+    if record_id is None:
+        return {}
+    app_dir = app_v2_dir / str(record_id)
+    fit_map_path = app_dir / "fit_map.json"
+    if not fit_map_path.exists():
+        return {}
+    fit_map = read_json(fit_map_path)
+    values = governance_field_values(fit_map)
+    manifest_path = app_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = read_json(manifest_path)
+        values["required_cv_language"] = values.get("required_cv_language") or manifest.get("required_cv_language")
+        values["final_cv_language"] = values.get("final_cv_language") or manifest.get("required_cv_language")
+    review_path = app_dir / "cv_review_report.json"
+    if review_path.exists():
+        review = read_json(review_path)
+        top8 = review.get("top8_keywords", []) if isinstance(review, dict) else []
+        values["review_status"] = "approved" if review.get("approved_for_delivery") else "blocked"
+        values["review_blockers"] = "\n".join(item.get("id") for item in review.get("blockers", []) if item.get("id"))
+        values["covered_keywords"] = "; ".join(
+            str(item.get("keyword")) for item in top8 if item.get("covered")
+        )
+        values["declared_gap_keywords"] = "; ".join(
+            str(item.get("keyword")) for item in top8 if item.get("coverage_class") == "declared_gap"
+        )
+    polish_path = app_dir / "polish_review.json"
+    if polish_path.exists():
+        polish = read_json(polish_path)
+        blockers = polish.get("approval_blockers", []) if isinstance(polish, dict) else []
+        if blockers:
+            current = values.get("review_blockers") or ""
+            merged = [line for line in current.splitlines() if line]
+            for blocker in blockers:
+                text = str(blocker).strip()
+                if text and text not in merged:
+                    merged.append(text)
+            values["review_blockers"] = "\n".join(merged)
+    return {key: value for key, value in values.items() if _has_value(value)}
+
+
+def _cache_governance_values(application: dict[str, Any]) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    keywords = _string_list(application.get("keywords", []))
+    gaps = _string_list(application.get("gaps", []))
+    if keywords:
+        values["keywords"] = "; ".join(keywords)
+    if gaps:
+        values["gaps"] = "; ".join(gaps)
+    return values
+
+
+def _payload_governance_values(payload: dict) -> dict[str, Any]:
+    cache_keywords = split_terms(extract_saved_property(payload, "keywords"))
+    cache_gaps = split_terms(extract_saved_property(payload, "gaps"))
+    values = _extract_body_derived_values(
+        payload.get("body_text", "") or "",
+        payload.get("description", "") or "",
+        cache_keywords,
+        cache_gaps,
+    )
+    cv_value = extract_saved_property(payload, "final_artifact")
+    if cv_value:
+        values["final_cv_language"] = "en" if "_en." in cv_value.casefold() else "pt-BR"
+    return {key: value for key, value in values.items() if _has_value(value)}
+
+
+def _eligible_for_governance_backfill(application: dict, excluded_statuses: set[str]) -> bool:
+    if application.get("is_archived"):
+        return False
+    status = str(application.get("status") or "").strip()
+    return normalize_text(status) not in excluded_statuses
+
+
+def _governance_property_payload(schema: dict, values: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    properties: dict[str, Any] = {}
+    populated_fields: list[str] = []
+    for logical_name, value in values.items():
+        prop_name, prop = find_prop(schema, logical_name)
+        if not prop_name:
+            continue
+        converted = property_value(prop, value)
+        if converted is None:
+            continue
+        properties[prop_name] = converted
+        populated_fields.append(prop_name)
+    return properties, populated_fields
+
+
+def _filter_mojibake_governance_values(values: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    filtered: dict[str, Any] = {}
+    skipped: list[str] = []
+    for key, value in values.items():
+        haystack = ""
+        if isinstance(value, list):
+            haystack = " ".join(str(item) for item in value)
+        elif isinstance(value, str):
+            haystack = value
+        if haystack and mojibake_hits(haystack):
+            skipped.append(key)
+            continue
+        filtered[key] = value
+    return filtered, skipped
+
+
+def backfill_governance_fields(
+    token: str,
+    database_id: str,
+    *,
+    cache_path: Path = DEFAULT_SWEEP_CACHE,
+    sweep_dir: Path = DEFAULT_SWEEP_DIR,
+    app_v2_dir: Path = Path(".career-state/applications_v2"),
+    dry_run: bool = True,
+    report_path: Path = DEFAULT_GOVERNANCE_BACKFILL_REPORT,
+    excluded_statuses: list[str] | None = None,
+) -> dict:
+    cache = read_json(cache_path)
+    data_source_id = discover_data_source_id(token, database_id)
+    schema = retrieve_data_source(token, data_source_id)
+    sweep_records, invalid_files = load_sweep_records(sweep_dir)
+    exclusions = excluded_statuses or ["Desisti da vaga", "Deletada", "Aplicação andamento"]
+    normalized_exclusions = {normalize_text(item) for item in exclusions}
+
+    processed = []
+    written = 0
+    skipped = 0
+    populated = 0
+
+    for application in cache.get("applications", []):
+        record_id = application.get("record_id")
+        page_id = str(application.get("page_id") or "").strip()
+        title = str(application.get("title") or "").strip()
+        status = str(application.get("status") or "").strip()
+
+        if not _eligible_for_governance_backfill(application, normalized_exclusions):
+            skipped += 1
+            processed.append({
+                "record_id": record_id,
+                "page_id": page_id,
+                "title": title,
+                "status": status,
+                "result": "skipped_status",
+            })
+            continue
+
+        field_values: dict[str, Any] = {}
+        field_values = _prefer_value(field_values, _local_governance_values(record_id, app_v2_dir))
+        field_values = _prefer_value(field_values, _cache_governance_values(application))
+
+        sweep_payload = (sweep_records.get(page_id) or {}).get("payload")
+        if isinstance(sweep_payload, dict):
+            field_values = _prefer_value(field_values, _payload_governance_values(sweep_payload))
+
+        field_values, mojibake_skipped_fields = _filter_mojibake_governance_values(field_values)
+
+        properties, populated_fields = _governance_property_payload(schema, field_values)
+        if not properties:
+            processed.append({
+                "record_id": record_id,
+                "page_id": page_id,
+                "title": title,
+                "status": status,
+                "result": "no_data",
+                "mojibake_skipped_fields": mojibake_skipped_fields,
+            })
+            continue
+
+        populated += 1
+        payload = {"properties": properties}
+        validate_notion_payload_text(payload)
+        if not dry_run:
+            try:
+                update_page(token, page_id, payload)
+                written += 1
+                result_label = "updated"
+                error_message = None
+            except SystemExit as exc:
+                result_label = "write_error"
+                error_message = str(exc)
+        else:
+            result_label = "would_update"
+            error_message = None
+        processed.append({
+            "record_id": record_id,
+            "page_id": page_id,
+            "title": title,
+            "status": status,
+            "result": result_label,
+            "source_local": bool(_local_governance_values(record_id, app_v2_dir)),
+            "source_sweep": bool(sweep_payload),
+            "populated_fields": populated_fields,
+            "mojibake_skipped_fields": mojibake_skipped_fields,
+            "error": error_message,
+        })
+
+    report = {
+        "database_id": database_id,
+        "data_source_id": data_source_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dry_run": dry_run,
+        "excluded_statuses": exclusions,
+        "totals": {
+            "applications_seen": len(cache.get("applications", [])),
+            "skipped_status": skipped,
+            "with_data_to_backfill": populated,
+            "written": written,
+            "write_errors": sum(1 for item in processed if item.get("result") == "write_error"),
+            "invalid_sweep_files": len(invalid_files),
+        },
+        "processed": processed,
+        "invalid_sweep_files": invalid_files,
+    }
+    write_json(report_path, report)
+    return report
+
+
+def ensure_governance_schema(token: str, database_id: str, *, dry_run: bool = False) -> dict:
+    data_source_id = discover_data_source_id(token, database_id)
+    schema = retrieve_data_source(token, data_source_id)
+    current_properties = schema.get("properties", {})
+    to_create: dict[str, dict[str, Any]] = {}
+    already_present: list[str] = []
+    for field in GOVERNANCE_SCHEMA_FIELDS:
+        name = field["name"]
+        if name in current_properties:
+            already_present.append(name)
+            continue
+        property_payload = {"name": name, **field["schema"]}
+        description = field.get("description")
+        if description:
+            property_payload["description"] = description
+        to_create[name] = property_payload
+    payload = {"properties": to_create}
+    result = {
+        "database_id": database_id,
+        "data_source_id": data_source_id,
+        "requested_fields": [field["name"] for field in GOVERNANCE_SCHEMA_FIELDS],
+        "already_present": already_present,
+        "to_create": list(to_create.keys()),
+        "dry_run": dry_run,
+        "payload": payload,
+    }
+    if dry_run or not to_create:
+        return result
+    updated = update_data_source(token, data_source_id, payload)
+    result["updated_property_count"] = len(to_create)
+    result["updated_data_source_id"] = updated.get("id")
+    return result
 
 
 def fit_score_value(fit_map: dict):
@@ -1296,8 +1999,9 @@ def create_from_fit_map(
         "application_date": current_application_date(),
         "description": job_description,
         "keywords": fit_map.get("keywords_para_ats", []),
-        "gaps": "; ".join(fit_map.get("gaps_sem_cobertura", [])),
+        "gaps": fit_map.get("gaps_sem_cobertura", []),
     }
+    mappings.update(governance_field_values(fit_map))
     for logical_name, value in mappings.items():
         prop_name, prop = find_prop(schema, logical_name)
         if not prop_name or prop_name == title_name:
@@ -1396,6 +2100,7 @@ def update_from_fit_map(
         "service_status": fit_map.get("service_status", ""),
         "final_state": fit_map.get("service_stage", ""),
     }
+    mappings.update(governance_field_values(fit_map))
     for logical_name, value in mappings.items():
         prop_name, prop = find_prop(schema, logical_name)
         if not prop_name or prop_name == title_name:
@@ -1765,6 +2470,13 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("schema")
+    governance_schema_parser = subparsers.add_parser("ensure-governance-schema")
+    governance_schema_parser.add_argument("--dry-run", action="store_true")
+    governance_backfill_parser = subparsers.add_parser("backfill-governance-fields")
+    governance_backfill_parser.add_argument("--dry-run", action="store_true")
+    governance_backfill_parser.add_argument("--cache-path", default=str(DEFAULT_SWEEP_CACHE))
+    governance_backfill_parser.add_argument("--sweep-dir", default=str(DEFAULT_SWEEP_DIR))
+    governance_backfill_parser.add_argument("--report", default=str(DEFAULT_GOVERNANCE_BACKFILL_REPORT))
 
     list_parser = subparsers.add_parser("list")
     list_parser.add_argument("--limit", type=int, default=20)
@@ -1863,6 +2575,23 @@ def main() -> int:
     if args.command == "schema":
         schema = retrieve_database(token, database_id)
         print(json.dumps(schema.get("properties", {}), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "ensure-governance-schema":
+        result = ensure_governance_schema(token, database_id, dry_run=args.dry_run)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "backfill-governance-fields":
+        result = backfill_governance_fields(
+            token,
+            database_id,
+            cache_path=Path(args.cache_path),
+            sweep_dir=Path(args.sweep_dir),
+            dry_run=args.dry_run,
+            report_path=Path(args.report),
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "list":

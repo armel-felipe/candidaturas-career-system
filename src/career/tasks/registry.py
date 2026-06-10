@@ -296,6 +296,13 @@ def _memory_build(context: TaskContext) -> Any:
     return memory_service.build_memory_bundle(Path(context.arguments.get("output_dir", CAREER_STATE / "memory")))
 
 
+def _registry_rebuild(context: TaskContext) -> Any:
+    return memory_service.rebuild_keyword_registry_from_cache(
+        cache_path=Path(context.arguments.get("cache_path", ROOT / "inbox" / "notion" / "applications_cache.json")),
+        output_path=Path(context.arguments.get("output", CAREER_STATE / "derived" / "keyword_ats_registry.json")),
+    )
+
+
 TASKS = {
     "notion.refresh_cache": Task("notion.refresh_cache", _notion_refresh),
     "notion.build_cache": Task("notion.build_cache", _notion_build_cache),
@@ -309,6 +316,7 @@ TASKS = {
     "cv.approve": Task("cv.approve", _cv_approve),
     "project.diagnose_runtime": Task("project.diagnose_runtime", _project_diagnose_runtime),
     "memory.build": Task("memory.build", _memory_build),
+    "registry.rebuild": Task("registry.rebuild", _registry_rebuild),
 }
 
 

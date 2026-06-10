@@ -520,501 +520,531 @@
       "accepted_variants": [],
       "usage_notes": ""
     },
-    "marketplace_operations": {
-      "canonical_keyword": "Marketplace Operations",
-      "pt_br_preferred": "operacoes de marketplace",
+    "ecommerce_marketplace": {
+      "canonical_keyword": "E-commerce / Marketplace",
+      "pt_br_preferred": "e-commerce",
       "pt_br_alternatives": [
-        "operacoes em marketplace",
-        "marketplace"
+        "marketplace",
+        "operacoes de marketplace",
+        "ecommerce"
       ],
       "accepted_variants": [
         "marketplace"
       ],
-      "usage_notes": "Em CV PT-BR, usar operacoes de marketplace quando o termo em ingles deixar a frase artificial."
+      "usage_notes": "Em CV PT-BR, e-commerce ou marketplace sao equivalentes aceitos."
     },
-    "business_intelligence": {
-      "canonical_keyword": "Business Intelligence",
-      "pt_br_preferred": "inteligência de negócio",
+    "gestao_cd_armazem": {
+      "canonical_keyword": "Gestão de CD / Armazém",
+      "pt_br_preferred": "gestão de CD",
       "pt_br_alternatives": [
-        "BI",
-        "business intelligence"
+        "gestao de armazem",
+        "operações de CD",
+        "gestão de armazém",
+        "gestão de centro de distribuição"
       ],
       "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, usar 'inteligência de negócio' ou 'BI' como equivalente."
+      "usage_notes": "Em CV PT-BR, gestão de CD ou gestão de armazém sao equivalentes aceitos."
     },
-    "change_management": {
-      "canonical_keyword": "Change Management",
-      "pt_br_preferred": "gestão de mudança",
+    "gestao_sla_kpis": {
+      "canonical_keyword": "Gestão de SLA e KPIs",
+      "pt_br_preferred": "gestão de SLA",
       "pt_br_alternatives": [
-        "gestão de mudanças"
-      ],
-      "accepted_variants": [],
-      "usage_notes": ""
-    },
-    "performance_management": {
-      "canonical_keyword": "Performance Management",
-      "pt_br_preferred": "gestão de performance",
-      "pt_br_alternatives": [
-        "gestão de desempenho",
-        "indicadores de performance"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'gestão de performance' cobre o termo canônico."
-    },
-    "market_intelligence": {
-      "canonical_keyword": "Market Intelligence",
-      "pt_br_preferred": "inteligência de mercado",
-      "pt_br_alternatives": [
-        "inteligência comercial",
-        "inteligência de mercado"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'inteligência comercial' ou 'inteligência de mercado' são equivalentes aceitos."
-    },
-    "business_strategy": {
-      "canonical_keyword": "Business Strategy",
-      "pt_br_preferred": "estratégia de negócios",
-      "pt_br_alternatives": [
-        "planejamento estratégico",
-        "estratégia"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'planejamento estratégico' cobre o termo canônico."
-    },
-    "kpi_definition_dashboards": {
-      "canonical_keyword": "KPI Definition & Dashboards",
-      "pt_br_preferred": "KPIs e dashboards",
-      "pt_br_alternatives": [
-        "definição de KPIs",
-        "dashboards",
-        "indicadores"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'KPIs' e 'dashboards' são termos naturais que cobrem o termo canônico."
-    },
-    "sales_compensation_variable_pay": {
-      "canonical_keyword": "Sales Compensation & Variable Pay",
-      "pt_br_preferred": "remuneração variável comercial",
-      "pt_br_alternatives": [
-        "comissionamento",
-        "remuneração variável",
-        "comissões"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'comissionamento' ou 'remuneração variável' cobrem o termo canônico."
-    },
-    "data_analytics_sql": {
-      "canonical_keyword": "Data Analytics & SQL",
-      "pt_br_preferred": "análise de dados e SQL",
-      "pt_br_alternatives": [
-        "modelagem de dados",
-        "SQL",
-        "análise de dados"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'SQL' e 'modelagem de dados' cobrem o termo canônico."
-    },
-    "executive_reporting": {
-      "canonical_keyword": "Executive Reporting",
-      "pt_br_preferred": "reportes executivos",
-      "pt_br_alternatives": [
-        "relatórios executivos",
-        "reports para C-level",
-        "reportes para alta liderança"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'relatórios executivos' ou 'reportes para C-level' cobrem o termo canônico."
-    },
-    "sop_integrated_planning": {
-      "canonical_keyword": "S&OP / Integrated Planning",
-      "pt_br_preferred": "S&OP e planejamento integrado",
-      "pt_br_alternatives": [
-        "S&OP",
-        "planejamento integrado",
-        "S&OP executivo"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'S&OP' e 'planejamento integrado' são termos naturais que cobrem o termo canônico."
-    },
-    "change_management": {
-      "canonical_keyword": "Change Management",
-      "pt_br_preferred": "gestão de mudança",
-      "pt_br_alternatives": [
-        "gestão de mudanças",
-        "gestão da transformação",
-        "migrações de plataforma"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, usar 'gestão de mudança' ou referência a migrações/transformações."
-    },
-    "kpi_governance": {
-      "canonical_keyword": "KPI Governance",
-      "pt_br_preferred": "governança de indicadores",
-      "pt_br_alternatives": [
-        "governança de KPIs",
-        "gestão de indicadores",
-        "indicadores operacionais e financeiros"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, usar 'governança de indicadores' como equivalente canônico."
-    },
-    "performance_indicators": {
-      "canonical_keyword": "Performance Indicators",
-      "pt_br_preferred": "indicadores de desempenho",
-      "pt_br_alternatives": [
-        "indicadores operacionais",
+        "gestão de indicadores e SLA",
+        "SLA e KPIs",
+        "dashboards de SLA e KPIs",
         "KPIs",
-        "métricas"
+        "indicadores de desempenho"
       ],
       "accepted_variants": [],
-      "usage_notes": ""
-    },
-    "scenario_analysis": {
-      "canonical_keyword": "Scenario Analysis",
-      "pt_br_preferred": "análise de cenários",
-      "pt_br_alternatives": [
-        "avaliação de cenários",
-        "simulações financeiras",
-        "avaliação de risco"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, usar 'análise de cenários' como equivalente."
-    },
-    "data_culture": {
-      "canonical_keyword": "Data Culture",
-      "pt_br_preferred": "cultura orientada por dados",
-      "pt_br_alternatives": [
-        "cultura data-driven",
-        "cultura de dados",
-        "cultura analítica"
-      ],
-      "accepted_variants": [],
-      "usage_notes": ""
-    },
-    "simulation_and_modeling": {
-      "canonical_keyword": "Simulation and Modeling",
-      "pt_br_preferred": "simulação e modelagem",
-      "pt_br_alternatives": [
-        "modelagem de processos",
-        "simulação de cenários"
-      ],
-      "accepted_variants": [],
-      "usage_notes": ""
-    },
-    "process_management": {
-      "canonical_keyword": "Process Management",
-      "pt_br_preferred": "gestão de processos",
-      "pt_br_alternatives": [
-        "processos operacionais",
-        "gestão operacional"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'gestão de processos' é equivalente canônico de Process Management."
-    },
-    "business_review": {
-      "canonical_keyword": "Business Review",
-      "pt_br_preferred": "revisão de negócios",
-      "pt_br_alternatives": [
-        "S&OP executivo",
-        "S&OP com C-level",
-        "governança executiva"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'S&OP executivo' e 'revisão de negócios com C-level' cobrem Business Review."
-    },
-    "sales_forecasting": {
-      "canonical_keyword": "Sales Forecasting",
-      "pt_br_preferred": "forecast de vendas",
-      "pt_br_alternatives": [
-        "previsão de vendas",
-        "planejamento de demanda",
-        "rolling forecast",
-        "forecast"
-      ],
-      "accepted_variants": [
-        "forecast operacional",
-        "previsão de demanda"
-      ],
-      "usage_notes": "Em CV PT-BR, 'forecast' e 'rolling forecast' são termos de mercado."
-    },
-    "sales_training": {
-      "canonical_keyword": "Sales Training",
-      "pt_br_preferred": "treinamento de vendas",
-      "pt_br_alternatives": [
-        "capacitação de times de vendas",
-        "treinamento de times",
-        "orientação de equipes"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'treinamento de times' e 'liderança de equipes de SDR' cobrem Sales Training."
-    },
-    "gestao_indicadores": {
-      "canonical_keyword": "Gestão de Indicadores",
-      "pt_br_preferred": "indicadores",
-      "pt_br_alternatives": [
-        "gestão de indicadores",
-        "métricas de desempenho",
-        "KPIs",
-        "painel de indicadores",
-        "indicadores em tempo real",
-        "monitoramento de indicadores",
-        "métricas em tempo real"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'indicadores', 'métricas' e 'KPIs' cobrem Gestão de Indicadores."
-    },
-    "eficiencia_operacional": {
-      "canonical_keyword": "Eficiência Operacional",
-      "pt_br_preferred": "eficiência operacional",
-      "pt_br_alternatives": [
-        "eficiência",
-        "otimização de custos",
-        "redução de custos",
-        "eficiência de processos",
-        "custos operacionais",
-        "redução de custo"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'redução de custos', 'eficiência', 'otimização' cobrem Eficiência Operacional."
-    },
-    "expansao_geografica": {
-      "canonical_keyword": "Expansão Geográfica",
-      "pt_br_preferred": "expansão geográfica",
-      "pt_br_alternatives": [
-        "expansão",
-        "cobertura geográfica",
-        "ampliação de cobertura",
-        "expansão de cidades",
-        "crescimento geográfico",
-        "novas cidades",
-        "cobertura de cidades"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'expansão de cobertura', 'ampliação para novas cidades' cobrem Expansão Geográfica."
+      "usage_notes": "Em CV PT-BR, gestão de SLA, dashboards de SLA e KPIs ou indicadores de desempenho sao aceitos."
     },
     "lideranca_equipes": {
       "canonical_keyword": "Liderança de Equipes",
       "pt_br_preferred": "liderança de equipes",
       "pt_br_alternatives": [
-        "liderança",
         "liderança de times",
-        "gestão de equipes",
-        "equipe multidisciplinar",
-        "time de pessoas",
-        "coordenação de equipes",
-        "liderança de equipe"
+        "liderança",
+        "liderando",
+        "liderança direta",
+        "liderança de pessoas"
       ],
       "accepted_variants": [],
-      "usage_notes": "Em CV PT-BR, 'liderança de equipe', 'liderança de times', 'gestão de pessoas' cobrem Liderança de Equipes."
-    },
-    "gestao_incentivos": {
-      "canonical_keyword": "Gestão de Incentivos",
-      "en_cv_preferred": "incentive management",
-      "pt_br_preferred": "gestão de incentivos",
-      "pt_br_alternatives": [],
-      "accepted_variants": [
-        "incentive budget",
-        "driver incentives",
-        "incentive models",
-        "incentivos",
-        "pricing dynamic",
-        "dynamic pricing"
-      ],
-      "usage_notes": "Em EN CV: 'incentive management', 'incentive budget', 'dynamic pricing' cobrem Gestão de Incentivos."
-    },
-    "sql_analise_dados": {
-      "canonical_keyword": "SQL / Análise de Dados",
-      "en_cv_preferred": "SQL / Data Analysis",
-      "pt_br_preferred": "SQL / análise de dados",
-      "pt_br_alternatives": [],
-      "accepted_variants": [
-        "SQL",
-        "data analysis",
-        "Python",
-        "Databricks"
-      ],
-      "usage_notes": "Em EN CV: 'SQL', 'data analysis', menção a Python/Databricks cobrem SQL / Análise de Dados."
-    },
-    "ab_testing": {
-      "canonical_keyword": "A/B Testing",
-      "en_cv_preferred": "A/B testing",
-      "pt_br_preferred": "testes A/B",
-      "pt_br_alternatives": [],
-      "accepted_variants": [
-        "A/B tests",
-        "A/B test",
-        "experimentation",
-        "testes controlados",
-        "A/B testing"
-      ],
-      "usage_notes": "Em EN CV: 'A/B tests', 'A/B testing', 'experimentation' cobrem A/B Testing."
-    },
-    "projetos_multifuncionais": {
-      "canonical_keyword": "Projetos Multifuncionais",
-      "en_cv_preferred": "cross-functional projects",
-      "pt_br_preferred": "projetos multifuncionais",
-      "pt_br_alternatives": [],
-      "accepted_variants": [
-        "cross-functional",
-        "cross-functional coordination",
-        "multi-stakeholder",
-        "cross-functional decision-making"
-      ],
-      "usage_notes": "Em EN CV: 'cross-functional', 'cross-functional coordination' cobrem Projetos Multifuncionais."
-    },
-    "estruturacao_operacoes_zero": {
-      "canonical_keyword": "Estruturação de operações do zero",
-      "en_cv_preferred": "building operations from scratch",
-      "pt_br_preferred": "Estruturação de operações do zero",
-      "pt_br_alternatives": [
-        "estruturou do zero",
-        "criou do zero"
-      ],
-      "accepted_variants": [
-        "built from scratch",
-        "built from the ground up",
-        "built operations from scratch",
-        "built areas from zero"
-      ],
-      "usage_notes": "Em EN CV: 'built from scratch', 'built from the ground up', 'built.*from scratch' cobrem Estruturação de operações do zero."
-    },
-    "gestao_p_l_budget": {
-      "canonical_keyword": "Gestão P&L / Budget",
-      "en_cv_preferred": "P&L management",
-      "pt_br_preferred": "Gestão P&L / Budget",
-      "pt_br_alternatives": [
-        "P&L",
-        "budget"
-      ],
-      "accepted_variants": [
-        "P&L",
-        "annual budget",
-        "P\\&L"
-      ],
-      "usage_notes": "Em EN CV: 'P&L', 'R[$]MM.*budget', 'budget' cobrem Gestão P&L."
-    },
-    "interface_c_level": {
-      "canonical_keyword": "Interface C-Level",
-      "en_cv_preferred": "C-level interface",
-      "pt_br_preferred": "Interface C-Level",
-      "pt_br_alternatives": [
-        "C-level",
-        "C-Level"
-      ],
-      "accepted_variants": [
-        "C-level",
-        "CEO",
-        "C-level decision-making"
-      ],
-      "usage_notes": "Em EN CV: 'CEO', 'C-level', 'VP' cobrem Interface C-Level."
-    },
-    "compliance_qualidade_regulatoria": {
-      "canonical_keyword": "Compliance / Qualidade Regulatória",
-      "en_cv_preferred": "compliance",
-      "pt_br_preferred": "Compliance / Qualidade Regulatória",
-      "pt_br_alternatives": [
-        "compliance",
-        "regulatória"
-      ],
-      "accepted_variants": [
-        "ISO 9001",
-        "regulatory quality",
-        "regulatory"
-      ],
-      "usage_notes": "Em EN CV: 'ISO 9001', 'regulatory' cobrem Compliance."
-    },
-    "projecao_viabilidade_roi": {
-      "canonical_keyword": "Projeção de Viabilidade / ROI",
-      "en_cv_preferred": "feasibility analysis",
-      "pt_br_preferred": "Projeção de Viabilidade / ROI",
-      "pt_br_alternatives": [
-        "viabilidade",
-        "ROI"
-      ],
-      "accepted_variants": [
-        "NPV",
-        "payback",
-        "feasibility",
-        "scenario analysis"
-      ],
-      "usage_notes": "Em EN CV: 'NPV', 'payback', 'feasibility', 'economic feasibility', 'scenario analysis' cobrem."
-    },
-    "prospeccao_b2b_funil_vendas": {
-      "canonical_keyword": "Prospecção B2B / Funil de Vendas",
-      "en_cv_preferred": "B2B prospecting",
-      "pt_br_preferred": "Prospecção B2B / Funil de Vendas",
-      "pt_br_alternatives": [
-        "prospecção",
-        "funil de vendas"
-      ],
-      "accepted_variants": [
-        "SDR",
-        "lead conversion",
-        "inbound conversion",
-        "B2B"
-      ],
-      "usage_notes": "Em EN CV: 'SDR', 'lead conversion', 'inbound conversion', 'B2B prospecting' cobrem."
-    },
-    "lgpd_dados_sensiveis": {
-      "canonical_keyword": "LGPD / Dados Sensíveis",
-      "en_cv_preferred": "LGPD / Sensitive Data",
-      "pt_br_preferred": "LGPD / Dados Sensíveis",
-      "pt_br_alternatives": [
-        "LGPD",
-        "dados sensíveis"
-      ],
-      "accepted_variants": [
-        "LGPD",
-        "sensitive data",
-        "data privacy"
-      ],
-      "usage_notes": "Em EN CV: 'LGPD', 'sensitive data' cobrem LGPD."
-    },
-    "s&op_capacity_planning": {
-      "canonical_keyword": "S&OP / Capacity Planning",
-      "pt_br_preferred": "planejamento integrado S&OP e capacidade",
-      "pt_br_alternatives": [
-        "S&OP",
-        "planejamento de capacidade",
-        "S&OP executivo"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "S&OP é sigla natural em PT-BR; menção a análise de capacidade também cobre."
-    },
-    "last_mile_fleet_operations": {
-      "canonical_keyword": "Last Mile / Fleet Operations",
-      "pt_br_preferred": "operações de última milha e frota",
-      "pt_br_alternatives": [
-        "última milha",
-        "operações de última milha",
-        "gestão de frota",
-        "planejamento de frota"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Última milha e gestão de frota são equivalentes aceitos."
-    },
-    "customer_success_cx_operations": {
-      "canonical_keyword": "Customer Success / CX Operations",
-      "pt_br_preferred": "Customer Success e operações de CX",
-      "pt_br_alternatives": [
-        "Customer Success",
-        "operações de CX",
-        "Customer Experience"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Customer Success e CX são termos naturais em PT-BR."
-    },
-    "pricing_strategy_revenue_optimization": {
-      "canonical_keyword": "Pricing Strategy / Revenue Optimization",
-      "pt_br_preferred": "estratégia de pricing e otimização de receita",
-      "pt_br_alternatives": [
-        "pricing",
-        "otimização de receita",
-        "Pricing Strategy",
-        "Revenue Optimization"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "Pricing é termo natural em PT-BR; Revenue Optimization cobre otimização de receita."
+      "usage_notes": "Em CV PT-BR, 'liderança', 'liderando' ou 'liderança de equipes' sao equivalentes aceitos."
     }
+  },
+  "business_intelligence": {
+    "canonical_keyword": "Business Intelligence",
+    "pt_br_preferred": "inteligência de negócio",
+    "pt_br_alternatives": [
+      "BI",
+      "business intelligence"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, usar 'inteligência de negócio' ou 'BI' como equivalente."
+  },
+  "change_management": {
+    "canonical_keyword": "Change Management",
+    "pt_br_preferred": "gestão de mudança",
+    "pt_br_alternatives": [
+      "gestão de mudanças",
+      "gestão da transformação",
+      "migrações de plataforma"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, usar 'gestão de mudança' ou referência a migrações/transformações."
+  },
+  "performance_management": {
+    "canonical_keyword": "Performance Management",
+    "pt_br_preferred": "gestão de performance",
+    "pt_br_alternatives": [
+      "gestão de desempenho",
+      "indicadores de performance"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'gestão de performance' cobre o termo canônico."
+  },
+  "market_intelligence": {
+    "canonical_keyword": "Market Intelligence",
+    "pt_br_preferred": "inteligência de mercado",
+    "pt_br_alternatives": [
+      "inteligência comercial",
+      "inteligência de mercado"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'inteligência comercial' ou 'inteligência de mercado' são equivalentes aceitos."
+  },
+  "business_strategy": {
+    "canonical_keyword": "Business Strategy",
+    "pt_br_preferred": "estratégia de negócios",
+    "pt_br_alternatives": [
+      "planejamento estratégico",
+      "estratégia"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'planejamento estratégico' cobre o termo canônico."
+  },
+  "kpi_definition_dashboards": {
+    "canonical_keyword": "KPI Definition & Dashboards",
+    "pt_br_preferred": "KPIs e dashboards",
+    "pt_br_alternatives": [
+      "definição de KPIs",
+      "dashboards",
+      "indicadores"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'KPIs' e 'dashboards' são termos naturais que cobrem o termo canônico."
+  },
+  "sales_compensation_variable_pay": {
+    "canonical_keyword": "Sales Compensation & Variable Pay",
+    "pt_br_preferred": "remuneração variável comercial",
+    "pt_br_alternatives": [
+      "comissionamento",
+      "remuneração variável",
+      "comissões"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'comissionamento' ou 'remuneração variável' cobrem o termo canônico."
+  },
+  "data_analytics_sql": {
+    "canonical_keyword": "Data Analytics & SQL",
+    "pt_br_preferred": "análise de dados e SQL",
+    "pt_br_alternatives": [
+      "modelagem de dados",
+      "SQL",
+      "análise de dados"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'SQL' e 'modelagem de dados' cobrem o termo canônico."
+  },
+  "executive_reporting": {
+    "canonical_keyword": "Executive Reporting",
+    "pt_br_preferred": "reportes executivos",
+    "pt_br_alternatives": [
+      "relatórios executivos",
+      "reports para C-level",
+      "reportes para alta liderança"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'relatórios executivos' ou 'reportes para C-level' cobrem o termo canônico."
+  },
+  "sop_integrated_planning": {
+    "canonical_keyword": "S&OP / Integrated Planning",
+    "pt_br_preferred": "S&OP e planejamento integrado",
+    "pt_br_alternatives": [
+      "S&OP",
+      "planejamento integrado",
+      "S&OP executivo"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'S&OP' e 'planejamento integrado' são termos naturais que cobrem o termo canônico."
+  },
+  "kpi_governance": {
+    "canonical_keyword": "KPI Governance",
+    "pt_br_preferred": "governança de indicadores",
+    "pt_br_alternatives": [
+      "governança de KPIs",
+      "gestão de indicadores",
+      "indicadores operacionais e financeiros"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, usar 'governança de indicadores' como equivalente canônico."
+  },
+  "performance_indicators": {
+    "canonical_keyword": "Performance Indicators",
+    "pt_br_preferred": "indicadores de desempenho",
+    "pt_br_alternatives": [
+      "indicadores operacionais",
+      "KPIs",
+      "métricas"
+    ],
+    "accepted_variants": [],
+    "usage_notes": ""
+  },
+  "scenario_analysis": {
+    "canonical_keyword": "Scenario Analysis",
+    "pt_br_preferred": "análise de cenários",
+    "pt_br_alternatives": [
+      "avaliação de cenários",
+      "simulações financeiras",
+      "avaliação de risco"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, usar 'análise de cenários' como equivalente."
+  },
+  "data_culture": {
+    "canonical_keyword": "Data Culture",
+    "pt_br_preferred": "cultura orientada por dados",
+    "pt_br_alternatives": [
+      "cultura data-driven",
+      "cultura de dados",
+      "cultura analítica"
+    ],
+    "accepted_variants": [],
+    "usage_notes": ""
+  },
+  "simulation_and_modeling": {
+    "canonical_keyword": "Simulation and Modeling",
+    "pt_br_preferred": "simulação e modelagem",
+    "pt_br_alternatives": [
+      "modelagem de processos",
+      "simulação de cenários"
+    ],
+    "accepted_variants": [],
+    "usage_notes": ""
+  },
+  "process_management": {
+    "canonical_keyword": "Process Management",
+    "pt_br_preferred": "gestão de processos",
+    "pt_br_alternatives": [
+      "processos operacionais",
+      "gestão operacional"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'gestão de processos' é equivalente canônico de Process Management."
+  },
+  "business_review": {
+    "canonical_keyword": "Business Review",
+    "pt_br_preferred": "revisão de negócios",
+    "pt_br_alternatives": [
+      "S&OP executivo",
+      "S&OP com C-level",
+      "governança executiva"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'S&OP executivo' e 'revisão de negócios com C-level' cobrem Business Review."
+  },
+  "sales_forecasting": {
+    "canonical_keyword": "Sales Forecasting",
+    "pt_br_preferred": "forecast de vendas",
+    "pt_br_alternatives": [
+      "previsão de vendas",
+      "planejamento de demanda",
+      "rolling forecast",
+      "forecast"
+    ],
+    "accepted_variants": [
+      "forecast operacional",
+      "previsão de demanda"
+    ],
+    "usage_notes": "Em CV PT-BR, 'forecast' e 'rolling forecast' são termos de mercado."
+  },
+  "sales_training": {
+    "canonical_keyword": "Sales Training",
+    "pt_br_preferred": "treinamento de vendas",
+    "pt_br_alternatives": [
+      "capacitação de times de vendas",
+      "treinamento de times",
+      "orientação de equipes"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'treinamento de times' e 'liderança de equipes de SDR' cobrem Sales Training."
+  },
+  "gestao_indicadores": {
+    "canonical_keyword": "Gestão de Indicadores",
+    "pt_br_preferred": "indicadores",
+    "pt_br_alternatives": [
+      "gestão de indicadores",
+      "métricas de desempenho",
+      "KPIs",
+      "painel de indicadores",
+      "indicadores em tempo real",
+      "monitoramento de indicadores",
+      "métricas em tempo real"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'indicadores', 'métricas' e 'KPIs' cobrem Gestão de Indicadores."
+  },
+  "eficiencia_operacional": {
+    "canonical_keyword": "Eficiência Operacional",
+    "pt_br_preferred": "eficiência operacional",
+    "pt_br_alternatives": [
+      "eficiência",
+      "otimização de custos",
+      "redução de custos",
+      "eficiência de processos",
+      "custos operacionais",
+      "redução de custo"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'redução de custos', 'eficiência', 'otimização' cobrem Eficiência Operacional."
+  },
+  "expansao_geografica": {
+    "canonical_keyword": "Expansão Geográfica",
+    "pt_br_preferred": "expansão geográfica",
+    "pt_br_alternatives": [
+      "expansão",
+      "cobertura geográfica",
+      "ampliação de cobertura",
+      "expansão de cidades",
+      "crescimento geográfico",
+      "novas cidades",
+      "cobertura de cidades"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'expansão de cobertura', 'ampliação para novas cidades' cobrem Expansão Geográfica."
+  },
+  "lideranca_equipes": {
+    "canonical_keyword": "Liderança de Equipes",
+    "pt_br_preferred": "liderança de equipes",
+    "pt_br_alternatives": [
+      "liderança",
+      "liderança de times",
+      "gestão de equipes",
+      "equipe multidisciplinar",
+      "time de pessoas",
+      "coordenação de equipes",
+      "liderança de equipe"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'liderança de equipe', 'liderança de times', 'gestão de pessoas' cobrem Liderança de Equipes."
+  },
+  "gestao_incentivos": {
+    "canonical_keyword": "Gestão de Incentivos",
+    "en_cv_preferred": "incentive management",
+    "pt_br_preferred": "gestão de incentivos",
+    "pt_br_alternatives": [],
+    "accepted_variants": [
+      "incentive budget",
+      "driver incentives",
+      "incentive models",
+      "incentivos",
+      "pricing dynamic",
+      "dynamic pricing"
+    ],
+    "usage_notes": "Em EN CV: 'incentive management', 'incentive budget', 'dynamic pricing' cobrem Gestão de Incentivos."
+  },
+  "sql_analise_dados": {
+    "canonical_keyword": "SQL / Análise de Dados",
+    "en_cv_preferred": "SQL / Data Analysis",
+    "pt_br_preferred": "SQL / análise de dados",
+    "pt_br_alternatives": [],
+    "accepted_variants": [
+      "SQL",
+      "data analysis",
+      "Python",
+      "Databricks"
+    ],
+    "usage_notes": "Em EN CV: 'SQL', 'data analysis', menção a Python/Databricks cobrem SQL / Análise de Dados."
+  },
+  "ab_testing": {
+    "canonical_keyword": "A/B Testing",
+    "en_cv_preferred": "A/B testing",
+    "pt_br_preferred": "testes A/B",
+    "pt_br_alternatives": [],
+    "accepted_variants": [
+      "A/B tests",
+      "A/B test",
+      "experimentation",
+      "testes controlados",
+      "A/B testing"
+    ],
+    "usage_notes": "Em EN CV: 'A/B tests', 'A/B testing', 'experimentation' cobrem A/B Testing."
+  },
+  "projetos_multifuncionais": {
+    "canonical_keyword": "Projetos Multifuncionais",
+    "en_cv_preferred": "cross-functional projects",
+    "pt_br_preferred": "projetos multifuncionais",
+    "pt_br_alternatives": [],
+    "accepted_variants": [
+      "cross-functional",
+      "cross-functional coordination",
+      "multi-stakeholder",
+      "cross-functional decision-making"
+    ],
+    "usage_notes": "Em EN CV: 'cross-functional', 'cross-functional coordination' cobrem Projetos Multifuncionais."
+  },
+  "estruturacao_operacoes_zero": {
+    "canonical_keyword": "Estruturação de operações do zero",
+    "en_cv_preferred": "building operations from scratch",
+    "pt_br_preferred": "Estruturação de operações do zero",
+    "pt_br_alternatives": [
+      "estruturou do zero",
+      "criou do zero"
+    ],
+    "accepted_variants": [
+      "built from scratch",
+      "built from the ground up",
+      "built operations from scratch",
+      "built areas from zero"
+    ],
+    "usage_notes": "Em EN CV: 'built from scratch', 'built from the ground up', 'built.*from scratch' cobrem Estruturação de operações do zero."
+  },
+  "gestao_p_l_budget": {
+    "canonical_keyword": "Gestão P&L / Budget",
+    "en_cv_preferred": "P&L management",
+    "pt_br_preferred": "Gestão P&L / Budget",
+    "pt_br_alternatives": [
+      "P&L",
+      "budget"
+    ],
+    "accepted_variants": [
+      "P&L",
+      "annual budget",
+      "P\\&L"
+    ],
+    "usage_notes": "Em EN CV: 'P&L', 'R[$]MM.*budget', 'budget' cobrem Gestão P&L."
+  },
+  "interface_c_level": {
+    "canonical_keyword": "Interface C-Level",
+    "en_cv_preferred": "C-level interface",
+    "pt_br_preferred": "Interface C-Level",
+    "pt_br_alternatives": [
+      "C-level",
+      "C-Level"
+    ],
+    "accepted_variants": [
+      "C-level",
+      "CEO",
+      "C-level decision-making"
+    ],
+    "usage_notes": "Em EN CV: 'CEO', 'C-level', 'VP' cobrem Interface C-Level."
+  },
+  "compliance_qualidade_regulatoria": {
+    "canonical_keyword": "Compliance / Qualidade Regulatória",
+    "en_cv_preferred": "compliance",
+    "pt_br_preferred": "Compliance / Qualidade Regulatória",
+    "pt_br_alternatives": [
+      "compliance",
+      "regulatória"
+    ],
+    "accepted_variants": [
+      "ISO 9001",
+      "regulatory quality",
+      "regulatory"
+    ],
+    "usage_notes": "Em EN CV: 'ISO 9001', 'regulatory' cobrem Compliance."
+  },
+  "projecao_viabilidade_roi": {
+    "canonical_keyword": "Projeção de Viabilidade / ROI",
+    "en_cv_preferred": "feasibility analysis",
+    "pt_br_preferred": "Projeção de Viabilidade / ROI",
+    "pt_br_alternatives": [
+      "viabilidade",
+      "ROI"
+    ],
+    "accepted_variants": [
+      "NPV",
+      "payback",
+      "feasibility",
+      "scenario analysis"
+    ],
+    "usage_notes": "Em EN CV: 'NPV', 'payback', 'feasibility', 'economic feasibility', 'scenario analysis' cobrem."
+  },
+  "prospeccao_b2b_funil_vendas": {
+    "canonical_keyword": "Prospecção B2B / Funil de Vendas",
+    "en_cv_preferred": "B2B prospecting",
+    "pt_br_preferred": "Prospecção B2B / Funil de Vendas",
+    "pt_br_alternatives": [
+      "prospecção",
+      "funil de vendas"
+    ],
+    "accepted_variants": [
+      "SDR",
+      "lead conversion",
+      "inbound conversion",
+      "B2B"
+    ],
+    "usage_notes": "Em EN CV: 'SDR', 'lead conversion', 'inbound conversion', 'B2B prospecting' cobrem."
+  },
+  "lgpd_dados_sensiveis": {
+    "canonical_keyword": "LGPD / Dados Sensíveis",
+    "en_cv_preferred": "LGPD / Sensitive Data",
+    "pt_br_preferred": "LGPD / Dados Sensíveis",
+    "pt_br_alternatives": [
+      "LGPD",
+      "dados sensíveis"
+    ],
+    "accepted_variants": [
+      "LGPD",
+      "sensitive data",
+      "data privacy"
+    ],
+    "usage_notes": "Em EN CV: 'LGPD', 'sensitive data' cobrem LGPD."
+  },
+  "s&op_capacity_planning": {
+    "canonical_keyword": "S&OP / Capacity Planning",
+    "pt_br_preferred": "planejamento integrado S&OP e capacidade",
+    "pt_br_alternatives": [
+      "S&OP",
+      "planejamento de capacidade",
+      "S&OP executivo"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "S&OP é sigla natural em PT-BR; menção a análise de capacidade também cobre."
+  },
+  "last_mile_fleet_operations": {
+    "canonical_keyword": "Last Mile / Fleet Operations",
+    "pt_br_preferred": "operações de última milha e frota",
+    "pt_br_alternatives": [
+      "última milha",
+      "operações de última milha",
+      "gestão de frota",
+      "planejamento de frota"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Última milha e gestão de frota são equivalentes aceitos."
+  },
+  "customer_success_cx_operations": {
+    "canonical_keyword": "Customer Success / CX Operations",
+    "pt_br_preferred": "Customer Success e operações de CX",
+    "pt_br_alternatives": [
+      "Customer Success",
+      "operações de CX",
+      "Customer Experience"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Customer Success e CX são termos naturais em PT-BR."
+  },
+  "pricing_strategy_revenue_optimization": {
+    "canonical_keyword": "Pricing Strategy / Revenue Optimization",
+    "pt_br_preferred": "estratégia de pricing e otimização de receita",
+    "pt_br_alternatives": [
+      "pricing",
+      "otimização de receita",
+      "Pricing Strategy",
+      "Revenue Optimization"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Pricing é termo natural em PT-BR; Revenue Optimization cobre otimização de receita."
   }
 }
