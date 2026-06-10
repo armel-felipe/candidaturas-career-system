@@ -78,10 +78,10 @@ Pedidos como "CV personalizado", "CV em DOCX", "adapte o currículo", "currícul
 Cada experiência deve ter exatamente 3 bullets, usando o conceito de história completo:
 
 1. **Fui responsável por** — escopo, time, responsabilidade principal e elemento mais aderente à vaga.
-2. **Alavanca (verbo de ação)** — ferramentas, métodos ou competências que explicam diretamente o resultado. Começar com verbo de ação em 1ª pessoa (liderei, estruturei, implantei, conduzi, apliquei, modelei, criei, desenvolvi, etc.) — nunca com o rótulo "Utilizando:" seguido de lista. Máximo 3 itens.
+2. **Alavanca de reposicionamento (verbo de ação)** — mecanismo que explica diretamente o resultado e traduz a experiência para a vaga-alvo. Combinar, em prosa fluida, 1 método/rito de execução + 1 ferramenta/processo relevante + 1 competência transferível quando isso fortalecer a ponte para a vaga. Começar com verbo de ação em 1ª pessoa (liderei, estruturei, implantei, conduzi, apliquei, modelei, criei, desenvolvi, etc.) — nunca com o rótulo "Utilizando:" seguido de lista. Máximo 3 elementos narrativos.
 3. **Resultado** — resultado com número, priorizando o impacto mais relevante para a vaga. Começar diretamente com verbo de resultado (reduzi, ampliei, elevei, alcancei, atingi, etc.) — nunca com o rótulo "Consegui:".
 
-Este modo força síntese: uma história principal por experiência, com escopo → alavancas → resultado.
+Este modo força síntese: uma história principal por experiência, com escopo → alavanca de reposicionamento → resultado.
 
 **REGRA DE FLUIDEZ — NUNCA VIOLAR:**
 - Nenhum bullet começa com rótulo seguido de dois-pontos ("Fui responsável por:", "Utilizando:", "Consegui:")
@@ -277,11 +277,18 @@ armelfelipe@gmail.com          ← link clicável (mailto)
 - Elemento mais relevante para a vaga em posição de destaque
 - Máximo 1 camada de escopo
 
-**Bullet 2 — Alavanca (verbo de ação)**
+**Bullet 2 — Alavanca de reposicionamento (verbo de ação)**
 - Começar com verbo em 1ª pessoa: liderei, estruturei, implantei, conduzi, apliquei, modelei, criei, desenvolvi, usei, automatizei — nunca com "Utilizando:"
-- Apenas ferramentas/métodos/competências que explicam diretamente o resultado do bullet 3
-- Máximo 3 itens integrados em prosa fluida
+- Explicar como o resultado do bullet 3 aconteceu e por que essa experiência é transferível para a vaga-alvo
+- Combinar, quando útil: método/rito + ferramenta/processo + competência transferível
+- Máximo 3 elementos narrativos integrados em prosa fluida
 - Nunca listar toda a stack; nunca usar formato de lista separada por "·" sem frase que a anteceda
+- Nunca repetir o escopo do bullet 1 com verbos genéricos sem mecanismo causal
+- Para vagas de projetos, priorizar governança, coordenação cross-functional, dependências, stakeholders, riscos, rollout e cadência executiva
+- Para vagas de operações, priorizar indicadores, capacidade, desenho operacional, SLAs, automação e eficiência
+- Para vagas de planejamento, priorizar cenários, S&OP, forecast, orçamento e balanceamento de capacidade
+- Para vagas de CX/SaaS, priorizar jornada, automação, integrações, backoffice e experiência do cliente
+- Para vagas de Product/Revenue/BizOps, priorizar dados, pricing, priorização, roadmap e performance comercial
 
 **Bullet 3 — Resultado**
 - Começar com verbo de resultado em 1ª pessoa: reduzi, ampliei, elevei, alcancei, atingi, aumentei, gerei — nunca com "Consegui:"
@@ -352,6 +359,7 @@ Em CV em português:
 - [ ] Modo conciso: os 3 bullets estão presentes e cumprem suas funções (escopo → alavanca → resultado)?
 - [ ] Nenhum bullet começa com rótulo seguido de ":" ("Fui responsável por:", "Utilizando:", "Consegui:") — todos são prosa fluida em 1ª pessoa?
 - [ ] Bullet 2 começa com verbo de ação em 1ª pessoa (liderei, estruturei, implantei, conduzi, etc.) — nunca com "Utilizando:"?
+- [ ] Bullet 2 explica o mecanismo do resultado e ajuda no reposicionamento para a vaga, em vez de só listar ferramentas ou repetir escopo?
 - [ ] Bullet 3 começa com verbo de resultado em 1ª pessoa (reduzi, ampliei, elevei, alcancei, etc.) — nunca com "Consegui:"?
 - [ ] Concordância verbal consistente em 1ª pessoa do singular em todos os bullets?
 - [ ] Modo expandido: há 1 bullet de história geral e os demais bullets são entregas priorizadas pela vaga?

@@ -948,6 +948,8 @@ def _validate_cv_content_contract(paths: dict[str, Path]) -> None:
             raise ValidationFailure(
                 f"experiences[{index}] must contain exactly 3 bullets in concise mode; received {len(bullets)}."
             )
+        if mode == "concise":
+            _validate_concise_bullet2(experience, index)
     coverage = payload.get("ats_keyword_coverage")
     if not isinstance(coverage, list):
         raise ValidationFailure("cv_content.json must include ats_keyword_coverage for the top 8 ATS keywords.")
@@ -996,6 +998,104 @@ def _validate_cv_content_contract(paths: dict[str, Path]) -> None:
             invalid_mappings.append(f"{keyword} -> defensible_evidence missing")
     if invalid_mappings:
         raise ValidationFailure("cv_content.json has invalid ats_keyword_coverage mappings:\n- " + "\n- ".join(invalid_mappings))
+
+
+def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
+    bullets = experience.get("bullets") or []
+    bullet1 = str((bullets[0] or {}).get("text") or "").strip() if len(bullets) > 0 and isinstance(bullets[0], dict) else ""
+    bullet2 = str((bullets[1] or {}).get("text") or "").strip() if len(bullets) > 1 and isinstance(bullets[1], dict) else ""
+    bullet3 = str((bullets[2] or {}).get("text") or "").strip() if len(bullets) > 2 and isinstance(bullets[2], dict) else ""
+    lowered = bullet2.casefold()
+    generic_starts = ("liderei ", "conduzi ", "atuei ", "apoiei ", "fiz ")
+    mechanism_signals = (
+        "govern",
+        "cenario",
+        "cenário",
+        "prioriz",
+        "roadmap",
+        "dashboard",
+        "sql",
+        "api",
+        "s&op",
+        "autom",
+        "integra",
+        "stakeholder",
+        "trade-off",
+        "dados",
+        "indicador",
+        "rito",
+        "cadencia",
+        "cadência",
+        "rollout",
+        "teste",
+        "pricing",
+        "roi",
+    )
+    tool_dump_markers = (" · ", " / ", ", ", " e ")
+    if not bullet2:
+        raise ValidationFailure(f"experiences[{index}] bullet 2 is empty in concise mode.")
+    if lowered.startswith(generic_starts) and not any(signal in lowered for signal in mechanism_signals):
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 2 is too generic; include mechanism, governance, tooling or transferable capability."
+        )
+    if all(token not in lowered for token in mechanism_signals):
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 2 must explain how the result happened using a concrete mechanism or transferable capability."
+        )
+    if bullet2.count(" e ") + bullet2.count(",") >= 4 and not any(
+        signal in lowered for signal in ("para ", "com ", "usando ", "a fim de ")
+    ):
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 2 looks like a loose list of tools/skills; convert it into causal prose."
+        )
+    if bullet1:
+        overlap = _token_overlap_ratio(bullet1, bullet2)
+        if overlap > 0.6:
+            raise ValidationFailure(
+                f"experiences[{index}] bullet 2 repeats too much of bullet 1; use it for repositioning leverage instead of scope."
+            )
+    if bullet3 and not any(connector in lowered for connector in ("para ", "com ", "usando ", "a fim de ", "sustentar ")):
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 2 must create a clearer bridge to bullet 3 using causal phrasing."
+        )
+
+
+def _token_overlap_ratio(left: str, right: str) -> float:
+    stopwords = {
+        "a",
+        "ao",
+        "as",
+        "com",
+        "da",
+        "das",
+        "de",
+        "do",
+        "dos",
+        "e",
+        "em",
+        "na",
+        "no",
+        "o",
+        "os",
+        "para",
+        "por",
+        "que",
+        "um",
+        "uma",
+    }
+    left_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9&+/.-]+", left.casefold())
+        if len(token) > 2 and token not in stopwords
+    }
+    right_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9&+/.-]+", right.casefold())
+        if len(token) > 2 and token not in stopwords
+    }
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens))
 
 
 def _write_repair_request(paths: dict[str, Path], state: dict[str, Any], review_report: dict, polish_report: dict) -> None:

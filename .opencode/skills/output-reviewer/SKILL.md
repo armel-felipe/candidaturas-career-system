@@ -96,8 +96,9 @@ Também quando acionada manualmente pelo usuário.
 - [ ] A redução de quantidade, quando houver, foi feita por seleção/corte de experiências separadas, nunca por junção de cargos
 - [ ] Se o usuário não pediu modo expandido, bullet points ou quantidade de bullets, o CV está no modo conciso com exatamente 3 bullets por experiência
 - [ ] Se o modo expandido foi usado por inferência do agente, há confirmação explícita do usuário registrada antes da geração
-- [ ] Modo conciso: cada experiência tem exatamente 3 bullets no padrão "Fui responsável por" / "Utilizando" / "Consegui"
-- [ ] Modo conciso: bullet "Utilizando" tem máximo 3 itens e todos explicam diretamente o resultado
+- [ ] Modo conciso: cada experiência tem exatamente 3 bullets no padrão escopo / alavanca de reposicionamento / resultado
+- [ ] Modo conciso: bullet 2 começa com verbo de ação, explica como o resultado aconteceu e ajuda no reposicionamento para a vaga
+- [ ] Modo conciso: bullet 2 não é lista solta de stack, não repete escopo do bullet 1 e não usa verbo genérico sem mecanismo concreto
 - [ ] Modo conciso: bullet "Consegui" traz número defensável e resultado mais relevante
 - [ ] Modo expandido: cada experiência tem 1 bullet de síntese da história e os demais bullets são entregas específicas
 - [ ] Modo expandido: quantidade de bullets por experiência respeita o número pedido pelo usuário
@@ -127,6 +128,7 @@ Também quando acionada manualmente pelo usuário.
 - [ ] Em FERAS/pitch oral, a versão fluida mantém cadência de fala e evita excesso de densidade em uma única frase
 - [ ] Em CV PT-BR, não há excesso leve de keywords-habilidade em inglês com duas ou mais palavras espalhadas pelo resumo e experiências
 - [ ] Ordem dos resultados no bullet "Consegui" prioriza o mais relevante para a vaga
+- [ ] Bullet 2 cria ponte causal visível para o bullet 3, em vez de soar como iniciativa avulsa
 - [ ] Espaçamento e formatação HTML dentro do padrão da skill cv-generator
 - [ ] Resumo do CV dentro do limite de caracteres autorizado
 - [ ] Stack técnica filtrada para ferramentas relevantes à vaga (sem listar toda a stack)

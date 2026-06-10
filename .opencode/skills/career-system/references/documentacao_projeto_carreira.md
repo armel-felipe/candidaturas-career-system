@@ -163,7 +163,7 @@ A ordem dentro do CV é sempre **cronológica inversa** — a mais recente prime
 - **Resumo:** máximo 480 caracteres, factual, primeira pessoa real. Abre com "Executivo Sênior" ou "Gerente Sênior", fecha com "Busco posição de X". Proibido: frases de efeito, linguagem de coach, autoproclamação.
 - **Experiência — modo conciso, padrão de escrita:**
   - Bullet 1 "Fui responsável por": escopo + time + elemento mais relevante para a vaga em destaque
-  - Bullet 2 "Utilizando": somente as ferramentas/competências que explicam diretamente o resultado. Máximo 3 itens.
+  - Bullet 2 "Alavanca de reposicionamento": mecanismo que explica diretamente o resultado e traduz a experiência para a vaga-alvo. Combinar método/rito, ferramenta/processo relevante e competência transferível, sempre em prosa fluida.
   - Bullet 3 "Consegui": resultado com número — obrigatório. Sem número, bullet é inválido.
 - **Experiência — modo expandido / não conciso:**
   - 1 bullet de síntese da história da experiência como um todo

@@ -16,6 +16,68 @@ CV_CONTENT_PATH = CAREER_STATE / "cv_content.json"
 FIT_MAP_PATH = CAREER_STATE / "fit_map.json"
 
 
+BULLET2_POLICY_BY_FAMILY: dict[str, dict[str, Any]] = {
+    "project_management": {
+        "signals": {
+            "projeto",
+            "projetos",
+            "programa",
+            "implantacao",
+            "implantação",
+            "pm",
+            "pmo",
+            "rollout",
+        },
+        "focus": "coordenação, governança e execução transversal",
+    },
+    "operations": {
+        "signals": {
+            "operacoes",
+            "operações",
+            "logistica",
+            "logística",
+            "supply",
+            "last mile",
+            "fulfillment",
+        },
+        "focus": "ritmo operacional, indicadores e eficiência",
+    },
+    "planning_sop_capacity": {
+        "signals": {
+            "planejamento",
+            "s&op",
+            "capacity",
+            "forecast",
+            "demanda",
+            "supply planning",
+        },
+        "focus": "cenários, capacidade e governança de planejamento",
+    },
+    "cx_saas_operations": {
+        "signals": {
+            "cx",
+            "customer success",
+            "customer service",
+            "suporte",
+            "atendimento",
+            "saas",
+        },
+        "focus": "jornada, automação e integração de atendimento",
+    },
+    "product_revenue_business_ops": {
+        "signals": {
+            "product",
+            "produto",
+            "revenue",
+            "growth",
+            "pricing",
+            "business ops",
+        },
+        "focus": "dados, priorização e performance de negócio",
+    },
+}
+
+
 EXPERIENCE_CATALOG: list[dict[str, Any]] = [
     {
         "id": "wehandle_head_operacoes",
@@ -24,11 +86,13 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         "period": "maio/2024 — fev/2026",
         "order": 1,
         "focus_terms": {"transformação digital", "inteligência artificial", "liderança", "dados", "cx"},
-        "bullets": [
-            "Fui responsável pela operação de suporte, CX e backoffice, liderando um time de 30 pessoas e conectando atendimento, produto e dados para acelerar a transformação digital da companhia.",
-            "Implantei duas migrações de plataforma, automação com inteligência artificial humanizada e integração de dados via API para dar escala operacional e melhorar a priorização com o time de produto.",
-            "Reduzi o custo por atendimento de R$4,14 para R$3,61 (-13%), elevei o CSAT de 85% para 92%, reduzi o TME de 20 para 8 minutos e gerei impacto de 15% na margem bruta.",
-        ],
+        "scope_bullet": "Fui responsável pela operação de suporte, CX e backoffice, liderando um time de 30 pessoas e conectando atendimento, produto e dados para acelerar a transformação digital da companhia.",
+        "result_bullet": "Reduzi o custo por atendimento de R$4,14 para R$3,61 (-13%), elevei o CSAT de 85% para 92%, reduzi o TME de 20 para 8 minutos e gerei impacto de 15% na margem bruta.",
+        "leverage": {
+            "default": "Implantei duas migrações de plataforma, automação com inteligência artificial humanizada e integração de dados via API para dar escala operacional e melhorar a priorização com o time de produto.",
+            "project_management": "Coordenei duas migrações de plataforma, organizei dependências entre atendimento, produto e tecnologia e usei integrações via API para sustentar rollout operacional com governança e visibilidade em tempo real.",
+            "cx_saas_operations": "Estruturei migrações de plataforma, automação com inteligência artificial humanizada e integrações via API para redesenhar a jornada de atendimento e dar escala ao backoffice com melhor priorização.",
+        },
     },
     {
         "id": "ifood_diretor_operacoes",
@@ -37,11 +101,13 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         "period": "abr/2022 — mar/2024",
         "order": 2,
         "focus_terms": {"growth", "liderança", "planejamento estratégico", "budget", "canais", "pipeline"},
-        "bullets": [
-            "Fui responsável por FieldOps, Meios de Pagamento e Novos Negócios, liderando 240 pessoas entre diretos e indiretos e operando growth com expansão geográfica, frota dedicada e alocação de budget.",
-            "Conectei marketing, produto, supply e operação em um rito executivo mensal de S&OP, conduzindo cenários, trade-offs e governança para sustentar decisões de crescimento e eficiência.",
-            "Ampliei a cobertura logística de 400 para 800 cidades, reduzi a indisponibilidade da frota de 5% para 1%, aumentei viagens agrupadas de 12% para 25% e gerenciei budget de R$300MM/ano.",
-        ],
+        "scope_bullet": "Fui responsável por FieldOps, Meios de Pagamento e Novos Negócios, liderando 240 pessoas entre diretos e indiretos e operando growth com expansão geográfica, frota dedicada e alocação de budget.",
+        "result_bullet": "Ampliei a cobertura logística de 400 para 800 cidades, reduzi a indisponibilidade da frota de 5% para 1%, aumentei viagens agrupadas de 12% para 25% e gerenciei budget de R$300MM/ano.",
+        "leverage": {
+            "default": "Conectei marketing, produto, supply e operação em um rito executivo mensal de S&OP, conduzindo cenários, trade-offs e governança para sustentar decisões de crescimento e eficiência.",
+            "project_management": "Coordenei marketing, produto, supply e operação em um rito executivo mensal de S&OP, desdobrando cenários, riscos e dependências para sustentar decisões transversais de crescimento com governança.",
+            "planning_sop_capacity": "Conduzi um rito executivo mensal de S&OP com marketing, produto, supply e operação, usando cenários, trade-offs e governança para balancear capacidade, custo e nível de serviço.",
+        },
     },
     {
         "id": "ifood_head_operacoes",
@@ -50,11 +116,13 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         "period": "nov/2018 — mar/2022",
         "order": 3,
         "focus_terms": {"dashboards", "pricing", "data-driven growth", "growth", "dados"},
-        "bullets": [
-            "Fui responsável por liveOps, regionalOps, pricing, modelagem de dados e planejamento de frota, liderando 28 pessoas em uma operação que exigia decisões rápidas e coordenação multifuncional.",
-            "Estruturei Dashboards em Grafana, modelei dados com SQL, Databricks e Tableau e conduzi testes controlados de pricing e incentivos para equilibrar oferta, demanda e nível de serviço.",
-            "Gerei saving de R$70MM/ano com um simulador de nível de serviço, reduzi o custo de distribuição de MPOS em 80%, cortei o prazo de entrega de 14 para 2 dias e reduzi cancelamentos em 60% no México.",
-        ],
+        "scope_bullet": "Fui responsável por liveOps, regionalOps, pricing, modelagem de dados e planejamento de frota, liderando 28 pessoas em uma operação que exigia decisões rápidas e coordenação multifuncional.",
+        "result_bullet": "Gerei saving de R$70MM/ano com um simulador de nível de serviço, reduzi o custo de distribuição de MPOS em 80%, cortei o prazo de entrega de 14 para 2 dias e reduzi cancelamentos em 60% no México.",
+        "leverage": {
+            "default": "Estruturei dashboards em Grafana, modelei dados com SQL, Databricks e Tableau e conduzi testes controlados de pricing e incentivos para equilibrar oferta, demanda e nível de serviço.",
+            "project_management": "Estruturei dashboards em Grafana, modelei dados com SQL e conduzi testes controlados de pricing para alinhar produto, operação e planejamento em decisões rápidas com visibilidade executiva.",
+            "product_revenue_business_ops": "Modelei dados com SQL, Databricks e Tableau, criei dashboards em Grafana e conduzi testes controlados de pricing para equilibrar oferta, demanda e performance de negócio.",
+        },
     },
     {
         "id": "renault_cs",
@@ -63,11 +131,12 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         "period": "jan/2018 — out/2018",
         "order": 4,
         "focus_terms": {"pipeline", "taxa de conversão", "conversão", "leads"},
-        "bullets": [
-            "Fui responsável pela transição de dois BPOs com 40 PAs para uma estrutura internalizada de 8 pessoas, redesenhando a operação de leads com mais controle de qualidade e SLA.",
-            "Estruturei governança de funil com dados, discadores programados por mim e acompanhamento em tempo real para estabilizar a execução comercial.",
-            "Elevei a taxa de conversão de leads de 24% para 46% e aprovei o projeto de transformação em 2 reuniões com base em um ROI corretamente modelado.",
-        ],
+        "scope_bullet": "Fui responsável pela transição de dois BPOs com 40 PAs para uma estrutura internalizada de 8 pessoas, redesenhando a operação de leads com mais controle de qualidade e SLA.",
+        "result_bullet": "Elevei a taxa de conversão de leads de 24% para 46% e aprovei o projeto de transformação em 2 reuniões com base em um ROI corretamente modelado.",
+        "leverage": {
+            "default": "Estruturei governança de funil com dados, discadores programados por mim e acompanhamento em tempo real para estabilizar a execução comercial.",
+            "project_management": "Estruturei a transição com governança de funil, acompanhamento em tempo real e cadência de decisão baseada em ROI para estabilizar a execução comercial sem perder SLA.",
+        },
     },
     {
         "id": "vivareal_planejamento_operacoes",
@@ -76,11 +145,13 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         "period": "mai/2015 — dez/2017",
         "order": 5,
         "focus_terms": {"desenvolvimento de negócios", "canais de vendas", "política de preços", "pipeline", "taxa de conversão", "liderança"},
-        "bullets": [
-            "Fui responsável por planejamento comercial, desenvolvimento de negócios, canais de vendas, política de preços e operações ligadas a SDR, qualidade e cadastro de imóveis, totalizando 33 pessoas e 5 lideranças diretas.",
-            "Estruturei Dashboards diários com SQL e Excel automatizado, organizei o pipeline de SDR, defini metas com o time comercial e priorizei roadmap de produto para sustentar expansão e execução.",
-            "Elevei a taxa de conversão de SDR inbound de 18% para 50%, reduzi o custo de vendas em 40%, recuperei R$1M em campanhas de inadimplência e escalei a área desenhada de CS para 91 pessoas.",
-        ],
+        "scope_bullet": "Fui responsável por planejamento comercial, desenvolvimento de negócios, canais de vendas, política de preços e operações ligadas a SDR, qualidade e cadastro de imóveis, totalizando 33 pessoas e 5 lideranças diretas.",
+        "result_bullet": "Elevei a taxa de conversão de SDR inbound de 18% para 50%, reduzi o custo de vendas em 40%, recuperei R$1M em campanhas de inadimplência e escalei a área desenhada de CS para 91 pessoas.",
+        "leverage": {
+            "default": "Estruturei dashboards diários com SQL e Excel automatizado, organizei o pipeline de SDR, defini metas com o time comercial e priorizei roadmap de produto para sustentar expansão e execução.",
+            "project_management": "Coordenei SQL, Excel automatizado, pipeline de SDR e priorização de roadmap de produto para alinhar stakeholders, destravar dependências e sustentar a execução do plano comercial.",
+            "product_revenue_business_ops": "Estruturei dashboards diários com SQL, automatizei análises em Excel, organizei o pipeline de SDR e priorizei roadmap de produto para sustentar expansão e performance comercial.",
+        },
     },
     {
         "id": "trifil_inteligencia_comercial",
@@ -89,11 +160,13 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         "period": "jan/2009 — dez/2009",
         "order": 6,
         "focus_terms": {"data-driven growth", "dashboards", "insights", "pricing", "canais de vendas"},
-        "bullets": [
-            "Fui responsável por criar a área de inteligência comercial, apoiando a diretoria com informações de mercado, canais de vendas, comissionamento, oportunidades comerciais e política de preços.",
-            "Estruturei Data-driven Growth com dados, BI, Dashboards e rotinas em Excel/VBA para sustentar decisões comerciais, normalizar dados do ERP e preparar a base para o sistema B2B.",
-            "Reduzi o tempo dos relatórios diários de 4 horas para 14 minutos e aumentei o faturamento anual de R$80M para R$120M com um algoritmo de alocação de estoque orientado por margem e receita.",
-        ],
+        "scope_bullet": "Fui responsável por criar a área de inteligência comercial, apoiando a diretoria com informações de mercado, canais de vendas, comissionamento, oportunidades comerciais e política de preços.",
+        "result_bullet": "Reduzi o tempo dos relatórios diários de 4 horas para 14 minutos e aumentei o faturamento anual de R$80M para R$120M com um algoritmo de alocação de estoque orientado por margem e receita.",
+        "leverage": {
+            "default": "Estruturei análises com dados, BI, dashboards e rotinas em Excel/VBA para sustentar decisões comerciais, normalizar dados do ERP e preparar a base para o sistema B2B.",
+            "project_management": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, organizei a base do ERP e dei previsibilidade à diretoria para priorizar decisões comerciais e implantação do sistema B2B.",
+            "product_revenue_business_ops": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, normalizei dados do ERP e preparei a base para decisões comerciais orientadas por margem, receita e canais.",
+        },
     },
 ]
 
@@ -116,10 +189,12 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     active = derived_context_service.resolve_active_job_context()
     _ensure_fit_map_matches_active(active)
     fit_map = read_json(FIT_MAP_PATH)
+    job_family = _infer_job_family(fit_map)
     selected = _select_experiences(fit_map)
     ensure(4 <= len(selected) <= 8, "cv_content_requires_between_4_and_8_experiences")
+    selected_with_bullets = [_materialize_experience(entry, job_family) for entry in selected]
     top8 = _top8_keywords(fit_map)
-    coverage = _build_ats_coverage(selected, top8)
+    coverage = _build_ats_coverage(selected_with_bullets, top8)
     payload = {
         "metadata": {
             "kind": "cv_content",
@@ -129,6 +204,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
             "cargo": fit_map.get("cargo"),
             "empresa": fit_map.get("empresa"),
             "source_fit_map": ".career-state/fit_map.json",
+            "job_family": job_family,
         },
         "output_name": _output_name(fit_map),
         "mode": "concise",
@@ -142,7 +218,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
                 "period": exp["period"],
                 "bullets": [{"text": bullet} for bullet in exp["bullets"]],
             }
-            for exp in selected
+            for exp in selected_with_bullets
         ],
         "experiencias": [
             {
@@ -151,7 +227,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
                 "periodo": exp["period"],
                 "bullets": [bullet for bullet in exp["bullets"]],
             }
-            for exp in selected
+            for exp in selected_with_bullets
         ],
         "education": list(DEFAULT_EDUCATION),
         "formacao": list(DEFAULT_EDUCATION),
@@ -299,6 +375,41 @@ def _build_ats_coverage(selected: list[dict[str, Any]], top8: list[dict[str, Any
             }
         )
     return coverage
+
+
+def _infer_job_family(fit_map: dict[str, Any]) -> str:
+    tokens: list[str] = []
+    for field in ("cargo", "empresa", "dor_central"):
+        value = fit_map.get(field)
+        if isinstance(value, str):
+            tokens.append(value)
+    for item in fit_map.get("keywords_habilidade_ats", []):
+        if not isinstance(item, dict):
+            continue
+        keyword = str(item.get("keyword") or "").strip()
+        if keyword:
+            tokens.append(keyword)
+    haystack = " ".join(_normalize(token) for token in tokens)
+    for family, payload in BULLET2_POLICY_BY_FAMILY.items():
+        for signal in payload["signals"]:
+            if _normalize(signal) in haystack:
+                return family
+    return "operations"
+
+
+def _materialize_experience(entry: dict[str, Any], job_family: str) -> dict[str, Any]:
+    leverage = entry.get("leverage") if isinstance(entry.get("leverage"), dict) else {}
+    bullet2 = str(leverage.get(job_family) or leverage.get("default") or "").strip()
+    bullets = [
+        str(entry.get("scope_bullet") or "").strip(),
+        bullet2,
+        str(entry.get("result_bullet") or "").strip(),
+    ]
+    return {
+        **entry,
+        "bullets": bullets,
+        "job_family": job_family,
+    }
 
 
 def _best_bullet_index(bullets: list[str], keyword: str) -> int:
