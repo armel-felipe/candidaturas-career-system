@@ -16,7 +16,8 @@ require_cmd() {
 require_cmd git
 require_cmd node
 require_cmd npm
-require_cmd python3
+require_cmd ./scripts/python.sh
+./scripts/python.sh --version
 
 if command -v hermes >/dev/null 2>&1; then
   command -v hermes

@@ -29,6 +29,7 @@ def save_job_description(company: str, role: str, text: str, output_dir: Path) -
 
 def diagnose_runtime() -> dict[str, Any]:
     workflow_state = CAREER_STATE / "workflow_state.json"
+    python_wrapper = ROOT / "scripts" / "python.sh"
     keyword_registry = ROOT / ".opencode" / "skills" / "career-system" / "references" / "keyword_ats_registry.json"
     translation_candidates = ROOT / ".opencode" / "skills" / "career-system" / "references" / "keyword_translation_candidates.json"
     macos_soffice = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
@@ -43,6 +44,14 @@ def diagnose_runtime() -> dict[str, Any]:
         "commands": {
             name: shutil.which(name)
             for name in ["git", "node", "npm", "python3", "hermes"]
+        },
+        "python_runtime": {
+            "wrapper": str(python_wrapper.relative_to(ROOT)),
+            "wrapper_exists": python_wrapper.exists(),
+            "resolved_executable": _command_output([str(python_wrapper), "-c", "import sys; print(sys.executable)"])
+            if python_wrapper.exists()
+            else None,
+            "resolved_version": _command_version([str(python_wrapper), "--version"]) if python_wrapper.exists() else None,
         },
         "libreoffice": {
             "command": soffice,
@@ -167,6 +176,15 @@ def _command_version(command: list[str | None]) -> str | None:
         return None
     output = (result.stdout or result.stderr).strip()
     return output.splitlines()[0] if output else None
+
+
+def _command_output(command: list[str]) -> str | None:
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    output = (result.stdout or result.stderr).strip()
+    return output or None
 
 
 def write_runtime_diagnosis(output_path: Path) -> Path:

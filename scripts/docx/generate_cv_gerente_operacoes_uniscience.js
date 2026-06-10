@@ -281,7 +281,8 @@ async function main() {
   // Inject Arial theme
   const themeScript = path.join(workspace, "scripts", "docx", "inject_arial_theme.py");
   const finalPath = path.join(outputDir, outputName);
-  const themeResult = spawnSync("python3", [themeScript, tmpPath, finalPath], { stdio: "inherit" });
+  const pythonCmd = process.env.PYTHON || path.join(workspace, "scripts", "python.sh");
+  const themeResult = spawnSync(pythonCmd, [themeScript, tmpPath, finalPath], { stdio: "inherit" });
   if (themeResult.status !== 0) {
     process.exit(themeResult.status || 1);
   }

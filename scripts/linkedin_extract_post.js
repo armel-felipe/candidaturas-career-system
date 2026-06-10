@@ -335,7 +335,8 @@ function writeJobFromPost(post, args, sourceUrl) {
 }
 
 function saveCanonicalJob(job, outputPath) {
-  const result = spawnSync("python3", [
+  const pythonCmd = process.env.PYTHON || path.join(process.cwd(), "scripts", "python.sh");
+  const result = spawnSync(pythonCmd, [
     "scripts/save_job_description.py",
     "--company",
     job.company,

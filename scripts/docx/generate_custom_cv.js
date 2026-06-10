@@ -179,7 +179,8 @@ async function main() {
   fs.writeFileSync(outputPath, buffer);
 
   const themeScript = path.join(workspace, "scripts", "docx", "inject_arial_theme.py");
-  const themeResult = spawnSync("/usr/bin/python3", [themeScript, outputPath], { stdio: "inherit" });
+  const pythonCmd = process.env.PYTHON || path.join(workspace, "scripts", "python.sh");
+  const themeResult = spawnSync(pythonCmd, [themeScript, outputPath], { stdio: "inherit" });
   if (themeResult.status !== 0) {
     console.error("Theme injection failed, continuing anyway");
   }

@@ -147,7 +147,8 @@ async function main() {
   const outputPath = path.join(outputDir, outputName);
   fs.writeFileSync(outputPath, await Packer.toBuffer(doc));
   const themeScript = path.join(workspace, "scripts", "docx", "inject_arial_theme.py");
-  const themeResult = spawnSync(process.env.PYTHON || "python", [themeScript, outputPath], { stdio: "inherit" });
+  const pythonCmd = process.env.PYTHON || path.join(workspace, "scripts", "python.sh");
+  const themeResult = spawnSync(pythonCmd, [themeScript, outputPath], { stdio: "inherit" });
   if (themeResult.status !== 0) process.exit(themeResult.status || 1);
   console.log(outputPath);
 }
