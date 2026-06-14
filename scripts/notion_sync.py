@@ -1949,6 +1949,21 @@ def select_job_description_for_update(
     return page_description.strip(), None, "notion_page.description"
 
 
+def resolve_source_url(
+    job_description: str,
+    job_description_path: Path | None = None,
+    *,
+    source_url: str | None = None,
+    fallback_url: str | None = None,
+) -> str:
+    metadata = job_description_metadata(
+        job_description,
+        job_description_path,
+        source_url=source_url,
+    )
+    return (metadata.get("source_url") or fallback_url or "").strip()
+
+
 def create_from_fit_map(
     token: str,
     database_id: str,
@@ -1988,6 +2003,7 @@ def create_from_fit_map(
 
     role = fit_map.get("cargo", "")
     company = fit_map.get("empresa", "")
+    source_url = resolve_source_url(job_description, job_description_path)
     title = f"{company} - {role}".strip(" -")
     properties[title_name] = property_value(title_prop, title)
 
@@ -1998,6 +2014,7 @@ def create_from_fit_map(
         "status": status,
         "application_date": current_application_date(),
         "description": job_description,
+        "source_url": source_url,
         "keywords": fit_map.get("keywords_para_ats", []),
         "gaps": fit_map.get("gaps_sem_cobertura", []),
     }
@@ -2064,6 +2081,7 @@ def update_from_fit_map(
     current_page = extract_page_payload(token, page_id)
     current_blocks = retrieve_blocks(token, page_id)
     page_description = (current_page.get("description") or "").strip()
+    current_source_url = str(current_page.get("source_url") or "").strip()
     job_description, resolved_job_description_path, job_description_source = select_job_description_for_update(
         fit_map,
         job_description_path,
@@ -2086,6 +2104,11 @@ def update_from_fit_map(
 
     role = fit_map.get("cargo", "")
     company = fit_map.get("empresa", "")
+    source_url = resolve_source_url(
+        job_description,
+        resolved_job_description_path,
+        fallback_url=current_source_url,
+    )
     title = role.strip()
     if not title:
         title = f"{company} - {role}".strip(" -")
@@ -2095,6 +2118,7 @@ def update_from_fit_map(
         "status": status,
         "application_date": current_application_date(),
         "description": job_description,
+        "source_url": source_url,
         "company": company,
         "role": role,
         "service_status": fit_map.get("service_status", ""),
