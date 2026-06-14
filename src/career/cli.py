@@ -15,6 +15,8 @@ from career.services import feras as feras_service
 from career.services import fit_map as fit_map_service
 from career.services import general_cv as general_cv_service
 from career.services import habilidades_chave as habilidades_chave_service
+from career.services.harness_supervisor import HarnessSupervisor
+from career.services.approvals import ApprovalStore
 from career.services import intake as intake_service
 from career.services import multiagent as multiagent_service
 from career.services import project as project_service
@@ -27,6 +29,22 @@ from career.workflow.state_store import WorkflowStateStore
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="career")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    harness = subparsers.add_parser("harness")
+    harness_sub = harness.add_subparsers(dest="action", required=True)
+    for action in ("route", "handle"):
+        harness_action = harness_sub.add_parser(action)
+        harness_action.add_argument("--message", required=True)
+        harness_action.add_argument("--channel", default="cli")
+        harness_action.add_argument("--max-per-run", type=int, default=None)
+        harness_action.add_argument("--model", default=None)
+        harness_action.add_argument("--variant", default=None)
+    harness_approve = harness_sub.add_parser("approve")
+    harness_approve.add_argument("approval_id")
+    harness_approval = harness_sub.add_parser("approval")
+    harness_approval.add_argument("approval_id")
+    harness_execute_approval = harness_sub.add_parser("execute-approval")
+    harness_execute_approval.add_argument("approval_id")
 
     notion = subparsers.add_parser("notion")
     notion_sub = notion.add_subparsers(dest="action", required=True)
@@ -44,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_eval_notion_local.add_argument("record_id", type=int)
     agent_sub.add_parser("guard")
     agent_maestro = agent_sub.add_parser("maestro")
-    agent_maestro.add_argument("step", nargs="?", choices=["fit-map", "cv", "cover-letter", "feras", "notion-update", "email-draft", "linkedin"])
+    agent_maestro.add_argument("step", nargs="?", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     agent_maestro.add_argument("--objective")
     agent_maestro.add_argument("--extras", default="{}")
 
@@ -53,11 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
     multiagent_sub.add_parser("runbook")
     multiagent_sub.add_parser("local-model-map")
     multiagent_request = multiagent_sub.add_parser("request")
-    multiagent_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "notion-update", "email-draft", "linkedin"])
+    multiagent_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     multiagent_request.add_argument("--objective")
     multiagent_request.add_argument("--extras", default="{}")
     multiagent_validate_request = multiagent_sub.add_parser("validate-request")
-    multiagent_validate_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "notion-update", "email-draft", "linkedin"])
+    multiagent_validate_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     multiagent_sub.add_parser("validate-workspace-clean")
 
     intake = subparsers.add_parser("intake")
@@ -390,6 +408,31 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.command == "harness":
+        supervisor = HarnessSupervisor(Path.cwd())
+        if args.action in {"route", "handle"}:
+            result = supervisor.handle_message(
+                args.message,
+                channel=args.channel,
+                execute=args.action == "handle",
+                max_per_run=args.max_per_run,
+                model=args.model,
+                variant=args.variant,
+            )
+            _dump(result)
+            return 0 if result.get("status") != "blocked" else 1
+        approvals = ApprovalStore(Path.cwd())
+        if args.action == "approve":
+            _dump(approvals.approve(args.approval_id))
+            return 0
+        if args.action == "approval":
+            _dump(approvals.get(args.approval_id))
+            return 0
+        if args.action == "execute-approval":
+            result = supervisor.execute_approved_action(args.approval_id)
+            _dump(result)
+            return 0 if result.get("status") == "completed" else 1
+
     if args.command == "notion":
         if args.action == "refresh":
             result = run_task("notion.refresh_cache", {"refresh": args.refresh})
@@ -413,23 +456,38 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "agent":
         try:
             if args.action == "evaluate-notion":
-                _dump(agent_guard_service.evaluate_notion(args.record_id))
-                return 0
+                result = HarnessSupervisor(Path.cwd()).handle_message(
+                    f"Avalie vaga Notion {args.record_id}",
+                    channel="cli-alias",
+                    execute=True,
+                )
+                _dump(result)
+                return 0 if result.get("status") != "blocked" else 1
             if args.action == "evaluate-notion-local":
-                _dump(agent_guard_service.evaluate_notion_local(args.record_id))
-                return 0
+                result = HarnessSupervisor(Path.cwd()).handle_message(
+                    f"Avalie vaga Notion {args.record_id}",
+                    channel="cli-alias",
+                    execute=True,
+                )
+                _dump(result)
+                return 0 if result.get("status") != "blocked" else 1
             if args.action == "guard":
                 result = agent_guard_service.guard()
                 _dump(result)
                 return 0 if result.get("status") == "ok" else 1
             if args.action == "maestro":
-                result = multiagent_service.maestro(
-                    step=args.step,
-                    objective=args.objective,
-                    extras=json.loads(args.extras),
+                supervisor = HarnessSupervisor(Path.cwd())
+                result = (
+                    supervisor.prepare_specialist(
+                        args.step,
+                        objective=args.objective,
+                        extras=json.loads(args.extras),
+                    )
+                    if args.step
+                    else supervisor.prepare_all_specialists()
                 )
                 _dump(result)
-                return 0 if result.get("status") == "ok" else 1
+                return 0 if result.get("status") != "blocked" else 1
         except CareerError as exc:
             _dump_error(exc)
             return 1
@@ -444,10 +502,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.action == "request":
                 _dump(
-                    multiagent_service.write_request(
-                        args.step,
-                        objective=args.objective,
-                        extras=json.loads(args.extras),
+                    HarnessSupervisor(Path.cwd()).prepare_specialist(
+                        args.step, objective=args.objective, extras=json.loads(args.extras)
                     )
                 )
                 return 0
@@ -703,7 +759,12 @@ def main(argv: list[str] | None = None) -> int:
             _dump({"config": str(path)})
             return 0
         if args.action == "status":
-            result = applications_v2_service.heartbeat_status()
+            envelope = HarnessSupervisor(Path.cwd()).handle_message(
+                "status das candidaturas",
+                channel="cli-alias",
+                execute=True,
+            )
+            result = envelope["result"]
             if args.format in {"human", "both"}:
                 _print_human(_applications_status_human_summary(result))
             if args.format in {"json", "both"}:
@@ -712,17 +773,28 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "heartbeat":
             if args.max_per_run is not None and args.max_per_run < 1:
                 raise SystemExit("--max-per-run must be a positive integer.")
-            result = applications_v2_service.run_heartbeat(
-                applications_v2_service.HeartbeatV2Options(
+            if args.dry_run or not args.run_agent or args.skip_maintenance or args.maintenance_refresh:
+                result = applications_v2_service.run_heartbeat(
+                    applications_v2_service.HeartbeatV2Options(
+                        max_per_run=args.max_per_run,
+                        run_agent=args.run_agent,
+                        dry_run=args.dry_run,
+                        model=args.model,
+                        variant=args.variant,
+                        skip_maintenance=args.skip_maintenance,
+                        maintenance_refresh=args.maintenance_refresh,
+                    )
+                )
+            else:
+                envelope = HarnessSupervisor(Path.cwd()).handle_message(
+                    "processar fila de candidaturas",
+                    channel="cli-alias",
+                    execute=True,
                     max_per_run=args.max_per_run,
-                    run_agent=args.run_agent,
-                    dry_run=args.dry_run,
                     model=args.model,
                     variant=args.variant,
-                    skip_maintenance=args.skip_maintenance,
-                    maintenance_refresh=args.maintenance_refresh,
                 )
-            )
+                result = envelope["result"]
             if args.format in {"human", "both"}:
                 _print_human(_heartbeat_human_summary(result))
             if args.format in {"json", "both"}:

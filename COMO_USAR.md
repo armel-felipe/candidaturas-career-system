@@ -87,7 +87,7 @@ Use sempre este caminho, sem variantes:
 4. ler `.opencode/skills/{skill}/SKILL.md` da tarefa pedida
 5. executar a proxima acao concreta da skill usando as tools reais do ambiente
 
-Para runtimes Claude, o arquivo `CLAUDE.md` funciona apenas como ponte para esse mesmo fluxo. Em caso de conflito, `AGENTS.md` continua sendo a fonte canonica.
+Todos os runtimes usam `AGENTS.md` como ponto de entrada canonico. Nao existe ponte paralela por runtime.
 
 Regra de interpretacao:
 - skill e workflow, nao garantia de tool dedicada

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import sys
 import unicodedata
@@ -16,6 +15,8 @@ from career.services import habilidades_chave as habilidades_chave_service
 from career.services import memory as memory_service
 from career.services import notion as notion_service
 from career.services import review as review_service
+from career.services.harness_supervisor import HarnessSupervisor
+from career.services.harness_runs import ExclusiveRunLock
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, write_text
 
 
@@ -48,11 +49,13 @@ DEFAULT_CONFIG = {
         "force_full_after_hours": 24,
     },
     "analysis_runner": {
+        "kind": "hermes",
         "command": "hermes",
         "agent": "build",
         "timeout_minutes": 90,
     },
     "generation_runner": {
+        "kind": "hermes",
         "command": "hermes",
         "agent": "build",
         "timeout_minutes": 90,
@@ -846,81 +849,60 @@ def _write_context(application: dict[str, Any], paths: dict[str, Path], state: d
 def _run_agent(stage: str, application: dict[str, Any], paths: dict[str, Path], config: dict[str, Any], options: HeartbeatV2Options) -> None:
     runner_key = "analysis_runner" if stage == "analyze" else "generation_runner"
     runner = config[runner_key]
-    command_name = str(runner.get("command") or "opencode")
-    resolved = shutil.which(command_name) or shutil.which("opencode.cmd") or command_name
-    if stage == "analyze":
-        request_md = paths["analysis_request_md"]
-    elif stage == "repair":
-        request_md = paths["repair_request_md"]
-    else:
-        request_md = paths["generation_request_md"]
     model = options.model or str(config.get("active_model") or "").strip()
     variant = options.variant or str(config.get("active_variant") or "").strip()
-    if stage == "analyze":
-        instruction = "Leia o request anexado e grave apenas o fit_map.draft.json."
-    elif stage == "repair":
-        instruction = "Leia o request anexado e repare somente os artefatos textuais permitidos."
-    else:
-        instruction = "Leia o request anexado e grave somente os artefatos textuais pedidos."
-
-    if Path(resolved).name == "hermes" or command_name == "hermes":
-        request_rel = request_md.relative_to(ROOT)
-        prompt = f"Leia o arquivo {request_rel}. {instruction}"
-        command = [resolved, "--accept-hooks"]
-        if model:
-            command.extend(["--model", model])
-        command.extend(["-z", prompt])
-    else:
-        command = [
-            resolved,
-            "run",
-            "--agent",
-            str(runner.get("agent") or "build"),
-            "--file",
-            str(request_md),
-            "--title",
-            f"{stage.title()} candidatura v2 {_record_key(application)}",
-        ]
-        if model:
-            command.extend(["--model", model])
-        if variant:
-            command.extend(["--variant", variant])
-        command.append(instruction)
-    _emit("command: " + " ".join(f'"{part}"' if " " in part else part for part in command))
-    _append_event(paths, "agent_started", stage=stage, command=command)
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=int(runner.get("timeout_minutes") or 90) * 60,
+    request_md = (
+        paths["analysis_request_md"]
+        if stage == "analyze"
+        else paths["repair_request_md"]
+        if stage == "repair"
+        else paths["generation_request_md"]
     )
-    payload = {
-        "stage": stage,
-        "command": command,
-        "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "finished_at": utc_now_iso(),
-    }
+    request_json = (
+        paths["analysis_request_json"]
+        if stage == "analyze"
+        else paths["repair_request_json"]
+        if stage == "repair"
+        else paths["generation_request_json"]
+    )
+    supervisor = HarnessSupervisor(ROOT)
+
+    def on_start(command: list[str]) -> None:
+        _emit("command: " + " ".join(f'"{part}"' if " " in part else part for part in command))
+        _append_event(paths, "agent_started", stage=stage, command=command)
+
+    payload = supervisor.run_application_stage(
+        stage=stage,
+        record_key=_record_key(application),
+        application_dir=paths["manifest"].parent,
+        request_json=request_json,
+        request_md=request_md,
+        runner_config=runner,
+        model=model,
+        variant=variant,
+        on_start=on_start,
+    )
     write_json(paths["agent_run"], payload)
     write_json(paths[f"agent_run_{stage}"], payload)
     _append_event(
         paths,
         "agent_finished",
         stage=stage,
-        returncode=result.returncode,
-        stdout_preview=result.stdout[:4000],
-        stderr_preview=result.stderr[:2000],
+        returncode=payload["returncode"],
+        stdout_preview=payload["stdout"][:4000],
+        stderr_preview=payload["stderr"][:2000],
     )
-    if result.stdout.strip():
-        print(result.stdout, file=sys.stderr, end="" if result.stdout.endswith("\n") else "\n")
-    elif result.stderr.strip():
-        print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
-    if result.returncode != 0:
+    if payload["stdout"].strip():
+        print(payload["stdout"], file=sys.stderr, end="" if payload["stdout"].endswith("\n") else "\n")
+    elif payload["stderr"].strip():
+        print(payload["stderr"], file=sys.stderr, end="" if payload["stderr"].endswith("\n") else "\n")
+    if payload["returncode"] != 0:
         raise SystemExit(f"OpenCode {stage} failed for application {_record_key(application)}")
+    if payload["isolation"].get("status") != "ok":
+        raise SystemExit(
+            f"Agent {stage} wrote outside allowed outputs for application {_record_key(application)}: "
+            + ", ".join(payload["isolation"].get("unauthorized_changes", []))
+        )
 
 
 def _normalize_fit_map_draft_file(path: Path) -> None:
@@ -1551,6 +1533,11 @@ def _run_repair_cycle(
 
 
 def run_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
+    with ExclusiveRunLock(V2_DIR / ".heartbeat.lock", "applications heartbeat"):
+        return _run_heartbeat_unlocked(options)
+
+
+def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
     V2_DIR.mkdir(parents=True, exist_ok=True)
     V2_LOG_DIR.mkdir(parents=True, exist_ok=True)
     started_at = utc_now_iso()

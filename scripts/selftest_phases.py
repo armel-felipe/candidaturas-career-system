@@ -4,6 +4,9 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import shlex
+import shutil
+import zipfile
 import sys
 import tempfile
 from pathlib import Path
@@ -22,13 +25,22 @@ from career.workflow.state_machine import WorkflowStateMachine
 import notion_sync
 import register_keywords
 import review_output
+import telegram_harness_adapter
+import install_hermes_harness_hook
+from career.cli import build_parser
 from career.services import applications_v2 as applications_service
+from career.services.agent_runner import AgentRunRequest, AgentRunResult, SubprocessAgentRunner
+from career.services.harness_supervisor import HarnessSupervisor
+from career.services.harness_runs import ExclusiveRunLock, HarnessRunStore, begin_specialist_run
+from career.services.approvals import ApprovalStore
+from career.services.approved_actions import ApprovedActionExecutor
 from career.services import review as review_service
 
 
 def run_command(args: list[str]) -> None:
     if args and args[0] == "npm":
-        args = ["npm.cmd", *args[1:]]
+        npm_command = "npm.cmd" if shutil.which("npm.cmd") else "npm"
+        args = [npm_command, *args[1:]]
     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise SystemExit(
@@ -82,14 +94,18 @@ def phase_7() -> None:
 
 
 def phase_8() -> None:
-    session_path = ROOT / "session-ses_1def.md"
-    job_path = ROOT / "inbox" / "job_descriptions" / "tprime_tecnologia_goevo_head_de_operacoes_saas.md"
-    if not session_path.exists() or not job_path.exists():
-        raise SystemExit("Stall regression fixture missing")
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
+        session_path = tmp / "session-stalled.md"
+        job_path = tmp / "job.md"
         draft_path = tmp / "fit_map.draft.json"
         fit_map_path = tmp / "fit_map.json"
+        session_path.write_text(
+            "## Assistant\nVou preencher o draft agora.\n\n**Tool: terminal**\n"
+            "npm run fit-map:template\n",
+            encoding="utf-8",
+        )
+        job_path.write_text("Descricao de vaga diferente do FIT_MAP salvo.", encoding="utf-8")
         run_command([sys.executable, "scripts/career_cli.py", "fit-map", "template", "--output", str(draft_path)])
         fit_map_path.write_text(
             json.dumps(
@@ -215,7 +231,15 @@ def phase_12() -> None:
         fit_map = tmp / "fit_map.json"
         registry = tmp / "registry.json"
         report = tmp / "output_review_report.json"
-        artifact.write_bytes(b"docx")
+        with zipfile.ZipFile(artifact, "w") as archive:
+            archive.writestr(
+                "word/document.xml",
+                (
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                    "<w:body><w:p><w:r><w:t>CV de teste</w:t></w:r></w:p></w:body></w:document>"
+                ),
+            )
         fit_map.write_text("{}", encoding="utf-8")
         registry.write_text("{}", encoding="utf-8")
 
@@ -871,6 +895,397 @@ def phase_24() -> None:
             raise SystemExit(f"Repair rules should mention experience range, got {payload}")
 
 
+def phase_25() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        request_path = Path(tmp_dir) / "request.md"
+        request_path.write_text("# Request\n", encoding="utf-8")
+        runner = SubprocessAgentRunner(ROOT)
+
+        hermes_command = runner.build_command(
+            AgentRunRequest(
+                stage="analyze",
+                record_key="901",
+                request_path=request_path,
+                instruction="Grave somente o draft.",
+                runner_config={"command": "hermes", "agent": "build", "timeout_minutes": 90},
+                model="provider/model",
+                variant="medium",
+            )
+        )
+        if Path(hermes_command[0]).name != "hermes":
+            raise SystemExit(f"Hermes runner should resolve hermes executable, got {hermes_command}")
+        if "--model" not in hermes_command or "provider/model" not in hermes_command:
+            raise SystemExit(f"Hermes runner should forward model, got {hermes_command}")
+        if "-z" not in hermes_command or "request.md" not in hermes_command[-1]:
+            raise SystemExit(f"Hermes runner should send a file-scoped prompt, got {hermes_command}")
+
+        opencode_command = runner.build_command(
+            AgentRunRequest(
+                stage="generate",
+                record_key="902",
+                request_path=request_path,
+                instruction="Grave somente os artefatos textuais.",
+                runner_config={
+                    "command": "custom-harness",
+                    "kind": "opencode",
+                    "agent": "build",
+                    "timeout_minutes": 90,
+                },
+                model="provider/model",
+                variant="medium",
+            )
+        )
+        expected_parts = {"run", "--agent", "build", "--file", "--title", "--model", "--variant"}
+        if not expected_parts.issubset(set(opencode_command)):
+            raise SystemExit(f"OpenCode-style runner command is incomplete: {opencode_command}")
+        if str(request_path) not in opencode_command:
+            raise SystemExit(f"OpenCode-style runner should receive request path, got {opencode_command}")
+
+
+def phase_26() -> None:
+    supervisor = HarnessSupervisor()
+    cases = [
+        ("Avalie vaga Notion 316", "notion_job_analysis", {"record_id": 316}),
+        ("processar fila de candidaturas", "applications_heartbeat", {}),
+        ("gere um currículo para a vaga ativa", "cv", {}),
+        ("gere um CV", "cv", {}),
+        ("faça uma carta de apresentação", "cover_letter", {}),
+        ("crie um draft de email", "email_draft", {}),
+        ("atualize a vaga no Notion", "notion_update", {}),
+        ("https://www.linkedin.com/jobs/view/4405127989/", "linkedin_job_intake", {}),
+        ("listar minhas vagas salvas", "linkedin_saved_jobs", {}),
+    ]
+    for message, expected_workflow, expected_parameters in cases:
+        decision = supervisor.classify(message)
+        if decision.workflow != expected_workflow:
+            raise SystemExit(
+                f"Harness route mismatch for {message!r}: expected {expected_workflow}, got {decision.to_dict()}"
+            )
+        for key, value in expected_parameters.items():
+            if (decision.parameters or {}).get(key) != value:
+                raise SystemExit(f"Harness route parameters mismatch for {message!r}: {decision.to_dict()}")
+    if not supervisor.classify("crie um draft de email").requires_approval:
+        raise SystemExit("Email workflow must require explicit approval.")
+    if not supervisor.classify("atualize a vaga no Notion").requires_approval:
+        raise SystemExit("Notion write workflow must require explicit approval.")
+
+
+def phase_27() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        app_dir = root / ".career-state" / "applications_v2" / "903"
+        app_dir.mkdir(parents=True)
+        allowed = app_dir / "fit_map.draft.json"
+        forbidden = app_dir / "manifest.json"
+        allowed.write_text("{}", encoding="utf-8")
+        forbidden.write_text("{}", encoding="utf-8")
+        request_json = app_dir / "analysis_request.json"
+        request_md = app_dir / "analysis_request.md"
+        request_json.write_text(
+            json.dumps(
+                {
+                    "outputs": {
+                        "allowed_files": [str(allowed.relative_to(root))],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        request_md.write_text("# Analyze\n", encoding="utf-8")
+        run = HarnessRunStore(root, app_dir).begin("analyze", request_json, request_md)
+        allowed.write_text('{"ok": true}', encoding="utf-8")
+        validation = run.inspect()
+        if validation.get("status") != "ok":
+            raise SystemExit(f"Allowed output should pass isolation: {validation}")
+        forbidden.write_text('{"changed": true}', encoding="utf-8")
+        validation = run.inspect()
+        if validation.get("status") != "blocked" or "manifest.json" not in validation.get("unauthorized_changes", []):
+            raise SystemExit(f"Unauthorized output should be blocked: {validation}")
+        run.finish({"returncode": 0, "stdout": "ok", "stderr": ""}, validation)
+        required = ["manifest.json", "request.json", "request.md", "result.json", "validation.json", "stdout.log", "stderr.log"]
+        missing = [name for name in required if not (run.run_dir / name).exists()]
+        if missing:
+            raise SystemExit(f"Versioned run archive is incomplete: {missing}")
+
+
+def phase_28() -> None:
+    class FakeRunner:
+        def build_command(self, request):
+            return ["fake-runner", request.stage, str(request.request_path)]
+
+        def run(self, request):
+            payload = json.loads(request.request_path.with_suffix(".json").read_text(encoding="utf-8"))
+            raw_outputs = []
+            if isinstance(payload.get("outputs"), dict):
+                raw_outputs.extend(payload["outputs"].get("allowed_files", []))
+            if isinstance(payload.get("required_output"), dict):
+                raw_outputs.extend(payload["required_output"].values())
+            raw_outputs.extend(payload.get("allowed_outputs", []))
+            for item in raw_outputs:
+                output = ROOT / item
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("{}", encoding="utf-8")
+            return AgentRunResult(command=self.build_command(request), returncode=0, stdout="ok", stderr="")
+
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        app_dir = Path(tmp_dir) / "904"
+        app_dir.mkdir()
+        supervisor = HarnessSupervisor(ROOT, runner=FakeRunner())
+        stage_contracts = {
+            "analyze": {"outputs": {"allowed_files": [str((app_dir / "fit_map.draft.json").relative_to(ROOT))]}},
+            "generate": {"required_output": {"cv_content_path": str((app_dir / "cv_content.json").relative_to(ROOT))}},
+            "repair": {"allowed_outputs": [str((app_dir / "cv_content.json").relative_to(ROOT))]},
+        }
+        for stage, contract in stage_contracts.items():
+            request_json = app_dir / f"{stage}_request.json"
+            request_md = app_dir / f"{stage}_request.md"
+            request_json.write_text(json.dumps(contract), encoding="utf-8")
+            request_md.write_text(f"# {stage}\n", encoding="utf-8")
+            result = supervisor.run_application_stage(
+                stage=stage,
+                record_key="904",
+                application_dir=app_dir,
+                request_json=request_json,
+                request_md=request_md,
+                runner_config={"command": "fake-runner"},
+            )
+            if result.get("returncode") != 0 or result.get("isolation", {}).get("status") != "ok":
+                raise SystemExit(f"Supervisor stage failed for {stage}: {result}")
+            if not (ROOT / result["run_dir"] / "validation.json").exists():
+                raise SystemExit(f"Supervisor did not archive validation for {stage}: {result}")
+
+
+def phase_29() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        lock_path = Path(tmp_dir) / "heartbeat.lock"
+        with ExclusiveRunLock(lock_path, "test heartbeat"):
+            try:
+                with ExclusiveRunLock(lock_path, "test heartbeat"):
+                    raise SystemExit("Second heartbeat lock should not have been acquired.")
+            except ValidationFailure as exc:
+                if "already running" not in str(exc):
+                    raise
+        with ExclusiveRunLock(lock_path, "test heartbeat"):
+            pass
+
+
+def phase_30() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        store = ApprovalStore(root)
+        pending = store.create("notion-update", {"request_id": "abc"})
+        if pending.get("status") != "pending":
+            raise SystemExit(f"Approval should start pending: {pending}")
+        approved = store.approve(pending["approval_id"])
+        if approved.get("status") != "approved":
+            raise SystemExit(f"Approval should become approved: {approved}")
+        consumed = store.consume(pending["approval_id"])
+        if consumed.get("status") != "consumed":
+            raise SystemExit(f"Approval should become consumed: {consumed}")
+
+    supervisor = HarnessSupervisor(ROOT)
+    prepared = supervisor.prepare_specialist("fit-map", objective="Test request versioning")
+    request = prepared.get("request", {})
+    if not request.get("request_id"):
+        raise SystemExit(f"Specialist request should have request_id: {prepared}")
+    versioned_json = ROOT / request["versioned_request_json"]
+    versioned_md = ROOT / request["versioned_request_md"]
+    if not versioned_json.exists() or not versioned_md.exists():
+        raise SystemExit(f"Versioned specialist request is missing: {prepared}")
+    email = supervisor.prepare_specialist("email-draft", objective="Test approval")
+    if email.get("approval", {}).get("status") != "pending":
+        raise SystemExit(f"Email specialist should create pending approval: {email}")
+
+
+def phase_31() -> None:
+    parser = build_parser()
+    routed = parser.parse_args(["harness", "route", "--message", "gere um CV"])
+    if routed.command != "harness" or routed.action != "route":
+        raise SystemExit(f"Harness route CLI was not parsed correctly: {routed}")
+    handled = parser.parse_args(
+        ["harness", "handle", "--message", "processar fila", "--channel", "telegram", "--max-per-run", "1"]
+    )
+    if handled.channel != "telegram" or handled.max_per_run != 1:
+        raise SystemExit(f"Harness handle CLI options were not parsed correctly: {handled}")
+    habilidades = HarnessSupervisor(ROOT).prepare_specialist("habilidades", objective="Test habilidades request")
+    if habilidades.get("request", {}).get("step") != "habilidades":
+        raise SystemExit(f"Habilidades specialist is not available: {habilidades}")
+
+
+def phase_32() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        (root / ".career-state").mkdir()
+        run_dir = root / ".career-state" / "agent_requests" / "runs" / "run1"
+        run = begin_specialist_run(root, run_dir, [".career-state/fit_map.draft.json"])
+        allowed = root / ".career-state" / "fit_map.draft.json"
+        allowed.write_text("{}", encoding="utf-8")
+        validation = run.inspect()
+        if validation.get("status") != "ok" or not validation.get("allowed_changed_files"):
+            raise SystemExit(f"Specialist allowed output should pass: {validation}")
+        forbidden = root / ".career-state" / "unexpected.json"
+        forbidden.write_text("{}", encoding="utf-8")
+        validation = run.inspect()
+        if validation.get("status") != "blocked":
+            raise SystemExit(f"Specialist unexpected output should be blocked: {validation}")
+        run.finish({"returncode": 0, "stdout": "", "stderr": ""}, validation)
+
+
+def phase_33() -> None:
+    runner = SubprocessAgentRunner(ROOT)
+    request_path = ROOT / ".career-state" / "agent_requests" / "fit-map_request.md"
+    codex = runner.build_command(
+        AgentRunRequest(
+            stage="fit-map",
+            record_key="905",
+            request_path=request_path,
+            instruction="Execute somente a etapa.",
+            runner_config={"command": "codex", "kind": "codex", "timeout_minutes": 30},
+            model="gpt-5.4",
+        )
+    )
+    required = {"exec", "--ephemeral", "--sandbox", "workspace-write", "-C", "--model", "gpt-5.4"}
+    if not required.issubset(set(codex)):
+        raise SystemExit(f"Codex runner command is incomplete: {codex}")
+    if "fit-map_request.md" not in codex[-1]:
+        raise SystemExit(f"Codex runner should receive file-scoped prompt: {codex}")
+    try:
+        runner.build_command(
+            AgentRunRequest(
+                stage="fit-map",
+                record_key="906",
+                request_path=request_path,
+                instruction="x",
+                runner_config={"command": "unknown-runner", "kind": "unknown"},
+            )
+        )
+        raise SystemExit("Unknown runner kind should be rejected.")
+    except ValueError:
+        pass
+
+
+def phase_34() -> None:
+    class FakeSupervisor:
+        def __init__(self):
+            self.calls = 0
+
+        def handle_message(self, message, **kwargs):
+            self.calls += 1
+            return {"status": "completed", "message": message, "kwargs": kwargs}
+
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        supervisor = FakeSupervisor()
+        first = telegram_harness_adapter.process_message(
+            "status das candidaturas",
+            message_id="telegram-1",
+            execute=False,
+            supervisor=supervisor,
+            root=Path(tmp_dir),
+        )
+        second = telegram_harness_adapter.process_message(
+            "status das candidaturas",
+            message_id="telegram-1",
+            execute=False,
+            supervisor=supervisor,
+            root=Path(tmp_dir),
+        )
+        if supervisor.calls != 1:
+            raise SystemExit(f"Telegram adapter should deduplicate messages, calls={supervisor.calls}")
+        if first.get("deduplicated") or not second.get("deduplicated"):
+            raise SystemExit(f"Telegram deduplication flags are incorrect: first={first}, second={second}")
+
+
+def phase_35() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        config = Path(tmp_dir) / "config.yaml"
+        config.write_text("model:\n  default: test\nhooks: {}\n", encoding="utf-8")
+        dry_run = install_hermes_harness_hook.install(config, apply=False)
+        if dry_run.get("status") != "dry_run_ok" or "pre_llm_call" in config.read_text(encoding="utf-8"):
+            raise SystemExit(f"Hermes hook dry-run should not edit config: {dry_run}")
+        applied = install_hermes_harness_hook.install(config, apply=True)
+        payload = __import__("yaml").safe_load(config.read_text(encoding="utf-8"))
+        if applied.get("status") != "installed" or not payload.get("hooks", {}).get("pre_llm_call"):
+            raise SystemExit(f"Hermes hook install failed: {applied}")
+        command = payload["hooks"]["pre_llm_call"][0]["command"]
+        if len(shlex.split(command)) != 2:
+            raise SystemExit(f"Hermes hook command must survive spaces in paths: {command}")
+        if not config.with_suffix(".yaml.bak.harness").exists():
+            raise SystemExit("Hermes hook installer should create a backup.")
+
+
+def phase_36() -> None:
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return Result()
+
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        notion_action = root / "notion.json"
+        notion_action.write_text(
+            json.dumps({"kind": "notion", "command": ["npm", "run", "notion:create-current"]}),
+            encoding="utf-8",
+        )
+        result = ApprovedActionExecutor(root, run_command=fake_run).execute(notion_action)
+        if result.get("status") != "completed" or not calls:
+            raise SystemExit(f"Approved Notion action should execute: {result}")
+        forbidden = root / "forbidden.json"
+        forbidden.write_text(
+            json.dumps({"kind": "notion", "command": ["rm", "-rf", "/"]}),
+            encoding="utf-8",
+        )
+        try:
+            ApprovedActionExecutor(root, run_command=fake_run).execute(forbidden)
+            raise SystemExit("Forbidden approved action should be rejected.")
+        except ValidationFailure:
+            pass
+
+
+def phase_37() -> None:
+    supervisor = HarnessSupervisor()
+    long_body = (
+        "Empresa: Acme\nCargo: Head de Operações\nAnalise esta vaga\n"
+        + "Responsabilidades e requisitos operacionais. " * 20
+    )
+    decision = supervisor.classify(long_body)
+    if decision.workflow != "pasted_job_intake":
+        raise SystemExit(f"Long pasted job should route through intake: {decision.to_dict()}")
+    if (decision.parameters or {}).get("company") != "Acme":
+        raise SystemExit(f"Pasted job company was not extracted: {decision.to_dict()}")
+    missing = supervisor.classify("Analise esta vaga\n" + "Requisitos da vaga. " * 40)
+    if missing.workflow != "pasted_job_missing_metadata":
+        raise SystemExit(f"Long pasted job without metadata should block intake: {missing.to_dict()}")
+    post = supervisor.classify(
+        "Empresa: Acme\nCargo: Gerente\nhttps://www.linkedin.com/posts/example-123"
+    )
+    if post.workflow != "linkedin_post_intake" or not (post.parameters or {}).get("company"):
+        raise SystemExit(f"LinkedIn post metadata was not extracted: {post.to_dict()}")
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -896,6 +1311,19 @@ PHASES = {
     22: phase_22,
     23: phase_23,
     24: phase_24,
+    25: phase_25,
+    26: phase_26,
+    27: phase_27,
+    28: phase_28,
+    29: phase_29,
+    30: phase_30,
+    31: phase_31,
+    32: phase_32,
+    33: phase_33,
+    34: phase_34,
+    35: phase_35,
+    36: phase_36,
+    37: phase_37,
 }
 
 

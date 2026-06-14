@@ -478,6 +478,27 @@ Comportamentos proibidos:
 
 ## Camada multiagente local
 
+### Porta de entrada harness
+
+Toda integracao conversacional nova deve usar:
+
+```bash
+npm run harness -- --message "<mensagem>" --channel <cli|telegram|codex|opencode>
+npm run harness:route -- --message "<mensagem>" --channel <canal>
+```
+
+Regras:
+- `HarnessSupervisor` e a porta de entrada unica para classificar e despachar trabalho criativo
+- cada especialista roda em processo novo e recebe primeiro um request compacto versionado
+- `applications:agent-heartbeat`, `agent:evaluate-notion` e `agent:maestro` permanecem como aliases compativeis, mas delegam ao supervisor
+- runs automaticos ficam em `.career-state/applications_v2/<ID>/requests/<run_id>/`
+- requests manuais ficam em `.career-state/agent_requests/runs/<request_id>/`
+- Notion e Gmail exigem aprovacao persistida em `.career-state/approvals/`
+- Telegram usa `scripts/telegram_harness_adapter.py`; configuracao Hermes esta em `TELEGRAM_HARNESS_RUNBOOK.md`
+- runners suportados: `hermes`, `opencode` e `codex`; Codex deve usar sessao `--ephemeral`
+- o heartbeat possui lock exclusivo e deve bloquear execucoes concorrentes
+- escrita fora dos outputs permitidos bloqueia a run
+
 O fluxo manual também pode operar por maestro determinístico e agentes especialistas de escopo curto.
 
 Comandos oficiais:

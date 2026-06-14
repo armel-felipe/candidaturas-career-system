@@ -178,6 +178,26 @@ Comportamentos proibidos:
 Para reduzir contexto em modelos locais, o projeto possui um maestro deterministico e agentes especialistas. O maestro
 nao substitui os gates; ele gera requests compactos e bloqueia improvisos.
 
+Toda integracao conversacional nova entra pelo supervisor:
+
+```bash
+npm run harness -- --message "<mensagem>" --channel <cli|telegram|codex|opencode>
+npm run harness:route -- --message "<mensagem>" --channel <canal>
+```
+
+Regras do harness:
+- `HarnessSupervisor` classifica e despacha a etapa; o harness de conversa nao executa trabalho criativo diretamente
+- cada especialista roda em processo novo com request compacto e imutavel por `request_id`
+- runs automaticos ficam em `.career-state/applications_v2/<ID>/requests/<run_id>/`
+- requests manuais ficam em `.career-state/agent_requests/runs/<request_id>/`
+- runners suportados: `hermes`, `opencode` e `codex`
+- Codex roda com `codex exec --ephemeral`; Hermes usa oneshot; nenhuma etapa retoma sessao anterior
+- o heartbeat usa lock exclusivo e bloqueia concorrencia entre Telegram, terminal e launchd
+- escrita fora dos outputs permitidos bloqueia a run
+- Notion e Gmail produzem pending action, exigem aprovacao persistida e so executam via whitelist
+- Gmail pode criar draft, mas nunca enviar email
+- Telegram entra por `scripts/telegram_harness_adapter.py`; configuracao do gateway esta em `TELEGRAM_HARNESS_RUNBOOK.md`
+
 Comandos:
 
 ```bash
@@ -190,6 +210,9 @@ npm run agent:maestro -- notion-update
 npm run agent:maestro -- email-draft
 npm run agent:maestro -- linkedin
 npm run agent:evaluate-notion-local -- <id_unico>
+npm run harness:telegram -- --message "<mensagem>" --message-id "<id>"
+npm run harness:approve -- <approval_id>
+npm run harness:execute-approval -- <approval_id>
 npm run multiagent:runbook
 npm run multiagent:local-model-map
 npm run multiagent:request -- fit-map

@@ -5,6 +5,12 @@
   "description": "OpenCode-first local career system for Felipe Armel.",
   "scripts": {
     "hook:install": "sh scripts/install_git_hook.sh",
+    "harness": "./scripts/python.sh scripts/career_cli.py harness handle",
+    "harness:route": "./scripts/python.sh scripts/career_cli.py harness route",
+    "harness:approve": "./scripts/python.sh scripts/career_cli.py harness approve",
+    "harness:execute-approval": "./scripts/python.sh scripts/career_cli.py harness execute-approval",
+    "harness:telegram": "./scripts/python.sh scripts/telegram_harness_adapter.py",
+    "harness:telegram:install-hook": "./scripts/python.sh scripts/install_hermes_harness_hook.py",
     "validate:structure": "./scripts/python.sh scripts/career_cli.py project validate-structure",
     "fit-map:template": "./scripts/python.sh scripts/career_cli.py fit-map template --output .career-state/fit_map.draft.json",
     "fit-map:check:extract": "./scripts/python.sh scripts/career_cli.py fit-map validate-stage extract --path .career-state/fit_map.draft.json",

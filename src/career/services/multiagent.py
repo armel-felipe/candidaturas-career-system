@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import uuid
 
 from career.paths import CAREER_STATE, OUTPUTS, ROOT
 from career.services import derived_context as derived_context_service
@@ -262,6 +263,39 @@ CONTRACTS: dict[str, AgentContract] = {
         ),
         validation_commands=("npm run feras:build",),
     ),
+    "habilidades": AgentContract(
+        step="habilidades",
+        agent="habilidades-agent",
+        purpose=(
+            "Gerar habilidades Gupy e Mercado Livre a partir do pack compacto da vaga ativa, "
+            "respeitando os catalogos permitidos e persistindo os dois artefatos."
+        ),
+        allowed_files=(
+            ".career-state/fit_map.json",
+            ".career-state/derived/habilidades_input_pack.json",
+            ".career-state/derived/manifest.json",
+            ".opencode/skills/habilidades-chave/SKILL.md",
+        ),
+        allowed_commands=(
+            "npm run habilidades:check",
+            "npm run habilidades:validate:gupy -- outputs/<habilidades_gupy>.md",
+            "npm run habilidades:validate:mercado-livre -- outputs/<habilidades_mercado_livre>.md",
+        ),
+        expected_outputs=(
+            "outputs/<habilidades_gupy>.md",
+            "outputs/<habilidades_mercado_livre>.md",
+        ),
+        forbidden_actions=BASE_FORBIDDEN_ACTIONS
+        + (
+            "misturar catalogos Gupy e Mercado Livre",
+            "inventar habilidade fora do catalogo ativo",
+            "entregar listas apenas na conversa",
+        ),
+        validation_commands=(
+            "npm run habilidades:validate:gupy -- outputs/<habilidades_gupy>.md",
+            "npm run habilidades:validate:mercado-livre -- outputs/<habilidades_mercado_livre>.md",
+        ),
+    ),
     "notion-update": AgentContract(
         step="notion-update",
         agent="notion-agent",
@@ -414,7 +448,12 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
         raise ValidationFailure(f"Unknown multiagent step: {step}")
     active = _active_intake()
     _prepare_compact_inputs_for_step(step, active)
+    request_id = uuid.uuid4().hex
+    request_extras = dict(extras or {})
+    if step in {"notion-update", "email-draft"}:
+        request_extras["pending_action_path"] = f".career-state/pending_actions/{request_id}.json"
     payload = {
+        "request_id": request_id,
         "created_at": utc_now_iso(),
         "step": contract.step,
         "agent": contract.agent,
@@ -439,13 +478,25 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
                 "blocker_reason",
             ],
         },
-        "extras": extras or {},
+        "extras": request_extras,
     }
     json_path = REQUEST_DIR / f"{step}_request.json"
     md_path = REQUEST_DIR / f"{step}_request.md"
     write_json(json_path, payload)
-    write_text(md_path, _request_markdown(payload))
-    return {"status": "ok", "step": step, "request_json": str(json_path.relative_to(ROOT)), "request_md": str(md_path.relative_to(ROOT))}
+    markdown = _request_markdown(payload)
+    write_text(md_path, markdown)
+    run_dir = REQUEST_DIR / "runs" / request_id
+    write_json(run_dir / "request.json", payload)
+    write_text(run_dir / "request.md", markdown)
+    return {
+        "status": "ok",
+        "step": step,
+        "request_id": request_id,
+        "request_json": str(json_path.relative_to(ROOT)),
+        "request_md": str(md_path.relative_to(ROOT)),
+        "versioned_request_json": str((run_dir / "request.json").relative_to(ROOT)),
+        "versioned_request_md": str((run_dir / "request.md").relative_to(ROOT)),
+    }
 
 
 def validate_request(step: str) -> dict[str, Any]:
@@ -573,6 +624,13 @@ def _allowed_files_for(contract: AgentContract, active: dict[str, Any] | None) -
             ".career-state/derived/manifest.json",
             ".opencode/skills/feras-pitch/SKILL.md",
         ]
+    elif contract.step == "habilidades":
+        files = [
+            ".career-state/fit_map.json",
+            ".career-state/derived/habilidades_input_pack.json",
+            ".career-state/derived/manifest.json",
+            ".opencode/skills/habilidades-chave/SKILL.md",
+        ]
     if contract.step in {"fit-map", "notion-update"} and active:
         job_description_path = active.get("job_description_path")
         if isinstance(job_description_path, str) and job_description_path.strip():
@@ -587,7 +645,7 @@ def _fallback_reference_files_for(contract: AgentContract) -> list[str]:
 
 
 def _derived_context_payload(contract: AgentContract) -> dict[str, Any] | None:
-    if contract.step not in {"fit-map", "cv", "cover-letter", "feras", "notion-update"}:
+    if contract.step not in {"fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update"}:
         return None
     try:
         return derived_context_service.derived_summary()
@@ -596,7 +654,7 @@ def _derived_context_payload(contract: AgentContract) -> dict[str, Any] | None:
 
 
 def _prepare_compact_inputs_for_step(step: str, active: dict[str, Any] | None) -> None:
-    if step in {"fit-map", "notion-update", "cover-letter", "feras"} and active:
+    if step in {"fit-map", "notion-update", "cover-letter", "feras", "habilidades"} and active:
         derived_context_service.build_all_for_fit_map()
     elif step == "cv":
         derived_context_service.build_all_for_fit_map()
@@ -667,6 +725,15 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Bloquear se houver placeholders, claims nao defensaveis ou tom promocional.",
             ]
         )
+    elif contract.step == "habilidades":
+        rules.extend(
+            [
+                "Usar .career-state/derived/habilidades_input_pack.json como contexto primario.",
+                "Gerar arquivos separados para Gupy e Mercado Livre.",
+                "Validar cada arquivo contra seu catalogo e contagem esperada.",
+                "Nunca converter texto de um catalogo para parecer item do outro.",
+            ]
+        )
     elif contract.step == "notion-update":
         rules.extend(
             [
@@ -677,6 +744,7 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Para achar link por ID, usar comando canônico de resolução por ID; não varrer applications_cache ou sweep com grep.",
                 "Verificar se o dry-run usa a descricao correta da vaga ativa.",
                 "Bloquear se houver mismatch de descricao, template vazio sem descricao local ou mojibake no texto.",
+                "Gravar em extras.pending_action_path um JSON kind=notion com a command list canonica aprovada pelo dry-run.",
             ]
         )
     elif contract.step == "email-draft":
@@ -688,6 +756,7 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Criar draft real somente depois de aprovacao explicita do usuario.",
                 "Nunca enviar email automaticamente e nunca perguntar remetente; usar a conta Gmail autenticada.",
                 "Bloquear se qualquer anexo esperado nao existir.",
+                "Gravar em extras.pending_action_path um JSON kind=gmail_draft com to, subject, body e attachments.",
             ]
         )
     elif contract.step == "linkedin":
