@@ -66,6 +66,7 @@ Também quando acionada manualmente pelo usuário.
 - [ ] Todo número está validado contra `perfil_restricoes.md` seção NÚMEROS CRÍTICOS
 - [ ] Nenhum número foi inventado, arredondado ou alterado
 - [ ] Nenhuma experiência, ferramenta ou certificação inexistente na base
+- [ ] Todo fato específico do resumo executivo está endossado por pelo menos uma experiência visível no CV; resumo com número, POP, budget, saving, cidade, KPI ou claim factual sem suporte nas experiências bloqueia entrega
 
 **Narrativas protegidas:**
 - [ ] VivaReal CS: "responsável pelo desenho" ou "arquiteto" — nunca "gestor de CS"
@@ -202,6 +203,7 @@ Objetivo do polimento:
 
 Checklist de polimento obrigatório:
 - [ ] Resumo lido como parágrafo humano, sem concentração de keywords cruas.
+- [ ] Todo fato do resumo reaparece com suporte claro nas experiências; o resumo não carrega provas “exclusivas”.
 - [ ] Cada bullet prova escopo, ação, método ou resultado; nenhum bullet existe só para encaixar keyword.
 - [ ] Termos em inglês permanecem apenas quando forem naturais no mercado brasileiro (`SQL`, `Python`, `S&OP`, `pricing`, `pipeline`, `stakeholders`, `growth`, nomes de ferramentas).
 - [ ] Termos como `data-driven decision making`, `cross-functional leadership`, `operational excellence`, `decision automation`, `process governance`, `experimentation` e equivalentes não aparecem crus quando houver wording PT-BR defensável.

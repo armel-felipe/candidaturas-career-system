@@ -86,6 +86,7 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --artifact outputs/<cv>.docx`
 - use `npm run memory:build` para regenerar a memória compacta do runtime antes de trabalhos de manutenção ou quando referências canônicas forem atualizadas
 - para manutencao historica do espelho Notion e dos derivados locais, prefira `npm run notion:memory:sync -- --refresh missing`; use `--refresh full` em auditorias completas ou suspeita de drift
+- `notion:memory:sync` tambem deve executar o backfill automatico dos campos de governanca do Notion; esse maintenance path e permitido por padrao e nao depende de pedido manual por vaga
 - use `npm run runtime:diagnose` para investigar estado inchado, caches e sinais de custo operacional
 - quando a vaga ainda não existir no Notion, o fluxo padrão é `análise -> FIT_MAP final -> decisão de prosseguir -> notion:create-current`; `create-description-record` fica restrito a captura precoce deliberada antes do FIT_MAP
 
@@ -389,6 +390,7 @@ Regras:
 - o heartbeat lê a fila a partir do cache/sweep do Notion e processa candidaturas sequencialmente;
 - antes de ler a fila, o heartbeat roda a manutenção local equivalente a `notion:memory:sync -- --refresh missing`, salvo override explícito;
 - cadência padrão de manutenção: `missing` em toda execução; `full` automático quando completar 24 execuções sem full ou 24 horas desde o último full; `--maintenance-refresh full` continua disponível como override explícito;
+- a manutenção padrão do heartbeat também executa o backfill automático dos campos de governança do Notion para manter o tracker como memória operacional do projeto;
 - nunca executar candidaturas em paralelo enquanto houver escrita em `.career-state/applications/<ID>/`;
 - `max_per_run` padrão é 3, configurado em `.career-state/applications_v2/config.json`;
 - o heartbeat aceita `--format human|json|both`; usar `both` para terminal humano e `json` para integrações/bot;

@@ -443,13 +443,20 @@ def main(argv: list[str] | None = None) -> int:
             _dump(result)
             return 0
         if args.action == "sync-memory":
+            token, database_id = notion_service.notion_config()
             refresh_result = run_task("notion.refresh_cache", {"refresh": args.refresh})
             registry_result = run_task("registry.rebuild")
             memory_result = run_task("memory.build")
+            governance_result = notion_service.backfill_governance(token, database_id, dry_run=False)
             _dump({
                 "refresh": refresh_result,
                 "registry": registry_result,
                 "memory": {key: str(value) for key, value in memory_result.items()},
+                "governance_backfill": {
+                    "generated_at": governance_result.get("generated_at"),
+                    "dry_run": governance_result.get("dry_run"),
+                    "totals": governance_result.get("totals"),
+                },
             })
             return 0
 

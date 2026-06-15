@@ -4,6 +4,7 @@ import json
 from collections import Counter
 import os
 import re
+import time
 import sys
 import unicodedata
 import urllib.error
@@ -168,6 +169,12 @@ GOVERNANCE_SCHEMA_FIELDS = [
         "description": "Confirmação de labels/sections coerentes com o idioma final.",
     },
     {
+        "name": "Arquivo final aprovado",
+        "logical_name": "final_artifact",
+        "schema": {"rich_text": {}},
+        "description": "Artefato final aprovado no workspace local.",
+    },
+    {
         "name": "Status serviço",
         "logical_name": "service_status",
         "schema": {
@@ -226,22 +233,30 @@ def load_dotenv(path: Path = Path(".env")) -> None:
 
 def request(method: str, url: str, token: str, payload=None, notion_version: str = NOTION_VERSION) -> dict:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Notion-Version": notion_version,
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"Notion API error {exc.code}: {detail}") from exc
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Notion-Version": notion_version,
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise SystemExit(f"Notion API error {exc.code}: {detail}") from exc
+        except (TimeoutError, urllib.error.URLError) as exc:
+            if attempt >= attempts:
+                raise SystemExit(
+                    f"Notion request failed after {attempts} attempts: {type(exc).__name__}: {exc}"
+                ) from exc
+            time.sleep(min(2 * attempt, 5))
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -592,6 +607,36 @@ def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", (text or "").strip())
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     return re.sub(r"\s+", " ", normalized).lower()
+
+
+def detect_document_language(text: str) -> str:
+    normalized = f" {normalize_text(text)} "
+    english_markers = [
+        " the ",
+        " and ",
+        " with ",
+        " about ",
+        " responsibilities ",
+        " requirements ",
+        " experience ",
+        " you ",
+    ]
+    portuguese_markers = [
+        " de ",
+        " e ",
+        " com ",
+        " sobre ",
+        " responsabilidades ",
+        " requisitos ",
+        " experiencia ",
+        " você ",
+        " voce ",
+    ]
+    english_score = sum(normalized.count(marker) for marker in english_markers)
+    portuguese_score = sum(normalized.count(marker) for marker in portuguese_markers)
+    if english_score > portuguese_score:
+        return "en"
+    return "pt-BR"
 
 
 def slugify(text: str) -> str:
@@ -962,12 +1007,20 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
     prioritized_experiences = extract_saved_property(payload, "prioritized_experiences")
     labels_verified_raw = extract_saved_property(payload, "labels_verified")
     final_artifact = extract_saved_property(payload, "final_artifact")
+    service_status = extract_saved_property(payload, "service_status")
+    final_state = extract_saved_property(payload, "final_state")
     fit_score = None
     if fit_raw:
         try:
             fit_score = float(fit_raw)
         except ValueError:
             fit_score = None
+    if not required_cv_language and (description or body_text):
+        required_cv_language = detect_document_language(description or body_text)
+    if not final_cv_language and final_artifact:
+        final_cv_language = "en" if "_en." in final_artifact.casefold() else "pt-BR"
+    if not review_status and not final_artifact:
+        review_status = "not_started"
 
     search_text = normalize_search_text(
         title,
@@ -986,6 +1039,8 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
         required_cv_language,
         final_cv_language,
         review_status,
+        service_status,
+        final_state,
         narrative_decisions,
         persona_angle,
         prioritized_experiences,
@@ -1019,6 +1074,8 @@ def build_application_record(payload: dict, source_path: Path) -> dict:
         "prioritized_experiences": split_numbered_lines(prioritized_experiences) or split_terms(prioritized_experiences),
         "labels_verified": str(labels_verified_raw).strip().casefold() in {"1", "true", "yes", "sim", "checked"},
         "final_artifact": final_artifact,
+        "service_status": service_status or None,
+        "final_state": final_state or None,
         "description": description,
         "body_text": body_text,
         "description_chars": len(description),
@@ -1311,6 +1368,7 @@ def governance_field_values(fit_map: dict) -> dict[str, Any]:
         "declared_gap_keywords": "; ".join(declared_gap_keywords),
         "persona_angle": persona_angle,
         "prioritized_experiences": prioritized_experiences_text(fit_map),
+        "final_artifact": str(fit_map.get("service_final_artifact") or "").strip(),
         "labels_verified": fit_map.get("service_labels_verified"),
         "service_status": str(fit_map.get("service_status") or "").strip(),
         "final_state": str(fit_map.get("service_stage") or "").strip(),
@@ -1370,6 +1428,7 @@ def _extract_body_derived_values(body_text: str, description: str, cache_keyword
     top8_lines = [line for line in keywords_lines if re.match(r"^\d+\.\s+", line)]
     top8_keywords = []
     prioritized_experiences = []
+    declared_gap_keywords = []
     for line in top8_lines[:8]:
         match = re.match(r"^\d+\.\s+(.+?)(?:\s+\|\s+experiência alvo:\s+(.+?))?(?:\s+\|.*)?$", line)
         if not match:
@@ -1381,8 +1440,12 @@ def _extract_body_derived_values(body_text: str, description: str, cache_keyword
             top8_keywords.append(keyword)
         if target and target not in prioritized_experiences:
             prioritized_experiences.append(target)
+        if "origem: gap sem cobertura" in normalize_text(line) and keyword:
+            declared_gap_keywords.append(keyword)
     if top8_keywords:
         values["top8_keywords"] = "\n".join(f"{index}. {keyword}" for index, keyword in enumerate(top8_keywords, start=1))
+    if declared_gap_keywords:
+        values["declared_gap_keywords"] = "; ".join(declared_gap_keywords)
     if cache_keywords:
         values["keywords"] = "; ".join(cache_keywords)
     elif top8_keywords:
@@ -1493,15 +1556,22 @@ def _cache_governance_values(application: dict[str, Any]) -> dict[str, Any]:
 def _payload_governance_values(payload: dict) -> dict[str, Any]:
     cache_keywords = split_terms(extract_saved_property(payload, "keywords"))
     cache_gaps = split_terms(extract_saved_property(payload, "gaps"))
+    description = payload.get("description", "") or ""
+    body_text = payload.get("body_text", "") or ""
     values = _extract_body_derived_values(
-        payload.get("body_text", "") or "",
-        payload.get("description", "") or "",
+        body_text,
+        description,
         cache_keywords,
         cache_gaps,
     )
     cv_value = extract_saved_property(payload, "final_artifact")
+    review_status = extract_saved_property(payload, "review_status")
+    if not values.get("required_cv_language") and (description or body_text):
+        values["required_cv_language"] = detect_document_language(description or body_text)
     if cv_value:
         values["final_cv_language"] = "en" if "_en." in cv_value.casefold() else "pt-BR"
+    if not review_status and not cv_value:
+        values["review_status"] = "not_started"
     return {key: value for key, value in values.items() if _has_value(value)}
 
 
@@ -1614,7 +1684,7 @@ def backfill_governance_fields(
                 written += 1
                 result_label = "updated"
                 error_message = None
-            except SystemExit as exc:
+            except (SystemExit, Exception) as exc:
                 result_label = "write_error"
                 error_message = str(exc)
         else:

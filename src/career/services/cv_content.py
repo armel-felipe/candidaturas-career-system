@@ -154,11 +154,26 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         },
     },
     {
+        "id": "trifil_sop",
+        "company": "Scalina (Trifil)",
+        "role": "Coordenador de S&OP",
+        "period": "jan/2010 — set/2014",
+        "order": 6,
+        "focus_terms": {"s&op", "planejamento integrado", "trade-offs", "cenários", "custos", "otif"},
+        "scope_bullet": "Fui responsável por criar a área de S&OP do zero, gerenciando 40K SKUs de produto acabado em duas marcas e todos os canais de distribuição com responsabilidade sobre OTIF, fill rate e estoque de segurança.",
+        "result_bullet": "Reduzi R$8MM em Gastos Gerais de Fabricação (GGF) via otimização de energia, gás, manutenção e embalagens, mantendo a meta anual de R$154M com economia real de R$4,6M até agosto.",
+        "leverage": {
+            "default": "Desenvolvi um simulador para validação do MRP e avaliação de cenários no S&OP com Excel/VBA, coordenei o S&OE para recalibrar faltas e sobras e atuei como intermediador entre comercial e fabricação para resolver restrições de recursos.",
+            "planning_sop_capacity": "Conduzi um simulador para validação do MRP e cenários de S&OP com Excel/VBA, coordenei o S&OE e articulei trade-offs entre comercial e fabricação para balancear capacidade, estoque e nível de serviço.",
+            "operations": "Estruturei um simulador para validação do MRP, coordenei o S&OE e alinhei comercial e fabricação para resolver restrições operacionais e sustentar OTIF, fill rate e estoque de segurança.",
+        },
+    },
+    {
         "id": "trifil_inteligencia_comercial",
         "company": "Scalina (Trifil)",
         "role": "Coordenador de Inteligência Comercial",
         "period": "jan/2009 — dez/2009",
-        "order": 6,
+        "order": 7,
         "focus_terms": {"data-driven growth", "dashboards", "insights", "pricing", "canais de vendas"},
         "scope_bullet": "Fui responsável por criar a área de inteligência comercial, apoiando a diretoria com informações de mercado, canais de vendas, comissionamento, oportunidades comerciais e política de preços.",
         "result_bullet": "Reduzi o tempo dos relatórios diários de 4 horas para 14 minutos e aumentei o faturamento anual de R$80M para R$120M com um algoritmo de alocação de estoque orientado por margem e receita.",
@@ -195,6 +210,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     selected_with_bullets = [_materialize_experience(entry, job_family) for entry in selected]
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
+    summary_text, summary_support = _build_summary(selected_with_bullets, fit_map)
     payload = {
         "metadata": {
             "kind": "cv_content",
@@ -209,8 +225,8 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
         "output_name": _output_name(fit_map),
         "mode": "concise",
         "persona": _persona_name(fit_map),
-        "summary": _build_summary(fit_map),
-        "resumo": _build_summary(fit_map),
+        "summary": summary_text,
+        "resumo": summary_text,
         "experiences": [
             {
                 "role": exp["role"],
@@ -235,6 +251,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
         "idiomas": list(DEFAULT_LANGUAGES),
         "stack": DEFAULT_STACK,
         "ats_keyword_coverage": coverage,
+        "summary_support": summary_support,
     }
     write_json(path, payload)
     validate_cv_content(path)
@@ -338,6 +355,7 @@ def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
         "ifood_diretor_operacoes",
         "ifood_head_operacoes",
         "vivareal_planejamento_operacoes",
+        "trifil_sop",
         "trifil_inteligencia_comercial",
         "wehandle_head_operacoes",
         "renault_cs",
@@ -420,19 +438,59 @@ def _best_bullet_index(bullets: list[str], keyword: str) -> int:
     return 0
 
 
-def _build_summary(fit_map: dict[str, Any]) -> str:
+def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     cargo = str(fit_map.get("cargo") or "a vaga")
-    stories = fit_map.get("historias_selecionadas", {}) if isinstance(fit_map.get("historias_selecionadas"), dict) else {}
-    principal = stories.get("principal") if isinstance(stories.get("principal"), dict) else {}
-    secondary = stories.get("secundaria") if isinstance(stories.get("secundaria"), dict) else {}
-    primary_result = str(principal.get("resultado") or "escala operacional e comercial")
-    secondary_result = str(secondary.get("resultado") or "melhoria de conversão e eficiência comercial")
-    return (
+    support_pairs = _summary_support_pairs(selected)
+    supports = [
+        {
+            "summary_fragment": fragment,
+            "experience_index": exp_index,
+            "experience_role": selected[exp_index]["role"],
+            "experience_company": selected[exp_index]["company"],
+            "bullet_index": bullet_index,
+            "defensible_evidence": selected[exp_index]["bullets"][bullet_index],
+        }
+        for fragment, exp_index, bullet_index in support_pairs
+    ]
+    summary = (
         "Engenheiro químico com mais de 20 anos em operações, planejamento comercial e inteligência de negócios. "
-        f"Na trajetória recente, entreguei {primary_result}. "
-        f"Também liderei frentes que geraram {secondary_result}. "
+        f"Na trajetória recente, entreguei {supports[0]['summary_fragment']}. "
+        f"Também liderei frentes que geraram {supports[1]['summary_fragment']}. "
         f"Busco posição de {cargo} conectando canais, pricing, dados e execução."
     )
+    return summary, supports
+
+
+def _summary_support_pairs(selected: list[dict[str, Any]]) -> list[tuple[str, int, int]]:
+    desired = [
+        "wehandle_head_operacoes",
+        "ifood_diretor_operacoes",
+        "ifood_head_operacoes",
+        "trifil_sop",
+        "vivareal_planejamento_operacoes",
+        "trifil_inteligencia_comercial",
+        "renault_cs",
+    ]
+    summary_fragments = {
+        "wehandle_head_operacoes": ("redução de 13% no custo por atendimento e impacto de 15% na margem bruta", 2),
+        "ifood_diretor_operacoes": ("400 → 800 cidades e budget logístico de R$300MM/ano", 2),
+        "ifood_head_operacoes": ("R$70MM/ano em economia e redução de 60% dos cancelamentos no México", 2),
+        "trifil_sop": ("40K SKUs sob governança de S&OP e R$8MM de redução de GGF", 2),
+        "vivareal_planejamento_operacoes": ("conversão de SDR inbound de 18% para 50% e redução de 40% no custo de vendas", 2),
+        "trifil_inteligencia_comercial": ("faturamento anual de R$80M para R$120M com algoritmo de alocação de estoque", 2),
+        "renault_cs": ("conversão de leads de 24% para 46% com operação internalizada", 2),
+    }
+    by_id = {entry["id"]: index for index, entry in enumerate(selected)}
+    pairs: list[tuple[str, int, int]] = []
+    for experience_id in desired:
+        if experience_id not in by_id:
+            continue
+        fragment, bullet_index = summary_fragments[experience_id]
+        pairs.append((fragment, by_id[experience_id], bullet_index))
+        if len(pairs) == 2:
+            break
+    ensure(len(pairs) >= 2, "cv_summary_requires_two_supported_experiences")
+    return pairs
 
 
 def _persona_name(fit_map: dict[str, Any]) -> str:

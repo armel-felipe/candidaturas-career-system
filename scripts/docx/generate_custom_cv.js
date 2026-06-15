@@ -90,8 +90,29 @@ function hyperlink(text, url) {
   });
 }
 
+const L10N = {
+  "pt-BR": {
+    location: "São Paulo, SP",
+    summary: "Resumo",
+    experience: "Experiência",
+    education: "Formação",
+    stack: "Stack técnica",
+    languages: "Idiomas",
+  },
+  "en": {
+    location: "São Paulo, Brazil",
+    summary: "Summary",
+    experience: "Experience",
+    education: "Education",
+    stack: "Technical Stack",
+    languages: "Languages",
+  },
+};
+
 async function main() {
   const cv = JSON.parse(fs.readFileSync(cvContentPath, "utf-8"));
+  const lang = (cv.metadata && cv.metadata.language === "en") ? "en" : "pt-BR";
+  const l10n = L10N[lang];
   const outputName = cv.output_name || process.argv[2] || "felipe_armel_cv.docx";
   fs.mkdirSync(outputDir, { recursive: true });
 
@@ -100,18 +121,18 @@ async function main() {
   // Header
   children.push(paragraph("Felipe Armel Dias da Silva", { size: 12, bold: true }));
   children.push(hyperlink("linkedin.com/in/felipearmel", "https://linkedin.com/in/felipearmel"));
-  children.push(paragraph("São Paulo, SP"));
+  children.push(paragraph(l10n.location));
   children.push(hyperlink("(11) 98674-8218", "https://wa.me/5511986748218"));
   children.push(hyperlink("armelfelipe@gmail.com", "mailto:armelfelipe@gmail.com"));
   children.push(espaco(8));
 
-  // Resumo
-  children.push(secao("Resumo"));
+  // Resumo / Summary
+  children.push(secao(l10n.summary));
   children.push(paragraph(cv.resumo));
   children.push(espaco(8));
 
-  // Experiência
-  children.push(secao("Experiência"));
+  // Experiência / Experience
+  children.push(secao(l10n.experience));
   for (const exp of cv.experiencias) {
     children.push(espaco(3));
     children.push(cargoParagraph(exp.cargo, exp.empresa, exp.periodo));
@@ -126,20 +147,20 @@ async function main() {
 
   children.push(espaco(8));
 
-  // Formação
-  children.push(secao("Formação"));
+  // Formação / Education
+  children.push(secao(l10n.education));
   for (const f of cv.formacao) {
     children.push(bullet([{ text: f }]));
   }
   children.push(espaco(8));
 
-  // Stack técnica
-  children.push(secao("Stack técnica"));
+  // Stack técnica / Technical Stack
+  children.push(secao(l10n.stack));
   children.push(paragraph(cv.stack));
   children.push(espaco(8));
 
-  // Idiomas
-  children.push(secao("Idiomas"));
+  // Idiomas / Languages
+  children.push(secao(l10n.languages));
   for (const idioma of cv.idiomas) {
     children.push(bullet([{ text: idioma }]));
   }

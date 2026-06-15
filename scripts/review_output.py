@@ -145,7 +145,7 @@ def is_multiword_english_keyword(keyword: str) -> bool:
 
 
 def exact_keyword_in_line(line: str, keyword: str) -> bool:
-    return keyword.casefold() in line.casefold()
+    return normalize_text(keyword) in normalize_text(line)
 
 
 def extract_summary_experience_lines(lines: list[str]) -> list[str]:
@@ -166,6 +166,61 @@ def extract_summary_experience_lines(lines: list[str]) -> list[str]:
             continue
         end = min(end, marker_index)
     return [line for line in lines[start + 1 : end] if line.strip()]
+
+
+def extract_experience_lines(lines: list[str]) -> list[str]:
+    for marker in ("Experiência", "Experience"):
+        try:
+            start = lines.index(marker)
+            break
+        except ValueError:
+            continue
+    else:
+        return []
+
+    end = len(lines)
+    for marker in ("Formação", "Stack técnica", "Idiomas", "Education", "Technical Skills", "Languages"):
+        try:
+            marker_index = lines.index(marker)
+        except ValueError:
+            continue
+        end = min(end, marker_index)
+    return [line for line in lines[start + 1 : end] if line.strip()]
+
+
+def extract_summary_fact_anchors(summary_text: str) -> list[str]:
+    patterns = [
+        r"R\$\s?\d+(?:[.,]\d+)?\s?(?:MM|M|mil)?",
+        r"\d+(?:[.,]\d+)?%",
+        r"\d+\+?\s*POPs?",
+        r"\d+\+?\s*SKUs",
+        r"\d+\+?\s*cidades",
+        r"\d+\+?\s*pessoas",
+        r"\d+\+?\s*pedidos/m[eê]s",
+        r"\d+\s*[KkMm]?\s*→\s*\d+\s*[KkMm]?",
+    ]
+    anchors: list[str] = []
+    for pattern in patterns:
+        anchors.extend(re.findall(pattern, summary_text, flags=re.IGNORECASE))
+    deduped = []
+    seen = set()
+    for anchor in anchors:
+        key = normalize_text(anchor)
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(anchor)
+    return deduped
+
+
+def summary_supported_by_experiences(summary_text: str, experience_lines: list[str]) -> tuple[bool, str]:
+    anchors = extract_summary_fact_anchors(summary_text)
+    if not anchors:
+        return True, "no_numeric_anchors"
+    experience_text = "\n".join(experience_lines)
+    missing = [anchor for anchor in anchors if normalize_text(anchor) not in normalize_text(experience_text)]
+    if not missing:
+        return True, "all_summary_anchors_found_in_experiences"
+    return False, "missing_summary_anchors=" + ", ".join(missing[:8])
 
 
 def normalized_path_string(path_text: str | None) -> str | None:
@@ -407,6 +462,7 @@ def build_cv_review(
     lines = compact_lines(docx_text(artifact))
     full_text = "\n".join(lines)
     summary_text = extract_summary_text(lines)
+    experience_lines = extract_experience_lines(lines)
     validator_ok, validator_output = run_docx_validator(artifact)
     application = find_application(registry, company, role)
     translation_registry = load_translation_registry(translation_registry_path)
@@ -427,6 +483,7 @@ def build_cv_review(
     english_role_titles_in_pt, english_role_titles_evidence = (
         english_cv_has_portuguese_role_titles(lines) if not is_portuguese_cv(artifact) else (False, "pt_cv")
     )
+    summary_supported, summary_supported_evidence = summary_supported_by_experiences(summary_text, experience_lines)
 
     technical_checks = [
         {
@@ -468,6 +525,11 @@ def build_cv_review(
             "id": "english_cv_role_titles_in_english",
             "passed": not english_role_titles_in_pt,
             "evidence": english_role_titles_evidence,
+        },
+        {
+            "id": "summary_facts_backed_by_experiences",
+            "passed": summary_supported,
+            "evidence": summary_supported_evidence,
         },
     ]
 

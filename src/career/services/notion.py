@@ -41,6 +41,25 @@ def refresh_cache(
     return {"sync": {key: value for key, value in report.items() if key != "remote_pages"}, "outputs": outputs}
 
 
+def backfill_governance(
+    token: str,
+    database_id: str,
+    *,
+    dry_run: bool = False,
+    cache_path: Path = legacy_notion.DEFAULT_SWEEP_CACHE,
+    sweep_dir: Path = legacy_notion.DEFAULT_SWEEP_DIR,
+    report_path: Path = legacy_notion.DEFAULT_GOVERNANCE_BACKFILL_REPORT,
+) -> dict:
+    return legacy_notion.backfill_governance_fields(
+        token,
+        database_id,
+        cache_path=cache_path,
+        sweep_dir=sweep_dir,
+        dry_run=dry_run,
+        report_path=report_path,
+    )
+
+
 def notion_config() -> tuple[str, str]:
     return legacy_notion.notion_config()
 

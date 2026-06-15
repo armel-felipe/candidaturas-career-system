@@ -47,6 +47,7 @@ DEFAULT_CONFIG = {
         "refresh": "missing",
         "full_refresh_every_runs": 24,
         "force_full_after_hours": 24,
+        "governance_backfill": True,
     },
     "analysis_runner": {
         "kind": "hermes",
@@ -206,6 +207,17 @@ def _run_maintenance_sync(config: dict[str, Any], options: HeartbeatV2Options) -
     refresh_result = notion_service.refresh_cache(token, database_id, refresh=refresh_mode)
     registry_result = memory_service.rebuild_keyword_registry_from_cache()
     memory_result = memory_service.build_memory_bundle()
+    governance_enabled = bool(maintenance.get("governance_backfill", True))
+    governance_result = (
+        notion_service.backfill_governance(token, database_id, dry_run=options.dry_run)
+        if governance_enabled
+        else {
+            "generated_at": utc_now_iso(),
+            "dry_run": options.dry_run,
+            "totals": None,
+            "reason": "disabled_by_config",
+        }
+    )
     _write_maintenance_state(refresh_mode)
     outputs_summary = (
         ((refresh_result.get("outputs") or {}).get("summary") or {})
@@ -242,6 +254,13 @@ def _run_maintenance_sync(config: dict[str, Any], options: HeartbeatV2Options) -
             "canonical_keywords": registry_result.get("canonical_keywords"),
         },
         "memory": {key: str(value) for key, value in memory_result.items()},
+        "governance_backfill": {
+            "executed": governance_enabled,
+            "generated_at": governance_result.get("generated_at"),
+            "dry_run": governance_result.get("dry_run"),
+            "totals": governance_result.get("totals"),
+            "reason": governance_result.get("reason"),
+        },
     }
 
 
@@ -1011,6 +1030,9 @@ def _validate_cv_content_contract(paths: dict[str, Path]) -> None:
     mode = str(payload.get("mode") or "concise").strip().casefold()
     if mode not in {"concise", "expanded"}:
         raise ValidationFailure("cv_content.json mode must be concise or expanded.")
+    summary = str(payload.get("summary") or payload.get("resumo") or "").strip()
+    if not summary:
+        raise ValidationFailure("cv_content.json must include a non-empty summary/resumo.")
     consolidated_markers = [
         "head e diretor",
         "head + diretor",
@@ -1097,6 +1119,79 @@ def _validate_cv_content_contract(paths: dict[str, Path]) -> None:
             invalid_mappings.append(f"{keyword} -> defensible_evidence missing")
     if invalid_mappings:
         raise ValidationFailure("cv_content.json has invalid ats_keyword_coverage mappings:\n- " + "\n- ".join(invalid_mappings))
+    summary_support = payload.get("summary_support")
+    if not isinstance(summary_support, list) or len(summary_support) < 2:
+        raise ValidationFailure("cv_content.json must include summary_support with at least two supported summary fragments.")
+    summary_errors = []
+    for item in summary_support:
+        if not isinstance(item, dict):
+            summary_errors.append("summary_support item must be an object")
+            continue
+        fragment = str(item.get("summary_fragment") or "").strip()
+        if not fragment:
+            summary_errors.append("summary_support.summary_fragment missing")
+        elif fragment not in summary:
+            summary_errors.append(f"summary fragment not found in summary: {fragment}")
+        try:
+            exp_index = int(item.get("experience_index"))
+            bullet_index = int(item.get("bullet_index"))
+        except (TypeError, ValueError):
+            summary_errors.append(f"{fragment or '<missing fragment>'} -> invalid experience_index/bullet_index")
+            continue
+        if exp_index < 0 or exp_index >= len(experiences):
+            summary_errors.append(f"{fragment or '<missing fragment>'} -> experience_index out of range ({exp_index})")
+            continue
+        bullets = experiences[exp_index].get("bullets") or []
+        if bullet_index < 0 or bullet_index >= len(bullets):
+            summary_errors.append(f"{fragment or '<missing fragment>'} -> bullet_index out of range ({bullet_index})")
+            continue
+        bullet = bullets[bullet_index]
+        bullet_text = str((bullet or {}).get("text") or bullet or "").strip()
+        evidence = str(item.get("defensible_evidence") or "").strip()
+        if evidence and evidence != bullet_text:
+            summary_errors.append(f"{fragment or '<missing fragment>'} -> defensible_evidence does not match mapped bullet")
+        if not evidence:
+            summary_errors.append(f"{fragment or '<missing fragment>'} -> defensible_evidence missing")
+        fragment_anchors = _extract_fact_anchors(fragment)
+        if fragment_anchors:
+            bullet_norm = _normalize_fact_text(bullet_text)
+            missing_anchors = [anchor for anchor in fragment_anchors if anchor not in bullet_norm]
+            if missing_anchors:
+                summary_errors.append(
+                    f"{fragment or '<missing fragment>'} -> mapped bullet does not contain factual anchors: {', '.join(missing_anchors)}"
+                )
+    if summary_errors:
+        raise ValidationFailure("cv_content.json has invalid summary_support mappings:\n- " + "\n- ".join(summary_errors))
+
+
+def _extract_fact_anchors(text: str) -> list[str]:
+    patterns = [
+        r"R\$\s?\d+(?:[.,]\d+)?\s?(?:MM|M|mil)?",
+        r"\d+(?:[.,]\d+)?%",
+        r"\d+\+?\s*POPs?",
+        r"\d+\+?\s*SKUs",
+        r"\d+\+?\s*cidades",
+        r"\d+\+?\s*pessoas",
+        r"\d+\+?\s*pedidos/m[eê]s",
+        r"\d+\s*[KkMm]?\s*→\s*\d+\s*[KkMm]?",
+    ]
+    anchors: list[str] = []
+    for pattern in patterns:
+        anchors.extend(re.findall(pattern, text, flags=re.IGNORECASE))
+    deduped = []
+    seen = set()
+    for anchor in anchors:
+        key = _normalize_fact_text(anchor)
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(key)
+    return deduped
+
+
+def _normalize_fact_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text.casefold())
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
@@ -1364,6 +1459,7 @@ def _fit_map_for_notion(
     fit_map["service_repair_attempt_count"] = int(state.get("repair_attempt_count") or 0)
     fit_map["service_polish_blockers"] = polish.get("approval_blockers", []) if isinstance(polish, dict) else []
     fit_map["service_required_cv_language"] = manifest.get("required_cv_language")
+    fit_map["service_final_artifact"] = state.get("output_docx")
     if report.get("approved_for_delivery"):
         fit_map["service_final_cv_language"] = manifest.get("required_cv_language")
     fit_map["service_summary"] = (

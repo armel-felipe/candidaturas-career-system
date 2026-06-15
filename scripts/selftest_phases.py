@@ -1286,6 +1286,89 @@ def phase_37() -> None:
         raise SystemExit(f"LinkedIn post metadata was not extracted: {post.to_dict()}")
 
 
+def phase_38() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        tmp = Path(tmp_dir)
+        app_dir = tmp / "applications_v2" / "891"
+        app_dir.mkdir(parents=True)
+        paths = applications_service._app_paths(app_dir)
+        paths["fit_map"].write_text(
+            json.dumps(
+                {
+                    "cargo": "Head of Operations",
+                    "empresa": "BRL1 Network",
+                    "keywords_habilidade_ats": [
+                        {"keyword": "Gestão de Operações", "prioridade": 1},
+                        {"keyword": "Planejamento Integrado", "prioridade": 2},
+                        {"keyword": "Indicadores", "prioridade": 3},
+                        {"keyword": "Liderança", "prioridade": 4},
+                        {"keyword": "S&OP", "prioridade": 5},
+                        {"keyword": "MRP", "prioridade": 6},
+                        {"keyword": "OTIF", "prioridade": 7},
+                        {"keyword": "Custos", "prioridade": 8},
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        paths["cv_content"].write_text(
+            json.dumps(
+                {
+                    "summary": "Executivo com 180+ POPs de validação regulatória e R$8MM de redução de GGF.",
+                    "mode": "concise",
+                    "experiences": [
+                        {"role": "A", "company": "X", "period": "1", "bullets": [{"text": "b1"}, {"text": "b2 mecanismo com dados para resultado"}, {"text": "b3 resultado"}]},
+                        {"role": "B", "company": "Y", "period": "2", "bullets": [{"text": "b1"}, {"text": "b2 mecanismo com dados para resultado"}, {"text": "Reduzi R$8MM em GGF."}]},
+                        {"role": "C", "company": "Z", "period": "3", "bullets": [{"text": "b1"}, {"text": "b2 mecanismo com dados para resultado"}, {"text": "b3 resultado"}]},
+                        {"role": "D", "company": "W", "period": "4", "bullets": [{"text": "b1"}, {"text": "b2 mecanismo com dados para resultado"}, {"text": "b3 resultado"}]},
+                    ],
+                    "ats_keyword_coverage": [
+                        {"keyword": "Gestão de Operações", "experience_index": 0, "experience_role": "A", "bullet_index": 0, "coverage_mode": "exact", "defensible_evidence": "b1"},
+                        {"keyword": "Planejamento Integrado", "experience_index": 1, "experience_role": "B", "bullet_index": 1, "coverage_mode": "exact", "defensible_evidence": "b2 mecanismo com dados para resultado"},
+                        {"keyword": "Indicadores", "experience_index": 1, "experience_role": "B", "bullet_index": 2, "coverage_mode": "exact", "defensible_evidence": "Reduzi R$8MM em GGF."},
+                        {"keyword": "Liderança", "experience_index": 2, "experience_role": "C", "bullet_index": 0, "coverage_mode": "exact", "defensible_evidence": "b1"},
+                        {"keyword": "S&OP", "experience_index": 2, "experience_role": "C", "bullet_index": 1, "coverage_mode": "exact", "defensible_evidence": "b2 mecanismo com dados para resultado"},
+                        {"keyword": "MRP", "experience_index": 2, "experience_role": "C", "bullet_index": 2, "coverage_mode": "exact", "defensible_evidence": "b3 resultado"},
+                        {"keyword": "OTIF", "experience_index": 3, "experience_role": "D", "bullet_index": 0, "coverage_mode": "exact", "defensible_evidence": "b1"},
+                        {"keyword": "Custos", "experience_index": 3, "experience_role": "D", "bullet_index": 2, "coverage_mode": "exact", "defensible_evidence": "b3 resultado"},
+                    ],
+                    "summary_support": [
+                        {
+                            "summary_fragment": "R$8MM de redução de GGF",
+                            "experience_index": 1,
+                            "experience_role": "B",
+                            "experience_company": "Y",
+                            "bullet_index": 2,
+                            "defensible_evidence": "Reduzi R$8MM em GGF.",
+                        },
+                        {
+                            "summary_fragment": "180+ POPs de validação regulatória",
+                            "experience_index": 0,
+                            "experience_role": "A",
+                            "experience_company": "X",
+                            "bullet_index": 2,
+                            "defensible_evidence": "b3 resultado",
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            applications_service._validate_cv_content_contract(paths)
+        except ValidationFailure as exc:
+            if "summary fragment not found in summary" in str(exc):
+                raise SystemExit(f"Unexpected summary_support validation failure ordering: {exc}")
+            if "mapped bullet does not contain factual anchors" not in str(exc):
+                raise SystemExit(f"Unexpected validation error for summary_support contract: {exc}")
+        else:
+            raise SystemExit("cv_content contract should block summary fragments that are not backed by the mapped experience bullet")
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -1324,6 +1407,7 @@ PHASES = {
     35: phase_35,
     36: phase_36,
     37: phase_37,
+    38: phase_38,
 }
 
 

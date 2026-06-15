@@ -312,8 +312,8 @@ npm run notion:record-summary -- <id_unico>                 # alias compacto do 
 npm run notion:templates                                     # lista templates disponíveis
 npm run notion:sweep:refresh                                 # sincroniza o snapshot local a partir do Notion e reescreve o cache consolidado
 npm run notion:sweep:build-cache                             # apenas reconstrói o cache local a partir do sweep já salvo
-npm run notion:memory:sync -- --refresh missing              # refresh incremental + rebuild do registry tecnico local + rebuild da memoria compacta
-npm run notion:memory:sync -- --refresh full                 # full sync remoto + rebuild do registry tecnico local + rebuild da memoria compacta
+npm run notion:memory:sync -- --refresh missing              # refresh incremental + rebuild do registry tecnico local + rebuild da memoria compacta + backfill automatico de governanca no Notion
+npm run notion:memory:sync -- --refresh full                 # full sync remoto + rebuild do registry tecnico local + rebuild da memoria compacta + backfill automatico de governanca no Notion
 npm run notion:create-current                                # cria página a partir do FIT_MAP ativo
 python3 scripts/notion_sync.py create-description-record --job-description <arquivo.md> --company "<empresa>" --role "<cargo>" --source-url "<url>" --dry-run
 python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo.md> --source-url "<url>" --dry-run
@@ -350,6 +350,7 @@ Regra operacional do heartbeat:
 - `max_per_run` define quantas vagas entram no lote do ciclo; a execução continua serial, uma vaga por vez
 - antes de montar a fila, o heartbeat executa a manutenção local equivalente a `npm run notion:memory:sync -- --refresh missing`, salvo override explícito de manutenção
 - cadência padrão de manutenção: `missing` em toda execução; `full` automático quando completar 24 execuções sem full ou 24 horas desde o último full; `--maintenance-refresh full` continua disponível como override explícito
+- a manutenção padrão do heartbeat também executa backfill automático dos campos de governança do Notion; esse maintenance path é autorizado para manter o tracker como memória operacional e não depende de pedido manual por candidatura
 - status de tratamento automático deve ser `Fila Agente`
 - status `Reprocessar` força limpeza completa do pacote local da candidatura antes do próximo ciclo
 - status final configurado para vagas processadas é `Aplicação andamento`
@@ -416,6 +417,7 @@ Regra operacional para histórico do Notion:
 - quando a manutencao envolver memoria historica local, usar preferencialmente `npm run notion:memory:sync -- --refresh missing`
 - usar `npm run notion:memory:sync -- --refresh full` quando houver suspeita de drift maior, páginas novas não refletidas no sweep local ou necessidade de auditoria completa do espelho Notion -> cache -> derivados
 - o ciclo `notion:memory:sync` deve deixar alinhados: `inbox/notion/applications_sweep/`, `inbox/notion/applications_cache.json`, `.career-state/derived/keyword_ats_registry.json` e `.career-state/memory/`
+- o ciclo `notion:memory:sync` também deve gravar automaticamente os campos de governança do Notion derivados de cache, sweep e memória local; essa exceção de escrita automática vale apenas para governança e não substitui aprovação explícita para criação de página, update manual de descrição ou update de FIT_MAP solicitado ad hoc
 
 ## OpenCode local
 
@@ -603,7 +605,7 @@ Criação no Notion exige pedido explícito do usuário e usa sempre o template 
 Para vaga nova, o fluxo padrão é criar no Notion somente depois de análise concluída e `FIT_MAP` final válido; criação só com descrição é exceção deliberada de captura precoce.
 Na criação por `create-from-fit-map`, além das propriedades, o corpo da página deve receber a análise de aderência do FIT_MAP (nota, dor central, resumo das notas, gaps, objeções e defesas, e tabela/lista das 15 keywords-habilidade para ATS), inserida abaixo de `Pesquisa Inicial` quando esse bloco existir.
 
-Atualização de uma página já existente no Notion também exige pedido explícito do usuário. Quando a vaga nascer no Notion, preferir atualizar a mesma página via `update-from-fit-map` em vez de criar uma duplicata.
+Atualização de uma página já existente no Notion também exige pedido explícito do usuário, exceto no maintenance path de governança (`notion:memory:sync`, heartbeat e backfill automático), que pode escrever somente os campos de governança autorizados para manter o tracker como memória operacional. Quando a vaga nascer no Notion, preferir atualizar a mesma página via `update-from-fit-map` em vez de criar uma duplicata.
 Quando o usuário referenciar `Notion <número>`, tratar esse número como o valor do campo único `ID` da tabela e resolver a página correspondente antes de ler ou atualizar.
 Todo texto devolvido ao Notion deve permanecer em UTF-8 legível. Nunca enviar ou aceitar como pronto texto com sinais de mojibake como `Ã`, `Â`, `â€“`, `â€”`, `â€™`, `â€œ`, `â€` ou `ï¿½`; corrigir a origem e repetir o comando.
 

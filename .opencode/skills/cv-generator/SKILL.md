@@ -591,6 +591,22 @@ Uso correto dessas referências:
 7. Separar matching de redação: normalização sem acento pode existir nos scripts de comparação ATS, mas nunca deve vazar para o texto visível do CV em português
 8. Teste final desta etapa: se um recrutador humano ler o resumo e os bullets e sentir "metralhadora de keyword em ingles", reescrever antes de gerar o DOCX
 
+**Passo 0.6 — Ancorar o resumo nas experiências selecionadas**
+
+Antes de fechar o `cv_content.json`, verificar que todo fato específico do resumo executivo esteja explicitamente sustentado por pelo menos uma experiência incluída no próprio CV.
+
+Regras obrigatórias:
+- o resumo não pode trazer número, escala, sigla operacional, ativo regulatório, cidade, budget, saving, POP, KPI ou claim factual cuja experiência de origem não esteja selecionada no CV;
+- o resumo não pode usar `historias_selecionadas` do FIT_MAP como atalho para citar resultados de experiências que ficaram fora do documento final;
+- toda frase factual do resumo deve apontar para uma experiência e bullet defensáveis dentro de `cv_content.json`;
+- se uma evidência forte do FIT_MAP não couber nas 4–8 experiências escolhidas, a ação correta é remover essa evidência do resumo, não deixá-la “solta” no topo do CV;
+- quando houver dúvida entre “ficou ótimo no resumo” e “está de fato endossado pelas experiências visíveis”, prevalece sempre a segunda opção.
+
+Checklist mínimo antes do DOCX:
+- [ ] cada claim factual do resumo aparece novamente, de forma literal ou claramente equivalente, em uma experiência selecionada;
+- [ ] nenhum item do resumo depende de experiência omitida;
+- [ ] o resumo continua executivo e curto, mas sem promessas ou números órfãos.
+
 ---
 
 **Fase A — Planejar os bullets de forma compacta antes de gerar o script**
