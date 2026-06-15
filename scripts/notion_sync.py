@@ -23,6 +23,10 @@ DEFAULT_SWEEP_SUMMARY = Path("inbox/notion/applications_sweep_summary.json")
 DEFAULT_SWEEP_CACHE = Path("inbox/notion/applications_cache.json")
 DEFAULT_GOVERNANCE_BACKFILL_REPORT = Path("outputs/_tmp/notion_governance_backfill_report.json")
 MOJIBAKE_MARKERS = ("Ã", "Â", "â€“", "â€”", "â€™", "â€œ", "â€", "ï¿½")
+AUTOMATION_STATUS_CEILING = "Aplicação andamento"
+AUTOMATION_STATUS_DOWNGRADES = {
+    "aplicacao feita": AUTOMATION_STATUS_CEILING,
+}
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -607,6 +611,11 @@ def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", (text or "").strip())
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     return re.sub(r"\s+", " ", normalized).lower()
+
+
+def sanitize_automation_status(status: str) -> str:
+    normalized = normalize_text(status)
+    return AUTOMATION_STATUS_DOWNGRADES.get(normalized, status)
 
 
 def detect_document_language(text: str) -> str:
@@ -2047,6 +2056,7 @@ def create_from_fit_map(
     status: str = "Aplicação andamento",
 ) -> dict:
     fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
+    status = sanitize_automation_status(status)
     job_description = read_job_description(job_description_path) or fit_map.get("descricao_vaga", "").strip()
     if not job_description:
         raise SystemExit("Job description is required when creating a Notion application record. Use --job-description <file> or include descricao_vaga in FIT_MAP.")
@@ -2148,6 +2158,7 @@ def update_from_fit_map(
     status: str = "Aplicação andamento",
 ) -> dict:
     fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
+    status = sanitize_automation_status(status)
     current_page = extract_page_payload(token, page_id)
     current_blocks = retrieve_blocks(token, page_id)
     page_description = (current_page.get("description") or "").strip()

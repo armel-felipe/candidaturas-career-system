@@ -602,6 +602,8 @@ def phase_17() -> None:
         raise SystemExit(f"Unexpected heartbeat queue selection: {selected}")
     if applications_service.DEFAULT_CONFIG["no_description_status"] != "Sem descrição de vaga":
         raise SystemExit("Unexpected no-description Notion status spelling")
+    if notion_sync.sanitize_automation_status("Aplicação Feita") != "Aplicação andamento":
+        raise SystemExit("Legacy Notion completion status should be downgraded to Aplicação andamento")
     if applications_service.detect_job_language("About the role\nResponsibilities\nRequirements") != "en":
         raise SystemExit("Expected English job description detection")
     if applications_service.detect_job_language("Sobre a vaga\nResponsabilidades\nRequisitos") != "pt-BR":

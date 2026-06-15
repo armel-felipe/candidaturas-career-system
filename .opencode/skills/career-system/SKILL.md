@@ -398,6 +398,7 @@ Regras:
 - para observabilidade diária, usar `./scripts/python.sh scripts/career_cli.py applications status --format human`;
 - o status de tratamento automático é `Fila Agente`;
 - o status final configurado é `Aplicação andamento`;
+- automações, heartbeat, agentes e updates pós-CV nunca devem gravar `Aplicação Feita`; o teto operacional no Notion é `Aplicação andamento`, porque a candidatura real continua sob revisão e envio manual do Felipe;
 - vaga em fila sem campo `Descrição da Vaga` preenchido deve ser ignorada pelo agente e movida para `Sem descrição de vaga`;
 - o orquestrador detecta o idioma da descrição e grava `required_cv_language` no manifest da candidatura;
 - cada candidatura deve ter pasta própria em `.career-state/applications/<ID>/` com `manifest.json`, `state.json`, `job_description.md`, requests por etapa, `conversation_context.md` e relatórios;

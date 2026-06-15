@@ -64,6 +64,10 @@ def notion_config() -> tuple[str, str]:
     return legacy_notion.notion_config()
 
 
+def sanitize_automation_status(status: str) -> str:
+    return legacy_notion.sanitize_automation_status(status)
+
+
 def _extract_property(page: dict, logical_name: str) -> str:
     props = page.get("properties", {})
     for alias in legacy_notion.PROPERTY_ALIASES.get(logical_name, []):

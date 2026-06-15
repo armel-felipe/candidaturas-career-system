@@ -354,6 +354,7 @@ Regra operacional do heartbeat:
 - status de tratamento automático deve ser `Fila Agente`
 - status `Reprocessar` força limpeza completa do pacote local da candidatura antes do próximo ciclo
 - status final configurado para vagas processadas é `Aplicação andamento`
+- automações, agentes e atualizações no Notion após análise/CV nunca podem promover `Etapa Funil` para `Aplicação Feita`; o teto automático é `Aplicação andamento`, pois a candidatura real depende da revisão e envio manual do Felipe
 - vaga em fila sem campo `Descrição da Vaga` preenchido deve ser ignorada pelo agente e movida para `Sem descrição de vaga`
 - o orquestrador detecta o idioma da descrição e grava `required_cv_language` no manifest da candidatura
 - a configuração local fica em `.career-state/applications_v2/config.json`

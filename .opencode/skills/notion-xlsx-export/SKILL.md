@@ -68,8 +68,8 @@ Filtros múltiplos são permitidos e funcionam em `AND`:
 ```bash
 npm run notion:export-xlsx -- \
   --where "tipo de empresa_int=50 Empresas para trabalhar" \
-  --where "Etapa Funil=Aplicação Feita" \
-  --output-base outputs/notion_50_empresas_aplicacao_feita
+  --where "Etapa Funil=Aplicação andamento" \
+  --output-base outputs/notion_50_empresas_aplicacao_andamento
 ```
 
 Para filtros de texto com “contém qualquer um destes termos”, usar:

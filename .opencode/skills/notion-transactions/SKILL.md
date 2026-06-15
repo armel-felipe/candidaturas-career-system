@@ -25,6 +25,7 @@ Não mover scripts para dentro da skill: eles são compartilhados pelo heartbeat
 - Nunca ler `.env`, copiar `NOTION_TOKEN`, montar `curl` manual ou chamar a API pública diretamente.
 - Os scripts locais carregam `.env` e resolvem token, database/data source, propriedades, paginação, templates e validação de payload.
 - Escrita real no Notion exige pedido explícito do usuário, exceto no maintenance path de governança (`notion:memory:sync`, heartbeat e backfill automático), que pode atualizar somente os campos de governança autorizados para manter o Notion como memória operacional do projeto.
+- Mesmo quando a escrita real for autorizada, automações deste projeto nunca devem promover `Etapa Funil` acima de `Aplicação andamento`; `Aplicação Feita` é reservado para decisão/manual humano fora do pipeline.
 - Para criação/atualização de registro, executar `--dry-run` antes da escrita real e mostrar o resumo do payload sem segredos.
 - Quando o usuário disser `Notion <número>`, tratar o número como o campo único `ID`, não como `page_id`.
 - Nunca usar `--allow-mismatch` para contornar descrição/FIT_MAP incompatível.

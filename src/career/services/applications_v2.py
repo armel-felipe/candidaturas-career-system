@@ -192,6 +192,8 @@ def _load_config() -> dict[str, Any]:
     merged["maintenance"] = {**DEFAULT_CONFIG["maintenance"], **payload.get("maintenance", {})}
     merged["analysis_runner"] = {**DEFAULT_CONFIG["analysis_runner"], **payload.get("analysis_runner", {})}
     merged["generation_runner"] = {**DEFAULT_CONFIG["generation_runner"], **payload.get("generation_runner", {})}
+    merged["success_status"] = notion_service.sanitize_automation_status(str(merged.get("success_status") or ""))
+    merged["blocked_review_status"] = notion_service.sanitize_automation_status(str(merged.get("blocked_review_status") or ""))
     return merged
 
 

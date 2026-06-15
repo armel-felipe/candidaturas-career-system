@@ -113,6 +113,7 @@ Nunca usar `--allow-mismatch` para contornar descrição errada. Se o dry-run in
 salva, o FIT_MAP ativo ou a origem da página antes de atualizar o Notion.
 
 Regra dura: a nota de aderência não muda a decisão entre criar e atualizar. Se a origem foi Notion (`page_id` ou `ID` único), `create-from-fit-map` é proibido mesmo quando a nota for alta; a única saída correta é atualizar a mesma página/registro.
+Regra dura adicional: ao criar/atualizar no Notion depois da análise ou do CV, o pipeline nunca deve subir `Etapa Funil` acima de `Aplicação andamento`; `Aplicação Feita` não é status automático.
 
 **Se o usuário não veio do Notion mas pediu para registrar** → criar novo:
 
