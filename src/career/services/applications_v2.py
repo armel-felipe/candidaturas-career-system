@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import unicodedata
@@ -41,7 +42,9 @@ DEFAULT_CONFIG = {
     "error_status": "Aplicação em Análise",
     "blocked_review_status": "Aplicação andamento",
     "no_description_status": "Sem descrição de vaga",
+    "analyze_retry_max_attempts": 1,
     "repair_max_attempts": 2,
+    "llm_session_budget_per_application": 4,
     "maintenance": {
         "enabled": True,
         "refresh": "missing",
@@ -452,6 +455,8 @@ def _read_state(paths: dict[str, Path], record_key: str, application: dict[str, 
         "last_error": None,
         "retry_count_analyze": 0,
         "repair_attempt_count": 0,
+        "llm_session_count": 0,
+        "llm_stage_attempts": {},
         "updated_at": utc_now_iso(),
     }, "analyze_pending")
 
@@ -512,6 +517,137 @@ def _fit_score(path: Path) -> float | None:
     if isinstance(score, (int, float)):
         return float(score)
     return None
+
+
+def _current_llm_session_count(state: dict[str, Any]) -> int:
+    return int(state.get("llm_session_count") or 0)
+
+
+def _llm_session_budget(config: dict[str, Any]) -> int:
+    return max(int(config.get("llm_session_budget_per_application") or 0), 0)
+
+
+def _remaining_llm_sessions(state: dict[str, Any], config: dict[str, Any]) -> int | None:
+    budget = _llm_session_budget(config)
+    if budget <= 0:
+        return None
+    return max(budget - _current_llm_session_count(state), 0)
+
+
+def _consume_llm_session_budget(
+    state: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    stage: str,
+    paths: dict[str, Path],
+) -> None:
+    budget = _llm_session_budget(config)
+    current = _current_llm_session_count(state)
+    if budget > 0 and current >= budget:
+        remaining = _remaining_llm_sessions(state, config)
+        _append_event(
+            paths,
+            "llm_budget_blocked",
+            stage=stage,
+            llm_session_count=current,
+            llm_session_budget=budget,
+            llm_session_remaining=remaining,
+        )
+        raise SystemExit(
+            f"LLM session budget exhausted for application {state.get('record_key') or '<unknown>'}: "
+            f"{current}/{budget} sessions already used."
+        )
+    state["llm_session_count"] = current + 1
+    attempts = state.get("llm_stage_attempts")
+    if not isinstance(attempts, dict):
+        attempts = {}
+    attempts[stage] = int(attempts.get(stage) or 0) + 1
+    state["llm_stage_attempts"] = attempts
+
+
+def _is_retryable_analyze_error(validation_error: str) -> bool:
+    message = str(validation_error or "").casefold()
+    retryable_markers = (
+        "placeholder",
+        "placeholders",
+        "invalid json",
+        "json",
+        "must contain",
+        "must be",
+        "required",
+        "missing",
+        "empty",
+        "enum",
+        "did not produce",
+        "draft",
+    )
+    non_retryable_markers = (
+        "timed out",
+        "wrote outside allowed outputs",
+        "keyword registration failed",
+    )
+    if any(marker in message for marker in non_retryable_markers):
+        return False
+    return any(marker in message for marker in retryable_markers)
+
+
+def _can_retry_analyze(validation_error: str, state: dict[str, Any], config: dict[str, Any]) -> tuple[bool, str]:
+    retry_count = int(state.get("retry_count_analyze") or 0)
+    retry_limit = max(int(config.get("analyze_retry_max_attempts") or 0), 0)
+    if retry_limit <= 0:
+        return False, "analyze_retry_disabled_by_config"
+    if retry_count >= retry_limit:
+        return False, "analyze_retry_limit_reached"
+    if not _is_retryable_analyze_error(validation_error):
+        return False, "analyze_error_not_retryable"
+    remaining = _remaining_llm_sessions(state, config)
+    if remaining is not None and remaining <= 0:
+        return False, "llm_session_budget_exhausted"
+    return True, "retryable_contract_error"
+
+
+def _repairable_review_blocker_ids(review_report: dict[str, Any]) -> list[str]:
+    blockers = review_report.get("blockers", []) if isinstance(review_report, dict) else []
+    return [str(item.get("id")) for item in blockers if isinstance(item, dict) and item.get("id")]
+
+
+def _missing_unexplained_top8(review_report: dict[str, Any]) -> list[dict[str, Any]]:
+    top8 = review_report.get("top8_keywords", []) if isinstance(review_report, dict) else []
+    return [
+        item for item in top8
+        if isinstance(item, dict) and item.get("coverage_class") == "missing_unexplained"
+    ]
+
+
+def _repair_decision(review_report: dict[str, Any], polish_report: dict[str, Any], state: dict[str, Any], config: dict[str, Any]) -> tuple[bool, str]:
+    polish_blockers = polish_report.get("approval_blockers", []) if isinstance(polish_report, dict) else []
+    if polish_blockers:
+        return False, "polish_blockers_require_manual_review"
+    review_blocker_ids = _repairable_review_blocker_ids(review_report)
+    missing_top8 = _missing_unexplained_top8(review_report)
+    if missing_top8:
+        return True, "missing_unexplained_top8"
+    allowed_review_blockers = {
+        "ats_top8_minimum_score",
+        "ats_top8_no_missing_unexplained",
+        "summary_facts_backed_by_experiences",
+        "summary_within_limit",
+        "english_cv_role_titles_in_english",
+    }
+    disallowed = [item for item in review_blocker_ids if item not in allowed_review_blockers]
+    if disallowed:
+        return False, "review_blockers_not_repairable_by_text"
+    max_attempts = max(int(config.get("repair_max_attempts") or 0), 0)
+    if max_attempts <= 0:
+        return False, "repair_disabled_by_config"
+    if int(state.get("repair_attempt_count") or 0) >= max_attempts:
+        return False, "repair_attempt_limit_reached"
+    remaining = _remaining_llm_sessions(state, config)
+    if remaining is not None and remaining <= 0:
+        return False, "llm_session_budget_exhausted"
+    if review_blocker_ids:
+        return True, "review_blockers_repairable_by_text"
+    return False, "no_repairable_blockers_detected"
 
 
 def _ascii_slug(value: str) -> str:
@@ -867,7 +1003,14 @@ def _write_context(application: dict[str, Any], paths: dict[str, Path], state: d
     _append_event(paths, "context_written", stage=state.get("stage"), score=state.get("score"))
 
 
-def _run_agent(stage: str, application: dict[str, Any], paths: dict[str, Path], config: dict[str, Any], options: HeartbeatV2Options) -> None:
+def _run_agent(
+    stage: str,
+    application: dict[str, Any],
+    paths: dict[str, Path],
+    config: dict[str, Any],
+    options: HeartbeatV2Options,
+    state: dict[str, Any],
+) -> None:
     runner_key = "analysis_runner" if stage == "analyze" else "generation_runner"
     runner = config[runner_key]
     model = options.model or str(config.get("active_model") or "").strip()
@@ -887,10 +1030,19 @@ def _run_agent(stage: str, application: dict[str, Any], paths: dict[str, Path], 
         else paths["generation_request_json"]
     )
     supervisor = HarnessSupervisor(ROOT)
+    _consume_llm_session_budget(state, config, stage=stage, paths=paths)
 
     def on_start(command: list[str]) -> None:
         _emit("command: " + " ".join(f'"{part}"' if " " in part else part for part in command))
-        _append_event(paths, "agent_started", stage=stage, command=command)
+        _append_event(
+            paths,
+            "agent_started",
+            stage=stage,
+            command=command,
+            llm_session_count=_current_llm_session_count(state),
+            llm_session_budget=_llm_session_budget(config),
+            llm_session_remaining=_remaining_llm_sessions(state, config),
+        )
 
     payload = supervisor.run_application_stage(
         stage=stage,
@@ -988,19 +1140,28 @@ def _postprocess_analyze(paths: dict[str, Path]) -> float:
 def _run_analyze_with_retry(application: dict[str, Any], paths: dict[str, Path], config: dict[str, Any], options: HeartbeatV2Options, state: dict[str, Any]) -> float:
     _write_request(paths, "analyze", _analysis_request(application, paths))
     _write_context(application, paths, state)
-    _run_agent("analyze", application, paths, config, options)
+    _run_agent("analyze", application, paths, config, options, state)
     try:
         return _postprocess_analyze(paths)
     except (SystemExit, ValidationFailure) as exc:
         validation_error = str(exc)
-        _append_event(paths, "analyze_retry_requested", message=validation_error)
+        can_retry, retry_reason = _can_retry_analyze(validation_error, state, config)
+        _append_event(
+            paths,
+            "analyze_retry_evaluated",
+            message=validation_error,
+            retry_allowed=can_retry,
+            retry_reason=retry_reason,
+        )
+        if not can_retry:
+            raise
         state["retry_count_analyze"] = int(state.get("retry_count_analyze") or 0) + 1
         _set_stage(state, "analyze_retry_pending")
         state["last_error"] = validation_error
         _write_state(paths, state)
         _write_request(paths, "analyze", _analysis_retry_request(application, paths, validation_error))
         _write_context(application, paths, state)
-        _run_agent("analyze", application, paths, config, options)
+        _run_agent("analyze", application, paths, config, options, state)
         return _postprocess_analyze(paths)
 
 
@@ -1441,6 +1602,7 @@ def _fit_map_for_notion(
     review_report: dict | None = None,
     polish_report: dict | None = None,
 ) -> Path:
+    config = _load_config()
     fit_map = read_json(paths["fit_map"])
     manifest = read_json(paths["manifest"]) if paths["manifest"].exists() else {}
     report = review_report if isinstance(review_report, dict) else (read_json(paths["cv_review_report"]) if paths["cv_review_report"].exists() else {})
@@ -1453,6 +1615,8 @@ def _fit_map_for_notion(
     fit_map["service_stage"] = state.get("stage")
     fit_map["service_stage_status"] = state.get("stage_status")
     fit_map["service_next_action"] = state.get("next_action")
+    fit_map["service_llm_session_count"] = _current_llm_session_count(state)
+    fit_map["service_llm_session_budget"] = _llm_session_budget(config)
     fit_map["service_review_status"] = state.get("review_status") or ("approved" if report.get("approved_for_delivery") else "pending")
     fit_map["service_review_blockers"] = [item.get("id") for item in report.get("blockers", [])] if isinstance(report, dict) else []
     fit_map["service_missing_top8"] = missing_top8
@@ -1532,6 +1696,7 @@ def _write_index(entries: list[dict[str, Any]]) -> None:
 
 
 def _result_payload(application: dict[str, Any], paths: dict[str, Path], state: dict[str, Any]) -> dict[str, Any]:
+    config = _load_config()
     return {
         "record_key": _record_key(application),
         "record_id": application.get("record_id"),
@@ -1544,6 +1709,9 @@ def _result_payload(application: dict[str, Any], paths: dict[str, Path], state: 
         "stage_status": state.get("stage_status"),
         "retryable": state.get("retryable"),
         "score": state.get("score"),
+        "llm_session_count": _current_llm_session_count(state),
+        "llm_session_budget": _llm_session_budget(config),
+        "llm_session_remaining": _remaining_llm_sessions(state, config),
         "application_dir": str(paths["manifest"].parent.relative_to(ROOT)),
         "conversation_context": str(paths["conversation_context"].relative_to(ROOT)),
         "output_docx": state.get("output_docx"),
@@ -1584,7 +1752,7 @@ def _run_repair_cycle(
         _set_service_status(state, "repair_running")
         _write_state(paths, state)
         _write_context(application, paths, state)
-        _run_agent("repair", application, paths, config, options)
+        _run_agent("repair", application, paths, config, options, state)
 
         latest_result = _postprocess_generate(paths)
         _set_stage(state, str(latest_result["stage"]))
@@ -1709,7 +1877,7 @@ def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
                     _write_state(paths, state)
                     _write_request(paths, "generate", _generation_request(application, paths))
                     _write_context(application, paths, state)
-                    _run_agent("generate", application, paths, config, options)
+                    _run_agent("generate", application, paths, config, options, state)
                     generate_result = _postprocess_generate(paths)
                     _set_stage(state, str(generate_result["stage"]))
                     _set_service_status(state)
@@ -1734,11 +1902,31 @@ def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
                             review_report=generate_result.get("review_report", {}) if isinstance(generate_result.get("review_report"), dict) else {},
                             polish_report=generate_result.get("polish_report", {}) if isinstance(generate_result.get("polish_report"), dict) else {},
                         )
-                        generate_result = _run_repair_cycle(application, paths, config, options, state, generate_result)
-                        if state["stage"] == "done":
-                            _set_service_status(state, "done")
-                        elif state["stage"] == "blocked_review_exhausted":
-                            state["last_error"] = state.get("last_error") or generate_result.get("message")
+                        repair_allowed, repair_reason = _repair_decision(
+                            generate_result.get("review_report", {}) if isinstance(generate_result.get("review_report"), dict) else {},
+                            generate_result.get("polish_report", {}) if isinstance(generate_result.get("polish_report"), dict) else {},
+                            state,
+                            config,
+                        )
+                        _append_event(
+                            paths,
+                            "repair_cycle_evaluated",
+                            repair_allowed=repair_allowed,
+                            repair_reason=repair_reason,
+                            llm_session_count=_current_llm_session_count(state),
+                            llm_session_budget=_llm_session_budget(config),
+                            llm_session_remaining=_remaining_llm_sessions(state, config),
+                        )
+                        if repair_allowed:
+                            generate_result = _run_repair_cycle(application, paths, config, options, state, generate_result)
+                            if state["stage"] == "done":
+                                _set_service_status(state, "done")
+                            elif state["stage"] == "blocked_review_exhausted":
+                                state["last_error"] = state.get("last_error") or generate_result.get("message")
+                        else:
+                            _set_stage(state, "blocked_review_exhausted")
+                            _set_service_status(state, "blocked_review_exhausted")
+                            state["last_error"] = state.get("last_error") or repair_reason or generate_result.get("message")
                 _write_state(paths, state)
                 _write_context(application, paths, state)
             result = _result_payload(application, paths, state)

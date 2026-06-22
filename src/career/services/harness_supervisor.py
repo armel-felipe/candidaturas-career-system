@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -21,7 +23,10 @@ LINKEDIN_POST_RE = re.compile(
 NOTION_ID_RE = re.compile(r"\b(?:notion|vaga|id)\s*#?\s*(\d+)\b", re.IGNORECASE)
 
 SPECIALIST_OUTPUT_PATTERNS = {
-    "fit-map": [".career-state/fit_map.draft.json"],
+    "fit-map": [
+        ".career-state/fit_map.draft.json",
+        ".career-state/workflow_state.json",
+    ],
     "cv": [
         ".career-state/cv_content.json",
         "outputs/*.docx",
@@ -32,7 +37,15 @@ SPECIALIST_OUTPUT_PATTERNS = {
     "cover-letter": ["outputs/*.md", "outputs/*.pdf", "outputs/_tmp/delivery_report.json"],
     "feras": ["outputs/*.md"],
     "habilidades": ["outputs/*.md"],
-    "notion-update": [".career-state/pending_actions/*.json"],
+    "notion-update": [
+        ".career-state/pending_actions/*.json",
+        ".career-state/derived/active_context.json",
+        ".career-state/derived/job_extract.json",
+        ".career-state/derived/manifest.json",
+        ".career-state/derived/keyword_ats_registry.json",
+        ".career-state/derived/keyword_translation_candidates.json",
+        "inbox/job_descriptions/*.md",
+    ],
     "email-draft": [".career-state/pending_actions/*.json"],
     "linkedin": [
         ".career-state/linkedin_job_extract.json",
@@ -72,6 +85,14 @@ class HarnessSupervisor:
         lowered = text.casefold()
         if not text:
             return self._decision("help", "route", "high", "empty_message")
+
+        if self._is_runtime_introspection(lowered):
+            return self._decision(
+                "runtime_introspection",
+                "status",
+                "high",
+                "runtime_introspection_request",
+            )
 
         job_match = LINKEDIN_JOB_RE.search(text)
         if job_match:
@@ -174,7 +195,7 @@ class HarnessSupervisor:
         if analysis_requested:
             return self._decision("fit_map", "fit-map", "medium", "job_analysis_request")
 
-        return self._decision("help", "route", "low", "no_deterministic_route")
+        return self._decision("generic_assistant", "chat", "low", "no_deterministic_route")
 
     @staticmethod
     def _company_role(message: str) -> tuple[str | None, str | None]:
@@ -416,6 +437,10 @@ class HarnessSupervisor:
                 "command": "npm run linkedin:saved-jobs:extract",
                 "next_action": "run_saved_jobs_extractor",
             }
+        elif workflow == "runtime_introspection":
+            from career.services import project as project_service
+
+            envelope["result"] = project_service.hermes_runtime_snapshot()
         elif workflow in {
             "fit_map",
             "cv",
@@ -437,6 +462,8 @@ class HarnessSupervisor:
                 model=model,
                 variant=variant,
             )
+        elif workflow == "generic_assistant":
+            envelope["result"] = self._run_generic_message(message, model=model)
         else:
             envelope["status"] = "blocked"
             envelope["blocker_reason"] = "no_deterministic_route"
@@ -500,6 +527,37 @@ class HarnessSupervisor:
             return "Leia o request anexado e grave somente os artefatos textuais pedidos."
         raise ValueError(f"Unsupported application stage: {stage}")
 
+    def _run_generic_message(self, message: str, *, model: str | None = None) -> dict[str, Any]:
+        if not self.root:
+            return {"status": "blocked", "blocker_reason": "generic_runner_root_missing"}
+        hermes = shutil.which("hermes")
+        if not hermes:
+            return {"status": "blocked", "blocker_reason": "generic_runner_unavailable"}
+        command = [hermes, "--accept-hooks"]
+        if model:
+            command.extend(["--model", model])
+        command.extend(["-z", message])
+        completed = subprocess.run(
+            command,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15 * 60,
+        )
+        stdout = (completed.stdout or "").strip()
+        stderr = (completed.stderr or "").strip()
+        return {
+            "status": "completed" if completed.returncode == 0 else "blocked",
+            "mode": "generic_hermes_fallback",
+            "command": command,
+            "stdout": stdout,
+            "stderr": stderr,
+            "returncode": completed.returncode,
+            **({"blocker_reason": "generic_runner_failed"} if completed.returncode != 0 else {}),
+        }
+
     @staticmethod
     def _decision(
         workflow: str,
@@ -518,3 +576,22 @@ class HarnessSupervisor:
             requires_approval=requires_approval,
             parameters=parameters,
         )
+
+    @staticmethod
+    def _is_runtime_introspection(lowered: str) -> bool:
+        triggers = (
+            "temperatura",
+            "temperature",
+            "config do hermes",
+            "configuração do hermes",
+            "configuracao do hermes",
+            "hermes config",
+            "qual modelo",
+            "que modelo",
+            "model you are using",
+            "modelo que vc está usando",
+            "modelo que vc esta usando",
+            "runtime do hermes",
+            "runtime local",
+        )
+        return any(trigger in lowered for trigger in triggers)

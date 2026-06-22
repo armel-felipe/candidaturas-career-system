@@ -16,6 +16,10 @@ Manutenção canônica desta skill: `.opencode/skills/career-system/SKILL.md`.
 
 Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/career-system/SKILL.md`.
 
+Guia de manutenção da biblioteca de skills: `references/skill-library-maintenance.md`. Consulte este guia ao receber pedidos de revisão/atualização da skill library — ele define o checklist de auditoria, a ordem de preferência e os pitfalls a evitar.
+
+Skill Hermes correspondente: `skill-library-maintenance` (categoria `software-development`). Carregue esta skill com `skill_view(name='skill-library-maintenance')` quando o usuário pedir revisão da biblioteca de skills — ela contém o workflow completo de auditoria, os sinais que exigem ação e os anti-patterns já rejeitados pelo usuário.
+
 Use esta skill como camada orquestradora antes de qualquer rotina de candidatura. Ela define o fluxo operacional local do projeto no OpenCode.
 
 ## Runtime Local
@@ -35,9 +39,13 @@ Use esta skill como camada orquestradora antes de qualquer rotina de candidatura
 
 Antes de executar uma tarefa que aciona uma skill, leia o `SKILL.md` correspondente na pasta `.opencode/skills/`.
 
+A tabela completa de gatilho → skill do projeto está em `references/routing-table.md`. Consulte-a quando o usuário pedir uma tarefa de candidatura e você precisar determinar qual skill do projeto carregar.
+
 Ler a skill é pré-requisito, não conclusão. A execução só conta como concluída quando o workflow operacional definido pela skill tiver sido realmente cumprido, com artefatos persistidos e validações executadas.
 
-Fluxo padrão:
+**Nota de manutenção:** a tabela de roteamento vive exclusivamente em `references/routing-table.md`. Não duplicar o conteúdo inline aqui — toda adição de skill deve ir apenas na referência.
+
+### Fluxo padrão
 
 1. `career-fit-analysis` gera um draft analítico, canoniza via `scripts/build_fit_map.py`, calcula a nota via `scripts/score_fit_map.py` e então atualiza `.career-state/fit_map.json`.
 2. `cv-generator`, `feras-pitch`, `cover-letter` e `habilidades-chave` consomem o FIT_MAP ativo.
@@ -107,8 +115,8 @@ Política de contexto compacto:
 Gate global para CV em DOCX:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx
-python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx
+python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
 Regras:
@@ -172,7 +180,7 @@ Comportamentos proibidos:
 - se `next_required_step` for `preencher .career-state/fit_map.draft.json`, executar `npm run fit-map:resume`; a resposta seguinte deve editar o draft ou declarar bloqueio real, nunca recalcular nota em texto livre
 - se o agente acabou de ler `.career-state/fit_map.draft.json` e ele ainda contém placeholders, a leitura não conta como progresso; deve editar o arquivo imediatamente
 - se `npm run fit-map:guard` retornar `blocked=true`, qualquer resposta subsequente sem edição do draft conta como execução parcial/stall
-- ao avaliar logs de benchmarking ou travamento, executar `python scripts/diagnose_session_stall.py <session.md>` e tratar `stalled=true` como execucao parcial
+- ao avaliar logs de benchmarking ou travamento, executar `python3 scripts/diagnose_session_stall.py <session.md>` e tratar `stalled=true` como execucao parcial
 
 ## Execucao Multiagente Local
 
@@ -330,18 +338,149 @@ Regras duras de aderência:
 - cobertura por analogia, contexto semelhante ou reposicionamento recebe no máximo `0,5`
 - itens sensíveis sem prova literal, especialmente `motoristas/ajudantes`, `combustível/pedágio/horas extras` e `distribuição de alimentos/perecíveis`, devem gerar gap explícito
 
+### Regras de Pontuação do FIT_MAP
+
+O sistema de pontuação usa pesos fixos por dimensão, totalizando 10,0:
+
+| Dimensão | Peso | Descrição |
+|---|---|---|
+| req_obrig | 4,0 | Requisitos obrigatórios da vaga |
+| resp_princ | 3,0 | Responsabilidades principais |
+| gaps | 2,0 | Gaps e lacunas (invertido: menos gap = mais nota) |
+| diffs | 1,0 | Diferenciais |
+
+Apresentar sempre como `X/weight` (ex: `3,2/4,0`), nunca como percentual.
+
+Regras de nota por item:
+- nota máxima por item é `0,5` a menos que o item seja `DIRETO` E `prova_literal = true`
+- `DIRETO` + `prova_literal = true` permite nota até `1,0`
+- itens com `tipo = REPOSICIONAMENTO` ou `ANALOGIA` recebem no máximo `0,5` mesmo com prova
+
+Regras de GAP no draft:
+- rejeitar `-`, `N/A` ou `null` como valor de GAP — usar `Sem experiência em [tema]`
+- todo GAP deve ter `angulo_sugerido` preenchido (como mitigar ou reposicionar)
+- gaps sem `angulo_sugerido` são considerados incompletos e bloqueiam validação
+
+Regras de `objecoes`:
+- cada objeção deve ter `classificacao`: `forte`, `fraca`, `media` ou `média`
+- objeções fortes exigem mitigação com evidência real; fracas podem ser anotadas sem defesa
+
+Regras de `keywords_habilidade_ats`:
+- `prioridade` deve ser inteiros sequenciais únicos (1, 2, 3...), sem repetição ou salto
+- cada keyword deve ter `experiencia_alvo`, `bullet_sugerido` e `origem` preenchidos
+
+Nunca resetar o template inteiro para corrigir um campo — usar patches direcionados no JSON.
+
+## Validação da Estrutura Oficial
+
+Antes e depois de qualquer manutenção estrutural, mudança em skills ou saneamento do projeto, executar:
+
+```bash
+npm run validate:structure
+```
+
+Essa validação deve falhar se houver caminhos legados, pastas paralelas de skill, estado local paralelo ou instaladores antigos de skills fora de `.opencode/skills/`.
+
+## Contexto e Estado — Prevenção de Stale Reuse
+
+Comandos para gerenciar o contexto ativo e evitar reaproveitamento silencioso de artefatos de outra vaga:
+
+```bash
+npm run context:assert-active        # bloqueia reuse de FIT_MAP/cv_content stale
+npm run context:validate             # valida contexto ativo
+npm run context:doctor               # diagnostica oversized outputs e estado inchado
+npm run context:invalidate-stale     # invalida contexto se fingerprint não bater
+```
+
+## Artefatos Compactos Derivados
+
+Os arquivos derivados em `.career-state/derived/` são a primeira camada de contexto para modelos locais. Comandos:
+
+```bash
+npm run derive:cv-input-pack
+npm run derive:cv-content-seed
+npm run derive:feras-input-pack
+npm run derive:cover-letter-input-pack
+npm run derive:all-for-fit-map
+```
+
+## CV em DOCX — Comandos de Geração
+
+```bash
+npm run cv:docx              # gera via Node.js (generate_custom_cv.js)
+npm run validate:docx        # valida o DOCX gerado
+npm run docx:tmp:clean       # limpa resíduos em outputs/_tmp/
+```
+
+## Entrega de Artefatos via OneDrive/rclone
+
+```bash
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --dry-run
+npm run deliver:artifact -- --file outputs/<arquivo>.docx
+```
+
+Regra global de entrega:
+- a fonte oficial continua sendo o arquivo local em `outputs/`
+- a entrega para nuvem usa `rclone` com `RCLONE_ONEDRIVE_REMOTE` e `RCLONE_ONEDRIVE_DELIVERY_DIR` definidos no `.env` local de cada máquina
+- o destino canônico e obrigatório para documentos gerados é `01_armel/Curriculos/personalizados`; subpastas internas são permitidas, mas qualquer pasta fora dessa árvore deve ser bloqueada
+- MacBook e servidor Ubuntu/RPi5 usam o mesmo comando, desde que o `rclone config` tenha sido feito naquela máquina
+- nunca subir configuração real do rclone, tokens ou `.env` para GitHub
+- para CV, usar `cv:deliver` como caminho normal de entrega; ele reexecuta `cv:approve` e só chama rclone se o artefato final estiver aprovado
+- cada entrega grava relatório em `outputs/_tmp/delivery_report.json`; sem `status=delivered` ou `dry_run_ok`, não afirmar que o upload funcionou
+
+## CV Geral — Comandos
+
+```bash
+npm run general-cv:strategy
+npm run general-cv:strategy -- --mode expanded --bullet-count 5
+npm run general-cv:strategy -- --mode concise --dominant-cluster operacoes_supply_logistica
+npm run general-cv:validate-content -- --path .career-state/general_cv_content.json
+npm run general-cv:docx
+npm run general-cv:approve -- --artifact outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx
+npm run general-cv:deliver -- --artifact outputs/felipe_armel_cv_geral_operacoes_supply_chain.docx
+```
+
+Regra global para CV geral:
+- modo padrão é `concise` com `bullet_count=3`
+- modo expandido/bullet points só deve ser usado quando o usuário pedir explicitamente
+- se o agente inferir que expandido pode ser melhor, validar com o usuário antes; sem confirmação explícita, manter conciso
+- modo expandido aceita somente 4 a 8 bullets por experiência
+- cada bullet narrativo expandido deve ter 270 a 330 caracteres e evidência defensável
+- modo `concise` usa `dominant_cluster=operacoes_supply_logistica` quando o usuário não informar outro foco
+- modo conciso usa 3 bullets por experiência e não tenta cobrir todos os clusters
+- clusters aceitos: `operacoes_supply_logistica`, `planejamento_sop_capacity`, `transformacao_eficiencia`, `cx_saas_operations`, `product_revenue_business_ops`
+- DOCX geral final continua sujeito ao gate objetivo de aprovação antes da entrega
+
+## Gmail Draft — Comandos
+
+```bash
+npm run gmail:auth
+python3 scripts/create_gmail_draft.py --to "<email>" --subject "<assunto>" --body "<corpo>" --dry-run
+python3 scripts/review_email_text.py --subject "<assunto>" --body "<corpo>"
+python3 scripts/create_gmail_draft.py --to "<email>" --subject "<assunto>" --body "<corpo>" --attach "<arquivo>"
+```
+
+Regra global para drafts de email:
+- toda tarefa de email por Gmail usa `self-email-draft`
+- o remetente é sempre a conta Gmail autenticada pelo OAuth local; nunca perguntar email de envio/remetente
+- para email de candidatura, usar os templates Multinacional ou Startup definidos em `.opencode/skills/self-email-draft/SKILL.md`
+- antes de criar draft real, revisar ortografia/fluidez, remover termos internos ou canônicos, e exibir destino, assunto, corpo completo e anexos validados
+- `scripts/review_email_text.py` deve passar antes do preview aprovado e antes do draft real
+- só executar `create_gmail_draft.py` sem `--dry-run` depois de aprovação explícita do usuário
+- nunca enviar email automaticamente
+
 ## Registro de Keywords ATS
 
 Depois de toda análise de vaga, registrar as keywords extraídas:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json
 ```
 
 Depois de todo CV gerado, atualizar o mesmo registro com o DOCX final para marcar cobertura real por string exata:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv_gerado>.docx
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv_gerado>.docx
 ```
 
 Use esse histórico para:
@@ -363,11 +502,24 @@ Não ler `.env`, não extrair `NOTION_TOKEN`, não montar `curl` manual e não c
 Comandos mínimos:
 
 ```bash
-npm run notion:list
-npm run notion:prepare-record -- <id_unico>
-python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo.md> --source-url "<url>" --dry-run
+npm run notion:list                                          # lista candidaturas
+npm run notion:link-record -- <id_unico>                    # resolve link por ID sem varrer cache
+npm run notion:record-summary -- <id_unico>                 # alias compacto do link por ID
+npm run notion:templates                                     # lista templates disponíveis
+npm run notion:sweep:refresh                                 # sincroniza o snapshot local a partir do Notion e reescreve o cache consolidado
+npm run notion:sweep:build-cache                             # apenas reconstrói o cache local a partir do sweep já salvo
+npm run notion:memory:sync -- --refresh missing              # refresh incremental + rebuild do registry tecnico local + rebuild da memoria compacta + backfill automatico de governanca no Notion
+npm run notion:memory:sync -- --refresh full                 # full sync remoto + rebuild do registry tecnico local + rebuild da memoria compacta + backfill automatico de governanca no Notion
+npm run notion:create-current                                # cria página a partir do FIT_MAP ativo
+npm run notion:prepare-page -- <page_id>                     # transformar uma página existente em entrada formal para análise
+npm run notion:update-page-current -- <page_id> --dry-run     # prévia da atualização da mesma página com o FIT_MAP ativo
+npm run notion:update-page-current:compact -- <page_id> --dry-run # prévia compacta sem payload grande
+npm run notion:prepare-record -- <id_unico>                  # resolver pelo campo ID da tabela e preparar a análise
+npm run notion:update-record-current -- <id_unico> --dry-run # prévia da devolução da análise pelo ID único
+npm run notion:update-record-current:compact -- <id_unico> --dry-run # prévia compacta sem blocos/payloads
 python3 scripts/notion_sync.py create-description-record --job-description <arquivo.md> --company "<empresa>" --role "<cargo>" --source-url "<url>" --dry-run
-npm run notion:update-record-current -- <id_unico> --dry-run
+python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo.md> --source-url "<url>" --dry-run
+python3 scripts/notion_sync.py read-page <page_id> --save     # ler página específica
 ```
 
 ## Orquestrador Automático de Candidaturas
@@ -391,7 +543,7 @@ Regras:
 - antes de ler a fila, o heartbeat roda a manutenção local equivalente a `notion:memory:sync -- --refresh missing`, salvo override explícito;
 - cadência padrão de manutenção: `missing` em toda execução; `full` automático quando completar 24 execuções sem full ou 24 horas desde o último full; `--maintenance-refresh full` continua disponível como override explícito;
 - a manutenção padrão do heartbeat também executa o backfill automático dos campos de governança do Notion para manter o tracker como memória operacional do projeto;
-- nunca executar candidaturas em paralelo enquanto houver escrita em `.career-state/applications/<ID>/`;
+- nunca executar candidaturas em paralelo enquanto houver escrita em `.career-state/applications_v2/<ID>/`;
 - `max_per_run` padrão é 3, configurado em `.career-state/applications_v2/config.json`;
 - o heartbeat aceita `--format human|json|both`; usar `both` para terminal humano e `json` para integrações/bot;
 - para consumo automatizado do JSON por bot/Telegram, preferir a CLI direta `./scripts/python.sh scripts/career_cli.py applications heartbeat ... --format json`; não usar `npm run` como canal de parsing porque o banner do npm entra no `stdout`;
@@ -401,8 +553,8 @@ Regras:
 - automações, heartbeat, agentes e updates pós-CV nunca devem gravar `Aplicação Feita`; o teto operacional no Notion é `Aplicação andamento`, porque a candidatura real continua sob revisão e envio manual do Felipe;
 - vaga em fila sem campo `Descrição da Vaga` preenchido deve ser ignorada pelo agente e movida para `Sem descrição de vaga`;
 - o orquestrador detecta o idioma da descrição e grava `required_cv_language` no manifest da candidatura;
-- cada candidatura deve ter pasta própria em `.career-state/applications/<ID>/` com `manifest.json`, `state.json`, `job_description.md`, requests por etapa, `conversation_context.md` e relatórios;
-- o estado canônico da candidatura fica em `.career-state/applications/<ID>/state.json`; `.career-state/fit_map.json` é apenas espelho de compatibilidade;
+- cada candidatura deve ter pasta própria em `.career-state/applications_v2/<ID>/` com `manifest.json`, `state.json`, `job_description.md`, requests por etapa, `conversation_context.md` e relatórios;
+- o estado canônico da candidatura fica em `.career-state/applications_v2/<ID>/state.json`; `.career-state/fit_map.json` é apenas espelho de compatibilidade;
 - `applications:agent-heartbeat` e os comandos manuais usam o mesmo pipeline por etapa: `prepare -> analyze -> generate -> repair -> finalize`;
 - o modelo e variant ficam em `.career-state/applications_v2/config.json` e podem ser sobrescritos com `--model provider/model --variant medium`, mantendo o agente `build`;
 - se faltar FIT_MAP ou artefato gerado por modelo e `--run-agent` não estiver ativo, gravar `pending_model_tasks.md` e não promover status para aplicação em andamento;
@@ -422,30 +574,30 @@ Contrato de leitura para agentes:
 - ler primeiro `analysis_request.json/md`, `generation_request.json/md` ou `repair_request.json/md`;
 - atualizar apenas os arquivos permitidos nessa etapa;
 - não abrir referências longas por padrão; usar somente quando o request apontar conflito factual, lacuna de evidência ou dúvida de defensabilidade;
-- qualquer request que mande “executar o pipeline completo” é inválido.
+- qualquer request que mande "executar o pipeline completo" é inválido.
 
 Há dois tipos de interação com o Notion:
 
 1. **Leitura como insumo de análise** — permitido quando o usuário pedir para analisar vaga(s) já cadastrada(s), calcular aderência, coletar keywords, identificar cobertura e gaps. Usar:
 
 ```bash
-python scripts/notion_sync.py list
-python scripts/notion_sync.py read-page <page_id> --save
-python scripts/notion_sync.py prepare-analysis-from-page <page_id>
-python scripts/notion_sync.py prepare-analysis-from-record <id_unico>
+python3 scripts/notion_sync.py list
+python3 scripts/notion_sync.py read-page <page_id> --save
+python3 scripts/notion_sync.py prepare-analysis-from-page <page_id>
+python3 scripts/notion_sync.py prepare-analysis-from-record <id_unico>
 ```
 
 2. **Criação de registro no tracker Aplicações** — fluxo padrão só depois de a vaga ter análise concluída, `FIT_MAP` final válido e decisão explícita de prosseguir. Executar apenas quando o usuário pedir explicitamente para criar/salvar/registrar a candidatura no Notion. Usar sempre o template cadastrado e preencher, no mínimo: `Vaga`, `avaliação de aderencia claude` e `Descrição da Vaga`. A criação também deve anexar ao corpo da página a análise de aderência produzida a partir do FIT_MAP, salvo quando `--no-append-summary` for pedido deliberadamente.
 
 ```bash
-python scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
+python3 scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
 ```
 
 O template não é opcional. Para listar ou trocar o template:
 
 ```bash
-python scripts/notion_sync.py templates
-python scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --template-id <template_id>
+python3 scripts/notion_sync.py templates
+python3 scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --template-id <template_id>
 ```
 
 Quando `NOTION_APPLICATIONS_TEMPLATE_ID` estiver preenchido no `.env`, `create-from-fit-map` usa esse template automaticamente.
@@ -463,20 +615,19 @@ Na criação, o corpo da página deve receber:
 3. **Atualização de página já existente no tracker Aplicações** — quando a vaga nasceu no Notion e o usuário pedir para registrar/devolver a análise, atualizar a mesma página em vez de criar duplicata:
 
 ```bash
-python scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --dry-run
-python scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
-python scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --dry-run
-python scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
+python3 scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --dry-run
+python3 scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
+python3 scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --dry-run
+python3 scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
 ```
 
-4. **Registro ou atualização apenas da descrição extraída** — exceção deliberada para captura precoce, quando o usuário pedir "atualize a vaga ID/Notion
-`<número>` com a descrição extraída" ou "crie/faça/registre a vaga no Notion" antes de haver FIT_MAP:
+4. **Registro ou atualização apenas da descrição extraída** — exceção deliberada para captura precoce, quando o usuário pedir "atualize a vaga ID/Notion `<número>` com a descrição extraída" ou "crie/faça/registre a vaga no Notion" antes de haver FIT_MAP:
 
 ```bash
-python scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo_com_descricao_da_vaga> --source-url "<url>" --dry-run
-python scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo_com_descricao_da_vaga> --source-url "<url>"
-python scripts/notion_sync.py create-description-record --job-description <arquivo_com_descricao_da_vaga> --company "<empresa>" --role "<cargo>" --source-url "<url>" --dry-run
-python scripts/notion_sync.py create-description-record --job-description <arquivo_com_descricao_da_vaga> --company "<empresa>" --role "<cargo>" --source-url "<url>"
+python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo_com_descricao_da_vaga> --source-url "<url>" --dry-run
+python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo_com_descricao_da_vaga> --source-url "<url>"
+python3 scripts/notion_sync.py create-description-record --job-description <arquivo_com_descricao_da_vaga> --company "<empresa>" --role "<cargo>" --source-url "<url>" --dry-run
+python3 scripts/notion_sync.py create-description-record --job-description <arquivo_com_descricao_da_vaga> --company "<empresa>" --role "<cargo>" --source-url "<url>"
 ```
 
 Use `update-description-record` quando o usuário mencionar `ID`, `Notion <número>` ou uma vaga já existente no tracker.
@@ -506,8 +657,8 @@ Essa atualização deve preencher o que a base permitir nas propriedades e anexa
 
 Regra dura de encoding para Notion:
 - todo texto enviado a propriedades ou blocos deve ser UTF-8 legível e preservar acentos, travessões e aspas corretamente
-- o script deve bloquear escrita quando detectar mojibake (`Ã`, `Â`, `â€“`, `â€”`, `â€™`, `â€œ`, `â€`, `ï¿½`)
-- nunca “normalizar” visualmente no improviso; corrigir o artefato de origem e reexecutar
+- o script deve bloquear escrita quando detectar mojibake (`Ã`, `Â`, `â€"`, `â€"`, `â€™`, `â€œ`, `â€`, `ï¿½`)
+- nunca "normalizar" visualmente no improviso; corrigir o artefato de origem e reexecutar
 
 Regras críticas:
 - nunca criar ou atualizar registro no Notion apenas porque uma análise foi feita;

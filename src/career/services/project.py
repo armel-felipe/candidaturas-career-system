@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import platform
 import shutil
 import subprocess
@@ -167,6 +166,51 @@ def local_agent_benchmark() -> dict[str, Any]:
     }
 
 
+def hermes_runtime_snapshot() -> dict[str, Any]:
+    hermes_home = Path.home() / ".hermes"
+    config_path = hermes_home / "config.yaml"
+    config = _read_simple_yaml(config_path) if config_path.exists() else {}
+    applications_config = read_json(ROOT / ".career-state" / "applications_v2" / "config.json")
+    main_model = _config_get(config, "model.default")
+    main_provider = _config_get(config, "model.provider")
+    main_base_url = _config_get(config, "model.base_url")
+    toolsets = _config_get(config, "toolsets") or []
+    direct_temperature = _find_temperature_value(config)
+    project_model = applications_config.get("active_model")
+    project_variant = applications_config.get("active_variant")
+    temperature_policy = "provider_default"
+    if isinstance(project_model, str):
+        lowered = project_model.casefold()
+        if "kimi" in lowered or "moonshot" in lowered:
+            temperature_policy = "server_managed_omitted"
+        elif "trinity-large-thinking" in lowered:
+            temperature_policy = "fixed_0.5"
+    return {
+        "status": "ok",
+        "hermes_home": str(hermes_home),
+        "config_path": str(config_path),
+        "project_runtime": {
+            "active_model": project_model,
+            "active_variant": project_variant,
+            "analysis_runner": applications_config.get("analysis_runner"),
+            "generation_runner": applications_config.get("generation_runner"),
+        },
+        "hermes_config": {
+            "model_default": main_model,
+            "model_provider": main_provider,
+            "model_base_url": main_base_url,
+            "toolsets": toolsets,
+            "reasoning_effort": _config_get(config, "agent.reasoning_effort"),
+            "max_turns": _config_get(config, "agent.max_turns"),
+            "streaming": _config_get(config, "display.streaming"),
+            "show_reasoning": _config_get(config, "display.show_reasoning"),
+            "temperature": direct_temperature,
+            "temperature_source": "explicit_config" if direct_temperature is not None else "not_set_in_config",
+            "temperature_policy_for_project_model": temperature_policy,
+        },
+    }
+
+
 def _command_version(command: list[str | None]) -> str | None:
     if not command[0]:
         return None
@@ -185,6 +229,42 @@ def _command_output(command: list[str]) -> str | None:
         return None
     output = (result.stdout or result.stderr).strip()
     return output or None
+
+
+def _read_simple_yaml(path: Path) -> dict[str, Any]:
+    try:
+        import yaml  # type: ignore
+
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _config_get(payload: dict[str, Any], dotted_path: str) -> Any:
+    current: Any = payload
+    for part in dotted_path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _find_temperature_value(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        if "temperature" in payload:
+            return payload["temperature"]
+        for value in payload.values():
+            found = _find_temperature_value(value)
+            if found is not None:
+                return found
+        return None
+    if isinstance(payload, list):
+        for item in payload:
+            found = _find_temperature_value(item)
+            if found is not None:
+                return found
+    return None
 
 
 def write_runtime_diagnosis(output_path: Path) -> Path:

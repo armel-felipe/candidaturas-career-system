@@ -711,7 +711,7 @@ def phase_21() -> None:
             json.dumps({"role": "Gerente de Pricing", "company": "Empresa", "title": "Gerente de Pricing", "required_cv_filename_suffix": ""}),
             encoding="utf-8",
         )
-        state = {"retry_count_analyze": 0, "last_error": None}
+        state = {"retry_count_analyze": 0, "last_error": None, "llm_session_count": 0, "llm_stage_attempts": {}}
         applications_service._set_stage(state, "analyze_running")
 
         original_run_agent = applications_service._run_agent
@@ -721,9 +721,10 @@ def phase_21() -> None:
 
         calls = {"postprocess": 0, "write_state": 0}
 
-        def fake_run_agent(stage, application, local_paths, config, options):
+        def fake_run_agent(stage, application, local_paths, config, options, local_state):
             if stage != "analyze":
                 raise SystemExit(f"Unexpected stage for fake agent: {stage}")
+            local_state["llm_session_count"] = int(local_state.get("llm_session_count") or 0) + 1
 
         def fake_postprocess(local_paths):
             calls["postprocess"] += 1
@@ -771,6 +772,75 @@ def phase_22() -> None:
     temp_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
         tmp = Path(tmp_dir)
+        app_dir = tmp / "applications_v2" / "778"
+        app_dir.mkdir(parents=True)
+        paths = applications_service._app_paths(app_dir)
+        paths["job_description"].write_text("Sobre a vaga\nGerente de Pricing\n", encoding="utf-8")
+        paths["fit_map_draft"].write_text("{}", encoding="utf-8")
+        paths["manifest"].write_text(
+            json.dumps({"role": "Gerente de Pricing", "company": "Empresa", "title": "Gerente de Pricing", "required_cv_filename_suffix": ""}),
+            encoding="utf-8",
+        )
+        state = {"retry_count_analyze": 0, "last_error": None, "llm_session_count": 0, "llm_stage_attempts": {}}
+        applications_service._set_stage(state, "analyze_running")
+
+        original_run_agent = applications_service._run_agent
+        original_postprocess = applications_service._postprocess_analyze
+        original_write_state = applications_service._write_state
+        original_write_context = applications_service._write_context
+
+        calls = {"postprocess": 0, "write_state": 0}
+
+        def fake_run_agent(stage, application, local_paths, config, options, local_state):
+            if stage != "analyze":
+                raise SystemExit(f"Unexpected stage for fake agent: {stage}")
+            local_state["llm_session_count"] = int(local_state.get("llm_session_count") or 0) + 1
+
+        def fake_postprocess(local_paths):
+            calls["postprocess"] += 1
+            raise ValidationFailure("fit map quality score below threshold")
+
+        def fake_write_state(local_paths, payload):
+            calls["write_state"] += 1
+
+        def fake_write_context(application, local_paths, payload):
+            return None
+
+        try:
+            applications_service._run_agent = fake_run_agent
+            applications_service._postprocess_analyze = fake_postprocess
+            applications_service._write_state = fake_write_state
+            applications_service._write_context = fake_write_context
+            try:
+                applications_service._run_analyze_with_retry(
+                    {"record_id": 778, "title": "Gerente de Pricing", "company": "Empresa", "role": "Gerente de Pricing"},
+                    paths,
+                    applications_service.DEFAULT_CONFIG,
+                    applications_service.HeartbeatV2Options(max_per_run=1, run_agent=True, dry_run=False),
+                    state,
+                )
+                raise SystemExit("Analyze retry should not rerun for non-retryable validation errors.")
+            except ValidationFailure as exc:
+                if "below threshold" not in str(exc):
+                    raise
+            if state.get("retry_count_analyze") != 0:
+                raise SystemExit(f"Analyze retry counter should stay at zero for non-retryable errors: {state}")
+            if calls["postprocess"] != 1:
+                raise SystemExit(f"Postprocess should run once without retry, got {calls['postprocess']}")
+            if calls["write_state"] != 0:
+                raise SystemExit(f"State should not be persisted for skipped retry, got {calls['write_state']}")
+        finally:
+            applications_service._run_agent = original_run_agent
+            applications_service._postprocess_analyze = original_postprocess
+            applications_service._write_state = original_write_state
+            applications_service._write_context = original_write_context
+
+
+def phase_23() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        tmp = Path(tmp_dir)
         app_dir = tmp / "applications_v2" / "888"
         app_dir.mkdir(parents=True)
         paths = applications_service._app_paths(app_dir)
@@ -798,7 +868,7 @@ def phase_22() -> None:
             applications_service.OUTPUTS = original_outputs
 
 
-def phase_23() -> None:
+def phase_24() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
@@ -848,7 +918,7 @@ def phase_23() -> None:
             raise SystemExit("cv_content contract should block when experiences < 4")
 
 
-def phase_24() -> None:
+def phase_25() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
@@ -895,9 +965,39 @@ def phase_24() -> None:
             raise SystemExit(f"Repair request should register missing top8 keyword, got {payload}")
         if "4 e 8 experiências" not in " ".join(payload.get("repair_rules", [])):
             raise SystemExit(f"Repair rules should mention experience range, got {payload}")
+        allowed, reason = applications_service._repair_decision(review_report, polish_report, state, applications_service.DEFAULT_CONFIG)
+        if not allowed or reason != "missing_unexplained_top8":
+            raise SystemExit(f"Repair decision should allow missing top8 remediation, got allowed={allowed} reason={reason}")
 
 
-def phase_25() -> None:
+def phase_26() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    event_log = temp_root / "phase26_event_log.json"
+    if event_log.exists():
+        event_log.unlink()
+    state = {
+        "record_key": "999",
+        "llm_session_count": 4,
+        "llm_stage_attempts": {"analyze": 2, "generate": 1, "repair": 1},
+    }
+    remaining = applications_service._remaining_llm_sessions(state, applications_service.DEFAULT_CONFIG)
+    if remaining != 0:
+        raise SystemExit(f"Expected zero remaining LLM sessions, got {remaining}")
+    try:
+        applications_service._consume_llm_session_budget(
+            state,
+            applications_service.DEFAULT_CONFIG,
+            stage="repair",
+            paths={"event_log": event_log},
+        )
+        raise SystemExit("LLM budget guard should have blocked an extra session.")
+    except SystemExit as exc:
+        if "budget exhausted" not in str(exc):
+            raise
+
+
+def phase_27() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
@@ -946,7 +1046,7 @@ def phase_25() -> None:
             raise SystemExit(f"OpenCode-style runner should receive request path, got {opencode_command}")
 
 
-def phase_26() -> None:
+def phase_28() -> None:
     supervisor = HarnessSupervisor()
     cases = [
         ("Avalie vaga Notion 316", "notion_job_analysis", {"record_id": 316}),
@@ -974,7 +1074,7 @@ def phase_26() -> None:
         raise SystemExit("Notion write workflow must require explicit approval.")
 
 
-def phase_27() -> None:
+def phase_29() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
@@ -1014,7 +1114,7 @@ def phase_27() -> None:
             raise SystemExit(f"Versioned run archive is incomplete: {missing}")
 
 
-def phase_28() -> None:
+def phase_39() -> None:
     class FakeRunner:
         def build_command(self, request):
             return ["fake-runner", request.stage, str(request.request_path)]
@@ -1063,7 +1163,7 @@ def phase_28() -> None:
                 raise SystemExit(f"Supervisor did not archive validation for {stage}: {result}")
 
 
-def phase_29() -> None:
+def phase_40() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
@@ -1185,6 +1285,8 @@ def phase_34() -> None:
 
         def handle_message(self, message, **kwargs):
             self.calls += 1
+            if self.calls == 1:
+                return {"status": "blocked", "blocker_reason": "no_deterministic_route"}
             return {"status": "completed", "message": message, "kwargs": kwargs}
 
     temp_root = OUTPUTS / "_tmp"
@@ -1205,10 +1307,17 @@ def phase_34() -> None:
             supervisor=supervisor,
             root=Path(tmp_dir),
         )
-        if supervisor.calls != 1:
-            raise SystemExit(f"Telegram adapter should deduplicate messages, calls={supervisor.calls}")
-        if first.get("deduplicated") or not second.get("deduplicated"):
-            raise SystemExit(f"Telegram deduplication flags are incorrect: first={first}, second={second}")
+        third = telegram_harness_adapter.process_message(
+            "status das candidaturas",
+            message_id="telegram-1",
+            execute=False,
+            supervisor=supervisor,
+            root=Path(tmp_dir),
+        )
+        if supervisor.calls != 2:
+            raise SystemExit(f"Telegram adapter should retry transient blocked cache exactly once, calls={supervisor.calls}")
+        if first.get("deduplicated") or second.get("deduplicated") or not third.get("deduplicated"):
+            raise SystemExit(f"Telegram deduplication flags are incorrect: first={first}, second={second}, third={third}")
 
 
 def phase_35() -> None:
@@ -1410,6 +1519,8 @@ PHASES = {
     36: phase_36,
     37: phase_37,
     38: phase_38,
+    39: phase_39,
+    40: phase_40,
 }
 
 

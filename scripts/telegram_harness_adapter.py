@@ -32,8 +32,9 @@ def process_message(
     cache_path = root / ".career-state" / "telegram" / "messages" / f"{safe_id}.json"
     if cache_path.exists():
         cached = read_json(cache_path)
-        cached["deduplicated"] = True
-        return cached
+        if not _should_retry_cached_message(cached):
+            cached["deduplicated"] = True
+            return cached
     supervisor = supervisor or HarnessSupervisor(root)
     result = supervisor.handle_message(
         normalized,
@@ -49,6 +50,19 @@ def process_message(
     }
     write_json(cache_path, envelope)
     return envelope
+
+
+def _should_retry_cached_message(cached: dict[str, Any]) -> bool:
+    result = cached.get("result") if isinstance(cached.get("result"), dict) else {}
+    if not isinstance(result, dict):
+        return False
+    if result.get("status") != "blocked":
+        return False
+    return str(result.get("blocker_reason") or "") in {
+        "no_deterministic_route",
+        "generic_runner_unavailable",
+        "generic_runner_failed",
+    }
 
 
 def main() -> int:

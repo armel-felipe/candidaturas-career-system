@@ -300,7 +300,35 @@
       "ativo": false
     },
     {
+      "nome": "Operations Management",
+      "ativo": false
+    },
+    {
+      "nome": "Business Operations",
+      "ativo": false
+    },
+    {
+      "nome": "Strategic Operations",
+      "ativo": false
+    },
+    {
       "nome": "Supply Chain Management",
+      "ativo": false
+    },
+    {
+      "nome": "Customer Experience",
+      "ativo": false
+    },
+    {
+      "nome": "Customer Success",
+      "ativo": false
+    },
+    {
+      "nome": "Operational Excellence",
+      "ativo": false
+    },
+    {
+      "nome": "Revenue Operations",
       "ativo": false
     },
     {
@@ -309,6 +337,18 @@
     },
     {
       "nome": "Business Intelligence",
+      "ativo": false
+    },
+    {
+      "nome": "Logistics Management",
+      "ativo": false
+    },
+    {
+      "nome": "Change Management",
+      "ativo": false
+    },
+    {
+      "nome": "Digital Transformation",
       "ativo": false
     },
     {
@@ -325,6 +365,10 @@
     },
     {
       "nome": "S&OP",
+      "ativo": false
+    },
+    {
+      "nome": "Leadership",
       "ativo": false
     },
     {

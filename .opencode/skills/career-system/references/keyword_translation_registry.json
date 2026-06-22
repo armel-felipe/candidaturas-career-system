@@ -433,6 +433,51 @@
       ],
       "usage_notes": "Em EN CV: 'P&L', 'R[$]MM.*budget', 'budget' cobrem Gestão P&L."
     },
+    "p_l_management_en": {
+      "canonical_keyword": "P&L management",
+      "en_cv_preferred": "managed a R$300MM/year OPEX budget",
+      "pt_br_preferred": "P&L management",
+      "pt_br_alternatives": [],
+      "accepted_variants": [
+        "OPEX budget",
+        "budget allocation"
+      ],
+      "usage_notes": "Em EN CV: 'managed a R$300MM/year OPEX budget' cobre P&L management."
+    },
+    "strategic_execution_en": {
+      "canonical_keyword": "strategic execution",
+      "en_cv_preferred": "expanded logistics coverage from 400 to 800 cities",
+      "pt_br_preferred": "strategic execution",
+      "pt_br_alternatives": [],
+      "accepted_variants": [
+        "geographic expansion",
+        "growth and efficiency"
+      ],
+      "usage_notes": "Em EN CV: 'expanded logistics coverage from 400 to 800 cities' cobre strategic execution."
+    },
+    "business_partnering_en": {
+      "canonical_keyword": "business partnering",
+      "en_cv_preferred": "connected marketing, product, supply, and operations in a monthly S&OP executive cadence",
+      "pt_br_preferred": "business partnering",
+      "pt_br_alternatives": [],
+      "accepted_variants": [
+        "cross-functional coordination",
+        "cross-functional priorities"
+      ],
+      "usage_notes": "Em EN CV: 'connected marketing, product, supply, and operations in a monthly S&OP executive cadence' cobre business partnering."
+    },
+    "performance_tracking_en": {
+      "canonical_keyword": "performance tracking",
+      "en_cv_preferred": "built dashboards in Grafana",
+      "pt_br_preferred": "performance tracking",
+      "pt_br_alternatives": [],
+      "accepted_variants": [
+        "dashboards",
+        "KPIs",
+        "metrics"
+      ],
+      "usage_notes": "Em EN CV: 'built dashboards in Grafana' e 'modeled data with SQL, Databricks, and Tableau' cobrem performance tracking."
+    },
     "gestao_sla_kpis": {
       "canonical_keyword": "Gestão de SLA e KPIs",
       "pt_br_preferred": "gestão de SLA",
