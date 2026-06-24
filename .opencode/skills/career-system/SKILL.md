@@ -194,6 +194,15 @@ npm run harness -- --message "<mensagem>" --channel <cli|telegram|codex|opencode
 npm run harness:route -- --message "<mensagem>" --channel <canal>
 ```
 
+Contrato de interface conversacional:
+
+- o input do usuario e sempre uma mensagem, inclusive em Codex, OpenCode, Hermes e Telegram
+- comandos de terminal sao implementacao interna e nunca sao pre-requisito de uso
+- uma intencao completa deve ser executada; nao devolver apenas o comando que faria a execucao
+- quando faltar ID, URL, empresa, cargo ou texto da vaga, pedir somente esse dado e persistir a continuacao
+- numeros do menu resolvem intencoes, mas nunca podem substituir parametros por exemplos ficticios
+- o resultado conversacional deve distinguir `awaiting_input`, `completed` e `blocked` com base no estado real
+
 Regras do harness:
 - `HarnessSupervisor` classifica e despacha a etapa; o harness de conversa nao executa trabalho criativo diretamente
 - cada especialista roda em processo novo com request compacto e imutavel por `request_id`

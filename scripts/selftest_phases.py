@@ -27,6 +27,7 @@ import register_keywords
 import review_output
 import telegram_harness_adapter
 import install_hermes_harness_hook
+import hermes_harness_context_hook
 from career.cli import build_parser
 from career.services import applications_v2 as applications_service
 from career.services.agent_runner import AgentRunRequest, AgentRunResult, SubprocessAgentRunner
@@ -1049,6 +1050,8 @@ def phase_27() -> None:
 def phase_28() -> None:
     supervisor = HarnessSupervisor()
     cases = [
+        ("abrir menu", "menu", {}),
+        ("olá", "menu", {}),
         ("Avalie vaga Notion 316", "notion_job_analysis", {"record_id": 316}),
         ("processar fila de candidaturas", "applications_heartbeat", {}),
         ("gere um currículo para a vaga ativa", "cv", {}),
@@ -1480,6 +1483,63 @@ def phase_38() -> None:
             raise SystemExit("cv_content contract should block summary fragments that are not backed by the mapped experience bullet")
 
 
+def phase_41() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "workflow_state.json").write_text(json.dumps({}), encoding="utf-8")
+        supervisor = HarnessSupervisor(root)
+        menu = supervisor.handle_message("menu", channel="cli", execute=True)
+        result = menu.get("result") if isinstance(menu.get("result"), dict) else {}
+        if result.get("kind") != "session_menu":
+            raise SystemExit(f"Menu payload missing session_menu kind: {menu}")
+        display = str(result.get("display_text") or "")
+        if "Responda com o número da opção" not in display:
+            raise SystemExit(f"Menu display text was not rendered: {display}")
+        if (result.get("numbered_items") or [{}])[0].get("id") != "linkedin_saved_jobs":
+            raise SystemExit(f"No-active-intake menu should start with an executable source: {result}")
+        collect = supervisor.handle_message("2", channel="telegram", execute=True)
+        collect_result = collect.get("result") if isinstance(collect.get("result"), dict) else {}
+        if collect_result.get("input_kind") != "notion_id":
+            raise SystemExit(f"Notion menu selection should request its missing ID: {collect}")
+        routed = supervisor.handle_message("270", channel="telegram", execute=False)
+        decision = routed.get("decision") if isinstance(routed.get("decision"), dict) else {}
+        if decision.get("workflow") != "notion_job_analysis":
+            raise SystemExit(f"Pending Notion ID did not resume the intended route: {routed}")
+        supervisor._write_saved_jobs_menu_state(
+            [
+                {
+                    "jobId": "4422954585",
+                    "title": "Operations Manager",
+                    "company": "Acme",
+                    "location": "São Paulo",
+                    "url": "https://www.linkedin.com/jobs/view/4422954585/",
+                }
+            ]
+        )
+        saved_selection = supervisor.handle_message("1", channel="telegram", execute=False)
+        saved_decision = saved_selection.get("decision") if isinstance(saved_selection.get("decision"), dict) else {}
+        if saved_decision.get("workflow") != "linkedin_job_intake":
+            raise SystemExit(f"Saved-job number should route to its freshly extracted URL: {saved_selection}")
+        exact = hermes_harness_context_hook.build_context({"reply_text": "Texto exato"})
+        if exact != "O HarnessSupervisor ja processou esta mensagem. Responda somente: OK":
+            raise SystemExit(f"Hermes deterministic reply should use a harmless placeholder: {exact}")
+        pending_path = root / ".career-state" / "harness" / "pending_input.json"
+        pending_path.unlink(missing_ok=True)
+        original_root = hermes_harness_context_hook.ROOT
+        hermes_harness_context_hook.ROOT = root
+        try:
+            if hermes_harness_context_hook.should_intercept("como você está?"):
+                raise SystemExit("Ordinary conversation should remain with the outer Hermes agent.")
+            if not hermes_harness_context_hook.should_intercept("olá"):
+                raise SystemExit("A greeting should open the conversational menu.")
+        finally:
+            hermes_harness_context_hook.ROOT = original_root
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -1521,6 +1581,7 @@ PHASES = {
     38: phase_38,
     39: phase_39,
     40: phase_40,
+    41: phase_41,
 }
 
 

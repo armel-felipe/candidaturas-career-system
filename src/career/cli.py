@@ -404,6 +404,16 @@ def _applications_status_human_summary(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _harness_human_summary(result: dict) -> str | None:
+    payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+    if not isinstance(payload, dict):
+        return None
+    display_text = payload.get("display_text")
+    if isinstance(display_text, str) and display_text.strip():
+        return display_text
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -419,6 +429,10 @@ def main(argv: list[str] | None = None) -> int:
                 model=args.model,
                 variant=args.variant,
             )
+            if args.action == "handle":
+                human = _harness_human_summary(result)
+                if human:
+                    _print_human(human)
             _dump(result)
             return 0 if result.get("status") != "blocked" else 1
         approvals = ApprovalStore(Path.cwd())

@@ -1,0 +1,5 @@
+name: career-harness-output
+version: "0.1.0"
+description: Replaces model output with deterministic Career Harness replies.
+hooks:
+  - transform_llm_output

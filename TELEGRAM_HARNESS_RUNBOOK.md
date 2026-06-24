@@ -9,9 +9,15 @@ O hook:
 
 1. recebe a mensagem do gateway;
 2. chama `telegram_harness_adapter.py`;
-3. deduplica pelo identificador da sessao e conteudo;
+3. deduplica pelo identificador unico do turno, permitindo repetir mensagens como `menu` e `1`;
 4. executa `HarnessSupervisor`;
-5. injeta apenas o resultado compacto para a resposta final do gateway.
+5. quando houver `reply_text`, grava a resposta deterministica por sessao;
+6. o plugin `career-harness-output` substitui a saida do modelo por esse texto antes da entrega;
+7. nos demais fluxos, injeta o resultado compacto para a resposta final do gateway.
+
+O usuario sempre interage por mensagens. Opcoes de menu que dependem de um dado
+abrem uma continuacao conversacional (por exemplo, pedir o ID do Notion ou a URL
+do LinkedIn); opcoes completas executam o workflow imediatamente.
 
 Subagentes recebem `CAREER_HARNESS_SUBAGENT=1`, evitando recursao do hook.
 
@@ -31,6 +37,8 @@ HERMES_HOME="$HOME/.hermes/profiles/candidaturas" hermes gateway restart --accep
 ```
 
 O instalador cria `config.yaml.bak.harness` antes da alteracao.
+Ele tambem instala e habilita o plugin `career-harness-output`, usado pelo hook
+`transform_llm_output` para impedir que o modelo resuma, escolha ou reescreva menus.
 
 ## Testar sem Telegram
 

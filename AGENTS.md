@@ -483,6 +483,14 @@ Comportamentos proibidos:
 
 ### Porta de entrada harness
 
+Contrato de interface:
+- o usuario interage sempre por mensagem em linguagem natural; nunca precisa conhecer ou digitar comandos de terminal
+- comandos `npm`, Python e scripts sao detalhes internos executados pelo agente ou pelo supervisor
+- menus apenas sugerem intencoes conversacionais; selecionar uma opcao deve executar a acao ou pedir somente o dado faltante
+- respostas como ID, URL, numero de opcao ou texto de vaga devem retomar o contexto conversacional pendente
+- nunca responder ao usuario com "execute este comando" quando a interface puder executar o passo internamente
+- uma resposta de menu, ajuda ou resumo nao conta como execucao de workflow
+
 Toda integracao conversacional nova deve usar:
 
 ```bash

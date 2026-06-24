@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -86,6 +87,13 @@ class HarnessSupervisor:
         if not text:
             return self._decision("help", "route", "high", "empty_message")
 
+        if self._is_menu_request(lowered):
+            return self._decision("menu", "menu", "high", "session_menu_request")
+
+        selection = self._resolve_menu_selection(text)
+        if selection:
+            return self.classify(selection["prompt"])
+
         if self._is_runtime_introspection(lowered):
             return self._decision(
                 "runtime_introspection",
@@ -118,6 +126,17 @@ class HarnessSupervisor:
         if any(token in lowered for token in ("vagas salvas", "saved jobs", "rastreador de vagas")):
             return self._decision("linkedin_saved_jobs", "intake", "high", "linkedin_saved_jobs_request")
 
+        if any(
+            phrase in lowered
+            for phrase in (
+                "continue o trabalho em andamento",
+                "retomar trabalho em andamento",
+                "retome o trabalho em andamento",
+                "continue de onde parou",
+            )
+        ):
+            return self._decision("resume", "resume", "high", "resume_active_workflow_request")
+
         if "heartbeat" in lowered or any(
             phrase in lowered for phrase in ("processar fila", "rodar fila", "executar fila", "processar candidaturas")
         ):
@@ -134,6 +153,21 @@ class HarnessSupervisor:
                 "high",
                 "notion_record_analysis",
                 parameters={"record_id": int(notion_match.group(1))},
+            )
+
+        if "notion" in lowered and any(token in lowered for token in ("avali", "analis", "fit")):
+            return self._decision(
+                "collect_notion_id", "conversation", "high", "notion_analysis_requires_record_id"
+            )
+
+        if "linkedin" in lowered and any(token in lowered for token in ("avali", "analis", "vaga")):
+            return self._decision(
+                "collect_linkedin_url", "conversation", "high", "linkedin_analysis_requires_url"
+            )
+
+        if any(phrase in lowered for phrase in ("colar vaga", "colar uma vaga", "enviar vaga em texto")):
+            return self._decision(
+                "collect_pasted_job", "conversation", "high", "pasted_job_requires_content"
             )
 
         analysis_requested = any(
@@ -351,19 +385,72 @@ class HarnessSupervisor:
         model: str | None = None,
         variant: str | None = None,
     ) -> dict[str, Any]:
+        user_message = message
+        pending = self._resolve_pending_input(message)
+        if pending:
+            message = str(pending["message"])
+        selection = self._resolve_menu_selection(message)
+        original_message = user_message
+        if selection:
+            input_request = self._menu_input_request(selection)
+            if input_request:
+                self._write_pending_input(input_request)
+                return {
+                    "status": "awaiting_input",
+                    "channel": channel,
+                    "message": original_message,
+                    "decision": self._decision(
+                        "collect_input", "conversation", "high", "menu_selection_requires_input"
+                    ).to_dict(),
+                    "menu_selection": selection,
+                    "executed": False,
+                    "result": input_request,
+                }
+            message = str(selection["prompt"])
         decision = self.classify(message)
         envelope: dict[str, Any] = {
             "status": "routed",
             "channel": channel,
-            "message": message,
+            "message": original_message,
             "decision": decision.to_dict(),
             "executed": False,
         }
+        if selection:
+            envelope["menu_selection"] = selection
+        if pending:
+            envelope["pending_input"] = pending
         if not execute:
             return envelope
 
         workflow = decision.workflow
-        if workflow == "applications_status":
+        if workflow == "menu":
+            self._clear_pending_input()
+            envelope["result"] = self._build_session_menu()
+        elif workflow in {"collect_notion_id", "collect_linkedin_url", "collect_pasted_job"}:
+            input_kind = {
+                "collect_notion_id": "notion_id",
+                "collect_linkedin_url": "linkedin_job_url",
+                "collect_pasted_job": "pasted_job",
+            }[workflow]
+            display_text = {
+                "notion_id": "Qual é o número da vaga no Notion? Pode responder somente com o número.",
+                "linkedin_job_url": "Envie a URL da vaga no LinkedIn.",
+                "pasted_job": (
+                    "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. "
+                    "Depois inclua a descrição completa."
+                ),
+            }[input_kind]
+            request = {
+                "status": "awaiting_input",
+                "kind": "input_request",
+                "input_kind": input_kind,
+                "display_text": display_text,
+            }
+            self._write_pending_input(request)
+            envelope["result"] = request
+        elif workflow == "resume":
+            envelope["result"] = self._resume_and_continue(message, model=model, variant=variant)
+        elif workflow == "applications_status":
             from career.services import applications_v2 as applications_service
 
             envelope["result"] = applications_service.heartbeat_status()
@@ -382,17 +469,24 @@ class HarnessSupervisor:
         elif workflow == "notion_job_analysis":
             from career.services import agent_guard as agent_guard_service
 
-            envelope["result"] = agent_guard_service.evaluate_notion_local(
-                int((decision.parameters or {})["record_id"])
+            record_id = int((decision.parameters or {})["record_id"])
+            intake_result = agent_guard_service.evaluate_notion(record_id)
+            envelope["result"] = self._pipeline_result(
+                intake=intake_result,
+                specialist=self.execute_specialist(
+                    "fit-map", objective=f"Avaliar vaga Notion {record_id}", model=model, variant=variant
+                ),
             )
         elif workflow == "linkedin_job_intake":
             from career.services import intake as intake_service
 
             intake_result = intake_service.from_linkedin_job(str((decision.parameters or {})["url"]))
-            envelope["result"] = {
-                "intake": intake_result,
-                "specialist": self.prepare_specialist("fit-map"),
-            }
+            envelope["result"] = self._pipeline_result(
+                intake=intake_result,
+                specialist=self.execute_specialist(
+                    "fit-map", objective=message, model=model, variant=variant
+                ),
+            )
         elif workflow == "linkedin_post_intake":
             from career.services import intake as intake_service
 
@@ -406,12 +500,12 @@ class HarnessSupervisor:
                 company=str(parameters["company"]),
                 role=str(parameters["role"]),
             )
-            envelope["result"] = {
-                "intake": intake_result,
-                "specialist": self.execute_specialist(
+            envelope["result"] = self._pipeline_result(
+                intake=intake_result,
+                specialist=self.execute_specialist(
                     "fit-map", objective=message, model=model, variant=variant
                 ),
-            }
+            )
         elif workflow == "pasted_job_intake":
             from career.services import intake as intake_service
 
@@ -421,22 +515,18 @@ class HarnessSupervisor:
                 role=str(parameters["role"]),
                 text=str(parameters["text"]),
             )
-            envelope["result"] = {
-                "intake": intake_result,
-                "specialist": self.execute_specialist(
+            envelope["result"] = self._pipeline_result(
+                intake=intake_result,
+                specialist=self.execute_specialist(
                     "fit-map", objective=f"Analisar {parameters['role']} na {parameters['company']}", model=model, variant=variant
                 ),
-            }
+            )
         elif workflow == "pasted_job_missing_metadata":
             envelope["status"] = "blocked"
             envelope["blocker_reason"] = "pasted_job_requires_empresa_and_cargo_headers"
             return envelope
         elif workflow == "linkedin_saved_jobs":
-            envelope["status"] = "prepared"
-            envelope["result"] = {
-                "command": "npm run linkedin:saved-jobs:extract",
-                "next_action": "run_saved_jobs_extractor",
-            }
+            envelope["result"] = self._extract_linkedin_saved_jobs()
         elif workflow == "runtime_introspection":
             from career.services import project as project_service
 
@@ -468,10 +558,264 @@ class HarnessSupervisor:
             envelope["status"] = "blocked"
             envelope["blocker_reason"] = "no_deterministic_route"
             return envelope
-        envelope["executed"] = True
         result_status = envelope.get("result", {}).get("status") if isinstance(envelope.get("result"), dict) else None
-        envelope["status"] = "blocked" if result_status == "blocked" else "completed"
+        envelope["executed"] = result_status != "awaiting_input"
+        envelope["status"] = (
+            result_status
+            if result_status in {"blocked", "awaiting_input", "awaiting_approval"}
+            else "completed"
+        )
         return envelope
+
+    @staticmethod
+    def _pipeline_result(*, intake: dict[str, Any], specialist: dict[str, Any]) -> dict[str, Any]:
+        specialist_status = str(specialist.get("status") or "")
+        status = specialist_status if specialist_status in {"blocked", "awaiting_approval"} else "completed"
+        return {
+            "status": status,
+            "intake": intake,
+            "specialist": specialist,
+        }
+
+    def _resume_and_continue(
+        self, message: str, *, model: str | None, variant: str | None
+    ) -> dict[str, Any]:
+        from career.services import intake as intake_service
+
+        resume = intake_service.resume()
+        next_step = str(resume.get("next_required_step") or "")
+        if "fill_fit_map" in next_step or "draft" in next_step:
+            specialist = self.execute_specialist(
+                "fit-map", objective=message, model=model, variant=variant
+            )
+            return {
+                "status": "blocked" if specialist.get("status") == "blocked" else "completed",
+                "resume": resume,
+                "specialist": specialist,
+            }
+        return resume
+
+    def _extract_linkedin_saved_jobs(self) -> dict[str, Any]:
+        if not self.root:
+            return {"status": "blocked", "blocker_reason": "harness_root_missing"}
+        completed = subprocess.run(
+            ["npm", "run", "linkedin:saved-jobs:extract"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10 * 60,
+        )
+        if completed.returncode != 0:
+            combined = f"{completed.stdout}\n{completed.stderr}"
+            reason = "linkedin_auth_required" if "session" in combined.casefold() else "saved_jobs_extraction_failed"
+            return {
+                "status": "blocked",
+                "blocker_reason": reason,
+                "display_text": (
+                    "A sessão do LinkedIn expirou. Preciso que você autentique o LinkedIn para continuar."
+                    if reason == "linkedin_auth_required"
+                    else "Não consegui atualizar as vagas salvas do LinkedIn. A extração foi interrompida."
+                ),
+            }
+        output_path = self.root / "inbox" / "linkedin_saved_jobs.json"
+        if not output_path.exists():
+            return {"status": "blocked", "blocker_reason": "saved_jobs_output_missing"}
+        payload = read_json(output_path)
+        jobs = payload.get("jobs") or []
+        self._write_saved_jobs_menu_state(jobs)
+        lines = ["Vagas salvas no LinkedIn:"]
+        for index, job in enumerate(jobs, start=1):
+            lines.append(
+                f"{index}. {job.get('title') or '-'} | {job.get('company') or '-'} | {job.get('location') or '-'}"
+            )
+            lines.append(f"   {job.get('url') or '-'}")
+        lines.extend(["", "Responda com o número ou a URL da vaga que você quer analisar."])
+        return {
+            "status": "completed",
+            "kind": "linkedin_saved_jobs",
+            "extracted_at": payload.get("extractedAt"),
+            "total": len(jobs),
+            "jobs": jobs,
+            "display_text": "\n".join(lines),
+        }
+
+    def _write_saved_jobs_menu_state(self, jobs: list[dict[str, Any]]) -> None:
+        if not self.root:
+            return
+        from career.utils import write_json
+
+        numbered_items = []
+        for index, job in enumerate(jobs, start=1):
+            numbered_items.append(
+                {
+                    "number": index,
+                    "section_id": "linkedin_saved_jobs",
+                    "section_title": "Vagas salvas no LinkedIn",
+                    "id": f"linkedin_saved_job_{job.get('jobId') or index}",
+                    "title": job.get("title"),
+                    "description": f"{job.get('company') or '-'} | {job.get('location') or '-'}",
+                    "prompt": job.get("url"),
+                    "recommended": False,
+                }
+            )
+        write_json(
+            self.root / ".career-state" / "harness" / "menu_state.json",
+            {
+                "kind": "session_menu_state",
+                "updated_at": utc_now_iso(),
+                "menu_context": "linkedin_saved_jobs",
+                "headline": "Vagas salvas no LinkedIn",
+                "numbered_items": numbered_items,
+            },
+        )
+
+    def _build_session_menu(self) -> dict[str, Any]:
+        active = self._active_intake_summary()
+        if active:
+            payload = {
+                "status": "completed",
+                "kind": "session_menu",
+                "menu_context": "active_job",
+                "headline": "Ha uma vaga ativa. Posso continuar daqui.",
+                "active_intake": active,
+                "sections": [
+                    {
+                        "id": "continue_active_job",
+                        "title": "Continuar vaga ativa",
+                        "items": [
+                            self._menu_item(
+                                "resume",
+                                "Retomar trabalho em andamento",
+                                "Continuar exatamente do proximo passo salvo no estado local.",
+                                "continue o trabalho em andamento",
+                                recommended=True,
+                            ),
+                            self._menu_item(
+                                "fit_map",
+                                "Continuar analise da vaga ativa",
+                                "Seguir o pipeline da analise/FIT_MAP da vaga atual.",
+                                "continue a analise da vaga ativa",
+                            ),
+                        ],
+                    },
+                    {
+                        "id": "generate_outputs",
+                        "title": "Gerar entregaveis da vaga ativa",
+                        "items": [
+                            self._menu_item(
+                                "cv",
+                                "Gerar CV",
+                                "Produzir o curriculo orientado pela vaga ativa.",
+                                "gere um CV para a vaga ativa",
+                            ),
+                            self._menu_item(
+                                "feras",
+                                "Gerar pitch / FERAS",
+                                "Produzir o pitch executivo e o texto FERAS.",
+                                "gere um pitch FERAS para a vaga ativa",
+                            ),
+                            self._menu_item(
+                                "cover_letter",
+                                "Gerar carta",
+                                "Produzir a carta de apresentacao da vaga ativa.",
+                                "gere uma carta de apresentacao para a vaga ativa",
+                            ),
+                            self._menu_item(
+                                "habilidades",
+                                "Gerar habilidades ATS/Gupy",
+                                "Montar habilidades-chave e resumo ATS da vaga ativa.",
+                                "gere habilidades ATS para a vaga ativa",
+                            ),
+                        ],
+                    },
+                    {
+                        "id": "capture_new_job",
+                        "title": "Trocar para outra vaga",
+                        "items": [
+                            self._menu_item(
+                                "linkedin_saved_jobs",
+                                "Ver vagas salvas no LinkedIn",
+                                "Abrir o rastreador salvo e escolher uma nova vaga.",
+                                "listar minhas vagas salvas",
+                            ),
+                            self._menu_item(
+                                "notion_job_analysis",
+                                "Avaliar vaga do Notion por ID",
+                                "Iniciar analise de uma vaga ja cadastrada no Notion.",
+                                "quero avaliar uma vaga do Notion",
+                            ),
+                            self._menu_item(
+                                "linkedin_job_intake",
+                                "Avaliar vaga do LinkedIn por URL",
+                                "Extrair a descricao da vaga e iniciar nova analise.",
+                                "quero avaliar uma vaga do LinkedIn",
+                            ),
+                            self._menu_item(
+                                "pasted_job_intake",
+                                "Colar nova vaga para analise",
+                                "Salvar uma descricao colada e abrir novo intake.",
+                                "quero colar uma vaga para analise",
+                            ),
+                        ],
+                    },
+                    {
+                        "id": "notion_actions",
+                        "title": "Notion",
+                        "items": [
+                            self._menu_item(
+                                "notion_update",
+                                "Atualizar ou criar vaga no Notion",
+                                "Preparar o dry-run de escrita no Notion a partir do estado atual.",
+                                "atualize a vaga no Notion",
+                            ),
+                        ],
+                    },
+                ],
+            }
+            return self._finalize_menu_payload(payload)
+        payload = {
+            "status": "completed",
+            "kind": "session_menu",
+            "menu_context": "no_active_job",
+            "headline": "Nao ha vaga ativa. Estas sao as entradas mais uteis para comecar.",
+            "sections": [
+                {
+                    "id": "new_job_sources",
+                    "title": "Entradas de vaga",
+                    "items": [
+                        self._menu_item(
+                            "linkedin_saved_jobs",
+                            "Ver vagas salvas no LinkedIn",
+                            "Listar as vagas salvas no Jobs Tracker para escolher uma.",
+                            "listar minhas vagas salvas",
+                            recommended=True,
+                        ),
+                        self._menu_item(
+                            "notion_job_analysis",
+                            "Avaliar vaga do Notion por ID",
+                            "Avaliar rapidamente uma vaga ja registrada no Notion.",
+                            "quero avaliar uma vaga do Notion",
+                            recommended=True,
+                        ),
+                        self._menu_item(
+                            "linkedin_job_intake",
+                            "Avaliar vaga do LinkedIn por URL",
+                            "Extrair e persistir uma vaga do LinkedIn antes da analise.",
+                            "quero avaliar uma vaga do LinkedIn",
+                        ),
+                        self._menu_item(
+                            "pasted_job_intake",
+                            "Colar nova vaga para analise",
+                            "Usar texto colado quando a vaga nao vier do LinkedIn nem do Notion.",
+                            "quero colar uma vaga para analise",
+                        ),
+                    ],
+                },
+            ],
+        }
+        return self._finalize_menu_payload(payload)
 
     def run_application_stage(
         self,
@@ -537,9 +881,12 @@ class HarnessSupervisor:
         if model:
             command.extend(["--model", model])
         command.extend(["-z", message])
+        env = os.environ.copy()
+        env["CAREER_HARNESS_SUBAGENT"] = "1"
         completed = subprocess.run(
             command,
             cwd=self.root,
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -551,6 +898,7 @@ class HarnessSupervisor:
         return {
             "status": "completed" if completed.returncode == 0 else "blocked",
             "mode": "generic_hermes_fallback",
+            **({"display_text": stdout} if completed.returncode == 0 and stdout else {}),
             "command": command,
             "stdout": stdout,
             "stderr": stderr,
@@ -578,6 +926,197 @@ class HarnessSupervisor:
         )
 
     @staticmethod
+    def _menu_item(
+        item_id: str,
+        title: str,
+        description: str,
+        prompt: str,
+        *,
+        recommended: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "id": item_id,
+            "title": title,
+            "description": description,
+            "prompt": prompt,
+            "recommended": recommended,
+        }
+
+    def _finalize_menu_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        numbered_items = self._numbered_menu_items(payload.get("sections") or [])
+        payload["numbered_items"] = numbered_items
+        payload["display_text"] = self._render_menu_text(payload)
+        if self.root:
+            self._write_menu_state(payload)
+        return payload
+
+    @staticmethod
+    def _numbered_menu_items(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        numbered: list[dict[str, Any]] = []
+        index = 1
+        for section in sections:
+            section_id = str(section.get("id") or "")
+            section_title = str(section.get("title") or "")
+            for item in section.get("items") or []:
+                numbered.append(
+                    {
+                        "number": index,
+                        "section_id": section_id,
+                        "section_title": section_title,
+                        "id": item.get("id"),
+                        "title": item.get("title"),
+                        "description": item.get("description"),
+                        "prompt": item.get("prompt"),
+                        "recommended": bool(item.get("recommended")),
+                    }
+                )
+                index += 1
+        return numbered
+
+    def _write_menu_state(self, payload: dict[str, Any]) -> None:
+        state = {
+            "kind": "session_menu_state",
+            "updated_at": utc_now_iso(),
+            "menu_context": payload.get("menu_context"),
+            "headline": payload.get("headline"),
+            "numbered_items": payload.get("numbered_items") or [],
+        }
+        path = self.root / ".career-state" / "harness" / "menu_state.json"
+        from career.utils import write_json
+
+        write_json(path, state)
+
+    def _resolve_menu_selection(self, message: str) -> dict[str, Any] | None:
+        text = " ".join(str(message or "").strip().split())
+        if not re.fullmatch(r"\d{1,2}", text):
+            return None
+        if not self.root:
+            return None
+        state_path = self.root / ".career-state" / "harness" / "menu_state.json"
+        if not state_path.exists():
+            return None
+        try:
+            payload = read_json(state_path)
+        except Exception:
+            return None
+        items = payload.get("numbered_items") or []
+        selected = next((item for item in items if int(item.get("number") or 0) == int(text)), None)
+        if not selected:
+            return None
+        return {
+            "number": int(text),
+            "id": selected.get("id"),
+            "title": selected.get("title"),
+            "prompt": selected.get("prompt"),
+            "menu_context": payload.get("menu_context"),
+        }
+
+    @staticmethod
+    def _menu_input_request(selection: dict[str, Any]) -> dict[str, Any] | None:
+        item_id = str(selection.get("id") or "")
+        requests = {
+            "notion_job_analysis": (
+                "notion_id",
+                "Qual é o número da vaga no Notion? Pode responder somente com o número.",
+            ),
+            "linkedin_job_intake": (
+                "linkedin_job_url",
+                "Envie a URL da vaga no LinkedIn.",
+            ),
+            "pasted_job_intake": (
+                "pasted_job",
+                "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. Depois inclua a descrição completa.",
+            ),
+        }
+        request = requests.get(item_id)
+        if not request:
+            return None
+        return {
+            "status": "awaiting_input",
+            "kind": "input_request",
+            "input_kind": request[0],
+            "display_text": request[1],
+        }
+
+    def _write_pending_input(self, request: dict[str, Any]) -> None:
+        if not self.root:
+            return
+        from career.utils import write_json
+
+        write_json(
+            self.root / ".career-state" / "harness" / "pending_input.json",
+            {**request, "updated_at": utc_now_iso()},
+        )
+
+    def _clear_pending_input(self) -> None:
+        if not self.root:
+            return
+        (self.root / ".career-state" / "harness" / "pending_input.json").unlink(missing_ok=True)
+
+    def _resolve_pending_input(self, message: str) -> dict[str, Any] | None:
+        if not self.root:
+            return None
+        path = self.root / ".career-state" / "harness" / "pending_input.json"
+        if not path.exists():
+            return None
+        pending = read_json(path)
+        input_kind = str(pending.get("input_kind") or "")
+        text = str(message or "").strip()
+        resolved: str | None = None
+        if input_kind == "notion_id" and re.fullmatch(r"\d+", text):
+            resolved = f"avalie vaga Notion {text}"
+        elif input_kind == "linkedin_job_url" and LINKEDIN_JOB_RE.search(text):
+            resolved = text
+        elif input_kind == "pasted_job" and len(text) >= 200:
+            resolved = "Analise esta vaga\n" + text
+        if not resolved:
+            return None
+        path.unlink(missing_ok=True)
+        return {"input_kind": input_kind, "message": resolved}
+
+    def _render_menu_text(self, payload: dict[str, Any]) -> str:
+        lines = [str(payload.get("headline") or "Menu")]
+        active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else None
+        if active:
+            company = str(active.get("company") or "-")
+            role = str(active.get("role") or "-")
+            next_step = str(active.get("next_required_step") or "-")
+            lines.append(f"Vaga ativa: {role} | {company}")
+            lines.append(f"Próximo passo salvo: {next_step}")
+        for section in payload.get("sections") or []:
+            lines.append("")
+            lines.append(f"{section.get('title')}:")
+            for item in payload.get("numbered_items") or []:
+                if item.get("section_id") != section.get("id"):
+                    continue
+                suffix = " [recomendado]" if item.get("recommended") else ""
+                lines.append(f"{item.get('number')}. {item.get('title')}{suffix}")
+                lines.append(f"   {item.get('description')}")
+        lines.append("")
+        lines.append("Responda com o número da opção ou diga o que você quer fazer.")
+        return "\n".join(lines)
+
+    def _active_intake_summary(self) -> dict[str, Any] | None:
+        if not self.root:
+            return None
+        state_path = self.root / ".career-state" / "workflow_state.json"
+        if not state_path.exists():
+            return None
+        payload = read_json(state_path)
+        active = payload.get("active_intake")
+        if not isinstance(active, dict) or not active.get("job_description_path"):
+            return None
+        return {
+            "source_type": active.get("source_type"),
+            "source_id": active.get("source_id"),
+            "company": active.get("company"),
+            "role": active.get("role"),
+            "job_description_path": active.get("job_description_path"),
+            "next_required_step": active.get("next_required_step"),
+            "status": active.get("status"),
+        }
+
+    @staticmethod
     def _is_runtime_introspection(lowered: str) -> bool:
         triggers = (
             "temperatura",
@@ -593,5 +1132,29 @@ class HarnessSupervisor:
             "modelo que vc esta usando",
             "runtime do hermes",
             "runtime local",
+        )
+        return any(trigger in lowered for trigger in triggers)
+
+    @staticmethod
+    def _is_menu_request(lowered: str) -> bool:
+        if lowered.strip(" !.,?") in {
+            "oi",
+            "ola",
+            "olá",
+            "bom dia",
+            "boa tarde",
+            "boa noite",
+        }:
+            return True
+        triggers = (
+            "menu",
+            "opcoes",
+            "opções",
+            "nova sessao",
+            "nova sessão",
+            "o que posso fazer",
+            "atalhos",
+            "acoes comuns",
+            "ações comuns",
         )
         return any(trigger in lowered for trigger in triggers)

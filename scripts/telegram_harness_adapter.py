@@ -48,6 +48,10 @@ def process_message(
         "deduplicated": False,
         "result": result,
     }
+    payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+    display_text = payload.get("display_text") if isinstance(payload, dict) else None
+    if isinstance(display_text, str) and display_text.strip():
+        envelope["reply_text"] = display_text
     write_json(cache_path, envelope)
     return envelope
 

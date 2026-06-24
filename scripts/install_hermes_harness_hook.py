@@ -11,6 +11,8 @@ import yaml
 from _bootstrap import bootstrap
 
 ROOT = bootstrap()
+PLUGIN_NAME = "career-harness-output"
+PLUGIN_SOURCE = ROOT / "integrations" / "hermes" / PLUGIN_NAME
 
 
 def install(config_path: Path, *, apply: bool) -> dict:
@@ -26,15 +28,24 @@ def install(config_path: Path, *, apply: bool) -> dict:
     exists = any(isinstance(item, dict) and item.get("command") == command for item in entries)
     if not exists:
         entries.append({"command": command, "timeout": 300})
+    enabled_plugins = payload.setdefault("plugins", {}).setdefault("enabled", [])
+    plugin_enabled = PLUGIN_NAME in enabled_plugins
+    if not plugin_enabled:
+        enabled_plugins.append(PLUGIN_NAME)
+    plugin_target = config_path.parent / "plugins" / PLUGIN_NAME
+    needs_apply = not exists or not plugin_enabled or not plugin_target.exists()
     result = {
-        "status": "already_configured" if exists else "dry_run_ok",
+        "status": "already_configured" if not needs_apply else "dry_run_ok",
         "config": str(config_path),
         "command": command,
+        "plugin": str(plugin_target),
         "apply": apply,
     }
-    if apply and not exists:
+    if apply and needs_apply:
         backup = config_path.with_suffix(config_path.suffix + ".bak.harness")
         shutil.copy2(config_path, backup)
+        plugin_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(PLUGIN_SOURCE, plugin_target, dirs_exist_ok=True)
         config_path.write_text(
             yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
