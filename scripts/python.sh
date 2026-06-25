@@ -18,6 +18,11 @@ resolve_python() {
     fi
   fi
 
+  if command -v python3.12 >/dev/null 2>&1; then
+    command -v python3.12
+    return 0
+  fi
+
   if command -v python3 >/dev/null 2>&1; then
     command -v python3
     return 0
