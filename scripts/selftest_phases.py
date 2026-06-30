@@ -1563,7 +1563,7 @@ def phase_42() -> None:
         from career.services import intake as intake_service
 
         original = intake_service.from_linkedin_job
-        intake_service.from_linkedin_job = lambda _url: (_ for _ in ()).throw(
+        intake_service.from_linkedin_job = lambda _url, state_store=None, *, metadata_hints=None: (_ for _ in ()).throw(
             ValidationFailure("LinkedIn extraction produced generic metadata.")
         )
         try:
@@ -1577,6 +1577,116 @@ def phase_42() -> None:
             raise SystemExit(f"Harness should preserve a deterministic blocker reason: {result}")
         if payload.get("display_text") != "LinkedIn extraction produced generic metadata.":
             raise SystemExit(f"Harness should surface the validation failure text to the user: {result}")
+
+
+def phase_43() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        stale_state = {
+            "active_intake": {
+                "source_type": "pasted_text",
+                "source_id": None,
+                "company": "Fiorde Logística Internacional",
+                "role": "Gerente de Logística Nacional",
+                "job_description_path": "inbox/job_descriptions/fiorde.md",
+                "next_required_step": "fill_fit_map_draft",
+                "status": "ready_for_model_analysis",
+                "updated_at": "2026-06-20T12:00:00+00:00",
+            }
+        }
+        (state_dir / "workflow_state.json").write_text(json.dumps(stale_state), encoding="utf-8")
+        supervisor = HarnessSupervisor(root)
+        menu = supervisor.handle_message("olá", channel="telegram", execute=True)
+        result = menu.get("result") if isinstance(menu.get("result"), dict) else {}
+        if result.get("menu_context") != "no_active_job":
+            raise SystemExit(f"Stale active intake should not dominate the greeting menu: {menu}")
+        if not result.get("stale_active_intake"):
+            raise SystemExit(f"Stale active intake should still be exposed as optional resume context: {menu}")
+        display = str(result.get("display_text") or "")
+        if "Trabalho antigo detectado" not in display:
+            raise SystemExit(f"Stale intake should be announced as old work in display text: {display}")
+
+
+def phase_44() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "workflow_state.json").write_text(json.dumps({}), encoding="utf-8")
+        supervisor = HarnessSupervisor(root)
+        supervisor._write_saved_jobs_menu_state(
+            [
+                {
+                    "jobId": "4431478354",
+                    "title": "Gestor de Planejamento Operacional e Financeiro",
+                    "company": "Loft",
+                    "location": "São Paulo",
+                    "url": "https://www.linkedin.com/jobs/view/4431478354/",
+                }
+            ]
+        )
+        result = supervisor.handle_message("17", channel="telegram", execute=True)
+        payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+        if result.get("status") != "blocked":
+            raise SystemExit(f"Unknown numeric menu selection should block deterministically: {result}")
+        if payload.get("blocker_reason") != "menu_selection_not_found":
+            raise SystemExit(f"Unknown numeric menu selection should preserve blocker reason: {result}")
+        if "Esse número não existe no menu atual." not in str(payload.get("display_text") or ""):
+            raise SystemExit(f"Unknown numeric menu selection should explain the mismatch: {result}")
+
+
+def phase_45() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "workflow_state.json").write_text(json.dumps({}), encoding="utf-8")
+        supervisor = HarnessSupervisor(root)
+        supervisor._write_saved_jobs_menu_state(
+            [
+                {
+                    "jobId": "4402585997",
+                    "title": "Gerente de Operações Logísticas (PJ)",
+                    "company": "To Do Green",
+                    "location": "São Paulo, SP (Presencial)",
+                    "url": "https://www.linkedin.com/jobs/view/4402585997/",
+                }
+            ]
+        )
+        captured: dict[str, Any] = {}
+        from career.services import intake as intake_service
+
+        original_from_linkedin_job = intake_service.from_linkedin_job
+        original_execute_specialist = supervisor.execute_specialist
+
+        def fake_from_linkedin_job(url: str, state_store=None, *, metadata_hints=None):
+            captured["url"] = url
+            captured["metadata_hints"] = metadata_hints
+            return {"status": "ready_for_model_analysis"}
+
+        supervisor.execute_specialist = lambda *args, **kwargs: {"status": "completed"}
+        intake_service.from_linkedin_job = fake_from_linkedin_job
+        try:
+            supervisor.handle_message("1", channel="telegram", execute=True)
+        finally:
+            supervisor.execute_specialist = original_execute_specialist
+            intake_service.from_linkedin_job = original_from_linkedin_job
+        if captured.get("url") != "https://www.linkedin.com/jobs/view/4402585997/":
+            raise SystemExit(f"Saved-job selection should route to the chosen URL: {captured}")
+        if captured.get("metadata_hints") != {
+            "role": "Gerente de Operações Logísticas (PJ)",
+            "company": "To Do Green",
+            "location": "São Paulo, SP (Presencial)",
+        }:
+            raise SystemExit(f"Saved-job selection should forward metadata hints into intake: {captured}")
 
 
 PHASES = {
@@ -1622,6 +1732,9 @@ PHASES = {
     40: phase_40,
     41: phase_41,
     42: phase_42,
+    43: phase_43,
+    44: phase_44,
+    45: phase_45,
 }
 
 

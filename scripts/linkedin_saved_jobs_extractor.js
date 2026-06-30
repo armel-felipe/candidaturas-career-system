@@ -8,6 +8,34 @@ const SOURCE_URL = 'https://www.linkedin.com/jobs-tracker/';
 const DEFAULT_MAX_PAGES = 2;
 const DEEP_SCAN_MAX_PAGES = 100;
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clearStaleSingletonLocks(userDataDir) {
+  const names = [
+    'SingletonLock',
+    'SingletonSocket',
+    'SingletonCookie',
+    '.org.chromium.Chromium.',
+  ];
+  for (const entry of fs.readdirSync(userDataDir, { withFileTypes: true })) {
+    if (!entry.name.startsWith('.org.chromium.Chromium.')) continue;
+    fs.rmSync(path.join(userDataDir, entry.name), { force: true, recursive: true });
+  }
+  for (const name of names.slice(0, 3)) {
+    fs.rmSync(path.join(userDataDir, name), { force: true, recursive: true });
+  }
+}
+
+function browserProfileLooksBusy(error) {
+  const text = String(error && error.message ? error.message : error || '');
+  return /Target page, context or browser has been closed/i.test(text)
+    || /Abrindo em uma sessão de navegador existente/i.test(text)
+    || /existing browser session/i.test(text)
+    || /ProcessSingleton/i.test(text);
+}
+
 function parseArgs(argv) {
   const args = {
     maxPages: DEFAULT_MAX_PAGES,
@@ -50,10 +78,33 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 
 (async () => {
   const args = parseArgs(process.argv.slice(2));
-  const browser = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: true,
-    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
-  });
+  let browser = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      browser = await chromium.launchPersistentContext(USER_DATA_DIR, {
+        headless: true,
+        args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!browserProfileLooksBusy(error)) throw error;
+      if (attempt === 1) {
+        clearStaleSingletonLocks(USER_DATA_DIR);
+      }
+      if (attempt < 3) {
+        await sleep(1500 * attempt);
+      }
+    }
+  }
+  if (!browser) {
+    throw new Error(
+      'O perfil persistente do LinkedIn parece ocupado ou preso por uma sessão anterior. '
+      + 'Feche instâncias antigas do navegador de automação e tente novamente.\n'
+      + String(lastError && lastError.message ? lastError.message : lastError || '')
+    );
+  }
 
   const page = await browser.newPage();
   page.setDefaultTimeout(120000);

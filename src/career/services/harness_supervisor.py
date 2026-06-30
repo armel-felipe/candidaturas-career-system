@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 from typing import Any
@@ -57,6 +58,8 @@ SPECIALIST_OUTPUT_PATTERNS = {
     ],
 }
 
+ACTIVE_INTAKE_STALE_AFTER = timedelta(hours=24)
+
 
 @dataclass(frozen=True)
 class DispatchDecision:
@@ -93,6 +96,9 @@ class HarnessSupervisor:
         selection = self._resolve_menu_selection(text)
         if selection:
             return self.classify(selection["prompt"])
+        invalid_selection = self._invalid_menu_selection(text)
+        if invalid_selection:
+            return self._decision("invalid_menu_selection", "conversation", "high", invalid_selection)
 
         if self._is_runtime_introspection(lowered):
             return self._decision(
@@ -481,7 +487,11 @@ class HarnessSupervisor:
             elif workflow == "linkedin_job_intake":
                 from career.services import intake as intake_service
 
-                intake_result = intake_service.from_linkedin_job(str((decision.parameters or {})["url"]))
+                hints = self._saved_job_metadata_hints(selection)
+                intake_result = intake_service.from_linkedin_job(
+                    str((decision.parameters or {})["url"]),
+                    metadata_hints=hints,
+                )
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
                     specialist=self.execute_specialist(
@@ -532,6 +542,24 @@ class HarnessSupervisor:
                 from career.services import project as project_service
 
                 envelope["result"] = project_service.hermes_runtime_snapshot()
+                if isinstance(envelope["result"], dict):
+                    stale = self._stale_active_intake_summary()
+                    if stale:
+                        envelope["result"]["stale_active_intake"] = stale
+            elif workflow == "invalid_menu_selection":
+                stale = self._stale_active_intake_summary()
+                display_text = "Esse número não existe no menu atual. Responda com um número listado ou peça `menu` para recarregar."
+                if stale:
+                    display_text += (
+                        f"\n\nHá um trabalho anterior salvo ({stale.get('role') or '-'} | {stale.get('company') or '-'})"
+                        " mas ele parece antigo; se quiser retomá-lo, diga `continue o trabalho em andamento`."
+                    )
+                envelope["result"] = {
+                    "status": "blocked",
+                    "kind": "invalid_menu_selection",
+                    "blocker_reason": "menu_selection_not_found",
+                    "display_text": display_text,
+                }
             elif workflow in {
                 "fit_map",
                 "cv",
@@ -681,6 +709,7 @@ class HarnessSupervisor:
 
     def _build_session_menu(self) -> dict[str, Any]:
         active = self._active_intake_summary()
+        stale = self._stale_active_intake_summary()
         if active:
             payload = {
                 "status": "completed",
@@ -787,7 +816,11 @@ class HarnessSupervisor:
             "status": "completed",
             "kind": "session_menu",
             "menu_context": "no_active_job",
-            "headline": "Nao ha vaga ativa. Estas sao as entradas mais uteis para comecar.",
+            "headline": (
+                "Nao ha vaga ativa recente. Estas sao as entradas mais uteis para comecar."
+                if stale
+                else "Nao ha vaga ativa. Estas sao as entradas mais uteis para comecar."
+            ),
             "sections": [
                 {
                     "id": "new_job_sources",
@@ -823,6 +856,22 @@ class HarnessSupervisor:
                 },
             ],
         }
+        if stale:
+            payload["stale_active_intake"] = stale
+            payload["sections"].append(
+                {
+                    "id": "resume_previous_job",
+                    "title": "Retomar Trabalho Antigo",
+                    "items": [
+                        self._menu_item(
+                            "resume",
+                            f"Retomar {stale.get('role') or 'vaga anterior'}",
+                            "Continuar manualmente o trabalho salvo anteriormente, mesmo ele parecendo antigo.",
+                            "continue o trabalho em andamento",
+                        )
+                    ],
+                }
+            )
         return self._finalize_menu_payload(payload)
 
     def run_application_stage(
@@ -998,14 +1047,8 @@ class HarnessSupervisor:
         text = " ".join(str(message or "").strip().split())
         if not re.fullmatch(r"\d{1,2}", text):
             return None
-        if not self.root:
-            return None
-        state_path = self.root / ".career-state" / "harness" / "menu_state.json"
-        if not state_path.exists():
-            return None
-        try:
-            payload = read_json(state_path)
-        except Exception:
+        payload = self._menu_state_payload()
+        if not payload:
             return None
         items = payload.get("numbered_items") or []
         selected = next((item for item in items if int(item.get("number") or 0) == int(text)), None)
@@ -1015,9 +1058,33 @@ class HarnessSupervisor:
             "number": int(text),
             "id": selected.get("id"),
             "title": selected.get("title"),
+            "description": selected.get("description"),
             "prompt": selected.get("prompt"),
             "menu_context": payload.get("menu_context"),
         }
+
+    def _invalid_menu_selection(self, message: str) -> str | None:
+        text = " ".join(str(message or "").strip().split())
+        if not re.fullmatch(r"\d{1,2}", text):
+            return None
+        payload = self._menu_state_payload()
+        if not payload:
+            return None
+        items = payload.get("numbered_items") or []
+        if any(int(item.get("number") or 0) == int(text) for item in items):
+            return None
+        return "numeric_menu_selection_not_found"
+
+    def _menu_state_payload(self) -> dict[str, Any] | None:
+        if not self.root:
+            return None
+        state_path = self.root / ".career-state" / "harness" / "menu_state.json"
+        if not state_path.exists():
+            return None
+        try:
+            return read_json(state_path)
+        except Exception:
+            return None
 
     @staticmethod
     def _menu_input_request(selection: dict[str, Any]) -> dict[str, Any] | None:
@@ -1044,6 +1111,21 @@ class HarnessSupervisor:
             "kind": "input_request",
             "input_kind": request[0],
             "display_text": request[1],
+        }
+
+    @staticmethod
+    def _saved_job_metadata_hints(selection: dict[str, Any] | None) -> dict[str, str]:
+        if not isinstance(selection, dict) or selection.get("menu_context") != "linkedin_saved_jobs":
+            return {}
+        company = ""
+        location = ""
+        description = str(selection.get("description") or "")
+        if " | " in description:
+            company, location = [part.strip() for part in description.split(" | ", 1)]
+        return {
+            "role": str(selection.get("title") or "").strip(),
+            "company": company,
+            "location": location,
         }
 
     def _write_pending_input(self, request: dict[str, Any]) -> None:
@@ -1085,12 +1167,19 @@ class HarnessSupervisor:
     def _render_menu_text(self, payload: dict[str, Any]) -> str:
         lines = [str(payload.get("headline") or "Menu")]
         active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else None
+        stale = payload.get("stale_active_intake") if isinstance(payload.get("stale_active_intake"), dict) else None
         if active:
             company = str(active.get("company") or "-")
             role = str(active.get("role") or "-")
             next_step = str(active.get("next_required_step") or "-")
             lines.append(f"Vaga ativa: {role} | {company}")
             lines.append(f"Próximo passo salvo: {next_step}")
+        elif stale:
+            company = str(stale.get("company") or "-")
+            role = str(stale.get("role") or "-")
+            updated_at = str(stale.get("updated_at") or "-")
+            lines.append(f"Trabalho antigo detectado: {role} | {company}")
+            lines.append(f"Última atualização salva: {updated_at}")
         for section in payload.get("sections") or []:
             lines.append("")
             lines.append(f"{section.get('title')}:")
@@ -1105,6 +1194,20 @@ class HarnessSupervisor:
         return "\n".join(lines)
 
     def _active_intake_summary(self) -> dict[str, Any] | None:
+        active = self._raw_active_intake()
+        if not active or self._is_stale_active_intake(active):
+            return None
+        return self._normalize_active_intake(active)
+
+    def _stale_active_intake_summary(self) -> dict[str, Any] | None:
+        active = self._raw_active_intake()
+        if not active or not self._is_stale_active_intake(active):
+            return None
+        normalized = self._normalize_active_intake(active)
+        normalized["stale"] = True
+        return normalized
+
+    def _raw_active_intake(self) -> dict[str, Any] | None:
         if not self.root:
             return None
         state_path = self.root / ".career-state" / "workflow_state.json"
@@ -1114,6 +1217,10 @@ class HarnessSupervisor:
         active = payload.get("active_intake")
         if not isinstance(active, dict) or not active.get("job_description_path"):
             return None
+        return active
+
+    @staticmethod
+    def _normalize_active_intake(active: dict[str, Any]) -> dict[str, Any]:
         return {
             "source_type": active.get("source_type"),
             "source_id": active.get("source_id"),
@@ -1122,7 +1229,21 @@ class HarnessSupervisor:
             "job_description_path": active.get("job_description_path"),
             "next_required_step": active.get("next_required_step"),
             "status": active.get("status"),
+            "updated_at": active.get("updated_at"),
         }
+
+    @staticmethod
+    def _is_stale_active_intake(active: dict[str, Any]) -> bool:
+        updated_at = str(active.get("updated_at") or "").strip()
+        if not updated_at:
+            return False
+        try:
+            parsed = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - parsed > ACTIVE_INTAKE_STALE_AFTER
 
     @staticmethod
     def _is_runtime_introspection(lowered: str) -> bool:

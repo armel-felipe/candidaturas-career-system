@@ -12,6 +12,9 @@ function parseArgs(argv) {
     headless: false,
     loginPrompt: true,
     saveJob: true,
+    fallbackCompany: "",
+    fallbackRole: "",
+    fallbackLocation: "",
     timeoutMs: 120000,
     loginWaitMs: 300000,
   };
@@ -28,6 +31,12 @@ function parseArgs(argv) {
       args.loginPrompt = false;
     } else if (item === "--no-save-job") {
       args.saveJob = false;
+    } else if (item === "--fallback-company") {
+      args.fallbackCompany = cleanText(argv[++i]);
+    } else if (item === "--fallback-role") {
+      args.fallbackRole = cleanText(argv[++i]);
+    } else if (item === "--fallback-location") {
+      args.fallbackLocation = cleanText(argv[++i]);
     } else if (item === "--timeout-ms") {
       args.timeoutMs = Number(argv[++i]);
     } else if (item === "--login-wait-ms") {
@@ -64,6 +73,9 @@ Opções:
   --headless              Tenta sem janela visível; se login faltar, abre login manual quando DISPLAY existir.
   --no-login-prompt       Não abre navegador visível para login manual; falha se a sessão não estiver autenticada.
   --no-save-job           Não chama scripts/save_job_description.py.
+  --fallback-company      Usa empresa vinda do seletor de vagas salvas quando o parser da página falhar.
+  --fallback-role         Usa cargo vindo do seletor de vagas salvas quando o parser da página falhar.
+  --fallback-location     Usa localização vinda do seletor de vagas salvas quando o parser da página falhar.
   --timeout-ms <ms>       Timeout total de navegação. Padrão: 120000.
   --login-wait-ms <ms>    Tempo para aguardar login manual via noVNC. Padrão: 300000.
 `);
@@ -172,7 +184,7 @@ async function hasLoginWall(page) {
     && !/About the job|Sobre a vaga|Descrição da vaga|Responsabilidades/i.test(body);
 }
 
-async function extractJob(page) {
+async function extractJob(page, args) {
   await clickExpandableButtons(page);
 
   const title = await textFromFirst(page, [
@@ -213,11 +225,17 @@ async function extractJob(page) {
   const inferred = inferTitleAndCompany(title, company, description);
   description = trimLinkedInNoise(description);
   const inferredLocation = inferLocation(location, description);
+  const fallbackRole = cleanText(args && args.fallbackRole);
+  const fallbackCompany = cleanText(args && args.fallbackCompany);
+  const fallbackLocation = cleanText(args && args.fallbackLocation);
+  const finalTitle = fallbackRole || (isPlausibleLabel(inferred.title, 120) ? inferred.title : "");
+  const finalCompany = fallbackCompany || (isPlausibleLabel(inferred.company, 80) ? inferred.company : "");
+  const finalLocation = fallbackLocation || inferredLocation;
 
   return {
-    title: inferred.title || "Cargo LinkedIn",
-    company: inferred.company || "Empresa LinkedIn",
-    location: inferredLocation,
+    title: finalTitle || "Cargo LinkedIn",
+    company: finalCompany || "Empresa LinkedIn",
+    location: finalLocation,
     description,
   };
 }
@@ -243,6 +261,8 @@ function inferTitleAndCompany(title, company, description) {
   if (!result.title) {
     result.title = firstMatch(normalizedDescription, [
       /\bPosition:\s*([^\n]+)/i,
+      /\bEstamos em busca de (?:um|uma)\s+([^\n,.]+?)(?:\s+para|\s+com|\s+que|,|\.|\n)/i,
+      /\bBuscamos (?:um|uma)\s+([^\n,.]+?)(?:\s+para|\s+com|\s+que|,|\.|\n)/i,
       /\bVeja nossa oportunidade para\s+([^\n.!]+)/i,
       /\bOportunidade para\s+([^\n.!]+)/i,
       /\bVaga para\s+([^\n.!]+)/i,
@@ -313,6 +333,7 @@ function isPlausibleLabel(value, maxLength) {
   const text = cleanText(value);
   if (!text || text.length > maxLength) return false;
   if (/^(the role|the job|the position|a vaga|sobre a vaga|descrição da vaga|descricao da vaga)$/i.test(text)) return false;
+  if (/^(nível hierárquico|nivel hierarquico|area e especialização profissional|área e especialização profissional)\s*:/i.test(text)) return false;
   if (/^(mexico|méxico|brazil|brasil|chile|peru|colombia|costa rica|sao paulo|são paulo)$/i.test(text)) return false;
   if (/^(cargo linkedin|empresa linkedin)$/i.test(text)) return false;
   if (/[:;]/.test(text) && text.split(/\s+/).length > 6) return false;
@@ -446,12 +467,64 @@ function loadBrowserGatewayEnv() {
   return loaded;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clearStaleSingletonLocks(userDataDir) {
+  const names = [
+    "SingletonLock",
+    "SingletonSocket",
+    "SingletonCookie",
+    ".org.chromium.Chromium.*",
+  ];
+  for (const name of names) {
+    if (name.includes("*")) {
+      const prefix = name.replace("*", "");
+      for (const entry of fs.readdirSync(userDataDir, { withFileTypes: true })) {
+        if (!entry.name.startsWith(prefix)) continue;
+        fs.rmSync(path.join(userDataDir, entry.name), { force: true, recursive: true });
+      }
+      continue;
+    }
+    fs.rmSync(path.join(userDataDir, name), { force: true, recursive: true });
+  }
+}
+
+function browserProfileLooksBusy(error) {
+  const text = String(error && error.message ? error.message : error || "");
+  return /Target page, context or browser has been closed/i.test(text)
+    || /Abrindo em uma sessão de navegador existente/i.test(text)
+    || /existing browser session/i.test(text)
+    || /ProcessSingleton/i.test(text);
+}
+
 async function launchContext(chromium, userDataDir, headless) {
-  return chromium.launchPersistentContext(userDataDir, {
-    headless,
-    viewport: { width: 1366, height: 900 },
-    locale: "pt-BR",
-  });
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await chromium.launchPersistentContext(userDataDir, {
+        headless,
+        viewport: { width: 1366, height: 900 },
+        locale: "pt-BR",
+      });
+    } catch (error) {
+      lastError = error;
+      if (!browserProfileLooksBusy(error)) throw error;
+      if (attempt === 1) {
+        clearStaleSingletonLocks(userDataDir);
+      }
+      if (attempt < 3) {
+        await sleep(1500 * attempt);
+        continue;
+      }
+    }
+  }
+  throw new Error(
+    "O perfil persistente do LinkedIn parece ocupado ou preso por uma sessão anterior. "
+    + "Feche instâncias antigas do navegador de automação e tente novamente.\n"
+    + String(lastError && lastError.message ? lastError.message : lastError || "")
+  );
 }
 
 async function openJobPage(context, url, timeoutMs) {
@@ -557,7 +630,7 @@ async function main() {
       return;
     }
 
-    const job = await extractJob(page);
+    const job = await extractJob(page, args);
     job.description = cleanText(job.description);
 
     if (!job.description || job.description.length < 300) {

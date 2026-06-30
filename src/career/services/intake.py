@@ -385,9 +385,22 @@ def _canonical_saved_path(raw_output: str, fallback: str | None) -> Path:
     raise ValidationFailure("Extraction finished but no saved job description path could be resolved.")
 
 
-def from_linkedin_job(url: str, state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
+def from_linkedin_job(
+    url: str,
+    state_store: WorkflowStateStore | None = None,
+    *,
+    metadata_hints: dict[str, str] | None = None,
+) -> dict[str, Any]:
     state_store = state_store or WorkflowStateStore()
-    stdout, result = _run_command(["npm", "run", "linkedin:extract:authenticated", "--", "--url", url])
+    command = ["npm", "run", "linkedin:extract:authenticated", "--", "--url", url]
+    hints = metadata_hints or {}
+    if hints.get("company"):
+        command.extend(["--fallback-company", str(hints["company"])])
+    if hints.get("role"):
+        command.extend(["--fallback-role", str(hints["role"])])
+    if hints.get("location"):
+        command.extend(["--fallback-location", str(hints["location"])])
+    stdout, result = _run_command(command)
     path = _canonical_saved_path(stdout, result.get("output_path"))
     if _is_generic_linkedin_metadata(result.get("company"), result.get("role")):
         raise ValidationFailure(
