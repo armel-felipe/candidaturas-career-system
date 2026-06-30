@@ -13,7 +13,7 @@ from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.approvals import ApprovalStore
 from career.services.approved_actions import ApprovedActionExecutor
 from career.services.harness_runs import HarnessRunStore, begin_specialist_run
-from career.utils import read_json, utc_now_iso
+from career.utils import ValidationFailure, read_json, utc_now_iso
 
 
 LINKEDIN_JOB_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/(?:jobs(?:/view)?|job)/[^\s]+", re.IGNORECASE)
@@ -423,141 +423,149 @@ class HarnessSupervisor:
             return envelope
 
         workflow = decision.workflow
-        if workflow == "menu":
-            self._clear_pending_input()
-            envelope["result"] = self._build_session_menu()
-        elif workflow in {"collect_notion_id", "collect_linkedin_url", "collect_pasted_job"}:
-            input_kind = {
-                "collect_notion_id": "notion_id",
-                "collect_linkedin_url": "linkedin_job_url",
-                "collect_pasted_job": "pasted_job",
-            }[workflow]
-            display_text = {
-                "notion_id": "Qual é o número da vaga no Notion? Pode responder somente com o número.",
-                "linkedin_job_url": "Envie a URL da vaga no LinkedIn.",
-                "pasted_job": (
-                    "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. "
-                    "Depois inclua a descrição completa."
-                ),
-            }[input_kind]
-            request = {
-                "status": "awaiting_input",
-                "kind": "input_request",
-                "input_kind": input_kind,
-                "display_text": display_text,
-            }
-            self._write_pending_input(request)
-            envelope["result"] = request
-        elif workflow == "resume":
-            envelope["result"] = self._resume_and_continue(message, model=model, variant=variant)
-        elif workflow == "applications_status":
-            from career.services import applications_v2 as applications_service
+        try:
+            if workflow == "menu":
+                self._clear_pending_input()
+                envelope["result"] = self._build_session_menu()
+            elif workflow in {"collect_notion_id", "collect_linkedin_url", "collect_pasted_job"}:
+                input_kind = {
+                    "collect_notion_id": "notion_id",
+                    "collect_linkedin_url": "linkedin_job_url",
+                    "collect_pasted_job": "pasted_job",
+                }[workflow]
+                display_text = {
+                    "notion_id": "Qual é o número da vaga no Notion? Pode responder somente com o número.",
+                    "linkedin_job_url": "Envie a URL da vaga no LinkedIn.",
+                    "pasted_job": (
+                        "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. "
+                        "Depois inclua a descrição completa."
+                    ),
+                }[input_kind]
+                request = {
+                    "status": "awaiting_input",
+                    "kind": "input_request",
+                    "input_kind": input_kind,
+                    "display_text": display_text,
+                }
+                self._write_pending_input(request)
+                envelope["result"] = request
+            elif workflow == "resume":
+                envelope["result"] = self._resume_and_continue(message, model=model, variant=variant)
+            elif workflow == "applications_status":
+                from career.services import applications_v2 as applications_service
 
-            envelope["result"] = applications_service.heartbeat_status()
-        elif workflow == "applications_heartbeat":
-            from career.services import applications_v2 as applications_service
+                envelope["result"] = applications_service.heartbeat_status()
+            elif workflow == "applications_heartbeat":
+                from career.services import applications_v2 as applications_service
 
-            envelope["result"] = applications_service.run_heartbeat(
-                applications_service.HeartbeatV2Options(
-                    max_per_run=max_per_run,
-                    run_agent=True,
-                    dry_run=False,
+                envelope["result"] = applications_service.run_heartbeat(
+                    applications_service.HeartbeatV2Options(
+                        max_per_run=max_per_run,
+                        run_agent=True,
+                        dry_run=False,
+                        model=model,
+                        variant=variant,
+                    )
+                )
+            elif workflow == "notion_job_analysis":
+                from career.services import agent_guard as agent_guard_service
+
+                record_id = int((decision.parameters or {})["record_id"])
+                intake_result = agent_guard_service.evaluate_notion(record_id)
+                envelope["result"] = self._pipeline_result(
+                    intake=intake_result,
+                    specialist=self.execute_specialist(
+                        "fit-map", objective=f"Avaliar vaga Notion {record_id}", model=model, variant=variant
+                    ),
+                )
+            elif workflow == "linkedin_job_intake":
+                from career.services import intake as intake_service
+
+                intake_result = intake_service.from_linkedin_job(str((decision.parameters or {})["url"]))
+                envelope["result"] = self._pipeline_result(
+                    intake=intake_result,
+                    specialist=self.execute_specialist(
+                        "fit-map", objective=message, model=model, variant=variant
+                    ),
+                )
+            elif workflow == "linkedin_post_intake":
+                from career.services import intake as intake_service
+
+                parameters = decision.parameters or {}
+                if not parameters.get("company") or not parameters.get("role"):
+                    envelope["status"] = "blocked"
+                    envelope["blocker_reason"] = "linkedin_post_requires_company_and_role"
+                    return envelope
+                intake_result = intake_service.from_linkedin_post(
+                    str(parameters["url"]),
+                    company=str(parameters["company"]),
+                    role=str(parameters["role"]),
+                )
+                envelope["result"] = self._pipeline_result(
+                    intake=intake_result,
+                    specialist=self.execute_specialist(
+                        "fit-map", objective=message, model=model, variant=variant
+                    ),
+                )
+            elif workflow == "pasted_job_intake":
+                from career.services import intake as intake_service
+
+                parameters = decision.parameters or {}
+                intake_result = intake_service.from_paste(
+                    company=str(parameters["company"]),
+                    role=str(parameters["role"]),
+                    text=str(parameters["text"]),
+                )
+                envelope["result"] = self._pipeline_result(
+                    intake=intake_result,
+                    specialist=self.execute_specialist(
+                        "fit-map", objective=f"Analisar {parameters['role']} na {parameters['company']}", model=model, variant=variant
+                    ),
+                )
+            elif workflow == "pasted_job_missing_metadata":
+                envelope["status"] = "blocked"
+                envelope["blocker_reason"] = "pasted_job_requires_empresa_and_cargo_headers"
+                return envelope
+            elif workflow == "linkedin_saved_jobs":
+                envelope["result"] = self._extract_linkedin_saved_jobs()
+            elif workflow == "runtime_introspection":
+                from career.services import project as project_service
+
+                envelope["result"] = project_service.hermes_runtime_snapshot()
+            elif workflow in {
+                "fit_map",
+                "cv",
+                "cover_letter",
+                "feras",
+                "habilidades",
+                "notion_update",
+                "email_draft",
+            }:
+                step = {
+                    "fit_map": "fit-map",
+                    "cover_letter": "cover-letter",
+                    "notion_update": "notion-update",
+                    "email_draft": "email-draft",
+                }.get(workflow, workflow)
+                envelope["result"] = self.execute_specialist(
+                    step,
+                    objective=message,
                     model=model,
                     variant=variant,
                 )
-            )
-        elif workflow == "notion_job_analysis":
-            from career.services import agent_guard as agent_guard_service
-
-            record_id = int((decision.parameters or {})["record_id"])
-            intake_result = agent_guard_service.evaluate_notion(record_id)
-            envelope["result"] = self._pipeline_result(
-                intake=intake_result,
-                specialist=self.execute_specialist(
-                    "fit-map", objective=f"Avaliar vaga Notion {record_id}", model=model, variant=variant
-                ),
-            )
-        elif workflow == "linkedin_job_intake":
-            from career.services import intake as intake_service
-
-            intake_result = intake_service.from_linkedin_job(str((decision.parameters or {})["url"]))
-            envelope["result"] = self._pipeline_result(
-                intake=intake_result,
-                specialist=self.execute_specialist(
-                    "fit-map", objective=message, model=model, variant=variant
-                ),
-            )
-        elif workflow == "linkedin_post_intake":
-            from career.services import intake as intake_service
-
-            parameters = decision.parameters or {}
-            if not parameters.get("company") or not parameters.get("role"):
+            elif workflow == "generic_assistant":
+                envelope["result"] = self._run_generic_message(message, model=model)
+            else:
                 envelope["status"] = "blocked"
-                envelope["blocker_reason"] = "linkedin_post_requires_company_and_role"
+                envelope["blocker_reason"] = "no_deterministic_route"
                 return envelope
-            intake_result = intake_service.from_linkedin_post(
-                str(parameters["url"]),
-                company=str(parameters["company"]),
-                role=str(parameters["role"]),
-            )
-            envelope["result"] = self._pipeline_result(
-                intake=intake_result,
-                specialist=self.execute_specialist(
-                    "fit-map", objective=message, model=model, variant=variant
-                ),
-            )
-        elif workflow == "pasted_job_intake":
-            from career.services import intake as intake_service
-
-            parameters = decision.parameters or {}
-            intake_result = intake_service.from_paste(
-                company=str(parameters["company"]),
-                role=str(parameters["role"]),
-                text=str(parameters["text"]),
-            )
-            envelope["result"] = self._pipeline_result(
-                intake=intake_result,
-                specialist=self.execute_specialist(
-                    "fit-map", objective=f"Analisar {parameters['role']} na {parameters['company']}", model=model, variant=variant
-                ),
-            )
-        elif workflow == "pasted_job_missing_metadata":
-            envelope["status"] = "blocked"
-            envelope["blocker_reason"] = "pasted_job_requires_empresa_and_cargo_headers"
-            return envelope
-        elif workflow == "linkedin_saved_jobs":
-            envelope["result"] = self._extract_linkedin_saved_jobs()
-        elif workflow == "runtime_introspection":
-            from career.services import project as project_service
-
-            envelope["result"] = project_service.hermes_runtime_snapshot()
-        elif workflow in {
-            "fit_map",
-            "cv",
-            "cover_letter",
-            "feras",
-            "habilidades",
-            "notion_update",
-            "email_draft",
-        }:
-            step = {
-                "fit_map": "fit-map",
-                "cover_letter": "cover-letter",
-                "notion_update": "notion-update",
-                "email_draft": "email-draft",
-            }.get(workflow, workflow)
-            envelope["result"] = self.execute_specialist(
-                step,
-                objective=message,
-                model=model,
-                variant=variant,
-            )
-        elif workflow == "generic_assistant":
-            envelope["result"] = self._run_generic_message(message, model=model)
-        else:
-            envelope["status"] = "blocked"
-            envelope["blocker_reason"] = "no_deterministic_route"
-            return envelope
+        except ValidationFailure as exc:
+            envelope["result"] = {
+                "status": "blocked",
+                "kind": "validation_failure",
+                "blocker_reason": "workflow_validation_failed",
+                "display_text": str(exc),
+            }
         result_status = envelope.get("result", {}).get("status") if isinstance(envelope.get("result"), dict) else None
         envelope["executed"] = result_status != "awaiting_input"
         envelope["status"] = (

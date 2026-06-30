@@ -1540,6 +1540,45 @@ def phase_41() -> None:
             hermes_harness_context_hook.ROOT = original_root
 
 
+def phase_42() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "workflow_state.json").write_text(json.dumps({}), encoding="utf-8")
+        supervisor = HarnessSupervisor(root)
+        supervisor._write_saved_jobs_menu_state(
+            [
+                {
+                    "jobId": "4431478354",
+                    "title": "Gestor de Planejamento Operacional e Financeiro",
+                    "company": "Loft",
+                    "location": "São Paulo",
+                    "url": "https://www.linkedin.com/jobs/view/4431478354/",
+                }
+            ]
+        )
+        from career.services import intake as intake_service
+
+        original = intake_service.from_linkedin_job
+        intake_service.from_linkedin_job = lambda _url: (_ for _ in ()).throw(
+            ValidationFailure("LinkedIn extraction produced generic metadata.")
+        )
+        try:
+            result = supervisor.handle_message("1", channel="telegram", execute=True)
+        finally:
+            intake_service.from_linkedin_job = original
+        payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+        if result.get("status") != "blocked":
+            raise SystemExit(f"Harness should convert intake validation failures into blocked results: {result}")
+        if payload.get("blocker_reason") != "workflow_validation_failed":
+            raise SystemExit(f"Harness should preserve a deterministic blocker reason: {result}")
+        if payload.get("display_text") != "LinkedIn extraction produced generic metadata.":
+            raise SystemExit(f"Harness should surface the validation failure text to the user: {result}")
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -1582,6 +1621,7 @@ PHASES = {
     39: phase_39,
     40: phase_40,
     41: phase_41,
+    42: phase_42,
 }
 
 
