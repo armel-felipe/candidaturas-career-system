@@ -1513,21 +1513,24 @@ def phase_41() -> None:
         supervisor._write_saved_jobs_menu_state(
             [
                 {
-                    "jobId": "4422954585",
-                    "title": "Operations Manager",
+                    "jobId": f"44229545{index:02d}",
+                    "title": f"Operations Manager {index}",
                     "company": "Acme",
                     "location": "São Paulo",
-                    "url": "https://www.linkedin.com/jobs/view/4422954585/",
+                    "url": f"https://www.linkedin.com/jobs/view/44229545{index:02d}/",
                 }
+                for index in range(1, 16)
             ]
         )
-        saved_selection = supervisor.handle_message("1", channel="telegram", execute=False)
+        saved_selection = supervisor.handle_message("15", channel="telegram", execute=False)
         saved_decision = saved_selection.get("decision") if isinstance(saved_selection.get("decision"), dict) else {}
         if saved_decision.get("workflow") != "linkedin_job_intake":
             raise SystemExit(f"Saved-job number should route to its freshly extracted URL: {saved_selection}")
+        if not hermes_harness_context_hook.should_intercept("15"):
+            raise SystemExit("Numeric replies to a saved-jobs menu should be intercepted before the outer assistant.")
         exact = hermes_harness_context_hook.build_context({"reply_text": "Texto exato"})
-        if exact != "O HarnessSupervisor ja processou esta mensagem. Responda somente: OK":
-            raise SystemExit(f"Hermes deterministic reply should use a harmless placeholder: {exact}")
+        if "Texto exato" not in exact or "<<CAREER_HARNESS_REPLY>>" not in exact:
+            raise SystemExit(f"Hermes deterministic reply should preserve the exact harness text: {exact}")
         pending_path = root / ".career-state" / "harness" / "pending_input.json"
         pending_path.unlink(missing_ok=True)
         original_root = hermes_harness_context_hook.ROOT

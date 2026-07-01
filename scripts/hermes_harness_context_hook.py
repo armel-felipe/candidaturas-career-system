@@ -43,7 +43,12 @@ def write_transform_reply(session_id: str, turn_id: str, reply_text: str) -> Non
 def build_context(result: dict) -> str:
     reply_text = result.get("reply_text")
     if isinstance(reply_text, str) and reply_text.strip():
-        return "O HarnessSupervisor ja processou esta mensagem. Responda somente: OK"
+        return (
+            "O HarnessSupervisor ja processou esta mensagem. "
+            "Se nenhum plugin substituir sua saida, responda exatamente com o texto abaixo, "
+            "sem prefixos, sem sufixos e sem reformular:\n"
+            f"<<CAREER_HARNESS_REPLY>>\n{reply_text.strip()}\n<</CAREER_HARNESS_REPLY>>"
+        )
     compact = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
     return (
         "O HarnessSupervisor ja processou e executou esta mensagem. "
@@ -54,10 +59,16 @@ def build_context(result: dict) -> str:
 
 
 def should_intercept(message: str) -> bool:
+    pending_path = ROOT / ".career-state" / "harness" / "pending_input.json"
+    menu_state_path = ROOT / ".career-state" / "harness" / "menu_state.json"
+    text = " ".join(str(message or "").strip().split())
+    if pending_path.exists():
+        return True
+    if menu_state_path.exists() and text.isdigit() and 1 <= len(text) <= 2:
+        return True
     supervisor = HarnessSupervisor(ROOT)
     decision = supervisor.classify(message)
-    pending_path = ROOT / ".career-state" / "harness" / "pending_input.json"
-    return decision.workflow != "generic_assistant" or pending_path.exists()
+    return decision.workflow != "generic_assistant"
 
 
 def main() -> int:
