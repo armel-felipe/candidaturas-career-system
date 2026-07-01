@@ -452,13 +452,52 @@ def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any]) -> t
         }
         for fragment, exp_index, bullet_index in support_pairs
     ]
+    opening = _summary_opening(fit_map)
     summary = (
-        "Engenheiro químico com mais de 20 anos em operações, planejamento comercial e inteligência de negócios. "
+        f"{opening} "
         f"Na trajetória recente, entreguei {supports[0]['summary_fragment']}. "
         f"Também liderei frentes que geraram {supports[1]['summary_fragment']}. "
         f"Busco posição de {cargo} conectando canais, pricing, dados e execução."
     )
     return summary, supports
+
+
+def _summary_opening(fit_map: dict[str, Any]) -> str:
+    text_parts = [
+        str(fit_map.get("cargo") or ""),
+        str(fit_map.get("empresa") or ""),
+        str(fit_map.get("dor_central") or ""),
+    ]
+    for field in ("keywords_vaga", "competencias_vaga"):
+        values = fit_map.get(field) or []
+        if isinstance(values, list):
+            text_parts.extend(str(item) for item in values)
+    normalized = _normalize(" ".join(part for part in text_parts if part))
+    engineering_signals = {
+        "engenharia",
+        "engineer",
+        "industrial",
+        "industria",
+        "manufatura",
+        "manufacturing",
+        "producao",
+        "produção",
+        "qualidade",
+        "quality",
+        "regulatorio",
+        "regulatório",
+        "farmaceut",
+        "pharma",
+        "plant",
+        "lean",
+        "six sigma",
+    }
+    if any(_normalize(signal) in normalized for signal in engineering_signals):
+        return (
+            "Executivo com formação em Engenharia Química e MBA Corporate Strategy, "
+            "com mais de 20 anos em operações, planejamento comercial e inteligência de negócios."
+        )
+    return "Executivo com mais de 20 anos em operações, planejamento comercial e inteligência de negócios."
 
 
 def _summary_support_pairs(selected: list[dict[str, Any]]) -> list[tuple[str, int, int]]:
