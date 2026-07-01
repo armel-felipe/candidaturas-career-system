@@ -69,6 +69,11 @@ URL genérica:
 npm run intake:url -- --url "<url>" --company "<empresa>" --role "<cargo>"
 ```
 
+Observação operacional:
+- `intake:url` é o caminho canônico para portais externos não-LinkedIn como Gupy, InHire, Greenhouse, Lever, Ashby, Workday e páginas nativas de carreiras.
+- `--company` e `--role` viram hints/fallback; quando o extrator da página trouxer metadados confiáveis, eles podem ser omitidos.
+- se a extração externa falhar por descrição curta, metadado fraco ou página não carregável, declarar bloqueio objetivo e pedir texto bruto da vaga.
+
 Retomada:
 
 ```bash

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 from typing import Any
 
+from career.paths import CAREER_STATE
 from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.approvals import ApprovalStore
 from career.services.approved_actions import ApprovedActionExecutor
@@ -22,6 +23,7 @@ LINKEDIN_POST_RE = re.compile(
     r"https?://(?:www\.)?linkedin\.com/(?:feed/update|posts|pulse)/[^\s]+",
     re.IGNORECASE,
 )
+GENERIC_URL_RE = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 NOTION_ID_RE = re.compile(r"\b(?:notion|vaga|id)\s*#?\s*(\d+)\b", re.IGNORECASE)
 
 SPECIALIST_OUTPUT_PATTERNS = {
@@ -59,6 +61,28 @@ SPECIALIST_OUTPUT_PATTERNS = {
 }
 
 ACTIVE_INTAKE_STALE_AFTER = timedelta(hours=24)
+DEFAULT_HARNESS_AUTOMATION = {
+    "fit_map": {
+        "auto_finalize": True,
+    },
+    "approvals": {
+        "notion_write": "explicit_request",
+        "email_draft": "manual",
+    },
+}
+PREVIEW_HINTS = (
+    "dry-run",
+    "dry run",
+    "prévia",
+    "previa",
+    "preview",
+    "sem escrever",
+    "sem atualizar",
+    "nao atualizar",
+    "não atualizar",
+    "so mostrar",
+    "só mostrar",
+)
 
 
 @dataclass(frozen=True)
@@ -108,6 +132,10 @@ class HarnessSupervisor:
                 "runtime_introspection_request",
             )
 
+        analysis_requested = any(
+            token in lowered for token in ("avali", "analis", "aderencia", "aderência", "fit_map", "fit map")
+        )
+
         job_match = LINKEDIN_JOB_RE.search(text)
         if job_match:
             return self._decision(
@@ -127,6 +155,17 @@ class HarnessSupervisor:
                 "high",
                 "linkedin_post_url",
                 parameters={"url": post_match.group(0), "company": company, "role": role},
+            )
+
+        generic_url_match = GENERIC_URL_RE.search(text)
+        if generic_url_match:
+            company, role = self._company_role(raw_text)
+            return self._decision(
+                "external_url_intake",
+                "intake",
+                "high" if analysis_requested or text == generic_url_match.group(0) else "medium",
+                "generic_job_url",
+                parameters={"url": generic_url_match.group(0), "company": company, "role": role},
             )
 
         if any(token in lowered for token in ("vagas salvas", "saved jobs", "rastreador de vagas")):
@@ -176,9 +215,6 @@ class HarnessSupervisor:
                 "collect_pasted_job", "conversation", "high", "pasted_job_requires_content"
             )
 
-        analysis_requested = any(
-            token in lowered for token in ("avali", "analis", "aderencia", "aderência", "fit_map", "fit map")
-        )
         if len(raw_text) >= 500 and analysis_requested:
             company, role = self._company_role(raw_text)
             if company and role:
@@ -375,6 +411,21 @@ class HarnessSupervisor:
             payload["blocker_reason"] = "specialist_produced_no_allowed_output"
         elif step in {"notion-update", "email-draft"}:
             status = "awaiting_approval"
+        if step == "fit-map" and status == "completed" and self._fit_map_auto_finalize_enabled():
+            postprocess = self._finalize_fit_map_pipeline()
+            payload["postprocess"] = postprocess
+            if postprocess.get("status") != "completed":
+                status = "blocked"
+                payload["blocker_reason"] = str(postprocess.get("blocker_reason") or "fit_map_finalize_failed")
+        if step in {"notion-update", "email-draft"} and status == "awaiting_approval":
+            auto_execution = self._maybe_auto_execute_approved_action(step, objective=objective, prepared=prepared)
+            if auto_execution:
+                payload["approval_execution"] = auto_execution
+                status = "completed" if auto_execution.get("status") == "completed" else "blocked"
+                if status == "blocked":
+                    payload["blocker_reason"] = str(
+                        auto_execution.get("blocker_reason") or "approved_action_auto_execution_failed"
+                    )
         return {
             **prepared,
             "status": status,
@@ -510,6 +561,21 @@ class HarnessSupervisor:
                     str(parameters["url"]),
                     company=str(parameters["company"]),
                     role=str(parameters["role"]),
+                )
+                envelope["result"] = self._pipeline_result(
+                    intake=intake_result,
+                    specialist=self.execute_specialist(
+                        "fit-map", objective=message, model=model, variant=variant
+                    ),
+                )
+            elif workflow == "external_url_intake":
+                from career.services import intake as intake_service
+
+                parameters = decision.parameters or {}
+                intake_result = intake_service.from_url(
+                    url=str(parameters["url"]),
+                    company=str(parameters["company"]) if parameters.get("company") else None,
+                    role=str(parameters["role"]) if parameters.get("role") else None,
                 )
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
@@ -676,6 +742,143 @@ class HarnessSupervisor:
             "jobs": jobs,
             "display_text": "\n".join(lines),
         }
+
+    def _finalize_fit_map_pipeline(self) -> dict[str, Any]:
+        if not self.root:
+            return {"status": "blocked", "blocker_reason": "harness_root_missing"}
+        from career.services import fit_map as fit_map_service
+        from career.tasks.registry import run_task
+
+        draft_path = CAREER_STATE / "fit_map.draft.json"
+        fit_map_path = CAREER_STATE / "fit_map.json"
+        try:
+            results = {
+                "validate_draft": run_task("fit_map.validate_draft", {"path": str(draft_path)}),
+                "build": run_task("fit_map.build", {"draft": str(draft_path), "output": str(fit_map_path)}),
+                "score": run_task("fit_map.score", {"path": str(fit_map_path)}),
+                "validate": run_task("fit_map.validate", {"path": str(fit_map_path)}),
+            }
+            register_command = [
+                str(self.root / "scripts" / "python.sh"),
+                "scripts/register_keywords.py",
+                "--fit-map",
+                str(fit_map_path),
+            ]
+            registered = subprocess.run(
+                register_command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10 * 60,
+            )
+            if registered.returncode != 0:
+                return {
+                    "status": "blocked",
+                    "blocker_reason": "register_keywords_failed",
+                    "command": register_command,
+                    "stderr": (registered.stderr or registered.stdout)[-2000:],
+                }
+            summary = fit_map_service.payload_summary(fit_map_path)
+            quality = fit_map_service.quality_report(fit_map_path)
+            registry = fit_map_service.registry_summary()
+            return {
+                "status": "completed",
+                "commands_executed": [
+                    "fit_map.validate_draft",
+                    "fit_map.build",
+                    "fit_map.score",
+                    "fit_map.validate",
+                    "scripts/register_keywords.py --fit-map .career-state/fit_map.json",
+                ],
+                "results": results,
+                "summary": {
+                    "cargo": summary.get("cargo"),
+                    "empresa": summary.get("empresa"),
+                    "nota_final": summary.get("nota_final"),
+                    "keyword_registration": registry.get("registered"),
+                    "quality_status": quality.get("status"),
+                },
+            }
+        except Exception as exc:
+            return {
+                "status": "blocked",
+                "blocker_reason": "fit_map_finalize_failed",
+                "error": str(exc),
+            }
+
+    def _maybe_auto_execute_approved_action(
+        self,
+        step: str,
+        *,
+        objective: str | None,
+        prepared: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not self.root:
+            return None
+        if not self._should_auto_execute_approved_action(step, objective=objective):
+            return None
+        approval_id = str((prepared.get("approval") or {}).get("approval_id") or "").strip()
+        if not approval_id:
+            return {
+                "status": "blocked",
+                "blocker_reason": "approval_id_missing",
+            }
+        try:
+            ApprovalStore(self.root).approve(approval_id)
+            executed = self.execute_approved_action(approval_id)
+        except ValidationFailure as exc:
+            return {
+                "status": "blocked",
+                "blocker_reason": "approved_action_validation_failed",
+                "error": str(exc),
+                "approval_id": approval_id,
+            }
+        executed["auto_approved"] = True
+        executed["approval_policy"] = self._approval_policy(step)
+        return executed
+
+    def _should_auto_execute_approved_action(self, step: str, *, objective: str | None) -> bool:
+        policy = self._approval_policy(step)
+        if step == "email-draft":
+            return policy == "always"
+        if step != "notion-update":
+            return False
+        if policy == "always":
+            return True
+        if policy != "explicit_request":
+            return False
+        lowered = str(objective or "").casefold()
+        return not any(hint in lowered for hint in PREVIEW_HINTS)
+
+    def _approval_policy(self, step: str) -> str:
+        config = self._automation_config()
+        approvals = config.get("approvals", {}) if isinstance(config.get("approvals"), dict) else {}
+        if step == "notion-update":
+            return str(approvals.get("notion_write") or "manual")
+        if step == "email-draft":
+            return str(approvals.get("email_draft") or "manual")
+        return "manual"
+
+    def _fit_map_auto_finalize_enabled(self) -> bool:
+        config = self._automation_config()
+        fit_map = config.get("fit_map", {}) if isinstance(config.get("fit_map"), dict) else {}
+        return bool(fit_map.get("auto_finalize", True))
+
+    def _automation_config(self) -> dict[str, Any]:
+        config_path = self.root / ".career-state" / "applications_v2" / "config.json" if self.root else None
+        payload = read_json(config_path) if config_path and config_path.exists() else {}
+        merged = {
+            "fit_map": {**DEFAULT_HARNESS_AUTOMATION["fit_map"]},
+            "approvals": {**DEFAULT_HARNESS_AUTOMATION["approvals"]},
+        }
+        harness = payload.get("harness", {}) if isinstance(payload.get("harness"), dict) else {}
+        if isinstance(harness.get("fit_map"), dict):
+            merged["fit_map"].update(harness["fit_map"])
+        if isinstance(harness.get("approvals"), dict):
+            merged["approvals"].update(harness["approvals"])
+        return merged
 
     def _write_saved_jobs_menu_state(self, jobs: list[dict[str, Any]]) -> None:
         if not self.root:

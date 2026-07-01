@@ -165,7 +165,7 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
         "leverage": {
             "default": "Desenvolvi um simulador para validação do MRP e avaliação de cenários no S&OP com Excel/VBA, coordenei o S&OE para recalibrar faltas e sobras e atuei como intermediador entre comercial e fabricação para resolver restrições de recursos.",
             "planning_sop_capacity": "Conduzi um simulador para validação do MRP e cenários de S&OP com Excel/VBA, coordenei o S&OE e articulei trade-offs entre comercial e fabricação para balancear capacidade, estoque e nível de serviço.",
-            "operations": "Estruturei um simulador para validação do MRP, coordenei o S&OE e alinhei comercial e fabricação para resolver restrições operacionais e sustentar OTIF, fill rate e estoque de segurança.",
+            "operations": "Estruturei um simulador para validação do MRP, coordenei o S&OP e S&OE com governança de alinhamento entre comercial e fabricação para resolver restrições operacionais e sustentar OTIF, fill rate e estoque de segurança.",
         },
     },
     {
@@ -473,7 +473,7 @@ def _summary_support_pairs(selected: list[dict[str, Any]]) -> list[tuple[str, in
     ]
     summary_fragments = {
         "wehandle_head_operacoes": ("redução de 13% no custo por atendimento e impacto de 15% na margem bruta", 2),
-        "ifood_diretor_operacoes": ("400 → 800 cidades e budget logístico de R$300MM/ano", 2),
+        "ifood_diretor_operacoes": ("400 para 800 cidades e budget logístico de R$300MM/ano", 2),
         "ifood_head_operacoes": ("R$70MM/ano em economia e redução de 60% dos cancelamentos no México", 2),
         "trifil_sop": ("40K SKUs sob governança de S&OP e R$8MM de redução de GGF", 2),
         "vivareal_planejamento_operacoes": ("conversão de SDR inbound de 18% para 50% e redução de 40% no custo de vendas", 2),

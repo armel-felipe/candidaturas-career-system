@@ -19,6 +19,7 @@ from career.services.harness_supervisor import HarnessSupervisor
 from career.services.approvals import ApprovalStore
 from career.services import intake as intake_service
 from career.services import multiagent as multiagent_service
+from career.services import notion as notion_service
 from career.services import project as project_service
 from career.services import review as review_service
 from career.tasks.registry import run_pipeline, run_task

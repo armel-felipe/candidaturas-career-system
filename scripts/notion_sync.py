@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 
@@ -273,7 +273,19 @@ def read_json(path: Path) -> dict:
 
 
 def mojibake_hits(text: str) -> list[str]:
-    return [marker for marker in MOJIBAKE_MARKERS if marker in (text or "")]
+    import re
+    hits: list[str] = []
+    for marker in MOJIBAKE_MARKERS:
+        if marker in ("Ã", "Â"):
+            # "Ã" and "Â" are legitimate Portuguese characters (e.g. DESCRIÇÃO, ÂNGELA).
+            # Only flag as mojibake when followed by a lowercase letter, which is the
+            # classic UTF-8 double-encoding pattern (e.g. "Ã§" = corrupted "ç").
+            if re.search(re.escape(marker) + r"[a-zà-ü]", text or ""):
+                hits.append(marker)
+        else:
+            if marker in (text or ""):
+                hits.append(marker)
+    return hits
 
 
 def assert_clean_display_text(label: str, text: str) -> None:
@@ -421,7 +433,7 @@ def plain_rich_text(items: list[dict]) -> str:
     )
 
 
-def retrieve_relation_page_title(token: str, page_id: str, relation_cache: dict[str, str] | None = None) -> str:
+def retrieve_relation_page_title(token: str, page_id: str, relation_cache: Optional[dict[str, str]] = None) -> str:
     cache = relation_cache if relation_cache is not None else {}
     if page_id in cache:
         return cache[page_id]
@@ -437,7 +449,7 @@ def retrieve_relation_page_title(token: str, page_id: str, relation_cache: dict[
     return title
 
 
-def rollup_text(rollup: dict, *, token: str | None = None, relation_cache: dict[str, str] | None = None) -> str:
+def rollup_text(rollup: dict, *, token: Optional[str] = None, relation_cache: Optional[dict[str, str]] = None) -> str:
     kind = rollup.get("type")
     if kind == "array":
         values: list[str] = []
@@ -459,7 +471,7 @@ def rollup_text(rollup: dict, *, token: str | None = None, relation_cache: dict[
     return ""
 
 
-def prop_text(prop: dict, *, token: str | None = None, relation_cache: dict[str, str] | None = None) -> str:
+def prop_text(prop: dict, *, token: Optional[str] = None, relation_cache: Optional[dict[str, str]] = None) -> str:
     text = prop.get("text")
     if isinstance(text, str) and text:
         return text
@@ -1248,6 +1260,60 @@ def bullet_block(text: str) -> dict:
     }
 
 
+def _read_extra_artifact(path: Path) -> str:
+    if not path.exists():
+        raise SystemExit(f"Extra artifact not found: {path}")
+    text = path.read_text(encoding="utf-8").strip()
+    assert_clean_display_text(f"extra artifact {path}", text)
+    if not text:
+        raise SystemExit(f"Extra artifact is empty: {path}")
+    return text
+
+
+def _text_to_blocks(text: str, *, max_blocks: int = 12) -> list[dict]:
+    blocks: list[dict] = []
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    for paragraph in paragraphs:
+        lines = [line.strip() for line in paragraph.splitlines() if line.strip()]
+        bullet_like = all(re.match(r"^(?:[-*]|\d+\.)\s+", line) for line in lines) and bool(lines)
+        if bullet_like:
+            for line in lines:
+                cleaned = re.sub(r"^(?:[-*]|\d+\.)\s+", "", line).strip()
+                if cleaned:
+                    blocks.append(bullet_block(cleaned))
+                    if len(blocks) >= max_blocks:
+                        return blocks
+            continue
+        normalized = " ".join(lines)
+        if normalized:
+            blocks.append(paragraph_block(normalized))
+            if len(blocks) >= max_blocks:
+                return blocks
+    return blocks[:max_blocks]
+
+
+def extra_memory_blocks(
+    extra_artifacts: Optional[list[Path]] = None,
+    extra_notes: Optional[list[str]] = None,
+) -> list[dict]:
+    artifacts = extra_artifacts or []
+    notes = [str(note).strip() for note in (extra_notes or []) if str(note).strip()]
+    if not artifacts and not notes:
+        return []
+    blocks: list[dict] = [heading_block("Memória complementar", level=3)]
+    for note in notes[:5]:
+        blocks.append(paragraph_block(note))
+    for artifact in artifacts[:5]:
+        blocks.append(heading_block(f"Artefato complementar: {artifact.name}", level=3))
+        blocks.append(paragraph_block(f"Origem local: {artifact}"))
+        text = _read_extra_artifact(artifact)
+        truncated = text[:6000].rstrip()
+        blocks.extend(_text_to_blocks(truncated, max_blocks=10))
+        if len(text) > len(truncated):
+            blocks.append(paragraph_block("Conteúdo truncado para caber no corpo do Notion; fonte oficial permanece no arquivo local."))
+    return blocks[:30]
+
+
 def property_value(prop, value: Any):
     kind = prop.get("type")
     if value is None or value == "":
@@ -1510,7 +1576,7 @@ def _extract_body_derived_values(body_text: str, description: str, cache_keyword
     return values
 
 
-def _local_governance_values(record_id: int | None, app_v2_dir: Path) -> dict[str, Any]:
+def _local_governance_values(record_id: Optional[int], app_v2_dir: Path) -> dict[str, Any]:
     if record_id is None:
         return {}
     app_dir = app_v2_dir / str(record_id)
@@ -1631,7 +1697,7 @@ def backfill_governance_fields(
     app_v2_dir: Path = Path(".career-state/applications_v2"),
     dry_run: bool = True,
     report_path: Path = DEFAULT_GOVERNANCE_BACKFILL_REPORT,
-    excluded_statuses: list[str] | None = None,
+    excluded_statuses: Optional[list[str]] = None,
 ) -> dict:
     cache = read_json(cache_path)
     data_source_id = discover_data_source_id(token, database_id)
@@ -1885,7 +1951,12 @@ def ats_keyword_lines(fit_map: dict) -> list[str]:
     return lines
 
 
-def notion_analysis_blocks(fit_map: dict) -> list[dict]:
+def notion_analysis_blocks(
+    fit_map: dict,
+    *,
+    extra_artifacts: Optional[list[Path]] = None,
+    extra_notes: Optional[list[str]] = None,
+) -> list[dict]:
     score = fit_score_value(fit_map)
     blocks = [
         heading_block("Análise de aderência"),
@@ -1929,6 +2000,7 @@ def notion_analysis_blocks(fit_map: dict) -> list[dict]:
         if fit_map.get("service_repair_attempt_count") is not None:
             service_lines.append(f"Tentativas de repair: {fit_map.get('service_repair_attempt_count')}")
         blocks.extend(bullet_block(line) for line in service_lines)
+    blocks.extend(extra_memory_blocks(extra_artifacts=extra_artifacts, extra_notes=extra_notes))
     return blocks[:100]
 
 
@@ -2030,10 +2102,10 @@ def select_job_description_for_update(
 
 def resolve_source_url(
     job_description: str,
-    job_description_path: Path | None = None,
+    job_description_path: Optional[Path] = None,
     *,
-    source_url: str | None = None,
-    fallback_url: str | None = None,
+    source_url: Optional[str] = None,
+    fallback_url: Optional[str] = None,
 ) -> str:
     metadata = job_description_metadata(
         job_description,
@@ -2054,16 +2126,31 @@ def create_from_fit_map(
     allow_mismatch: bool = False,
     append_summary: bool = True,
     status: str = "Aplicação andamento",
+    extra_artifacts: Optional[list[Path]] = None,
+    extra_notes: Optional[list[str]] = None,
 ) -> dict:
     fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
     status = sanitize_automation_status(status)
-    job_description = read_job_description(job_description_path) or fit_map.get("descricao_vaga", "").strip()
+    resolved_job_description_path = job_description_path
+    job_description_source = "explicit" if job_description_path else ""
+    job_description = read_job_description(job_description_path) if job_description_path else ""
+    if not job_description:
+        inferred_path = find_saved_job_description_for_fit_map(fit_map)
+        if inferred_path:
+            resolved_job_description_path = inferred_path
+            job_description_source = "saved_job_description"
+            job_description = read_job_description(inferred_path)
+    if not job_description:
+        fit_map_description = fit_map.get("descricao_vaga", "").strip()
+        if fit_map_description:
+            job_description_source = "fit_map.descricao_vaga"
+            job_description = fit_map_description
     if not job_description:
         raise SystemExit("Job description is required when creating a Notion application record. Use --job-description <file> or include descricao_vaga in FIT_MAP.")
-    if job_description_path and job_description_path.name.startswith("notion_record_"):
+    if resolved_job_description_path and resolved_job_description_path.name.startswith("notion_record_"):
         raise SystemExit("Refusing to create a new Notion record for a vacancy that originated from Notion. Use update-from-fit-map or update-from-fit-map-record instead.")
 
-    ensure_fit_map_matches_job_description(fit_map, job_description, job_description_path, allow_mismatch)
+    ensure_fit_map_matches_job_description(fit_map, job_description, resolved_job_description_path, allow_mismatch)
 
     score = fit_score_value(fit_map)
     if score is None:
@@ -2083,7 +2170,7 @@ def create_from_fit_map(
 
     role = fit_map.get("cargo", "")
     company = fit_map.get("empresa", "")
-    source_url = resolve_source_url(job_description, job_description_path)
+    source_url = resolve_source_url(job_description, resolved_job_description_path)
     title = f"{company} - {role}".strip(" -")
     properties[title_name] = property_value(title_prop, title)
 
@@ -2125,7 +2212,11 @@ def create_from_fit_map(
             "timezone": timezone,
         }
 
-    blocks = notion_analysis_blocks(fit_map) if append_summary else []
+    blocks = notion_analysis_blocks(
+        fit_map,
+        extra_artifacts=extra_artifacts,
+        extra_notes=extra_notes,
+    ) if append_summary else []
     validate_notion_payload_text(blocks)
 
     if dry_run:
@@ -2134,6 +2225,11 @@ def create_from_fit_map(
             "page_create": payload,
             "append_blocks": blocks,
             "insert_after_block_text": "Pesquisa Inicial",
+            "job_description_source": job_description_source or None,
+            "job_description_path": str(resolved_job_description_path) if resolved_job_description_path else None,
+            "source_url": source_url or None,
+            "extra_artifacts": [str(path) for path in (extra_artifacts or [])],
+            "extra_notes_count": len(extra_notes or []),
         }
     validate_notion_payload_text(payload)
     created_page = request("POST", notion_url("pages"), token, payload, notion_version=NOTION_TEMPLATE_VERSION)
@@ -2143,7 +2239,15 @@ def create_from_fit_map(
         current_blocks = retrieve_blocks(token, page_id) if page_id else []
         anchor_block_id = find_anchor_block_id(current_blocks, "Pesquisa Inicial")
         appended = append_blocks(token, page_id, blocks, after_block_id=anchor_block_id) if page_id else None
-    return {"page": created_page, "blocks": appended}
+    return {
+        "page": created_page,
+        "blocks": appended,
+        "job_description_source": job_description_source or None,
+        "job_description_path": str(resolved_job_description_path) if resolved_job_description_path else None,
+        "source_url": source_url or None,
+        "extra_artifacts": [str(path) for path in (extra_artifacts or [])],
+        "extra_notes_count": len(extra_notes or []),
+    }
 
 
 def update_from_fit_map(
@@ -2156,6 +2260,8 @@ def update_from_fit_map(
     append_summary: bool = True,
     allow_mismatch: bool = False,
     status: str = "Aplicação andamento",
+    extra_artifacts: Optional[list[Path]] = None,
+    extra_notes: Optional[list[str]] = None,
 ) -> dict:
     fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
     status = sanitize_automation_status(status)
@@ -2215,7 +2321,11 @@ def update_from_fit_map(
             properties[prop_name] = converted
 
     page_payload = {"properties": properties}
-    blocks = notion_analysis_blocks(fit_map) if append_summary else []
+    blocks = notion_analysis_blocks(
+        fit_map,
+        extra_artifacts=extra_artifacts,
+        extra_notes=extra_notes,
+    ) if append_summary else []
     validate_notion_payload_text(page_payload)
     validate_notion_payload_text(blocks)
     anchor_block_id = find_anchor_block_id(current_blocks, "Pesquisa Inicial")
@@ -2227,6 +2337,8 @@ def update_from_fit_map(
             "insert_after_block_text": "Pesquisa Inicial" if anchor_block_id else None,
             "job_description_source": job_description_source,
             "job_description_path": str(resolved_job_description_path) if resolved_job_description_path else None,
+            "extra_artifacts": [str(path) for path in (extra_artifacts or [])],
+            "extra_notes_count": len(extra_notes or []),
         }
 
     updated_page = update_page(token, page_id, page_payload)
@@ -2236,6 +2348,8 @@ def update_from_fit_map(
         "blocks": appended,
         "job_description_source": job_description_source,
         "job_description_path": str(resolved_job_description_path) if resolved_job_description_path else None,
+        "extra_artifacts": [str(path) for path in (extra_artifacts or [])],
+        "extra_notes_count": len(extra_notes or []),
     }
 
 
@@ -2249,6 +2363,8 @@ def update_from_fit_map_record(
     append_summary: bool = True,
     allow_mismatch: bool = False,
     status: str = "Aplicação andamento",
+    extra_artifacts: Optional[list[Path]] = None,
+    extra_notes: Optional[list[str]] = None,
 ) -> dict:
     page = resolve_page_by_record_id(token, database_id, record_id)
     result = update_from_fit_map(
@@ -2261,6 +2377,8 @@ def update_from_fit_map_record(
         append_summary=append_summary,
         allow_mismatch=allow_mismatch,
         status=status,
+        extra_artifacts=extra_artifacts,
+        extra_notes=extra_notes,
     )
     if isinstance(result, dict):
         result["resolved_page_id"] = page["id"]
@@ -2268,7 +2386,7 @@ def update_from_fit_map_record(
     return result
 
 
-def job_description_metadata(text: str, path: Path | None = None, *, company: str | None = None, role: str | None = None, source_url: str | None = None) -> dict:
+def job_description_metadata(text: str, path: Optional[Path] = None, *, company: Optional[str] = None, role: Optional[str] = None, source_url: Optional[str] = None) -> dict:
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     inferred_role = ""
     inferred_company = ""
@@ -2317,7 +2435,7 @@ def job_description_metadata(text: str, path: Path | None = None, *, company: st
     }
 
 
-def validate_standalone_job_description(text: str, path: Path | None = None) -> None:
+def validate_standalone_job_description(text: str, path: Optional[Path] = None) -> None:
     if not text.strip():
         raise SystemExit("Job description is empty.")
     if len(text.strip()) < 120:
@@ -2383,7 +2501,7 @@ def update_description_record(
     database_id: str,
     record_id: int,
     job_description_path: Path,
-    source_url: str | None = None,
+    source_url: Optional[str] = None,
     dry_run: bool = False,
     status: str = "",
 ) -> dict:
@@ -2424,9 +2542,9 @@ def create_description_record(
     token: str,
     database_id: str,
     job_description_path: Path,
-    company: str | None = None,
-    role: str | None = None,
-    source_url: str | None = None,
+    company: Optional[str] = None,
+    role: Optional[str] = None,
+    source_url: Optional[str] = None,
     dry_run: bool = False,
     template: str = "default",
     template_id = None,
@@ -2562,6 +2680,9 @@ def compact_notion_write_result(result: dict, *, dry_run: bool, operation: str) 
         "notion_url": page.get("url"),
         "job_description_source": result.get("job_description_source"),
         "job_description_path": result.get("job_description_path"),
+        "source_url": result.get("source_url"),
+        "extra_artifacts": result.get("extra_artifacts") or [],
+        "extra_notes_count": result.get("extra_notes_count"),
         "property_count": len(properties or {}),
         "append_block_count": len(append_blocks) if isinstance(append_blocks, list) else None,
         "insert_after_block_text": result.get("insert_after_block_text"),
@@ -2635,6 +2756,8 @@ def main() -> int:
     create_parser.add_argument("--no-append-summary", action="store_true")
     create_parser.add_argument("--compact", action="store_true")
     create_parser.add_argument("--status", default="Aplicação andamento")
+    create_parser.add_argument("--extra-artifact", action="append", default=[])
+    create_parser.add_argument("--extra-note", action="append", default=[])
 
     update_parser = subparsers.add_parser("update-from-fit-map")
     update_parser.add_argument("page_id")
@@ -2645,6 +2768,8 @@ def main() -> int:
     update_parser.add_argument("--allow-mismatch", action="store_true")
     update_parser.add_argument("--compact", action="store_true")
     update_parser.add_argument("--status", default="Aplicação andamento")
+    update_parser.add_argument("--extra-artifact", action="append", default=[])
+    update_parser.add_argument("--extra-note", action="append", default=[])
 
     update_record_parser = subparsers.add_parser("update-from-fit-map-record")
     update_record_parser.add_argument("record_id", type=int)
@@ -2655,6 +2780,8 @@ def main() -> int:
     update_record_parser.add_argument("--allow-mismatch", action="store_true")
     update_record_parser.add_argument("--compact", action="store_true")
     update_record_parser.add_argument("--status", default="Aplicação andamento")
+    update_record_parser.add_argument("--extra-artifact", action="append", default=[])
+    update_record_parser.add_argument("--extra-note", action="append", default=[])
 
     update_description_record_parser = subparsers.add_parser("update-description-record")
     update_description_record_parser.add_argument("record_id", type=int)
@@ -2832,6 +2959,8 @@ def main() -> int:
             allow_mismatch=args.allow_mismatch,
             append_summary=not args.no_append_summary,
             status=args.status,
+            extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
+            extra_notes=list(args.extra_note or []),
         )
         print(json.dumps(compact_notion_write_result(result, dry_run=args.dry_run, operation="create_from_fit_map") if args.compact else result, ensure_ascii=False, indent=2))
         return 0
@@ -2847,6 +2976,8 @@ def main() -> int:
             append_summary=not args.no_append_summary,
             allow_mismatch=args.allow_mismatch,
             status=args.status,
+            extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
+            extra_notes=list(args.extra_note or []),
         )
         print(json.dumps(compact_notion_write_result(result, dry_run=args.dry_run, operation="update_from_fit_map") if args.compact else result, ensure_ascii=False, indent=2))
         return 0
@@ -2862,6 +2993,8 @@ def main() -> int:
             append_summary=not args.no_append_summary,
             allow_mismatch=args.allow_mismatch,
             status=args.status,
+            extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
+            extra_notes=list(args.extra_note or []),
         )
         print(json.dumps(compact_notion_write_result(result, dry_run=args.dry_run, operation="update_from_fit_map_record") if args.compact else result, ensure_ascii=False, indent=2))
         return 0

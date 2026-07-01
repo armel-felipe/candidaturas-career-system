@@ -1060,6 +1060,7 @@ def phase_28() -> None:
         ("crie um draft de email", "email_draft", {}),
         ("atualize a vaga no Notion", "notion_update", {}),
         ("https://www.linkedin.com/jobs/view/4405127989/", "linkedin_job_intake", {}),
+        ("https://jobs.inhire.io/empresa/vagas/gerente-de-operacoes", "external_url_intake", {}),
         ("listar minhas vagas salvas", "linkedin_saved_jobs", {}),
     ]
     for message, expected_workflow, expected_parameters in cases:
@@ -1689,6 +1690,115 @@ def phase_45() -> None:
             raise SystemExit(f"Saved-job selection should forward metadata hints into intake: {captured}")
 
 
+def phase_46() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        config_dir = root / ".career-state" / "applications_v2"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.json").write_text(
+            json.dumps(
+                {
+                    "harness": {
+                        "fit_map": {"auto_finalize": True},
+                        "approvals": {
+                            "notion_write": "explicit_request",
+                            "email_draft": "manual",
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        supervisor = HarnessSupervisor(root)
+        if not supervisor._fit_map_auto_finalize_enabled():
+            raise SystemExit("Harness fit-map auto-finalize should default to enabled for this project.")
+        if not supervisor._should_auto_execute_approved_action(
+            "notion-update",
+            objective="crie registro no Notion para a vaga ativa",
+        ):
+            raise SystemExit("Explicit Notion write request should auto-execute under explicit_request policy.")
+        if supervisor._should_auto_execute_approved_action(
+            "notion-update",
+            objective="mostre uma prévia dry-run antes de atualizar o Notion",
+        ):
+            raise SystemExit("Preview-style Notion requests should stay manual even under explicit_request policy.")
+        if supervisor._should_auto_execute_approved_action(
+            "email-draft",
+            objective="crie um draft de email",
+        ):
+            raise SystemExit("Email draft should remain manual under the default harness policy.")
+
+
+def phase_47() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "workflow_state.json").write_text(json.dumps({}), encoding="utf-8")
+        supervisor = HarnessSupervisor(root)
+        captured: dict[str, Any] = {}
+        from career.services import intake as intake_service
+
+        original_from_url = intake_service.from_url
+        original_execute_specialist = supervisor.execute_specialist
+
+        def fake_from_url(*, url: str, company=None, role=None, state_store=None):
+            captured["url"] = url
+            captured["company"] = company
+            captured["role"] = role
+            return {"status": "ready_for_model_analysis"}
+
+        supervisor.execute_specialist = lambda *args, **kwargs: {"status": "completed"}
+        intake_service.from_url = fake_from_url
+        try:
+            supervisor.handle_message(
+                "Empresa: Acme\nCargo: Head de Operações\nanalise https://jobs.ashbyhq.com/acme/123",
+                channel="telegram",
+                execute=True,
+            )
+        finally:
+            supervisor.execute_specialist = original_execute_specialist
+            intake_service.from_url = original_from_url
+        if captured.get("url") != "https://jobs.ashbyhq.com/acme/123":
+            raise SystemExit(f"Generic URL should route through intake:url: {captured}")
+        if captured.get("company") != "Acme" or captured.get("role") != "Head de Operações":
+            raise SystemExit(f"Generic URL should forward company/role hints into intake:url: {captured}")
+
+
+def phase_48() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        artifact = Path(tmp_dir) / "habilidades_gupy_alternativas.md"
+        artifact.write_text(
+            "# Habilidades Gupy alternativas\n\n"
+            "- Ownership\n"
+            "- Stakeholder management\n"
+            "- Process design\n",
+            encoding="utf-8",
+        )
+        blocks = notion_sync.notion_analysis_blocks(
+            {
+                "dor_central": "Fixture",
+                "gaps_sem_cobertura": [],
+                "keywords_habilidade_ats": [],
+                "objecoes": [],
+                "service_status": "pending",
+            },
+            extra_artifacts=[artifact],
+            extra_notes=["Registrar sugestão alternativa vinda do fluxo do RPi 5."],
+        )
+        serialized = json.dumps(blocks, ensure_ascii=False)
+        if "Memória complementar" not in serialized:
+            raise SystemExit("Notion blocks should include the complementary memory section for extra artifacts.")
+        if "Ownership" not in serialized or "RPi 5" not in serialized:
+            raise SystemExit("Notion blocks should preserve extra artifact content and free-form notes.")
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -1735,6 +1845,9 @@ PHASES = {
     43: phase_43,
     44: phase_44,
     45: phase_45,
+    46: phase_46,
+    47: phase_47,
+    48: phase_48,
 }
 
 

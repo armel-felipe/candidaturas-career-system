@@ -170,7 +170,22 @@ def hermes_runtime_snapshot() -> dict[str, Any]:
     hermes_home = Path.home() / ".hermes"
     config_path = hermes_home / "config.yaml"
     config = _read_simple_yaml(config_path) if config_path.exists() else {}
-    applications_config = read_json(ROOT / ".career-state" / "applications_v2" / "config.json")
+    raw_config = read_json(ROOT / ".career-state" / "applications_v2" / "config.json")
+    harness = raw_config.get("harness", {}) if isinstance(raw_config.get("harness"), dict) else {}
+    harness_fit_map = harness.get("fit_map", {}) if isinstance(harness.get("fit_map"), dict) else {}
+    harness_approvals = harness.get("approvals", {}) if isinstance(harness.get("approvals"), dict) else {}
+    applications_config = {
+        **raw_config,
+        "harness": {
+            "fit_map": {
+                "auto_finalize": bool(harness_fit_map.get("auto_finalize", True)),
+            },
+            "approvals": {
+                "notion_write": str(harness_approvals.get("notion_write") or "explicit_request"),
+                "email_draft": str(harness_approvals.get("email_draft") or "manual"),
+            },
+        },
+    }
     main_model = _config_get(config, "model.default")
     main_provider = _config_get(config, "model.provider")
     main_base_url = _config_get(config, "model.base_url")
@@ -194,6 +209,7 @@ def hermes_runtime_snapshot() -> dict[str, Any]:
             "active_variant": project_variant,
             "analysis_runner": applications_config.get("analysis_runner"),
             "generation_runner": applications_config.get("generation_runner"),
+            "harness": applications_config.get("harness"),
         },
         "hermes_config": {
             "model_default": main_model,

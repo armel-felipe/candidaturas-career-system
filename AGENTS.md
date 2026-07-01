@@ -112,6 +112,7 @@ Regra operacional:
 - nunca executar `notion:list`, `grep`, query inventada, `.env`, `curl`, navegador ou script temporário para substituir `agent:evaluate-notion`/`intake:notion-record`
 - para URL LinkedIn de vaga, executar `npm run intake:linkedin-job -- --url "<url>"`
 - para URL LinkedIn de postagem, executar `npm run intake:linkedin-post -- --url "<url>" --company "<empresa>" --role "<cargo>"`
+- para URL externa não-LinkedIn, executar `npm run intake:url -- --url "<url>"`; `--company` e `--role` funcionam como fallback/hint quando a página não trouxer metadados confiáveis
 - para texto colado, salvar em arquivo real ou usar stdin com `intake:paste`
 - depois do intake, se `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/fit_map.draft.json`; não entregar análise textual nem usar FIT_MAP antigo
 - preencher `.career-state/fit_map.draft.json` é responsabilidade do agente: ler a skill/referências necessárias e editar o arquivo. Nunca pedir para o usuário preencher o template, abrir editor, substituir marcadores ou tratar o JSON bruto como entrega.
@@ -122,6 +123,13 @@ Regra operacional:
 - o JSON de saída do intake inclui `delivery_plan` para CV, FERAS, carta, habilidades e atualização no Notion
 - se qualquer comando `intake:*` falhar, é proibido abrir `.env`, copiar token, montar `curl`, criar script temporário ou abrir Notion no navegador; executar `npm run intake:resume` e relatar o bloqueio objetivo
 - se `agent:guard` retornar `allowed_next_action = fill_fit_map_draft`, a única próxima ação autorizada é preencher `.career-state/fit_map.draft.json`
+
+Regra para URL externa não-LinkedIn:
+- qualquer pedido de avaliação/análise/CV/fit que contenha URL fora do LinkedIn deve passar por `npm run intake:url -- --url "<url>"` antes de qualquer análise
+- `intake:url` é o caminho canônico para Gupy, InHire, Ashby, Greenhouse, Lever, Workday e páginas nativas de carreira
+- quando a página trouxer cargo/empresa de forma confiável, o intake pode inferir esses campos; `--company` e `--role` viram fallback, não exigência dura
+- se a extração externa falhar por descrição curta, metadado fraco ou página não carregável, declarar bloqueio objetivo e pedir texto bruto da vaga
+- nunca tentar analisar URL externa diretamente sem antes persistir a descrição extraída
 
 Regra para URL de vaga LinkedIn:
 - qualquer pedido de avaliação/análise/CV/fit que contenha URL `linkedin.com/jobs/view/`, `linkedin.com/jobs/` ou `linkedin.com/job/` deve executar primeiro `linkedin-job-extractor`
@@ -324,12 +332,16 @@ npm run notion:update-page-current:compact -- <page_id> --dry-run # prévia comp
 npm run notion:prepare-record -- <id_unico>                  # resolver pelo campo ID da tabela e preparar a análise
 npm run notion:update-record-current -- <id_unico> --dry-run # prévia da devolução da análise pelo ID único
 npm run notion:update-record-current:compact -- <id_unico> --dry-run # prévia compacta sem blocos/payloads
+npm run notion:create-current -- --dry-run --extra-artifact outputs/<arquivo>.md --extra-note "<observacao>"
+npm run notion:update-record-current -- <id_unico> --dry-run --extra-artifact outputs/<arquivo>.md --extra-note "<observacao>"
 ```
 
 Regra operacional padrão para vaga nova:
 - `análise -> fit_map final -> decisão de prosseguir -> Notion`
 - quando a vaga ainda não existir no Notion, preferir `npm run notion:create-current` depois do `FIT_MAP` final
 - `create-description-record` fica restrito a captura precoce deliberada antes do `FIT_MAP`
+- quando o usuário pedir para registrar outputs fora do pacote padrão, anexar `--extra-artifact <arquivo>` e/ou `--extra-note "<texto>"` na criação/atualização do Notion
+- esses extras devem entrar no corpo da página como memória complementar da vaga, úteis para registrar hipóteses, listas alternativas de habilidades, outputs de outro runtime ou observações curadas
 
 ## Orquestrador automático de candidaturas
 
@@ -504,7 +516,8 @@ Regras:
 - `applications:agent-heartbeat`, `agent:evaluate-notion` e `agent:maestro` permanecem como aliases compativeis, mas delegam ao supervisor
 - runs automaticos ficam em `.career-state/applications_v2/<ID>/requests/<run_id>/`
 - requests manuais ficam em `.career-state/agent_requests/runs/<request_id>/`
-- Notion e Gmail exigem aprovacao persistida em `.career-state/approvals/`
+- Gmail exige aprovacao persistida em `.career-state/approvals/`
+- Notion continua usando pending action e trilha de aprovacao persistida, mas a escrita real pode autoexecutar quando a policy local permitir e o pedido do usuario ja for explicitamente criar/atualizar/salvar no Notion
 - Telegram usa `scripts/telegram_harness_adapter.py`; configuracao Hermes esta em `TELEGRAM_HARNESS_RUNBOOK.md`
 - runners suportados: `hermes`, `opencode` e `codex`; Codex deve usar sessao `--ephemeral`
 - o heartbeat possui lock exclusivo e deve bloquear execucoes concorrentes
@@ -538,12 +551,12 @@ Regras operacionais:
 - para modelos locais/menores, `npm run agent:evaluate-notion -- <id_unico>` já gera `.career-state/agent_requests/local_model_map.md` e o request compacto `fit-map`; o agente deve ler esses arquivos antes de editar o draft
 - o maestro decide o próximo passo, grava requests compactos em `.career-state/agent_requests/` e bloqueia improvisos
 - agentes especialistas devem ler primeiro o request correspondente e só operar nos arquivos/comandos permitidos
-- `fit-map-agent` só preenche `.career-state/fit_map.draft.json`; não finaliza, não entrega score em texto e não edita `.career-state/fit_map.json`
+- `fit-map-agent` continua focado em preencher `.career-state/fit_map.draft.json`; a finalização canônica (`validate_draft -> build -> score -> validate -> register_keywords`) é executada pelo harness quando `harness.fit_map.auto_finalize=true`
 - `cv-agent` gera conteúdo/DOCX e deve rodar `context:assert-active`, `cv:build-content`, `cv:validate-content` e então encerrar com `npm run cv:deliver -- --artifact outputs/<cv>.docx` quando a entrega OneDrive/rclone estiver configurada; `cv:approve` isolado é apenas gate local/diagnóstico
 - `cv-agent` usa `.career-state/derived/cv_input_pack.json` e `.career-state/derived/cv_content_seed.json` como contexto primário; referências longas só entram como fallback
 - `cover-letter-agent` usa `.career-state/derived/cover_letter_input_pack.json` como contexto primário e persiste primeiro `.md`; PDF/entrega vêm depois, se pedidos
 - `feras-agent` usa `.career-state/derived/feras_input_pack.json` como contexto primário e persiste primeiro o artefato local em `outputs/`
-- `notion-agent` só faz dry-run até aprovação explícita do usuário
+- `notion-agent` sempre prepara dry-run primeiro e grava a pending action; a escrita real pode ser executada automaticamente pelo harness quando a policy `harness.approvals.notion_write=explicit_request` estiver ativa e o pedido do usuário já autorizar a escrita
 - `email-agent` só cria draft real após aprovação explícita do usuário; nunca envia email
 - `linkedin-agent` usa apenas scripts locais autenticados; nunca browser/web_search genérico
 - todo request especialista deve trazer `Operational Rules`; se o agente ler o request e ignorar essas regras, tratar como execução parcial/stall
@@ -551,7 +564,7 @@ Regras operacionais:
 - `fit-map-agent`: se o request indicar `Current FIT_MAP.matches_active_job = false`, o FIT_MAP ativo é antigo e não pode ser reutilizado
 - `fit-map-agent`: depois de editar, deve rodar `npm run validate:fit-map:draft`; se o JSON quebrar ou a validação falhar, deve corrigir antes de responder
 - `cv-agent`: não pode entregar apenas texto; deve produzir DOCX em `outputs/`, validar DOCX e rodar `cv:deliver` no artefato final quando a entrega OneDrive/rclone estiver configurada
-- `notion-agent`: escrita real no Notion é proibida sem aprovação explícita depois do dry-run; deve bloquear mismatch, template vazio sem descrição local ou mojibake
+- `notion-agent`: deve bloquear mismatch, template vazio sem descrição local ou mojibake; se a policy local não autorizar autoexecução, a escrita real continua proibida sem aprovação explícita depois do dry-run
 - `email-agent`: deve rodar revisão textual antes do preview e só criar draft real após aprovação explícita; nunca pergunta remetente
 - `linkedin-agent`: deve persistir a descrição e confirmar `active_intake`; se a sessão expirar, usa `linkedin:auth`, não navegador/busca genérica
 - criação de arquivos temporários na raiz como `gen_*.py`, `generate_*fitmap*.py`, `create_draft.py`, `create_drafi.py` ou `tmp_*.py` é bloqueio operacional

@@ -30,7 +30,7 @@ Ativar SEMPRE que o usuário:
 | URL da vaga do LinkedIn | Executar `npm run intake:linkedin-job -- --url "<url>"` |
 | URL de postagem do LinkedIn divulgando vaga | Executar `npm run intake:linkedin-post -- --url "<url>" --company "<empresa>" --role "<cargo>"` |
 | Notion ID (ex: "Notion 248") | Executar `npm run intake:notion-record -- <ID>` |
-| URL externa não-LinkedIn | Executar `npm run intake:url -- --url "<url>" --company "<empresa>" --role "<cargo>"`; se bloquear como unsupported, pedir texto bruto |
+| URL externa não-LinkedIn | Executar `npm run intake:url -- --url "<url>" --company "<empresa>" --role "<cargo>"`; `--company/--role` são fallback. Se a extração falhar por página ruim, descrição curta ou metadado fraco, pedir texto bruto |
 
 Notion usa a skill operacional `.opencode/skills/notion-transactions/SKILL.md`, mas a implementação continua nos scripts locais. Não procurar `notion-query`, `notion-cli-fallback` ou qualquer skill `notion-*` inventada; não ler `.env`, não extrair token e não fazer `curl` direto na API do Notion.
 

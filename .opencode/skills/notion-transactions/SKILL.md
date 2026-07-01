@@ -99,6 +99,7 @@ Criar registro a partir do FIT_MAP ativo, sempre com dry-run antes quando a oper
 ```bash
 npm run notion:create-current -- --dry-run
 npm run notion:create-current
+npm run notion:create-current -- --dry-run --extra-artifact outputs/<arquivo>.md --extra-note "Contexto complementar"
 ```
 
 Criar registro a partir de descrição salva, sempre com dry-run antes:
@@ -114,7 +115,14 @@ Atualizar o registro existente com FIT_MAP ativo, sempre com dry-run antes:
 npm run notion:update-record-current -- <id_unico> --dry-run
 npm run notion:update-record-current:compact -- <id_unico> --dry-run
 npm run notion:update-record-current -- <id_unico>
+npm run notion:update-record-current -- <id_unico> --dry-run --extra-artifact outputs/<arquivo>.md --extra-note "Memória complementar"
 ```
+
+Memória complementar opcional:
+- quando o usuário pedir para registrar outputs fora do pacote padrão, anexar `--extra-artifact <arquivo>` e/ou `--extra-note "<texto>"`
+- esses extras entram no corpo da página do Notion na seção `Memória complementar`
+- usar isso para hipóteses, listas alternativas de habilidades, sugestões de outro runtime/projeto ou observações humanas que valham como base de conhecimento
+- a fonte oficial continua sendo o arquivo local; o Notion recebe uma cópia resumida/legível no corpo da página
 
 Sincronizar histórico/cache antes de consultar candidaturas anteriores:
 
@@ -159,6 +167,12 @@ Fluxo padrão:
 2. Executar `npm run notion:create-current -- --dry-run` quando precisar de preview.
 3. Validar título, status, template, score e campos consolidados que voltarão ao Notion.
 4. Executar `npm run notion:create-current` apenas após autorização explícita.
+
+Pitfall — `notion:create-current` pode retornar output vazio:
+- Se `npm run notion:create-current -- --dry-run` retornar output vazio (exit 0), o script pode estar falhando silenciosamente
+- Workaround: usar o script direto `./scripts/python.sh scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <path> --dry-run`
+- Antes de chamar o script direto, verificar se o heading do arquivo de descrição em `inbox/job_descriptions/` inclui o nome da empresa (ex: `# Manager, Supply Chain – Brazil — Invenergy` em vez de `# Manager, Supply Chain – Brazil`)
+- Se o heading estiver sem empresa, corrigir com `patch` no `.md` antes de rodar o script
 
 Exceção deliberada:
 

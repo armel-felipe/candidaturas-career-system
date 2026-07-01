@@ -34,6 +34,8 @@ GENERIC_LINKEDIN_COMPANIES = {
     "são paulo",
 }
 GENERIC_LINKEDIN_ROLES = {"cargo linkedin", "vaga linkedin"}
+GENERIC_URL_COMPANIES = {"empresa", "company", "careers", "jobs", "job", "portal", "talent"}
+GENERIC_URL_ROLES = {"vaga", "job", "opportunity", "career opportunity"}
 INTAKE_STATES_TO_CLEAR = {
     "fit_map_draft_valid",
     "fit_map_built",
@@ -66,6 +68,17 @@ def _is_generic_linkedin_metadata(company: str | None, role: str | None) -> bool
         or not role_key
         or company_key in GENERIC_LINKEDIN_COMPANIES
         or role_key in GENERIC_LINKEDIN_ROLES
+    )
+
+
+def _is_generic_url_metadata(company: str | None, role: str | None) -> bool:
+    company_key = (company or "").strip().casefold()
+    role_key = (role or "").strip().casefold()
+    return (
+        not company_key
+        or not role_key
+        or company_key in GENERIC_URL_COMPANIES
+        or role_key in GENERIC_URL_ROLES
     )
 
 
@@ -470,9 +483,34 @@ def from_url(
             if not company or not role:
                 raise ValidationFailure("LinkedIn post intake requires --company and --role.")
             return from_linkedin_post(url=url, company=company, role=role, state_store=state_store)
-    raise ValidationFailure(
-        "unsupported_url_requires_paste: no deterministic extractor exists for this URL. "
-        "Paste the job text and run `npm run intake:paste -- --company ... --role ... --text-file ...`."
+    state_store = state_store or WorkflowStateStore()
+    command = ["npm", "run", "url:extract", "--", "--url", url]
+    if company:
+        command.extend(["--fallback-company", company])
+    if role:
+        command.extend(["--fallback-role", role])
+    _stdout, result = _run_command(command)
+    output_path = result.get("output_path")
+    if not output_path:
+        raise ValidationFailure(
+            "generic_url_extraction_failed: extractor finished without output_path. "
+            "Retry `npm run intake:url -- --url \"<url>\"` or paste the raw job text."
+        )
+    path = ROOT / str(output_path)
+    if _is_generic_url_metadata(result.get("company"), result.get("role")):
+        raise ValidationFailure(
+            "Generic URL extraction produced weak metadata "
+            f"(company={result.get('company')!r}, role={result.get('role')!r}). "
+            "Retry with --company/--role or paste the raw job text."
+        )
+    return _run_ready_pipeline(
+        state_store,
+        source_type="external_url",
+        source_id=url,
+        job_description_path=path,
+        company=result.get("company"),
+        role=result.get("role"),
+        extra=result,
     )
 
 

@@ -301,7 +301,8 @@ CONTRACTS: dict[str, AgentContract] = {
         agent="notion-agent",
         purpose=(
             "Preparar dry-run de criacao/atualizacao Notion usando apenas scripts locais. "
-            "Escrita real exige aprovacao explicita do usuario apos revisao do dry-run."
+            "Escrita real depende da policy do harness: Gmail sempre manual; "
+            "Notion pode autoexecutar quando o pedido explicito do usuario ja autoriza a escrita."
         ),
         allowed_files=(
             ".career-state/fit_map.json",
@@ -318,10 +319,10 @@ CONTRACTS: dict[str, AgentContract] = {
             "python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo.md> --source-url \"<url>\" --dry-run",
             "python3 scripts/notion_sync.py create-description-record --job-description <arquivo.md> --company \"<empresa>\" --role \"<cargo>\" --source-url \"<url>\" --dry-run",
         ),
-        expected_outputs=("dry-run validado; escrita real somente apos aprovacao explicita",),
+        expected_outputs=("dry-run validado; escrita real conforme policy do harness",),
         forbidden_actions=BASE_FORBIDDEN_ACTIONS
         + (
-            "executar escrita real sem aprovacao explicita",
+            "executar escrita real sem pedido explicito do usuario ou fora da policy do harness",
             "usar MCP de Notion",
             "usar --allow-mismatch",
             "consultar .env ou copiar NOTION_TOKEN",
@@ -739,7 +740,9 @@ def _operational_rules(contract: AgentContract) -> list[str]:
             [
                 "Usar .career-state/derived/job_extract.json e o FIT_MAP ativo como contexto primario para o dry-run.",
                 "Resolver a origem pelo estado ativo e preferir atualizar a mesma pagina quando a vaga nasceu no Notion.",
-                "Executar somente dry-run ate o usuario aprovar explicitamente a escrita real.",
+                "Executar o dry-run primeiro e gravar a pending action canonica.",
+                "Se a policy notion_write=explicit_request e o usuario pediu explicitamente criar/atualizar/salvar no Notion, o harness pode executar a escrita real sem segunda confirmacao.",
+                "Se o pedido for de previa, preview ou dry-run, manter apenas o dry-run e nao disparar a escrita real.",
                 "Usar apenas scripts locais de Notion; MCP, curl, API direta e leitura de .env sao proibidos.",
                 "Para achar link por ID, usar comando canônico de resolução por ID; não varrer applications_cache ou sweep com grep.",
                 "Verificar se o dry-run usa a descricao correta da vaga ativa.",
@@ -783,7 +786,7 @@ def write_runbook() -> dict[str, Any]:
                 "write compact requests",
                 "run validation gates",
                 "block fallback and temporary scripts",
-                "request explicit approval before Notion/Gmail writes",
+                "respect project write policy: Gmail manual; Notion may autoexecute on explicit write requests",
             ],
         },
         "steps": [

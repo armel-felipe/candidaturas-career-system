@@ -64,6 +64,15 @@ DEFAULT_CONFIG = {
         "agent": "build",
         "timeout_minutes": 90,
     },
+    "harness": {
+        "fit_map": {
+            "auto_finalize": True,
+        },
+        "approvals": {
+            "notion_write": "explicit_request",
+            "email_draft": "manual",
+        },
+    },
 }
 
 STAGE_METADATA = {
@@ -195,6 +204,15 @@ def _load_config() -> dict[str, Any]:
     merged["maintenance"] = {**DEFAULT_CONFIG["maintenance"], **payload.get("maintenance", {})}
     merged["analysis_runner"] = {**DEFAULT_CONFIG["analysis_runner"], **payload.get("analysis_runner", {})}
     merged["generation_runner"] = {**DEFAULT_CONFIG["generation_runner"], **payload.get("generation_runner", {})}
+    merged["harness"] = {**DEFAULT_CONFIG["harness"], **payload.get("harness", {})}
+    merged["harness"]["fit_map"] = {
+        **DEFAULT_CONFIG["harness"]["fit_map"],
+        **payload.get("harness", {}).get("fit_map", {}),
+    }
+    merged["harness"]["approvals"] = {
+        **DEFAULT_CONFIG["harness"]["approvals"],
+        **payload.get("harness", {}).get("approvals", {}),
+    }
     merged["success_status"] = notion_service.sanitize_automation_status(str(merged.get("success_status") or ""))
     merged["blocked_review_status"] = notion_service.sanitize_automation_status(str(merged.get("blocked_review_status") or ""))
     return merged

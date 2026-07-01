@@ -55,6 +55,7 @@
     "linkedin:extract:authenticated": "node scripts/linkedin_extract_job.js --no-login-prompt --timeout-ms 180000",
     "linkedin:post:extract": "node scripts/linkedin_extract_post.js",
     "linkedin:post:extract:authenticated": "node scripts/linkedin_extract_post.js --no-login-prompt --timeout-ms 180000",
+    "url:extract": "node scripts/extract_job_url.js",
     "linkedin:browser:install-deps": "bash scripts/install_linkedin_browser_gateway_deps.sh",
     "linkedin:browser:start": "bash scripts/start_linkedin_browser_gateway.sh",
     "linkedin:browser:status": "bash scripts/status_linkedin_browser_gateway.sh",

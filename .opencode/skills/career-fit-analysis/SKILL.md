@@ -107,6 +107,32 @@ npm run intake:resume
 
 Se o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/fit_map.draft.json`.
 Não usar `notion:list`, `grep`, cache local, URL aberta no navegador genérico ou FIT_MAP antigo como substituto do intake.
+
+### Bloqueador crítico — Verificação de vaga ativa (anti-reuse)
+
+**Falha operacional grave:** entregar análise, score ou resumo de vaga ANTERIOR quando o usuário forneceu vaga nova.
+
+Sintomas do erro (já ocorreu em produção):
+- `npm run fit-map:summary` retorna cargo/empresa de vaga antiga
+- `.career-state/fit_map.json` tem `matches_active_job = false` mas o agente ignora
+- Agente declara "FIT_MAP finalizado" com score de vaga que não é a atual
+
+**Protocolo obrigatório de verificação antes de qualquer análise ou entrega:**
+
+```bash
+# 1. Verificar se FIT_MAP ativo corresponde à vaga atual
+npm run fit-map:status
+
+# 2. Se matches_active_job = false, o FIT_MAP é STALE — bloquear e re-analisar
+# 3. Se draft tem placeholders > 0, a vaga ativa ainda não foi analisada
+```
+
+Regras duras:
+- Se `fit_map.json.matches_active_job = false`, **NÃO** entregar score, **NÃO** usar `.career-state/fit_map.json` como base, **NÃO** prosseguir para CV/FERAS/carta
+- Se `draft.placeholder_count > 0`, a próxima ação obrigatória é editar `.career-state/fit_map.draft.json` — não entregar análise textual
+- Se o usuário reclamar que a análise não é da vaga correta, executar imediatamente `npm run fit-map:status` e `npm run intake:resume` para diagnosticar drift
+- Nunca confiar em estado de sessão anterior sem revalidar fingerprint da descrição ativa
+- Quando houver dúvida sobre qual vaga está ativa, ler `.career-state/workflow_state.json` e `inbox/job_descriptions/` para confirmar o path da descrição salva
 O campo `delivery_plan` do intake orienta as próximas skills: CV, FERAS, carta, habilidades e update no Notion.
 Nesta etapa, o agente deve editar o draft no filesystem. É execução parcial/falha operacional responder com o template do JSON, pedir que o usuário preencha campos, sugerir `nano`/editor, ou listar passos para preenchimento sem persistir o arquivo.
 Em modo multiagente/local pequeno, gerar/ler `.career-state/agent_requests/fit-map_request.md` com `npm run multiagent:request -- fit-map` e seguir as `Operational Rules` antes de editar.
@@ -506,6 +532,12 @@ Regras anti-erro:
 - nunca usar `descricao` ou `descrição` em `keywords_vaga[].origem`
 - quando o termo vier do corpo da vaga, mapear para `responsabilidades` ou `requisitos`
 - nunca usar `requisito`, `idioma` ou `qualificacao` em `competencias_vaga[].tipo`; nesses casos usar `hard skill`
+
+Pitfall — validador rejeita `-` como placeholder fraco em GAPs:
+- `validate:fit-map:draft` falha com "contains weak placeholder: '-'" quando `evidencia`, `empresa_origem` ou `resultado_numero` de um item GAP contém apenas `-`
+- a correção é substituir por texto explícito prefixado com `GAP:`, ex: `"GAP: Nao ha experiencia em agencia de servicos ou consultoria."`
+- para `empresa_origem` e `resultado_numero` de GAPs, usar `"GAP"` como valor
+- fazer a substituição em lote via `execute_code` com Python `json` module quando houver múltiplos GAPs — `patch` tende a falhar em JSON grande por diferenças de whitespace/indentação
 
 Este bloco agora deve ser tratado como draft estruturado da análise. O modelo pode montar o conteúdo, mas a persistência final deve passar por validação do draft e canonização.
 
