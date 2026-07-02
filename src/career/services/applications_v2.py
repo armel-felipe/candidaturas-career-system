@@ -30,8 +30,8 @@ NOTION_CACHE = ROOT / "inbox" / "notion" / "applications_cache.json"
 KEYWORD_REGISTRY = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
 
 DEFAULT_CONFIG = {
-    "active_model": "ollama-cloud/deepseek-v4-flash",
-    "active_variant": "medium",
+    "active_model": "",
+    "active_variant": "",
     "max_per_run": 2,
     "score_threshold": 6.0,
     "queue_status_aliases": ["Fila Agente", "Aplicação em Análise", "Em análise", "em analise", "Analisando"],

@@ -375,7 +375,7 @@ npm run applications:config
 npm run applications:heartbeat -- --dry-run --max-per-run 1
 npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
-npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium
+npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium  # override explícito opcional
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
 ./scripts/python.sh scripts/career_cli.py applications status --format human
 ./scripts/python.sh scripts/career_cli.py applications heartbeat --dry-run --max-per-run 1 --format json
@@ -404,7 +404,8 @@ Regra operacional do heartbeat:
 - o heartbeat aceita `--format human|json|both`; usar `both` para terminal humano e `json` para integrações/bot
 - para consumo automatizado do JSON por bot/Telegram, preferir `./scripts/python.sh scripts/career_cli.py applications heartbeat ... --format json`; evitar `npm run ...` porque o próprio npm injeta banner no `stdout`
 - para observabilidade diária, usar `./scripts/python.sh scripts/career_cli.py applications status --format human`
-- o modelo e variant ficam em `.career-state/applications_v2/config.json` e também podem ser sobrescritos por execução com `--model provider/model --variant medium`
+- por padrão, `active_model` e `active_variant` ficam vazios em `.career-state/applications_v2/config.json`, para que o runner use o modelo padrão configurado no agente/runtime
+- `--model provider/model --variant medium` é override explícito por execução; não definir modelo fixo no projeto sem decisão deliberada
 - o heartbeat não marca uma candidatura como pronta se faltar FIT_MAP, DOCX final em `outputs/`, reviewer objetivo aprovado ou `polish_review.json`
 - CV PT-BR só pode ser aprovado com `outputs/_tmp/output_review_report.json` e `outputs/_tmp/polish_review.json` compatíveis
 - o estágio `generate` deve ler primeiro `generation_request.json/md` e usar os packs compactos persistidos na própria candidatura como contexto primário
