@@ -22,6 +22,7 @@ from career.services import multiagent as multiagent_service
 from career.services import notion as notion_service
 from career.services import project as project_service
 from career.services import review as review_service
+from career.services import workflow_reset as workflow_reset_service
 from career.tasks.registry import run_pipeline, run_task
 from career.utils import CareerError
 from career.workflow.state_store import WorkflowStateStore
@@ -262,6 +263,9 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_sub.add_parser("summary")
     workflow_sub.add_parser("explain-last-run")
     workflow_sub.add_parser("reset-state")
+    workflow_reset = workflow_sub.add_parser("reset")
+    workflow_reset.add_argument("--dry-run", action="store_true")
+    workflow_reset.add_argument("--no-backup", action="store_true")
     return parser
 
 
@@ -926,6 +930,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "reset-state":
             state_store.reset()
             _dump(state_store.load())
+            return 0
+        if args.action == "reset":
+            result = workflow_reset_service.operational_reset(
+                dry_run=args.dry_run,
+                backup=not args.no_backup,
+            )
+            _dump(result)
             return 0
         if args.action == "run-task":
             result = run_task(args.task_name, json.loads(args.arguments), state_store=state_store)

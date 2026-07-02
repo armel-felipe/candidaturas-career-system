@@ -124,6 +124,7 @@
     "runtime:check": "sh scripts/runtime_check.sh",
     "runtime:diagnose": "./scripts/python.sh scripts/career_cli.py project diagnose-runtime",
     "workflow:summary": "./scripts/python.sh scripts/career_cli.py workflow summary",
+    "workflow:reset": "./scripts/python.sh scripts/career_cli.py workflow reset",
     "local:strict:status": "./scripts/python.sh scripts/career_cli.py project local-strict-status",
     "local:strict:doctor": "./scripts/python.sh scripts/career_cli.py project local-strict-doctor",
     "benchmark:local-agent": "./scripts/python.sh scripts/career_cli.py project local-agent-benchmark",

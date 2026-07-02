@@ -85,6 +85,7 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - se `.career-state/fit_map.draft.json` ficar com JSON inválido, executar `npm run fit-map:template` para resetar o template da vaga ativa antes de continuar
 - quando o draft analítico já estiver preenchido, prefira `npm run fit-map:finalize`
 - use `npm run fit-map:summary`, `npm run fit-map:draft-summary`, `npm run workflow:summary` e `npm run registry:summary` para inspeções compactas antes de abrir qualquer JSON grande
+- se houver suspeita de estado contaminado, active_intake quebrado, FIT_MAP/draft de outra vaga ou pedido explícito de recomeçar limpo, incluindo gatilhos como "reinicie", "reiniciar", "limpa tudo" ou "resetar estado", usar `npm run workflow:reset -- --dry-run` primeiro; executar `npm run workflow:reset` somente com confirmação explícita do usuário
 - use `npm run validate:fit-map:quality` depois de `fit-map:finalize` em execuções com modelo local para detectar degradação textual/semântica
 - para diagnosticar travamento ou estado misto entre vaga, draft e FIT_MAP, rode `npm run fit-map:status`
 - se `fit-map:status` apontar template com placeholders ou FIT_MAP antigo, rode `npm run fit-map:resume` e execute a ação indicada sem reexplicar o workflow
@@ -97,6 +98,21 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - `notion:memory:sync` tambem deve executar o backfill automatico dos campos de governanca do Notion; esse maintenance path e permitido por padrao e nao depende de pedido manual por vaga
 - use `npm run runtime:diagnose` para investigar estado inchado, caches e sinais de custo operacional
 - quando a vaga ainda não existir no Notion, o fluxo padrão é `análise -> FIT_MAP final -> decisão de prosseguir -> notion:create-current`; `create-description-record` fica restrito a captura precoce deliberada antes do FIT_MAP
+
+Reset operacional seguro:
+
+```bash
+npm run workflow:reset -- --dry-run
+npm run workflow:reset
+```
+
+Regras:
+- `workflow:reset -- --dry-run` lista exatamente o que será removido e o que será preservado
+- `workflow:reset` limpa estado ativo, FIT_MAP/draft atuais, requests compactos, derivados e relatórios temporários, criando backup em `.career-state/reset_backups/`
+- preserva histórico: `inbox/job_descriptions/`, artefatos finais em `outputs/`, registry ATS, memória v2, cache Notion, runs de agentes e mensagens Telegram
+- após reset real, a próxima ação obrigatória é iniciar novo intake canônico
+- reset real exige pedido/confirmacao explícita do usuário; não usar como fallback silencioso
+- não usar reset para correção pontual de um campo quando bastar editar o artefato e rerodar o gate
 
 Política de contexto compacto:
 

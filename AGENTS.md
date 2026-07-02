@@ -79,9 +79,34 @@ Regras de progressao para agentes locais:
 | Revisar documento / "está bom?" / conferir | `output-reviewer` |
 | Quais cargos combinam comigo | `career-fit-analysis` (Modo 2) |
 | Posicionamento para cargo novo | `career-fit-analysis` (Modo 3) |
+| Resetar estado / limpar base / reinicie / reiniciar / recomeçar do zero / estado contaminado / "quebrou o projeto" | Reset operacional: `npm run workflow:reset -- --dry-run` → `npm run workflow:reset` se confirmado |
 
 Instrução completa de cada skill: `.opencode/skills/{skill}/SKILL.md`.
 Orquestração e regras globais: `.opencode/skills/career-system/SKILL.md`.
+
+## Reset operacional seguro
+
+Use quando houver suspeita de estado contaminado, vaga ativa errada, `active_intake` apontando para arquivo inexistente,
+FIT_MAP/draft de outra vaga, derivados compactos inconsistentes, ou quando o usuário pedir explicitamente para limpar a
+base e recomeçar. Frases como "reinicie", "reiniciar", "limpa tudo", "resetar estado" ou "começar de uma base limpa"
+acionam este fluxo.
+
+Comandos oficiais:
+
+```bash
+npm run workflow:reset -- --dry-run
+npm run workflow:reset
+```
+
+Regra operacional:
+- executar primeiro `npm run workflow:reset -- --dry-run` e mostrar ao usuário o resumo do que será limpo/preservado
+- executar `npm run workflow:reset` somente após pedido ou confirmação explícita do usuário
+- o reset cria backup em `.career-state/reset_backups/`
+- o reset limpa estado ativo, FIT_MAP/draft atuais, requests compactos, derivados e relatórios temporários em `outputs/_tmp/`
+- o reset preserva histórico: `inbox/job_descriptions/`, artefatos finais em `outputs/`, registry ATS, memória v2, cache Notion, runs de agentes e mensagens Telegram
+- depois do reset, a próxima ação obrigatória é iniciar novo intake canônico: `intake:linkedin-job`, `intake:notion-record`, `intake:paste`, `intake:url` ou equivalente
+- nunca usar reset para corrigir um campo pequeno de draft/FIT_MAP; para correção pontual, editar o artefato e rerodar os gates correspondentes
+- nunca executar reset real como fallback silencioso durante análise/CV; o reset muda o estado operacional e exige decisão explícita
 
 ## Orquestrador de intake de vagas
 
