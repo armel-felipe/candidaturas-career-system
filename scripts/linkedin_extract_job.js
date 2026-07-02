@@ -9,7 +9,7 @@ function parseArgs(argv) {
   const args = {
     url: null,
     authOnly: false,
-    headless: false,
+    headless: null,
     loginPrompt: true,
     saveJob: true,
     fallbackCompany: "",
@@ -70,7 +70,7 @@ function printHelp() {
 
 Opções:
   --auth-only             Abre/valida sessão manual e sai sem extrair vaga.
-  --headless              Tenta sem janela visível; se login faltar, abre login manual quando DISPLAY existir.
+  --headless              Força modo sem janela visível.
   --no-login-prompt       Não abre navegador visível para login manual; falha se a sessão não estiver autenticada.
   --no-save-job           Não chama scripts/save_job_description.py.
   --fallback-company      Usa empresa vinda do seletor de vagas salvas quando o parser da página falhar.
@@ -438,6 +438,13 @@ function canOpenHeadfulBrowser() {
   return true;
 }
 
+function resolveHeadless(args) {
+  if (typeof args.headless === "boolean") {
+    return args.headless;
+  }
+  return !canOpenHeadfulBrowser();
+}
+
 function loadBrowserGatewayEnv() {
   if (process.platform !== "linux") {
     return null;
@@ -556,7 +563,8 @@ async function waitForManualLogin(page, url, args) {
 
 async function ensureLoggedInPage(chromium, userDataDir, url, args) {
   const gatewayEnv = loadBrowserGatewayEnv();
-  let context = await launchContext(chromium, userDataDir, args.headless);
+  const headless = resolveHeadless(args);
+  let context = await launchContext(chromium, userDataDir, headless);
   let page = await openJobPage(context, url, args.timeoutMs);
 
   if (!(await hasLoginWall(page))) {
@@ -573,7 +581,7 @@ async function ensureLoggedInPage(chromium, userDataDir, url, args) {
     throw new Error("LinkedIn exige login, mas não há DISPLAY/WAYLAND_DISPLAY para abrir navegador visível. Rode `npm run linkedin:browser:start` e acesse o noVNC antes de repetir.");
   }
 
-  if (args.headless) {
+  if (headless) {
     await context.close();
     if (gatewayEnv && gatewayEnv.NOVNC_URL) {
       console.log(`Login manual necessário. Gateway noVNC detectado: ${gatewayEnv.NOVNC_URL}`);

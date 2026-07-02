@@ -9,7 +9,7 @@ function parseArgs(argv) {
     url: null,
     company: null,
     role: null,
-    headless: false,
+    headless: null,
     loginPrompt: true,
     saveJob: true,
     timeoutMs: 120000,
@@ -61,7 +61,7 @@ function printHelp() {
 Opções:
   --company <nome>        Empresa da vaga quando a postagem não tiver link de vaga.
   --role <cargo>          Cargo da vaga quando a postagem não tiver link de vaga.
-  --headless              Tenta sem janela visível.
+  --headless              Força modo sem janela visível.
   --no-login-prompt       Falha se a sessão LinkedIn não estiver autenticada.
   --no-save-job           Não chama scripts/save_job_description.py.
   --timeout-ms <ms>       Timeout total de navegação. Padrão: 120000.
@@ -395,6 +395,13 @@ function canOpenHeadfulBrowser() {
   return true;
 }
 
+function resolveHeadless(args) {
+  if (typeof args.headless === "boolean") {
+    return args.headless;
+  }
+  return !canOpenHeadfulBrowser();
+}
+
 async function launchContext(chromium, userDataDir, headless) {
   return chromium.launchPersistentContext(userDataDir, {
     headless,
@@ -427,7 +434,8 @@ async function waitForManualLogin(page, url, args) {
 }
 
 async function ensureLoggedInPage(chromium, userDataDir, url, args) {
-  let context = await launchContext(chromium, userDataDir, args.headless);
+  const headless = resolveHeadless(args);
+  let context = await launchContext(chromium, userDataDir, headless);
   let page = await openPage(context, url, args.timeoutMs);
 
   if (!(await hasLoginWall(page))) {
@@ -443,7 +451,7 @@ async function ensureLoggedInPage(chromium, userDataDir, url, args) {
     throw new Error("LinkedIn exige login, mas não há DISPLAY/WAYLAND_DISPLAY para abrir navegador visível.");
   }
 
-  if (args.headless) {
+  if (headless) {
     await context.close();
     context = await launchContext(chromium, userDataDir, false);
     page = await openPage(context, url, args.timeoutMs);
