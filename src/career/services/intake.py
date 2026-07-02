@@ -405,7 +405,7 @@ def from_linkedin_job(
     metadata_hints: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     state_store = state_store or WorkflowStateStore()
-    command = ["npm", "run", "linkedin:extract:authenticated", "--", "--url", url]
+    command = ["npm", "run", "linkedin:extract:authenticated", "--", "--url", url, "--headless"]
     hints = metadata_hints or {}
     if hints.get("company"):
         command.extend(["--fallback-company", str(hints["company"])])
@@ -448,6 +448,7 @@ def from_linkedin_post(
             "--",
             "--url",
             url,
+            "--headless",
             "--company",
             company,
             "--role",

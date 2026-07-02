@@ -128,7 +128,7 @@ async function main() {
 
   // Resumo / Summary
   children.push(secao(l10n.summary));
-  children.push(paragraph(cv.resumo));
+  children.push(paragraph(lang === "en" ? cv.summary : cv.resumo));
   children.push(espaco(8));
 
   // Experiência / Experience
