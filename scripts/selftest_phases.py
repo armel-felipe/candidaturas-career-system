@@ -1581,6 +1581,16 @@ def phase_42() -> None:
             raise SystemExit(f"Harness should preserve a deterministic blocker reason: {result}")
         if payload.get("display_text") != "LinkedIn extraction produced generic metadata.":
             raise SystemExit(f"Harness should surface the validation failure text to the user: {result}")
+        menu_state = root / ".career-state" / "harness" / "menu_state.json"
+        if menu_state.exists():
+            raise SystemExit("A non-menu reply should clear the stale numeric menu state.")
+        original_root = hermes_harness_context_hook.ROOT
+        hermes_harness_context_hook.ROOT = root
+        try:
+            if hermes_harness_context_hook.should_intercept("1"):
+                raise SystemExit("A stale numeric menu should not keep intercepting replies after a non-menu response.")
+        finally:
+            hermes_harness_context_hook.ROOT = original_root
 
 
 def phase_43() -> None:

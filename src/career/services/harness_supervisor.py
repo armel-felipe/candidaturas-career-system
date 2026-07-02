@@ -654,12 +654,14 @@ class HarnessSupervisor:
                 envelope["blocker_reason"] = "no_deterministic_route"
                 return envelope
         except ValidationFailure as exc:
+            self._clear_menu_state()
             envelope["result"] = {
                 "status": "blocked",
                 "kind": "validation_failure",
                 "blocker_reason": "workflow_validation_failed",
                 "display_text": str(exc),
             }
+        self._sync_menu_state_for_result(envelope.get("result"))
         result_status = envelope.get("result", {}).get("status") if isinstance(envelope.get("result"), dict) else None
         envelope["executed"] = result_status != "awaiting_input"
         envelope["status"] = (
@@ -1245,6 +1247,18 @@ class HarnessSupervisor:
         from career.utils import write_json
 
         write_json(path, state)
+
+    def _clear_menu_state(self) -> None:
+        if not self.root:
+            return
+        (self.root / ".career-state" / "harness" / "menu_state.json").unlink(missing_ok=True)
+
+    def _sync_menu_state_for_result(self, result: Any) -> None:
+        if not self.root or not isinstance(result, dict):
+            return
+        if str(result.get("kind") or "") in {"session_menu", "linkedin_saved_jobs"}:
+            return
+        self._clear_menu_state()
 
     def _resolve_menu_selection(self, message: str) -> dict[str, Any] | None:
         text = " ".join(str(message or "").strip().split())
