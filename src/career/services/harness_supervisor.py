@@ -661,6 +661,7 @@ class HarnessSupervisor:
                 "blocker_reason": "workflow_validation_failed",
                 "display_text": str(exc),
             }
+        envelope["result"] = self._decorate_result_payload(envelope.get("result"))
         self._sync_menu_state_for_result(envelope.get("result"))
         result_status = envelope.get("result", {}).get("status") if isinstance(envelope.get("result"), dict) else None
         envelope["executed"] = result_status != "awaiting_input"
@@ -1253,10 +1254,103 @@ class HarnessSupervisor:
             return
         (self.root / ".career-state" / "harness" / "menu_state.json").unlink(missing_ok=True)
 
+    def _decorate_result_payload(self, result: Any) -> Any:
+        if not isinstance(result, dict):
+            return result
+        if str(result.get("kind") or "") in {"session_menu", "linkedin_saved_jobs", "agent_menu"}:
+            return result
+        agent_menu = self._build_agent_menu_for_result(result)
+        if not agent_menu:
+            return result
+        return {**result, **agent_menu}
+
+    def _build_agent_menu_for_result(self, result: dict[str, Any]) -> dict[str, Any] | None:
+        if not self._result_has_completed_fit_map(result):
+            return None
+        from career.services import fit_map as fit_map_service
+
+        summary = fit_map_service.payload_summary()
+        if summary.get("status") != "ok":
+            return None
+        nota_final = summary.get("nota_final")
+        nota_text = f"{float(nota_final):.1f}/10" if isinstance(nota_final, (int, float)) else "n/d"
+        keyword_registration = summary.get("keyword_registration") or {}
+        keyword_line = (
+            "Keywords ATS registradas: sim."
+            if keyword_registration.get("registered")
+            else "Keywords ATS pendentes de registro."
+        )
+        payload = {
+            "status": result.get("status") or "completed",
+            "kind": "agent_menu",
+            "menu_context": "active_job",
+            "headline": "A analise da vaga foi concluida. Posso seguir para a proxima entrega.",
+            "active_intake": self._active_intake_summary() or self._stale_active_intake_summary(),
+            "summary_lines": [
+                f"Resumo: {summary.get('cargo') or '-'} | {summary.get('empresa') or '-'}",
+                f"Nota de aderencia: {nota_text}",
+                f"Gaps mapeados: {summary.get('gaps_count') or 0} | Objecoes mapeadas: {summary.get('objecoes_count') or 0}",
+                keyword_line,
+            ],
+            "sections": [
+                {
+                    "id": "post_fit_map_actions",
+                    "title": "Proximos passos possiveis",
+                    "items": [
+                        self._menu_item(
+                            "cv",
+                            "Gerar CV",
+                            "Produzir o curriculo orientado pela vaga ativa.",
+                            "gere um CV para a vaga ativa",
+                            recommended=True,
+                        ),
+                        self._menu_item(
+                            "feras",
+                            "Pitch/FERAS",
+                            "Produzir o pitch executivo e o texto FERAS.",
+                            "gere um pitch FERAS para a vaga ativa",
+                        ),
+                        self._menu_item(
+                            "cover_letter",
+                            "Carta de apresentacao",
+                            "Produzir a carta de apresentacao da vaga ativa.",
+                            "gere uma carta de apresentacao para a vaga ativa",
+                        ),
+                        self._menu_item(
+                            "habilidades",
+                            "Habilidades ATS/Gupy",
+                            "Montar habilidades-chave e resumo ATS da vaga ativa.",
+                            "gere habilidades ATS para a vaga ativa",
+                        ),
+                        self._menu_item(
+                            "notion_update",
+                            "Criar no Notion",
+                            "Criar ou atualizar o registro da vaga no Notion a partir do estado atual.",
+                            "crie registro no Notion para a vaga ativa",
+                        ),
+                    ],
+                }
+            ],
+        }
+        return self._finalize_menu_payload(payload)
+
+    @staticmethod
+    def _result_has_completed_fit_map(result: dict[str, Any]) -> bool:
+        if str(result.get("status") or "") != "completed":
+            return False
+        if str(result.get("step") or "") == "fit-map":
+            return True
+        specialist = result.get("specialist")
+        return (
+            isinstance(specialist, dict)
+            and str(specialist.get("status") or "") == "completed"
+            and str(specialist.get("step") or "") == "fit-map"
+        )
+
     def _sync_menu_state_for_result(self, result: Any) -> None:
         if not self.root or not isinstance(result, dict):
             return
-        if str(result.get("kind") or "") in {"session_menu", "linkedin_saved_jobs"}:
+        if str(result.get("kind") or "") in {"session_menu", "linkedin_saved_jobs", "agent_menu"}:
             return
         self._clear_menu_state()
 
@@ -1397,6 +1491,9 @@ class HarnessSupervisor:
             updated_at = str(stale.get("updated_at") or "-")
             lines.append(f"Trabalho antigo detectado: {role} | {company}")
             lines.append(f"Última atualização salva: {updated_at}")
+        for summary_line in payload.get("summary_lines") or []:
+            if isinstance(summary_line, str) and summary_line.strip():
+                lines.append(summary_line)
         for section in payload.get("sections") or []:
             lines.append("")
             lines.append(f"{section.get('title')}:")
@@ -1407,7 +1504,10 @@ class HarnessSupervisor:
                 lines.append(f"{item.get('number')}. {item.get('title')}{suffix}")
                 lines.append(f"   {item.get('description')}")
         lines.append("")
-        lines.append("Responda com o número da opção ou diga o que você quer fazer.")
+        if str(payload.get("kind") or "") == "agent_menu":
+            lines.append("Qual voce quer? Responda com o numero da opcao ou diga o que voce quer fazer.")
+        else:
+            lines.append("Responda com o número da opção ou diga o que você quer fazer.")
         return "\n".join(lines)
 
     def _active_intake_summary(self) -> dict[str, Any] | None:

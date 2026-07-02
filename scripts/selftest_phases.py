@@ -1812,6 +1812,65 @@ def phase_48() -> None:
             raise SystemExit("Notion blocks should preserve extra artifact content and free-form notes.")
 
 
+def phase_49() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        active_state = {
+            "active_intake": {
+                "source_type": "pasted_text",
+                "source_id": None,
+                "company": "Acme",
+                "role": "Diretor de Planejamento",
+                "job_description_path": "inbox/job_descriptions/acme.md",
+                "next_required_step": "análise concluída",
+                "status": "completed",
+                "updated_at": "2026-07-02T12:00:00+00:00",
+            }
+        }
+        (state_dir / "workflow_state.json").write_text(json.dumps(active_state), encoding="utf-8")
+        (state_dir / "fit_map.json").write_text(
+            json.dumps(
+                {
+                    "cargo": "Diretor de Planejamento",
+                    "empresa": "Acme",
+                    "keywords_vaga": ["S&OP"],
+                    "competencias_vaga": ["Planejamento"],
+                    "mapa_ajuste": [{"requisito": "Planejamento"}],
+                    "objecoes": ["Setor novo"],
+                    "keywords_habilidade_ats": [{"keyword": "S&OP"}],
+                    "gaps_sem_cobertura": ["Consultoria formal"],
+                    "nota_aderencia": {"final": 7.4, "dimensoes": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        supervisor = HarnessSupervisor(root)
+        original = supervisor.execute_specialist
+        supervisor.execute_specialist = lambda *args, **kwargs: {  # type: ignore[method-assign]
+            "status": "completed",
+            "step": "fit-map",
+            "execution": {"postprocess": {"status": "completed"}},
+        }
+        try:
+            result = supervisor.handle_message("analise a vaga ativa", channel="telegram", execute=True)
+        finally:
+            supervisor.execute_specialist = original  # type: ignore[method-assign]
+        payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+        if payload.get("kind") != "agent_menu":
+            raise SystemExit(f"Completed fit-map should be promoted to agent_menu: {result}")
+        display = str(payload.get("display_text") or "")
+        if "Proximos passos possiveis:" not in display or "5. Criar no Notion" not in display:
+            raise SystemExit(f"Agent menu should render numbered post-fit-map actions: {display}")
+        routed = supervisor.handle_message("5", channel="telegram", execute=False)
+        decision = routed.get("decision") if isinstance(routed.get("decision"), dict) else {}
+        if decision.get("workflow") != "notion_update":
+            raise SystemExit(f"Numeric reply to agent_menu should route to notion_update: {routed}")
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -1861,6 +1920,7 @@ PHASES = {
     46: phase_46,
     47: phase_47,
     48: phase_48,
+    49: phase_49,
 }
 
 
