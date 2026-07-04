@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import shlex
 import shutil
@@ -1401,6 +1402,88 @@ def phase_37() -> None:
         raise SystemExit(f"LinkedIn post metadata was not extracted: {post.to_dict()}")
 
 
+def phase_37b() -> None:
+    class CapturingSupervisor(HarnessSupervisor):
+        def __init__(self, root: Path):
+            super().__init__(root)
+            self.captured: dict[str, Any] | None = None
+
+        def execute_specialist(
+            self,
+            step: str,
+            *,
+            objective: str | None = None,
+            extras: dict[str, Any] | None = None,
+            model: str | None = None,
+            variant: str | None = None,
+        ) -> dict[str, Any]:
+            self.captured = {
+                "step": step,
+                "objective": objective,
+                "extras": extras,
+                "model": model,
+                "variant": variant,
+            }
+            return {"status": "completed"}
+
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "workflow_state.json").write_text(json.dumps({}), encoding="utf-8")
+        supervisor = CapturingSupervisor(root)
+        result = supervisor.handle_message(
+            "o registro já foi criado no notion (id 417). pode atualizar?",
+            channel="cli",
+            execute=True,
+        )
+        captured = supervisor.captured or {}
+        if result.get("status") != "completed":
+            raise SystemExit(f"Notion update dispatch should complete with stubbed specialist: {result}")
+        if captured.get("step") != "notion-update":
+            raise SystemExit(f"Notion update should target the notion specialist: {captured}")
+        if (captured.get("extras") or {}).get("record_id") != 417:
+            raise SystemExit(f"record_id should be forwarded to notion-update specialist extras: {captured}")
+
+
+def phase_37c() -> None:
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        inbox_dir = root / "inbox" / "job_descriptions"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        job_path = inbox_dir / "acme_head_operacoes.md"
+        job_path.write_text(
+            "Empresa: Acme\nCargo: Head de Operacoes\n\nDescricao da vaga sem metadata de fonte.\n",
+            encoding="utf-8",
+        )
+        (state_dir / "workflow_state.json").write_text(
+            json.dumps(
+                {
+                    "active_intake": {
+                        "source_type": "external_url",
+                        "source_id": "https://jobs.example.com/vaga/acme-head-operacoes",
+                        "job_description_path": "inbox/job_descriptions/acme_head_operacoes.md",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        cwd = Path.cwd()
+        os.chdir(root)
+        try:
+            resolved = notion_sync.resolve_source_url(job_path.read_text(encoding="utf-8"), job_path)
+        finally:
+            os.chdir(cwd)
+        if resolved != "https://jobs.example.com/vaga/acme-head-operacoes":
+            raise SystemExit(f"resolve_source_url should fallback to active_intake URL: {resolved}")
+
+
 def phase_38() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
@@ -1921,6 +2004,8 @@ PHASES = {
     47: phase_47,
     48: phase_48,
     49: phase_49,
+    50: phase_37b,
+    51: phase_37c,
 }
 
 

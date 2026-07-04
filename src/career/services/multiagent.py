@@ -546,6 +546,7 @@ def _request_markdown(payload: dict[str, Any]) -> str:
     active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
     fit_map = payload.get("fit_map") if isinstance(payload.get("fit_map"), dict) else {}
     derived = payload.get("derived_context") if isinstance(payload.get("derived_context"), dict) else {}
+    extras = payload.get("extras") if isinstance(payload.get("extras"), dict) else {}
     lines = [
         f"# {payload['agent']} — {payload['step']}",
         "",
@@ -574,6 +575,9 @@ def _request_markdown(payload: dict[str, Any]) -> str:
         f"- status: `{derived.get('status') or 'none'}`",
         f"- fingerprint: `{derived.get('fingerprint') or 'none'}`",
         f"- missing_outputs: `{', '.join(derived.get('missing_outputs', [])) if derived.get('missing_outputs') else 'none'}`",
+        "",
+        "## Extras",
+        *([f"- `{key}`: `{value}`" for key, value in extras.items()] or ["- `none`"]),
         "",
         "## Allowed Files",
         *[f"- `{item}`" for item in payload["allowed_files"]],

@@ -644,6 +644,7 @@ class HarnessSupervisor:
                 envelope["result"] = self.execute_specialist(
                     step,
                     objective=message,
+                    extras=decision.parameters or None,
                     model=model,
                     variant=variant,
                 )

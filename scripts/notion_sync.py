@@ -625,6 +625,48 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).lower()
 
 
+def _active_intake_source_url(job_description_path: Optional[Path] = None) -> str:
+    state_path = Path(".career-state/workflow_state.json")
+    if not state_path.exists():
+        return ""
+    try:
+        payload = read_json(state_path)
+    except Exception:
+        return ""
+    active = payload.get("active_intake")
+    if not isinstance(active, dict):
+        return ""
+    source_type = str(active.get("source_type") or "").strip()
+    source_id = str(active.get("source_id") or "").strip()
+    if source_type not in {"external_url", "linkedin_job", "linkedin_post"}:
+        return ""
+    if not re.match(r"^https?://", source_id, re.IGNORECASE):
+        return ""
+
+    active_path_value = str(active.get("job_description_path") or "").strip()
+    if job_description_path and active_path_value:
+        active_path = Path(active_path_value)
+        candidate_paths = {str(active_path)}
+        try:
+            candidate_paths.add(str(active_path.resolve()))
+        except OSError:
+            pass
+        try:
+            candidate_paths.add(str((Path.cwd() / active_path).resolve()))
+        except OSError:
+            pass
+
+        current_paths = {str(job_description_path)}
+        try:
+            current_paths.add(str(job_description_path.resolve()))
+        except OSError:
+            pass
+
+        if candidate_paths.isdisjoint(current_paths):
+            return ""
+    return source_id
+
+
 def sanitize_automation_status(status: str) -> str:
     normalized = normalize_text(status)
     return AUTOMATION_STATUS_DOWNGRADES.get(normalized, status)
@@ -2112,7 +2154,8 @@ def resolve_source_url(
         job_description_path,
         source_url=source_url,
     )
-    return (metadata.get("source_url") or fallback_url or "").strip()
+    active_intake_url = _active_intake_source_url(job_description_path)
+    return (metadata.get("source_url") or active_intake_url or fallback_url or "").strip()
 
 
 def create_from_fit_map(
