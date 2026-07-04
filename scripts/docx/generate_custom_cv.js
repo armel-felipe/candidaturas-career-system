@@ -133,14 +133,16 @@ async function main() {
 
   // Experiência / Experience
   children.push(secao(l10n.experience));
-  for (const exp of cv.experiencias) {
+  for (const exp of lang === "en" ? cv.experiences : cv.experiencias) {
     children.push(espaco(3));
-    children.push(cargoParagraph(exp.cargo, exp.empresa, exp.periodo));
+    children.push(cargoParagraph(lang === "en" ? exp.role : exp.cargo, lang === "en" ? exp.company : exp.empresa, lang === "en" ? exp.period : exp.periodo));
     for (const b of exp.bullets) {
       if (typeof b === "string") {
         children.push(bullet([{ text: b }]));
       } else if (b.prefixo) {
         children.push(bullet([b]));
+      } else if (b.text) {
+        children.push(bullet([{ text: b.text }]));
       }
     }
   }
@@ -149,7 +151,7 @@ async function main() {
 
   // Formação / Education
   children.push(secao(l10n.education));
-  for (const f of cv.formacao) {
+  for (const f of lang === "en" ? cv.education : cv.formacao) {
     children.push(bullet([{ text: f }]));
   }
   children.push(espaco(8));
@@ -161,7 +163,7 @@ async function main() {
 
   // Idiomas / Languages
   children.push(secao(l10n.languages));
-  for (const idioma of cv.idiomas) {
+  for (const idioma of lang === "en" ? cv.languages : cv.idiomas) {
     children.push(bullet([{ text: idioma }]));
   }
 
