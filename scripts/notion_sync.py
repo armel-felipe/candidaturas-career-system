@@ -27,6 +27,7 @@ AUTOMATION_STATUS_CEILING = "Aplicação andamento"
 AUTOMATION_STATUS_DOWNGRADES = {
     "aplicacao feita": AUTOMATION_STATUS_CEILING,
 }
+ALLOW_DUPLICATE_CREATE_ENV = "NOTION_ALLOW_DUPLICATE_CREATE"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -2158,6 +2159,113 @@ def resolve_source_url(
     return (metadata.get("source_url") or active_intake_url or fallback_url or "").strip()
 
 
+def _normalize_duplicate_key(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value or "")
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", value.casefold()).strip()
+
+
+def _existing_application_records(token: str, database_id: str) -> list[dict[str, Any]]:
+    pages = query_all_database_pages(token, database_id)
+    records = []
+    for page in pages:
+        if page.get("archived") or page.get("in_trash"):
+            continue
+        props = page.get("properties", {})
+        title = page_title(page).replace("\u00a0", " ").strip()
+        inferred_company, inferred_role = infer_company_and_role(title)
+        company = ""
+        role = ""
+        source_url = ""
+        record_id = ""
+        for name, prop in props.items():
+            if name in PROPERTY_ALIASES.get("company", []) and not company:
+                company = prop_text(prop)
+            if name in PROPERTY_ALIASES.get("role", []) and not role:
+                role = prop_text(prop, token=token)
+            if name in PROPERTY_ALIASES.get("source_url", []) and not source_url:
+                source_url = prop_text(prop)
+            if name in PROPERTY_ALIASES.get("record_id", []) and not record_id:
+                record_id = prop_text(prop)
+        records.append(
+            {
+                "page_id": page.get("id"),
+                "record_id": record_id,
+                "title": title,
+                "company": inferred_company or company,
+                "role": inferred_role or role or title,
+                "source_url": source_url,
+                "notion_url": page.get("url"),
+            }
+        )
+    return records
+
+
+def find_duplicate_create_candidates(
+    token: str,
+    database_id: str,
+    *,
+    company: str,
+    role: str,
+    source_url: str = "",
+) -> list[dict[str, Any]]:
+    source_key = _normalize_duplicate_key(source_url)
+    company_key = _normalize_duplicate_key(company)
+    role_key = _normalize_duplicate_key(role)
+    matches = []
+    for record in _existing_application_records(token, database_id):
+        record_source = _normalize_duplicate_key(str(record.get("source_url") or ""))
+        record_company = _normalize_duplicate_key(str(record.get("company") or ""))
+        record_role = _normalize_duplicate_key(str(record.get("role") or ""))
+        reasons = []
+        if source_key and record_source and source_key == record_source:
+            reasons.append("source_url")
+        if company_key and role_key and company_key == record_company and role_key == record_role:
+            reasons.append("company_role")
+        if reasons:
+            item = dict(record)
+            item["duplicate_reasons"] = reasons
+            matches.append(item)
+    return matches
+
+
+def ensure_no_duplicate_create(
+    token: str,
+    database_id: str,
+    *,
+    company: str,
+    role: str,
+    source_url: str = "",
+    allow_duplicate: bool = False,
+) -> list[dict[str, Any]]:
+    duplicates = find_duplicate_create_candidates(
+        token,
+        database_id,
+        company=company,
+        role=role,
+        source_url=source_url,
+    )
+    if duplicates and not allow_duplicate:
+        compact = [
+            {
+                "record_id": item.get("record_id"),
+                "title": item.get("title"),
+                "source_url": item.get("source_url"),
+                "notion_url": item.get("notion_url"),
+                "reasons": item.get("duplicate_reasons"),
+            }
+            for item in duplicates[:5]
+        ]
+        raise SystemExit(
+            "Refusing to create duplicate Notion application record. "
+            "Existing candidate(s): "
+            + json.dumps(compact, ensure_ascii=False)
+            + ". Use update-from-fit-map-record/update-description-record for the existing ID, "
+            + "or pass --allow-duplicate-create only if this is intentionally a separate vacancy."
+        )
+    return duplicates
+
+
 def create_from_fit_map(
     token: str,
     database_id: str,
@@ -2171,6 +2279,7 @@ def create_from_fit_map(
     status: str = "Aplicação andamento",
     extra_artifacts: Optional[list[Path]] = None,
     extra_notes: Optional[list[str]] = None,
+    allow_duplicate_create: bool = False,
 ) -> dict:
     fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
     status = sanitize_automation_status(status)
@@ -2214,6 +2323,15 @@ def create_from_fit_map(
     role = fit_map.get("cargo", "")
     company = fit_map.get("empresa", "")
     source_url = resolve_source_url(job_description, resolved_job_description_path)
+    allow_duplicate = allow_duplicate_create or os.environ.get(ALLOW_DUPLICATE_CREATE_ENV, "").strip() == "1"
+    duplicate_candidates = ensure_no_duplicate_create(
+        token,
+        database_id,
+        company=company,
+        role=role,
+        source_url=source_url,
+        allow_duplicate=allow_duplicate,
+    )
     title = f"{company} - {role}".strip(" -")
     properties[title_name] = property_value(title_prop, title)
 
@@ -2271,6 +2389,7 @@ def create_from_fit_map(
             "job_description_source": job_description_source or None,
             "job_description_path": str(resolved_job_description_path) if resolved_job_description_path else None,
             "source_url": source_url or None,
+            "duplicate_candidates": duplicate_candidates,
             "extra_artifacts": [str(path) for path in (extra_artifacts or [])],
             "extra_notes_count": len(extra_notes or []),
         }
@@ -2288,6 +2407,7 @@ def create_from_fit_map(
         "job_description_source": job_description_source or None,
         "job_description_path": str(resolved_job_description_path) if resolved_job_description_path else None,
         "source_url": source_url or None,
+        "duplicate_candidates": duplicate_candidates,
         "extra_artifacts": [str(path) for path in (extra_artifacts or [])],
         "extra_notes_count": len(extra_notes or []),
     }
@@ -2592,6 +2712,7 @@ def create_description_record(
     template: str = "default",
     template_id = None,
     status: str = "Fila Agente",
+    allow_duplicate_create: bool = False,
 ) -> dict:
     job_description = read_job_description(job_description_path)
     validate_standalone_job_description(job_description, job_description_path)
@@ -2604,6 +2725,15 @@ def create_description_record(
     )
     if not metadata["company"] or not metadata["role"]:
         raise SystemExit("Company and role are required to create a Notion vacancy record. Pass --company and --role.")
+    allow_duplicate = allow_duplicate_create or os.environ.get(ALLOW_DUPLICATE_CREATE_ENV, "").strip() == "1"
+    duplicate_candidates = ensure_no_duplicate_create(
+        token,
+        database_id,
+        company=metadata["company"],
+        role=metadata["role"],
+        source_url=metadata["source_url"],
+        allow_duplicate=allow_duplicate,
+    )
 
     template_id = template_id or os.environ.get("NOTION_APPLICATIONS_TEMPLATE_ID", "").strip() or None
     if not template_id and template != "default":
@@ -2648,6 +2778,7 @@ def create_description_record(
             "company": metadata["company"],
             "role": metadata["role"],
             "source_url": metadata["source_url"] or None,
+            "duplicate_candidates": duplicate_candidates,
         }
     return {
         "page": request("POST", notion_url("pages"), token, payload, notion_version=NOTION_TEMPLATE_VERSION),
@@ -2656,6 +2787,7 @@ def create_description_record(
         "company": metadata["company"],
         "role": metadata["role"],
         "source_url": metadata["source_url"] or None,
+        "duplicate_candidates": duplicate_candidates,
     }
 
 
@@ -2796,6 +2928,7 @@ def main() -> int:
     create_parser.add_argument("--template", choices=["default"], default="default")
     create_parser.add_argument("--template-id", default=None)
     create_parser.add_argument("--allow-mismatch", action="store_true")
+    create_parser.add_argument("--allow-duplicate-create", action="store_true")
     create_parser.add_argument("--no-append-summary", action="store_true")
     create_parser.add_argument("--compact", action="store_true")
     create_parser.add_argument("--status", default="Aplicação andamento")
@@ -2841,6 +2974,7 @@ def main() -> int:
     create_description_parser.add_argument("--dry-run", action="store_true")
     create_description_parser.add_argument("--template", choices=["default"], default="default")
     create_description_parser.add_argument("--template-id", default=None)
+    create_description_parser.add_argument("--allow-duplicate-create", action="store_true")
     create_description_parser.add_argument("--status", default="Fila Agente")
 
     args = parser.parse_args()
@@ -3000,6 +3134,7 @@ def main() -> int:
             template=args.template,
             template_id=template_id,
             allow_mismatch=args.allow_mismatch,
+            allow_duplicate_create=args.allow_duplicate_create,
             append_summary=not args.no_append_summary,
             status=args.status,
             extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
@@ -3067,6 +3202,7 @@ def main() -> int:
             dry_run=args.dry_run,
             template=args.template,
             template_id=template_id,
+            allow_duplicate_create=args.allow_duplicate_create,
             status=args.status,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))

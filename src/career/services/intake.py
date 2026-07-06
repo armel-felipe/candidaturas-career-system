@@ -8,12 +8,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from career.paths import CAREER_STATE, INBOX, ROOT
+from career.services import application_context as application_context_service
 from career.services import derived_context as derived_context_service
 from career.services import fit_map as fit_map_service
 from career.services import notion as notion_service
 from career.services import project as project_service
 from career.tasks.registry import run_task
-from career.utils import ValidationFailure, sha256_file, utc_now_iso, write_json
+from career.utils import ValidationFailure, sha256_file, utc_now_iso, write_json, write_text
 from career.workflow.state_store import WorkflowStateStore
 
 
@@ -58,6 +59,35 @@ def _relative(path: Path) -> str:
         return str(path.resolve().relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def _paths_from_state_store(state_store: WorkflowStateStore) -> application_context_service.ApplicationPaths | None:
+    parent = state_store.path.parent
+    if parent.parent == application_context_service.APPLICATIONS_DIR:
+        return application_context_service.paths_for(parent.name)
+    return None
+
+
+def _draft_path(state_store: WorkflowStateStore) -> Path:
+    paths = _paths_from_state_store(state_store)
+    return paths.fit_map_draft if paths else DRAFT_PATH
+
+
+def _fit_map_path(state_store: WorkflowStateStore) -> Path:
+    paths = _paths_from_state_store(state_store)
+    return paths.fit_map if paths else FIT_MAP_PATH
+
+
+def _canonical_job_description_path(
+    job_description_path: Path,
+    application_paths: application_context_service.ApplicationPaths | None,
+) -> Path:
+    if not application_paths:
+        return job_description_path
+    text = job_description_path.read_text(encoding="utf-8", errors="replace")
+    write_text(application_paths.job_description, text)
+    write_text(application_paths.saved_job_description, _relative(job_description_path) + "\n")
+    return application_paths.job_description
 
 
 def _is_generic_linkedin_metadata(company: str | None, role: str | None) -> bool:
@@ -135,12 +165,14 @@ def _set_active_job(
 def _mark_template_ready(state_store: WorkflowStateStore, result: dict[str, Any]) -> None:
     payload = _load_state(state_store)
     active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
+    draft_path = _draft_path(state_store)
+    fit_map_path = _fit_map_path(state_store)
     active.update(
         {
             "status": result["status"],
             "next_required_step": result["next_required_step"],
-            "draft_path": _relative(DRAFT_PATH),
-            "fit_map_path": _relative(FIT_MAP_PATH),
+            "draft_path": _relative(draft_path),
+            "fit_map_path": _relative(fit_map_path),
             "updated_at": utc_now_iso(),
         }
     )
@@ -223,17 +255,21 @@ def _status_payload(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     fit_status = fit_map_service.status(
-        draft_path=DRAFT_PATH,
-        fit_map_path=FIT_MAP_PATH,
+        draft_path=Path(extra.get("_draft_path")) if extra and extra.get("_draft_path") else DRAFT_PATH,
+        fit_map_path=Path(extra.get("_fit_map_path")) if extra and extra.get("_fit_map_path") else FIT_MAP_PATH,
         job_description_path=job_description_path,
     )
     guard = fit_map_service.progress_guard(
-        draft_path=DRAFT_PATH,
-        fit_map_path=FIT_MAP_PATH,
+        draft_path=Path(extra.get("_draft_path")) if extra and extra.get("_draft_path") else DRAFT_PATH,
+        fit_map_path=Path(extra.get("_fit_map_path")) if extra and extra.get("_fit_map_path") else FIT_MAP_PATH,
         job_description_path=job_description_path,
     )
+    draft_path = Path(extra.get("_draft_path")) if extra and extra.get("_draft_path") else DRAFT_PATH
+    fit_map_path = Path(extra.get("_fit_map_path")) if extra and extra.get("_fit_map_path") else FIT_MAP_PATH
     payload = {
         "status": "ready_for_model_analysis",
+        "application_id": extra.get("application_id") if extra else None,
+        "application_dir": extra.get("application_dir") if extra else None,
         "source_type": source_type,
         "source_id": source_id,
         "company": company or "",
@@ -241,8 +277,8 @@ def _status_payload(
         "record_id": record_id,
         "job_description_path": _relative(job_description_path),
         "description_chars": len(job_description_path.read_text(encoding="utf-8", errors="replace")),
-        "draft_path": _relative(DRAFT_PATH),
-        "fit_map_path": _relative(FIT_MAP_PATH),
+        "draft_path": _relative(draft_path),
+        "fit_map_path": _relative(fit_map_path),
         "next_required_step": "fill_fit_map_draft",
         "required_next_command": "editar .career-state/fit_map.draft.json",
         "agent_instruction": (
@@ -254,7 +290,7 @@ def _status_payload(
         "delivery_plan": _delivery_plan(record_id=record_id, job_description_path=job_description_path),
     }
     if extra:
-        payload["extract"] = extra
+        payload["extract"] = {key: value for key, value in extra.items() if not str(key).startswith("_")}
     try:
         payload["derived_context"] = derived_context_service.derived_summary()
     except ValidationFailure:
@@ -263,7 +299,7 @@ def _status_payload(
 
 
 def _prepare_template(state_store: WorkflowStateStore) -> None:
-    run_task("fit_map.template", {"output": str(DRAFT_PATH)}, state_store=state_store)
+    run_task("fit_map.template", {"output": str(_draft_path(state_store))}, state_store=state_store)
 
 
 def _run_ready_pipeline(
@@ -277,6 +313,8 @@ def _run_ready_pipeline(
     record_id: int | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    application_paths = _paths_from_state_store(state_store)
+    job_description_path = _canonical_job_description_path(job_description_path, application_paths)
     if not job_description_path.exists():
         raise ValidationFailure(f"Job description file not found: {job_description_path}")
     text = job_description_path.read_text(encoding="utf-8", errors="replace")
@@ -292,8 +330,29 @@ def _run_ready_pipeline(
         company=company,
         role=role,
     )
+    if application_paths:
+        payload = _load_state(state_store)
+        active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
+        active["application_id"] = application_paths.application_id
+        active["application_dir"] = _relative(application_paths.app_dir)
+        payload["active_intake"] = active
+        state_store.payload = payload
+        state_store.save()
     _prepare_template(state_store)
+    if application_paths:
+        derived_context_service.configure_derived_dir(application_paths.derived_dir)
+        derived_context_service.configure_state_store_path(state_store.path)
     derived_context_service.build_all_for_fit_map()
+    extra_payload = dict(extra or {})
+    if application_paths:
+        extra_payload.update(
+            {
+                "application_id": application_paths.application_id,
+                "application_dir": _relative(application_paths.app_dir),
+                "_draft_path": str(application_paths.fit_map_draft),
+                "_fit_map_path": str(application_paths.fit_map),
+            }
+        )
     result = _status_payload(
         source_type=source_type,
         source_id=source_id,
@@ -301,14 +360,18 @@ def _run_ready_pipeline(
         company=company,
         role=role,
         record_id=record_id,
-        extra=extra,
+        extra=extra_payload,
     )
     _mark_template_ready(state_store, result)
     return result
 
 
-def from_notion_record(record_id: int, state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
-    state_store = state_store or WorkflowStateStore()
+def from_notion_record(
+    record_id: int,
+    state_store: WorkflowStateStore | None = None,
+    *,
+    application_id: str | None = None,
+) -> dict[str, Any]:
     token, database_id = notion_service.notion_config()
     result = notion_service.prepare_analysis_from_record(
         token,
@@ -318,6 +381,15 @@ def from_notion_record(record_id: int, state_store: WorkflowStateStore | None = 
         INBOX / "job_descriptions",
     )
     path = ROOT / result["job_description_path"]
+    app_paths = application_context_service.ensure_application(
+        source_type="notion_record",
+        source_id=str(record_id),
+        company=result.get("company"),
+        role=result.get("role"),
+        record_id=record_id,
+        preferred_id=application_id,
+    )
+    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="notion_record",
@@ -336,8 +408,16 @@ def from_paste(
     role: str,
     text: str,
     state_store: WorkflowStateStore | None = None,
+    application_id: str | None = None,
 ) -> dict[str, Any]:
-    state_store = state_store or WorkflowStateStore()
+    app_paths = application_context_service.ensure_application(
+        source_type="pasted_text",
+        source_id=None,
+        company=company,
+        role=role,
+        preferred_id=application_id,
+    )
+    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
     output_path = project_service.save_job_description(company, role, text, INBOX / "job_descriptions")
     return _run_ready_pipeline(
         state_store,
@@ -403,8 +483,8 @@ def from_linkedin_job(
     state_store: WorkflowStateStore | None = None,
     *,
     metadata_hints: dict[str, str] | None = None,
+    application_id: str | None = None,
 ) -> dict[str, Any]:
-    state_store = state_store or WorkflowStateStore()
     command = ["npm", "run", "linkedin:extract:authenticated", "--", "--url", url, "--headless"]
     hints = metadata_hints or {}
     if hints.get("company"):
@@ -421,6 +501,14 @@ def from_linkedin_job(
             f"(company={result.get('company')!r}, role={result.get('role')!r}). "
             "Fix scripts/linkedin_extract_job.js inference before continuing."
         )
+    app_paths = application_context_service.ensure_application(
+        source_type="linkedin_job",
+        source_id=url,
+        company=result.get("company"),
+        role=result.get("role"),
+        preferred_id=application_id,
+    )
+    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_job",
@@ -438,8 +526,8 @@ def from_linkedin_post(
     company: str,
     role: str,
     state_store: WorkflowStateStore | None = None,
+    application_id: str | None = None,
 ) -> dict[str, Any]:
-    state_store = state_store or WorkflowStateStore()
     stdout, result = _run_command(
         [
             "npm",
@@ -456,6 +544,14 @@ def from_linkedin_post(
         ]
     )
     path = _canonical_saved_path(stdout, result.get("job_output_path"))
+    app_paths = application_context_service.ensure_application(
+        source_type="linkedin_post",
+        source_id=url,
+        company=company,
+        role=role,
+        preferred_id=application_id,
+    )
+    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_post",
@@ -473,18 +569,18 @@ def from_url(
     company: str | None,
     role: str | None,
     state_store: WorkflowStateStore | None = None,
+    application_id: str | None = None,
 ) -> dict[str, Any]:
     parsed = urlparse(url)
     host = parsed.hostname.replace("www.", "") if parsed.hostname else ""
     path = parsed.path or ""
     if host == "linkedin.com" or host.endswith(".linkedin.com"):
         if "/jobs/" in path or "/job/" in path:
-            return from_linkedin_job(url, state_store=state_store)
+            return from_linkedin_job(url, state_store=state_store, application_id=application_id)
         if any(marker in path for marker in ["/feed/update/", "/posts/", "/pulse/"]):
             if not company or not role:
                 raise ValidationFailure("LinkedIn post intake requires --company and --role.")
-            return from_linkedin_post(url=url, company=company, role=role, state_store=state_store)
-    state_store = state_store or WorkflowStateStore()
+            return from_linkedin_post(url=url, company=company, role=role, state_store=state_store, application_id=application_id)
     command = ["npm", "run", "url:extract", "--", "--url", url]
     if company:
         command.extend(["--fallback-company", company])
@@ -504,6 +600,14 @@ def from_url(
             f"(company={result.get('company')!r}, role={result.get('role')!r}). "
             "Retry with --company/--role or paste the raw job text."
         )
+    app_paths = application_context_service.ensure_application(
+        source_type="external_url",
+        source_id=url,
+        company=result.get("company"),
+        role=result.get("role"),
+        preferred_id=application_id,
+    )
+    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="external_url",
@@ -515,8 +619,8 @@ def from_url(
     )
 
 
-def resume(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
-    state_store = state_store or WorkflowStateStore()
+def resume(state_store: WorkflowStateStore | None = None, *, application_id: str | None = None) -> dict[str, Any]:
+    state_store = state_store or (WorkflowStateStore.for_application(application_id) if application_id else WorkflowStateStore())
     payload = state_store.load()
     active = payload.get("active_intake")
     if not isinstance(active, dict) or not active.get("job_description_path"):
@@ -538,8 +642,8 @@ def resume(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
             "job_description_path": active.get("job_description_path"),
             "next_required_step": "rerun_intake",
         }
-    fit_status = fit_map_service.status(DRAFT_PATH, FIT_MAP_PATH, path)
-    guidance = fit_map_service.resume_guidance(DRAFT_PATH, FIT_MAP_PATH, path)
+    fit_status = fit_map_service.status(_draft_path(state_store), _fit_map_path(state_store), path)
+    guidance = fit_map_service.resume_guidance(_draft_path(state_store), _fit_map_path(state_store), path)
     return {
         "status": "active_intake_ready",
         "active_intake": active,

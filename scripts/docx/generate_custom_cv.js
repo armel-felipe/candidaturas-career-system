@@ -18,8 +18,8 @@ const pt = n => n * 2;
 
 const workspace = process.env.CAREER_WORKSPACE || process.cwd();
 const outputDir = process.env.CAREER_OUTPUTS || path.join(workspace, "outputs");
-const cvContentPath = path.join(workspace, ".career-state", "cv_content.json");
-const fitMapPath = path.join(workspace, ".career-state", "fit_map.json");
+const cvContentPath = process.env.CAREER_CV_CONTENT || path.join(workspace, ".career-state", "cv_content.json");
+const fitMapPath = process.env.CAREER_FIT_MAP || path.join(workspace, ".career-state", "fit_map.json");
 
 function secao(text) {
   return new Paragraph({

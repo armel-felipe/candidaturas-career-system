@@ -21,6 +21,7 @@ def process_message(
     *,
     message_id: str | None = None,
     execute: bool = True,
+    runtime_context: dict[str, Any] | None = None,
     supervisor: HarnessSupervisor | None = None,
     root: Path = ROOT,
 ) -> dict[str, Any]:
@@ -40,6 +41,7 @@ def process_message(
         normalized,
         channel="telegram",
         execute=execute,
+        runtime_context=runtime_context,
     )
     envelope = {
         "message_id": stable_id,

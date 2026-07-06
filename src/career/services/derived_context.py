@@ -31,11 +31,57 @@ HABILIDADES_INPUT_PACK_PATH = DERIVED_DIR / "habilidades_input_pack.json"
 FERAS_INPUT_PACK_PATH = DERIVED_DIR / "feras_input_pack.json"
 COVER_LETTER_INPUT_PACK_PATH = DERIVED_DIR / "cover_letter_input_pack.json"
 DERIVED_MANIFEST_PATH = DERIVED_DIR / "manifest.json"
+ACTIVE_STATE_STORE_PATH: Path | None = None
 
 KEYWORD_DICTIONARY_PATH = REFERENCES / "dicionario_palavras_chave_mercado.md"
 CAREER_KEYWORDS_PATH = REFERENCES / "palavras_chave_carreira.md"
 PROFILE_RESTRICTIONS_PATH = REFERENCES / "perfil_restricoes.md"
 SELF_KNOWLEDGE_PATH = REFERENCES / "autoconhecimento.md"
+
+
+def configure_derived_dir(derived_dir: Path) -> None:
+    global DERIVED_DIR
+    global ACTIVE_CONTEXT_PATH
+    global JOB_EXTRACT_PATH
+    global JOB_SECTIONS_PATH
+    global JOB_KEYWORDS_PATH
+    global JOB_REQUIREMENTS_PATH
+    global JOB_RESPONSIBILITIES_PATH
+    global JOB_COMPANY_CONTEXT_PATH
+    global REFERENCE_DIGEST_PATH
+    global CANDIDATE_EVIDENCE_PACK_PATH
+    global CANDIDATE_EVIDENCE_BY_THEME_PATH
+    global FIT_MAP_SEED_PATH
+    global CV_INPUT_PACK_PATH
+    global CV_CONTENT_SEED_PATH
+    global HABILIDADES_INPUT_PACK_PATH
+    global FERAS_INPUT_PACK_PATH
+    global COVER_LETTER_INPUT_PACK_PATH
+    global DERIVED_MANIFEST_PATH
+
+    DERIVED_DIR = derived_dir
+    ACTIVE_CONTEXT_PATH = DERIVED_DIR / "active_context.json"
+    JOB_EXTRACT_PATH = DERIVED_DIR / "job_extract.json"
+    JOB_SECTIONS_PATH = DERIVED_DIR / "job_sections.json"
+    JOB_KEYWORDS_PATH = DERIVED_DIR / "job_keywords.json"
+    JOB_REQUIREMENTS_PATH = DERIVED_DIR / "job_requirements.json"
+    JOB_RESPONSIBILITIES_PATH = DERIVED_DIR / "job_responsibilities.json"
+    JOB_COMPANY_CONTEXT_PATH = DERIVED_DIR / "job_company_context.json"
+    REFERENCE_DIGEST_PATH = DERIVED_DIR / "reference_digest.json"
+    CANDIDATE_EVIDENCE_PACK_PATH = DERIVED_DIR / "candidate_evidence_pack.json"
+    CANDIDATE_EVIDENCE_BY_THEME_PATH = DERIVED_DIR / "candidate_evidence_by_theme.json"
+    FIT_MAP_SEED_PATH = DERIVED_DIR / "fit_map_seed.json"
+    CV_INPUT_PACK_PATH = DERIVED_DIR / "cv_input_pack.json"
+    CV_CONTENT_SEED_PATH = DERIVED_DIR / "cv_content_seed.json"
+    HABILIDADES_INPUT_PACK_PATH = DERIVED_DIR / "habilidades_input_pack.json"
+    FERAS_INPUT_PACK_PATH = DERIVED_DIR / "feras_input_pack.json"
+    COVER_LETTER_INPUT_PACK_PATH = DERIVED_DIR / "cover_letter_input_pack.json"
+    DERIVED_MANIFEST_PATH = DERIVED_DIR / "manifest.json"
+
+
+def configure_state_store_path(path: Path | None) -> None:
+    global ACTIVE_STATE_STORE_PATH
+    ACTIVE_STATE_STORE_PATH = path
 
 
 @dataclass(frozen=True)
@@ -710,20 +756,21 @@ def context_doctor() -> dict[str, Any]:
 
 
 def fit_map_compact_files() -> list[str]:
+    fit_map_draft = DERIVED_DIR.parent / "fit_map.draft.json" if DERIVED_DIR.name == "derived" else CAREER_STATE / "fit_map.draft.json"
     return [
-        ".career-state/derived/active_context.json",
-        ".career-state/fit_map.draft.json",
-        ".career-state/derived/job_extract.json",
-        ".career-state/derived/job_sections.json",
-        ".career-state/derived/job_requirements.json",
-        ".career-state/derived/job_responsibilities.json",
-        ".career-state/derived/job_company_context.json",
-        ".career-state/derived/job_keywords.json",
-        ".career-state/derived/reference_digest.json",
-        ".career-state/derived/candidate_evidence_pack.json",
-        ".career-state/derived/candidate_evidence_by_theme.json",
-        ".career-state/derived/fit_map_seed.json",
-        ".career-state/derived/manifest.json",
+        _relative(ACTIVE_CONTEXT_PATH),
+        _relative(fit_map_draft),
+        _relative(JOB_EXTRACT_PATH),
+        _relative(JOB_SECTIONS_PATH),
+        _relative(JOB_REQUIREMENTS_PATH),
+        _relative(JOB_RESPONSIBILITIES_PATH),
+        _relative(JOB_COMPANY_CONTEXT_PATH),
+        _relative(JOB_KEYWORDS_PATH),
+        _relative(REFERENCE_DIGEST_PATH),
+        _relative(CANDIDATE_EVIDENCE_PACK_PATH),
+        _relative(CANDIDATE_EVIDENCE_BY_THEME_PATH),
+        _relative(FIT_MAP_SEED_PATH),
+        _relative(DERIVED_MANIFEST_PATH),
         ".career-state/memory/profile_facts.json",
         ".career-state/memory/application_rules.json",
         ".career-state/memory/evidence_index.json",
@@ -740,19 +787,20 @@ def fit_map_fallback_reference_files() -> list[str]:
 
 
 def cv_compact_files() -> list[str]:
+    fit_map_path = DERIVED_DIR.parent / "fit_map.json" if DERIVED_DIR.name == "derived" else CAREER_STATE / "fit_map.json"
     return [
-        ".career-state/fit_map.json",
-        ".career-state/derived/cv_input_pack.json",
-        ".career-state/derived/cv_content_seed.json",
-        ".career-state/derived/reference_digest.json",
-        ".career-state/derived/manifest.json",
+        _relative(fit_map_path),
+        _relative(CV_INPUT_PACK_PATH),
+        _relative(CV_CONTENT_SEED_PATH),
+        _relative(REFERENCE_DIGEST_PATH),
+        _relative(DERIVED_MANIFEST_PATH),
         ".career-state/memory/profile_facts.json",
         ".career-state/memory/application_rules.json",
     ]
 
 
 def resolve_active_job_context() -> ActiveJobContext:
-    payload = WorkflowStateStore().load()
+    payload = WorkflowStateStore(path=ACTIVE_STATE_STORE_PATH).load() if ACTIVE_STATE_STORE_PATH else WorkflowStateStore().load()
     active = payload.get("active_intake")
     ensure(isinstance(active, dict), "active_intake_missing")
     job_description_rel = active.get("job_description_path")

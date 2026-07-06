@@ -11,6 +11,7 @@ from _bootstrap import bootstrap
 ROOT = bootstrap()
 
 from career.services.harness_supervisor import HarnessSupervisor
+from career.services import application_context as application_context_service
 from telegram_harness_adapter import process_message
 
 
@@ -94,7 +95,17 @@ def main() -> int:
         history_size = len(history) if isinstance(history, list) else 0
         identity = f"{session_id}\n{history_size}\n{message}"
     message_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
-    result = process_message(message, message_id=message_id, execute=True)
+    result = process_message(
+        message,
+        message_id=message_id,
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": application_context_service.profile_id_from_env(),
+            "session_id": session_id,
+            "turn_id": turn_id,
+        },
+    )
     reply_text = result.get("reply_text")
     if isinstance(reply_text, str) and reply_text.strip():
         write_transform_reply(session_id, turn_id, reply_text.strip())

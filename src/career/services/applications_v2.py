@@ -1836,8 +1836,22 @@ def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
         ordered = ", ".join(f"{_record_key(item)}:{item.get('status')}" for item in selected)
         _emit(f"selection order -> {ordered}")
     results: list[dict[str, Any]] = []
+    skipped_locked: list[dict[str, Any]] = []
     for index, application in enumerate(selected, start=1):
         record_key = _record_key(application)
+        lock_path = _app_dir(record_key) / ".lock"
+        if lock_path.exists():
+            lock = read_json(lock_path)
+            skipped = {
+                "record_key": record_key,
+                "record_id": application.get("record_id"),
+                "status": "skipped_locked",
+                "lock": lock,
+            }
+            skipped_locked.append(skipped)
+            results.append(skipped)
+            _emit(f"queue item {index}/{len(selected)} -> {record_key} skipped because application lock exists")
+            continue
         _emit(f"queue item {index}/{len(selected)} -> {record_key}: {application.get('title') or application.get('role')}")
         app_dir, paths = _write_package(application, reset=_is_reprocess_requested(application, config))
         if _is_reprocess_requested(application, config):
@@ -1989,6 +2003,7 @@ def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
         "maintenance": maintenance_report,
         "max_per_run": effective_max,
         "selected": len(selected),
+        "skipped_locked": skipped_locked,
         "results": results,
         "index": str(V2_INDEX.relative_to(ROOT)),
     }

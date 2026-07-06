@@ -99,9 +99,9 @@ def _result_summary(task_name: str, result: Any) -> dict[str, Any]:
     return {"summary": f"{task_name} completed", "artifact_paths": []}
 
 
-def _task_input_payload(task_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def _task_input_payload(task_name: str, arguments: dict[str, Any], state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
     payload = dict(arguments)
-    active_job = _infer_active_job(WorkflowStateStore())
+    active_job = _infer_active_job(state_store or WorkflowStateStore())
     if active_job:
         payload["_active_job_fingerprint"] = active_job.get("fingerprint")
         payload["_active_job_path"] = active_job.get("path")
@@ -122,8 +122,8 @@ def _task_input_payload(task_name: str, arguments: dict[str, Any]) -> dict[str, 
     return payload
 
 
-def _fingerprints(task_name: str, arguments: dict[str, Any], result: Any) -> tuple[str | None, str | None]:
-    normalized_input = _task_input_payload(task_name, arguments)
+def _fingerprints(task_name: str, arguments: dict[str, Any], result: Any, state_store: WorkflowStateStore | None = None) -> tuple[str | None, str | None]:
+    normalized_input = _task_input_payload(task_name, arguments, state_store=state_store)
     input_fingerprint = json_fingerprint(normalized_input) if normalized_input else None
     output_fingerprint: str | None = None
     if isinstance(result, Path) and result.exists():
@@ -151,7 +151,7 @@ def _record_task_completion(
         completed.add(state_name)
     payload["completed_states"] = sorted(completed)
     summary = _result_summary(task_name, result)
-    input_fingerprint, output_fingerprint = _fingerprints(task_name, arguments, result)
+    input_fingerprint, output_fingerprint = _fingerprints(task_name, arguments, result, state_store=state_store)
     entry = {
         "task": task_name,
         "state": state_name,
@@ -182,7 +182,7 @@ def _run_task(task_name: str, runner: Callable[[TaskContext], Any], context: Tas
     started_at = utc_now_iso()
     started_clock = perf_counter()
     prior = context.state_store.load().get("fingerprints", {}).get(task_name, {})
-    current_payload = _task_input_payload(task_name, context.arguments)
+    current_payload = _task_input_payload(task_name, context.arguments, state_store=context.state_store)
     current_input = json_fingerprint(current_payload) if current_payload else None
     reusable_tasks = {
         "fit_map.validate_draft",

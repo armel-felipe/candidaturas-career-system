@@ -6,6 +6,7 @@ from typing import Any
 from time import sleep
 
 from career.paths import CAREER_STATE
+from career.services import application_context
 from career.utils import read_json, write_json
 
 
@@ -44,3 +45,7 @@ class WorkflowStateStore:
     def reset(self) -> None:
         self.payload = dict(DEFAULT_PAYLOAD)
         self.save()
+
+    @classmethod
+    def for_application(cls, application_id: str) -> "WorkflowStateStore":
+        return cls(path=application_context.paths_for(application_id).workflow_state)

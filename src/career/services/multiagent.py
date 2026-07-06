@@ -6,6 +6,7 @@ from typing import Any
 import uuid
 
 from career.paths import CAREER_STATE, OUTPUTS, ROOT
+from career.services import application_context as application_context_service
 from career.services import derived_context as derived_context_service
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, write_text
 from career.workflow.state_store import WorkflowStateStore
@@ -408,19 +409,24 @@ def _relative_existing(paths: tuple[str, ...]) -> list[str]:
     return existing
 
 
-def _active_intake() -> dict[str, Any] | None:
-    payload = WorkflowStateStore().load()
+def _active_intake(state_path: Path | None = None) -> dict[str, Any] | None:
+    payload = WorkflowStateStore(path=state_path).load() if state_path else WorkflowStateStore().load()
     active = payload.get("active_intake")
     return active if isinstance(active, dict) else None
 
 
-def _fit_map_summary(active: dict[str, Any] | None = None) -> dict[str, Any]:
-    fit_map_path = CAREER_STATE / "fit_map.json"
+def _fit_map_summary(
+    active: dict[str, Any] | None = None,
+    *,
+    fit_map_path: Path | None = None,
+    state_store: WorkflowStateStore | None = None,
+) -> dict[str, Any]:
+    fit_map_path = fit_map_path or CAREER_STATE / "fit_map.json"
     if not fit_map_path.exists():
         return {"exists": False}
     payload = read_json(fit_map_path)
     active_fingerprint = active.get("fingerprint") if isinstance(active, dict) else None
-    state = WorkflowStateStore().load()
+    state = (state_store or WorkflowStateStore()).load()
     task_fingerprints = state.get("fingerprints") if isinstance(state.get("fingerprints"), dict) else {}
     fit_map_task = None
     for task_name in ("fit_map.validate", "fit_map.score", "fit_map.build"):
@@ -447,12 +453,21 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
     contract = CONTRACTS.get(step)
     if not contract:
         raise ValidationFailure(f"Unknown multiagent step: {step}")
-    active = _active_intake()
+    request_extras = dict(extras or {})
+    application_id = str(request_extras.get("application_id") or "").strip()
+    app_paths = application_context_service.paths_for(application_id) if application_id else None
+    if app_paths:
+        derived_context_service.configure_derived_dir(app_paths.derived_dir)
+        derived_context_service.configure_state_store_path(app_paths.workflow_state)
+    active = _active_intake(app_paths.workflow_state if app_paths else None)
     _prepare_compact_inputs_for_step(step, active)
     request_id = uuid.uuid4().hex
-    request_extras = dict(extras or {})
     if step in {"notion-update", "email-draft"}:
-        request_extras["pending_action_path"] = f".career-state/pending_actions/{request_id}.json"
+        request_extras["pending_action_path"] = (
+            f".career-state/applications_v2/{application_id}/pending_actions/{request_id}.json"
+            if application_id
+            else f".career-state/pending_actions/{request_id}.json"
+        )
     payload = {
         "request_id": request_id,
         "created_at": utc_now_iso(),
@@ -460,7 +475,11 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
         "agent": contract.agent,
         "objective": objective or contract.purpose,
         "active_intake": active,
-        "fit_map": _fit_map_summary(active),
+        "fit_map": _fit_map_summary(
+            active,
+            fit_map_path=app_paths.fit_map if app_paths else None,
+            state_store=WorkflowStateStore.for_application(application_id) if application_id else None,
+        ),
         "allowed_files": _allowed_files_for(contract, active),
         "fallback_reference_files": _fallback_reference_files_for(contract),
         "derived_context": _derived_context_payload(contract),
@@ -481,12 +500,13 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
         },
         "extras": request_extras,
     }
-    json_path = REQUEST_DIR / f"{step}_request.json"
-    md_path = REQUEST_DIR / f"{step}_request.md"
+    base_request_dir = app_paths.requests_dir / "manual_agent_requests" if app_paths else REQUEST_DIR
+    json_path = base_request_dir / f"{step}_request.json"
+    md_path = base_request_dir / f"{step}_request.md"
     write_json(json_path, payload)
     markdown = _request_markdown(payload)
     write_text(md_path, markdown)
-    run_dir = REQUEST_DIR / "runs" / request_id
+    run_dir = base_request_dir / "runs" / request_id
     write_json(run_dir / "request.json", payload)
     write_text(run_dir / "request.md", markdown)
     return {
@@ -500,8 +520,8 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
     }
 
 
-def validate_request(step: str) -> dict[str, Any]:
-    request_path = REQUEST_DIR / f"{step}_request.json"
+def validate_request(step: str, *, request_path: Path | None = None) -> dict[str, Any]:
+    request_path = request_path or REQUEST_DIR / f"{step}_request.json"
     if not request_path.exists():
         return {
             "status": "blocked",

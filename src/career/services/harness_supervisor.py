@@ -11,6 +11,7 @@ from typing import Callable
 from typing import Any
 
 from career.paths import CAREER_STATE
+from career.services import application_context as application_context_service
 from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.approvals import ApprovalStore
 from career.services.approved_actions import ApprovedActionExecutor
@@ -30,9 +31,14 @@ SPECIALIST_OUTPUT_PATTERNS = {
     "fit-map": [
         ".career-state/fit_map.draft.json",
         ".career-state/workflow_state.json",
+        ".career-state/applications_v2/*/fit_map.draft.json",
+        ".career-state/applications_v2/*/workflow_state.json",
     ],
     "cv": [
         ".career-state/cv_content.json",
+        ".career-state/applications_v2/*/cv_content.json",
+        ".career-state/applications_v2/*/cv_review_report.json",
+        ".career-state/applications_v2/*/polish_review.json",
         "outputs/*.docx",
         "outputs/_tmp/output_review_report.json",
         "outputs/_tmp/polish_review.json",
@@ -43,6 +49,7 @@ SPECIALIST_OUTPUT_PATTERNS = {
     "habilidades": ["outputs/*.md"],
     "notion-update": [
         ".career-state/pending_actions/*.json",
+        ".career-state/applications_v2/*/notion_update_payload.json",
         ".career-state/derived/active_context.json",
         ".career-state/derived/job_extract.json",
         ".career-state/derived/manifest.json",
@@ -55,6 +62,8 @@ SPECIALIST_OUTPUT_PATTERNS = {
         ".career-state/linkedin_job_extract.json",
         ".career-state/linkedin_post_extract.json",
         ".career-state/workflow_state.json",
+        ".career-state/applications_v2/*/workflow_state.json",
+        ".career-state/applications_v2/*/job_description.md",
         "inbox/job_descriptions/*.md",
         "inbox/linkedin_posts/*.md",
     ],
@@ -291,7 +300,7 @@ class HarnessSupervisor:
         from career.services import multiagent as multiagent_service
 
         request = multiagent_service.write_request(step, objective=objective, extras=extras)
-        validation = multiagent_service.validate_request(step)
+        validation = multiagent_service.validate_request(step, request_path=self.root / request["request_json"] if self.root else None)
         result: dict[str, Any] = {
             "status": "prepared" if validation.get("status") == "ok" else "blocked",
             "step": step,
@@ -441,6 +450,7 @@ class HarnessSupervisor:
         max_per_run: int | None = None,
         model: str | None = None,
         variant: str | None = None,
+        runtime_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         user_message = message
         pending = self._resolve_pending_input(message)
@@ -529,10 +539,15 @@ class HarnessSupervisor:
 
                 record_id = int((decision.parameters or {})["record_id"])
                 intake_result = agent_guard_service.evaluate_notion(record_id)
+                self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
                     specialist=self.execute_specialist(
-                        "fit-map", objective=f"Avaliar vaga Notion {record_id}", model=model, variant=variant
+                        "fit-map",
+                        objective=f"Avaliar vaga Notion {record_id}",
+                        extras={"application_id": intake_result.get("application_id")},
+                        model=model,
+                        variant=variant,
                     ),
                 )
             elif workflow == "linkedin_job_intake":
@@ -543,10 +558,15 @@ class HarnessSupervisor:
                     str((decision.parameters or {})["url"]),
                     metadata_hints=hints,
                 )
+                self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
                     specialist=self.execute_specialist(
-                        "fit-map", objective=message, model=model, variant=variant
+                        "fit-map",
+                        objective=message,
+                        extras={"application_id": intake_result.get("application_id")},
+                        model=model,
+                        variant=variant,
                     ),
                 )
             elif workflow == "linkedin_post_intake":
@@ -558,14 +578,19 @@ class HarnessSupervisor:
                     envelope["blocker_reason"] = "linkedin_post_requires_company_and_role"
                     return envelope
                 intake_result = intake_service.from_linkedin_post(
-                    str(parameters["url"]),
+                    url=str(parameters["url"]),
                     company=str(parameters["company"]),
                     role=str(parameters["role"]),
                 )
+                self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
                     specialist=self.execute_specialist(
-                        "fit-map", objective=message, model=model, variant=variant
+                        "fit-map",
+                        objective=message,
+                        extras={"application_id": intake_result.get("application_id")},
+                        model=model,
+                        variant=variant,
                     ),
                 )
             elif workflow == "external_url_intake":
@@ -577,10 +602,15 @@ class HarnessSupervisor:
                     company=str(parameters["company"]) if parameters.get("company") else None,
                     role=str(parameters["role"]) if parameters.get("role") else None,
                 )
+                self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
                     specialist=self.execute_specialist(
-                        "fit-map", objective=message, model=model, variant=variant
+                        "fit-map",
+                        objective=message,
+                        extras={"application_id": intake_result.get("application_id")},
+                        model=model,
+                        variant=variant,
                     ),
                 )
             elif workflow == "pasted_job_intake":
@@ -592,10 +622,15 @@ class HarnessSupervisor:
                     role=str(parameters["role"]),
                     text=str(parameters["text"]),
                 )
+                self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
                     specialist=self.execute_specialist(
-                        "fit-map", objective=f"Analisar {parameters['role']} na {parameters['company']}", model=model, variant=variant
+                        "fit-map",
+                        objective=f"Analisar {parameters['role']} na {parameters['company']}",
+                        extras={"application_id": intake_result.get("application_id")},
+                        model=model,
+                        variant=variant,
                     ),
                 )
             elif workflow == "pasted_job_missing_metadata":
@@ -682,6 +717,31 @@ class HarnessSupervisor:
             "intake": intake,
             "specialist": specialist,
         }
+
+    @staticmethod
+    def _bind_session_to_intake(
+        runtime_context: dict[str, Any] | None,
+        intake_result: dict[str, Any],
+        *,
+        channel: str,
+    ) -> None:
+        if not runtime_context:
+            return
+        application_id = intake_result.get("application_id")
+        if not application_id:
+            return
+        runtime = str(runtime_context.get("runtime") or channel or "cli")
+        session_id = str(runtime_context.get("session_id") or "").strip()
+        if not session_id:
+            return
+        profile_id = str(runtime_context.get("profile_id") or "").strip() or None
+        application_context_service.register_session(
+            runtime=runtime,
+            profile_id=profile_id,
+            session_id=session_id,
+            application_id=str(application_id),
+            channel=channel,
+        )
 
     def _resume_and_continue(
         self, message: str, *, model: str | None, variant: str | None

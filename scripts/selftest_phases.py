@@ -1954,6 +1954,64 @@ def phase_49() -> None:
             raise SystemExit(f"Numeric reply to agent_menu should route to notion_update: {routed}")
 
 
+def phase_52() -> None:
+    original_existing = notion_sync._existing_application_records
+    try:
+        notion_sync._existing_application_records = lambda _token, _database_id: [  # type: ignore[assignment]
+            {
+                "record_id": "424",
+                "title": "Publicis Groupe - Gerente de Projetos Senior",
+                "company": "Publicis Groupe",
+                "role": "Gerente de Projetos Senior",
+                "source_url": "https://www.linkedin.com/jobs/view/4405127989/",
+                "notion_url": "https://notion.example/424",
+            }
+        ]
+        by_url = notion_sync.find_duplicate_create_candidates(
+            "token",
+            "db",
+            company="Outra Empresa",
+            role="Outro Cargo",
+            source_url="https://www.linkedin.com/jobs/view/4405127989/",
+        )
+        if not by_url or "source_url" not in by_url[0].get("duplicate_reasons", []):
+            raise SystemExit(f"Expected duplicate detection by source URL, got {by_url}")
+        by_company_role = notion_sync.find_duplicate_create_candidates(
+            "token",
+            "db",
+            company="Publicis Groupe",
+            role="Gerente de Projetos Sênior",
+            source_url="",
+        )
+        if not by_company_role or "company_role" not in by_company_role[0].get("duplicate_reasons", []):
+            raise SystemExit(f"Expected duplicate detection by company+role, got {by_company_role}")
+        try:
+            notion_sync.ensure_no_duplicate_create(
+                "token",
+                "db",
+                company="Publicis Groupe",
+                role="Gerente de Projetos Sênior",
+                source_url="",
+            )
+        except SystemExit as exc:
+            if "Refusing to create duplicate Notion application record" not in str(exc):
+                raise
+        else:
+            raise SystemExit("Duplicate create guard should block by default")
+        allowed = notion_sync.ensure_no_duplicate_create(
+            "token",
+            "db",
+            company="Publicis Groupe",
+            role="Gerente de Projetos Sênior",
+            source_url="",
+            allow_duplicate=True,
+        )
+        if not allowed:
+            raise SystemExit("Allowed duplicate path should return duplicate candidates for audit")
+    finally:
+        notion_sync._existing_application_records = original_existing  # type: ignore[assignment]
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -2006,6 +2064,7 @@ PHASES = {
     49: phase_49,
     50: phase_37b,
     51: phase_37c,
+    52: phase_52,
 }
 
 

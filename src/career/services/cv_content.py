@@ -16,6 +16,15 @@ CV_CONTENT_PATH = CAREER_STATE / "cv_content.json"
 FIT_MAP_PATH = CAREER_STATE / "fit_map.json"
 
 
+def configure_paths(*, cv_content_path: Path | None = None, fit_map_path: Path | None = None) -> None:
+    global CV_CONTENT_PATH
+    global FIT_MAP_PATH
+    if cv_content_path is not None:
+        CV_CONTENT_PATH = cv_content_path
+    if fit_map_path is not None:
+        FIT_MAP_PATH = fit_map_path
+
+
 BULLET2_POLICY_BY_FAMILY: dict[str, dict[str, Any]] = {
     "project_management": {
         "signals": {
@@ -324,7 +333,7 @@ def invalidate_stale_artifacts() -> dict[str, Any]:
 
 
 def _ensure_fit_map_matches_active(active: Any) -> None:
-    status = fit_map_service.status()
+    status = fit_map_service.status(fit_map_path=FIT_MAP_PATH, job_description_path=active.job_description_path)
     ensure(status.get("fit_map", {}).get("matches_active_job"), "fit_map_stale_for_active_job")
 
 

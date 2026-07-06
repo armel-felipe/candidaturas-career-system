@@ -7,6 +7,7 @@ import sys
 
 from career.paths import CAREER_STATE, OUTPUTS
 from career.services import agent_guard as agent_guard_service
+from career.services import application_context as application_context_service
 from career.services import applications_v2 as applications_v2_service
 from career.services import cover_letter as cover_letter_service
 from career.services import cv_content as cv_content_service
@@ -84,87 +85,112 @@ def build_parser() -> argparse.ArgumentParser:
     intake_sub = intake.add_subparsers(dest="action", required=True)
     intake_notion = intake_sub.add_parser("notion-record")
     intake_notion.add_argument("record_id", type=int)
+    intake_notion.add_argument("--application-id")
     intake_paste = intake_sub.add_parser("paste")
     intake_paste.add_argument("--company", required=True)
     intake_paste.add_argument("--role", required=True)
     intake_paste.add_argument("--text-file")
     intake_paste.add_argument("--stdin", action="store_true")
+    intake_paste.add_argument("--application-id")
     intake_linkedin_job = intake_sub.add_parser("linkedin-job")
     intake_linkedin_job.add_argument("--url", required=True)
+    intake_linkedin_job.add_argument("--application-id")
     intake_linkedin_post = intake_sub.add_parser("linkedin-post")
     intake_linkedin_post.add_argument("--url", required=True)
     intake_linkedin_post.add_argument("--company", required=True)
     intake_linkedin_post.add_argument("--role", required=True)
+    intake_linkedin_post.add_argument("--application-id")
     intake_url = intake_sub.add_parser("url")
     intake_url.add_argument("--url", required=True)
     intake_url.add_argument("--company")
     intake_url.add_argument("--role")
-    intake_sub.add_parser("resume")
+    intake_url.add_argument("--application-id")
+    intake_resume = intake_sub.add_parser("resume")
+    intake_resume.add_argument("--application-id")
 
     fit_map = subparsers.add_parser("fit-map")
     fit_map_sub = fit_map.add_subparsers(dest="action", required=True)
     template = fit_map_sub.add_parser("template")
     template.add_argument("--output", default=str(CAREER_STATE / "fit_map.draft.json"))
+    template.add_argument("--application-id")
     validate_draft = fit_map_sub.add_parser("validate-draft")
     validate_draft.add_argument("--path", default=str(CAREER_STATE / "fit_map.draft.json"))
     validate_draft.add_argument("--full", action="store_true", help="Print the full validated draft payload.")
+    validate_draft.add_argument("--application-id")
     validate_stage = fit_map_sub.add_parser("validate-stage")
     validate_stage.add_argument("stage", choices=["extract", "map-evidence", "score-draft", "complete-draft"])
     validate_stage.add_argument("--path", default=str(CAREER_STATE / "fit_map.draft.json"))
+    validate_stage.add_argument("--application-id")
     summary = fit_map_sub.add_parser("summary")
     summary.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
+    summary.add_argument("--application-id")
     draft_summary = fit_map_sub.add_parser("draft-summary")
     draft_summary.add_argument("--path", default=str(CAREER_STATE / "fit_map.draft.json"))
+    draft_summary.add_argument("--application-id")
     quality = fit_map_sub.add_parser("quality")
     quality.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
     quality.add_argument("--job-description")
+    quality.add_argument("--application-id")
     registry_summary = fit_map_sub.add_parser("registry-summary")
     registry_summary.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
     registry_summary.add_argument("--registry", default=".career-state/derived/keyword_ats_registry.json")
+    registry_summary.add_argument("--application-id")
     build = fit_map_sub.add_parser("build")
     build.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
     build.add_argument("--output", default=str(CAREER_STATE / "fit_map.json"))
+    build.add_argument("--application-id")
     score = fit_map_sub.add_parser("score")
     score.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
+    score.add_argument("--application-id")
     validate = fit_map_sub.add_parser("validate")
     validate.add_argument("--path", default=str(CAREER_STATE / "fit_map.json"))
     validate.add_argument("--full", action="store_true", help="Print the full validated FIT_MAP payload.")
+    validate.add_argument("--application-id")
     finalize = fit_map_sub.add_parser("finalize")
     finalize.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
     finalize.add_argument("--output", default=str(CAREER_STATE / "fit_map.json"))
+    finalize.add_argument("--application-id")
     status = fit_map_sub.add_parser("status")
     status.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
     status.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
     status.add_argument("--job-description")
+    status.add_argument("--application-id")
     resume = fit_map_sub.add_parser("resume")
     resume.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
     resume.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
     resume.add_argument("--job-description")
+    resume.add_argument("--application-id")
     guard = fit_map_sub.add_parser("guard")
     guard.add_argument("--draft", default=str(CAREER_STATE / "fit_map.draft.json"))
     guard.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
     guard.add_argument("--job-description")
+    guard.add_argument("--application-id")
 
     cv = subparsers.add_parser("cv")
     cv_sub = cv.add_subparsers(dest="action", required=True)
-    cv_sub.add_parser("build-content")
+    cv_build_content = cv_sub.add_parser("build-content")
+    cv_build_content.add_argument("--application-id")
     cv_validate_content = cv_sub.add_parser("validate-content")
     cv_validate_content.add_argument("--path", default=str(CAREER_STATE / "cv_content.json"))
+    cv_validate_content.add_argument("--application-id")
     review = cv_sub.add_parser("review")
     review.add_argument("--artifact", required=True)
     review.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
     review.add_argument("--registry", required=True)
     review.add_argument("--report", default=str(OUTPUTS / "_tmp" / "output_review_report.json"))
+    review.add_argument("--application-id")
     polish = cv_sub.add_parser("polish")
     polish.add_argument("--artifact", required=True)
     polish.add_argument("--review-report", default=str(OUTPUTS / "_tmp" / "output_review_report.json"))
     polish.add_argument("--report", default=str(OUTPUTS / "_tmp" / "polish_review.json"))
+    polish.add_argument("--application-id")
     approve = cv_sub.add_parser("approve")
     approve.add_argument("--artifact", required=True)
     approve.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
     approve.add_argument("--registry", required=True)
     approve.add_argument("--report", default=str(OUTPUTS / "_tmp" / "output_review_report.json"))
     approve.add_argument("--polish-report", default=str(OUTPUTS / "_tmp" / "polish_review.json"))
+    approve.add_argument("--application-id")
 
     general_cv = subparsers.add_parser("general-cv")
     general_cv_sub = general_cv.add_subparsers(dest="action", required=True)
@@ -221,25 +247,41 @@ def build_parser() -> argparse.ArgumentParser:
     status = applications_sub.add_parser("status")
     status.add_argument("--format", choices=["json", "human", "both"], default="both")
     applications_sub.add_parser("write-default-config")
+    applications_sub.add_parser("list-active")
+    applications_inspect = applications_sub.add_parser("inspect")
+    applications_inspect.add_argument("application_id")
+    applications_lock_status = applications_sub.add_parser("lock-status")
+    applications_lock_status.add_argument("application_id")
+    applications_release_lock = applications_sub.add_parser("release-lock")
+    applications_release_lock.add_argument("application_id")
+    applications_release_lock.add_argument("--dry-run", action="store_true")
+    applications_sub.add_parser("doctor-concurrency")
+    applications_migrate = applications_sub.add_parser("migrate-global-state")
+    applications_migrate.add_argument("--application-id")
+    applications_migrate.add_argument("--dry-run", action="store_true")
 
     derive = subparsers.add_parser("derive")
     derive_sub = derive.add_subparsers(dest="action", required=True)
-    derive_sub.add_parser("job-pack")
-    derive_sub.add_parser("job-sections")
-    derive_sub.add_parser("job-keywords")
-    derive_sub.add_parser("reference-digest")
-    derive_sub.add_parser("evidence-pack")
-    derive_sub.add_parser("fit-map-seed")
-    derive_sub.add_parser("cv-input-pack")
-    derive_sub.add_parser("cv-content-seed")
-    derive_sub.add_parser("habilidades-input-pack")
-    derive_sub.add_parser("feras-input-pack")
-    derive_sub.add_parser("cover-letter-input-pack")
-    derive_sub.add_parser("all-for-fit-map")
-    derive_sub.add_parser("validate-manifest")
-    derive_sub.add_parser("context-doctor")
-    derive_sub.add_parser("assert-active")
-    derive_sub.add_parser("invalidate-stale")
+    for derive_action in [
+        "job-pack",
+        "job-sections",
+        "job-keywords",
+        "reference-digest",
+        "evidence-pack",
+        "fit-map-seed",
+        "cv-input-pack",
+        "cv-content-seed",
+        "habilidades-input-pack",
+        "feras-input-pack",
+        "cover-letter-input-pack",
+        "all-for-fit-map",
+        "validate-manifest",
+        "context-doctor",
+        "assert-active",
+        "invalidate-stale",
+    ]:
+        derive_parser = derive_sub.add_parser(derive_action)
+        derive_parser.add_argument("--application-id")
 
     cover_letter = subparsers.add_parser("cover-letter")
     cover_letter_sub = cover_letter.add_subparsers(dest="action", required=True)
@@ -279,6 +321,14 @@ def _print_human(value: str) -> None:
 
 def _dump_error(exc: Exception) -> None:
     _dump({"status": "blocked", "error": str(exc)})
+
+
+def _application_paths(application_id: str | None):
+    return application_context_service.paths_for(application_id) if application_id else None
+
+
+def _state_store_for_application(application_id: str | None) -> WorkflowStateStore:
+    return WorkflowStateStore.for_application(application_id) if application_id else WorkflowStateStore()
 
 
 def _task_cli_summary(task: str, result):
@@ -548,7 +598,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "intake":
         try:
             if args.action == "notion-record":
-                _dump(intake_service.from_notion_record(args.record_id))
+                _dump(intake_service.from_notion_record(args.record_id, application_id=args.application_id))
                 return 0
             if args.action == "paste":
                 if args.stdin:
@@ -559,140 +609,179 @@ def main(argv: list[str] | None = None) -> int:
                     text = Path(args.text_file).read_text(encoding="utf-8")
                 else:
                     raise SystemExit("intake paste requires --text-file or --stdin.")
-                _dump(intake_service.from_paste(company=args.company, role=args.role, text=text))
+                _dump(intake_service.from_paste(company=args.company, role=args.role, text=text, application_id=args.application_id))
                 return 0
             if args.action == "linkedin-job":
-                _dump(intake_service.from_linkedin_job(args.url))
+                _dump(intake_service.from_linkedin_job(args.url, application_id=args.application_id))
                 return 0
             if args.action == "linkedin-post":
-                _dump(intake_service.from_linkedin_post(url=args.url, company=args.company, role=args.role))
+                _dump(intake_service.from_linkedin_post(url=args.url, company=args.company, role=args.role, application_id=args.application_id))
                 return 0
             if args.action == "url":
-                _dump(intake_service.from_url(url=args.url, company=args.company, role=args.role))
+                _dump(intake_service.from_url(url=args.url, company=args.company, role=args.role, application_id=args.application_id))
                 return 0
             if args.action == "resume":
-                _dump(intake_service.resume())
+                _dump(intake_service.resume(application_id=args.application_id))
                 return 0
         except CareerError as exc:
             _dump_error(exc)
             return 1
 
     if args.command == "fit-map":
+        app_paths = _application_paths(getattr(args, "application_id", None))
+        state_store = _state_store_for_application(getattr(args, "application_id", None))
         if args.action == "template":
-            result = run_task("fit_map.template", {"output": args.output})
+            output = str(app_paths.fit_map_draft) if app_paths else args.output
+            result = run_task("fit_map.template", {"output": output}, state_store=state_store)
             print(result)
             return 0
         if args.action == "validate-draft":
-            result = run_task("fit_map.validate_draft", {"path": args.path})
+            path = str(app_paths.fit_map_draft) if app_paths else args.path
+            result = run_task("fit_map.validate_draft", {"path": path}, state_store=state_store)
             _dump(result if args.full else _fit_map_draft_summary(result))
             return 0
         if args.action == "validate-stage":
-            result = fit_map_service.validate_draft_stage(Path(args.path), args.stage)
+            path = app_paths.fit_map_draft if app_paths else Path(args.path)
+            result = fit_map_service.validate_draft_stage(path, args.stage)
             _dump(result)
             return 0
         if args.action == "summary":
-            _dump(fit_map_service.payload_summary(Path(args.path)))
+            path = app_paths.fit_map if app_paths else Path(args.path)
+            _dump(fit_map_service.payload_summary(path))
             return 0
         if args.action == "draft-summary":
-            _dump(fit_map_service.draft_summary(Path(args.path)))
+            path = app_paths.fit_map_draft if app_paths else Path(args.path)
+            _dump(fit_map_service.draft_summary(path))
             return 0
         if args.action == "quality":
+            path = app_paths.fit_map if app_paths else Path(args.path)
+            job_description = app_paths.job_description if app_paths else (Path(args.job_description) if args.job_description else None)
             result = fit_map_service.quality_report(
-                Path(args.path),
-                job_description_path=Path(args.job_description) if args.job_description else None,
+                path,
+                job_description_path=job_description,
             )
             _dump(result)
             return 0 if result.get("status") == "ok" else 1
         if args.action == "registry-summary":
-            result = fit_map_service.registry_summary(Path(args.registry), Path(args.fit_map))
+            fit_map_path = app_paths.fit_map if app_paths else Path(args.fit_map)
+            result = fit_map_service.registry_summary(Path(args.registry), fit_map_path)
             _dump(result)
             return 0 if result.get("status") == "ok" else 1
         if args.action == "build":
-            result = run_task("fit_map.build", {"draft": args.draft, "output": args.output})
+            draft = str(app_paths.fit_map_draft) if app_paths else args.draft
+            output = str(app_paths.fit_map) if app_paths else args.output
+            result = run_task("fit_map.build", {"draft": draft, "output": output}, state_store=state_store)
             print(result)
             return 0
         if args.action == "score":
-            result = run_task("fit_map.score", {"path": args.path})
+            path = str(app_paths.fit_map) if app_paths else args.path
+            result = run_task("fit_map.score", {"path": path}, state_store=state_store)
             print(result)
             return 0
         if args.action == "validate":
-            result = run_task("fit_map.validate", {"path": args.path})
+            path = str(app_paths.fit_map) if app_paths else args.path
+            result = run_task("fit_map.validate", {"path": path}, state_store=state_store)
             _dump(result if args.full else _fit_map_payload_summary("fit_map.validate", result))
             return 0
         if args.action == "finalize":
+            draft = str(app_paths.fit_map_draft) if app_paths else args.draft
+            output = str(app_paths.fit_map) if app_paths else args.output
             task_results = [
-                ("fit_map.validate_draft", run_task("fit_map.validate_draft", {"path": args.draft})),
-                ("fit_map.build", run_task("fit_map.build", {"draft": args.draft, "output": args.output})),
-                ("fit_map.score", run_task("fit_map.score", {"path": args.output})),
-                ("fit_map.validate", run_task("fit_map.validate", {"path": args.output})),
+                ("fit_map.validate_draft", run_task("fit_map.validate_draft", {"path": draft}, state_store=state_store)),
+                ("fit_map.build", run_task("fit_map.build", {"draft": draft, "output": output}, state_store=state_store)),
+                ("fit_map.score", run_task("fit_map.score", {"path": output}, state_store=state_store)),
+                ("fit_map.validate", run_task("fit_map.validate", {"path": output}, state_store=state_store)),
             ]
             _dump([_task_cli_summary(task, result) for task, result in task_results])
             return 0
         if args.action == "status":
+            draft = app_paths.fit_map_draft if app_paths else Path(args.draft)
+            fit_map = app_paths.fit_map if app_paths else Path(args.fit_map)
+            job_description = app_paths.job_description if app_paths else (Path(args.job_description) if args.job_description else None)
             result = fit_map_service.status(
-                draft_path=Path(args.draft),
-                fit_map_path=Path(args.fit_map),
-                job_description_path=Path(args.job_description) if args.job_description else None,
+                draft_path=draft,
+                fit_map_path=fit_map,
+                job_description_path=job_description,
             )
             _dump(result)
             return 0
         if args.action == "resume":
+            draft = app_paths.fit_map_draft if app_paths else Path(args.draft)
+            fit_map = app_paths.fit_map if app_paths else Path(args.fit_map)
+            job_description = app_paths.job_description if app_paths else (Path(args.job_description) if args.job_description else None)
             result = fit_map_service.resume_guidance(
-                draft_path=Path(args.draft),
-                fit_map_path=Path(args.fit_map),
-                job_description_path=Path(args.job_description) if args.job_description else None,
+                draft_path=draft,
+                fit_map_path=fit_map,
+                job_description_path=job_description,
             )
             _dump(result)
             return 0
         if args.action == "guard":
+            draft = app_paths.fit_map_draft if app_paths else Path(args.draft)
+            fit_map = app_paths.fit_map if app_paths else Path(args.fit_map)
+            job_description = app_paths.job_description if app_paths else (Path(args.job_description) if args.job_description else None)
             result = fit_map_service.progress_guard(
-                draft_path=Path(args.draft),
-                fit_map_path=Path(args.fit_map),
-                job_description_path=Path(args.job_description) if args.job_description else None,
+                draft_path=draft,
+                fit_map_path=fit_map,
+                job_description_path=job_description,
             )
             _dump(result)
             return 1 if result.get("blocked") else 0
 
     if args.command == "cv":
+        app_paths = _application_paths(getattr(args, "application_id", None))
+        if app_paths:
+            derived_context_service.configure_derived_dir(app_paths.derived_dir)
+            derived_context_service.configure_state_store_path(app_paths.workflow_state)
+            cv_content_service.configure_paths(cv_content_path=app_paths.cv_content, fit_map_path=app_paths.fit_map)
         if args.action == "build-content":
             _dump(cv_content_service.build_current_cv_content())
             return 0
         if args.action == "validate-content":
-            result = cv_content_service.validate_cv_content(Path(args.path))
+            path = app_paths.cv_content if app_paths else Path(args.path)
+            result = cv_content_service.validate_cv_content(path)
             _dump(result)
             return 0
         if args.action == "review":
+            fit_map_path = app_paths.fit_map if app_paths else Path(args.fit_map)
+            report_path = app_paths.cv_review_report if app_paths else Path(args.report)
             result = run_task(
                 "cv.review",
                 {
                     "artifact": args.artifact,
-                    "fit_map": args.fit_map,
+                    "fit_map": str(fit_map_path),
                     "registry": args.registry,
-                    "report": args.report,
+                    "report": str(report_path),
                 },
+                state_store=_state_store_for_application(getattr(args, "application_id", None)),
             )
             _dump(result)
             return 0
         if args.action == "polish":
-            review_report_path = Path(args.review_report)
+            review_report_path = app_paths.cv_review_report if app_paths else Path(args.review_report)
+            report_path = app_paths.polish_review if app_paths else Path(args.report)
             review_report = json.loads(review_report_path.read_text(encoding="utf-8")) if review_report_path.exists() else None
             result = review_service.polish_cv(
                 artifact=Path(args.artifact),
-                report_path=Path(args.report),
+                report_path=report_path,
                 review_report=review_report,
             )
             _dump(result)
             return 1 if result.get("approval_blockers") else 0
         if args.action == "approve":
+            fit_map_path = app_paths.fit_map if app_paths else Path(args.fit_map)
+            report_path = app_paths.cv_review_report if app_paths else Path(args.report)
+            polish_report_path = app_paths.polish_review if app_paths else Path(args.polish_report)
             result = run_task(
                 "cv.approve",
                 {
                     "artifact": args.artifact,
-                    "fit_map": args.fit_map,
+                    "fit_map": str(fit_map_path),
                     "registry": args.registry,
-                    "report": args.report,
-                    "polish_report": args.polish_report,
+                    "report": str(report_path),
+                    "polish_report": str(polish_report_path),
                 },
+                state_store=_state_store_for_application(getattr(args, "application_id", None)),
             )
             if isinstance(result, dict) and result.get("reused"):
                 _dump({"task": "cv.approve", "status": "reused"})
@@ -707,8 +796,8 @@ def main(argv: list[str] | None = None) -> int:
                         "blockers": result.get("blockers", []),
                         "warnings": result.get("warnings", []),
                         "artifact": result.get("artifact"),
-                        "report": args.report,
-                        "polish_report": args.polish_report,
+                        "report": str(report_path),
+                        "polish_report": str(polish_report_path),
                     }
                 )
             return 0
@@ -784,6 +873,48 @@ def main(argv: list[str] | None = None) -> int:
             path = applications_v2_service.write_default_config()
             _dump({"config": str(path)})
             return 0
+        if args.action == "list-active":
+            _dump(application_context_service.list_active())
+            return 0
+        if args.action == "inspect":
+            result = application_context_service.inspect(args.application_id)
+            _dump(result)
+            return 0 if result.get("status") == "ok" else 1
+        if args.action == "lock-status":
+            result = application_context_service.inspect(args.application_id)
+            _dump({
+                "status": "locked" if result.get("lock") else "unlocked",
+                "application_id": args.application_id,
+                "lock": result.get("lock"),
+            })
+            return 0
+        if args.action == "release-lock":
+            result = application_context_service.release_lock(
+                application_context_service.paths_for(args.application_id),
+                dry_run=args.dry_run,
+            )
+            _dump(result)
+            return 0
+        if args.action == "doctor-concurrency":
+            active = application_context_service.list_active()
+            _dump({
+                "status": "ok",
+                "tracked_applications": active.get("count", 0),
+                "locked_applications": [
+                    item for item in active.get("applications", []) if item.get("locked")
+                ],
+                "session_registry": str(application_context_service.SESSION_REGISTRY),
+                "alias_index": str(application_context_service.ALIAS_INDEX),
+            })
+            return 0
+        if args.action == "migrate-global-state":
+            _dump(
+                application_context_service.migrate_global_state(
+                    application_id=args.application_id,
+                    dry_run=args.dry_run,
+                )
+            )
+            return 0
         if args.action == "status":
             envelope = HarnessSupervisor(Path.cwd()).handle_message(
                 "status das candidaturas",
@@ -829,6 +960,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "derive":
         try:
+            app_paths = _application_paths(getattr(args, "application_id", None))
+            if app_paths:
+                derived_context_service.configure_derived_dir(app_paths.derived_dir)
+                derived_context_service.configure_state_store_path(app_paths.workflow_state)
+                cv_content_service.configure_paths(cv_content_path=app_paths.cv_content, fit_map_path=app_paths.fit_map)
             if args.action == "job-pack":
                 _dump(derived_context_service.build_job_extract())
                 return 0
