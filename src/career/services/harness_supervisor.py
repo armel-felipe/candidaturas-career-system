@@ -679,7 +679,12 @@ class HarnessSupervisor:
                 envelope["result"] = self.execute_specialist(
                     step,
                     objective=message,
-                    extras=decision.parameters or None,
+                    extras=self._specialist_extras(
+                        workflow,
+                        decision.parameters,
+                        runtime_context,
+                        channel=channel,
+                    ),
                     model=model,
                     variant=variant,
                 )
@@ -760,6 +765,42 @@ class HarnessSupervisor:
                 "specialist": specialist,
             }
         return resume
+
+    def _session_application_id(self, runtime_context: dict[str, Any] | None, *, channel: str) -> str | None:
+        if not self.root or not runtime_context:
+            return None
+        session_id = str(runtime_context.get("session_id") or "").strip()
+        if not session_id:
+            return None
+        runtime = str(runtime_context.get("runtime") or channel or "cli")
+        profile_id = str(runtime_context.get("profile_id") or "").strip() or None
+        return application_context_service.resolve_session(
+            runtime=runtime,
+            session_id=session_id,
+            profile_id=profile_id,
+        )
+
+    def _specialist_extras(
+        self,
+        workflow: str,
+        parameters: dict[str, Any] | None,
+        runtime_context: dict[str, Any] | None,
+        *,
+        channel: str,
+    ) -> dict[str, Any] | None:
+        extras = dict(parameters or {})
+        application_id = self._session_application_id(runtime_context, channel=channel)
+        if application_id:
+            extras.setdefault("application_id", application_id)
+        if workflow == "notion_update" and application_id and "record_id" not in extras:
+            paths = application_context_service.paths_for(application_id)
+            if paths.identity.exists():
+                identity = read_json(paths.identity)
+                aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
+                record_id = str(aliases.get("notion_record_id") or "").strip()
+                if record_id.isdigit():
+                    extras["record_id"] = int(record_id)
+        return extras or None
 
     def _extract_linkedin_saved_jobs(self) -> dict[str, Any]:
         if not self.root:

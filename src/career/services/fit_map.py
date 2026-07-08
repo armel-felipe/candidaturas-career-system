@@ -95,6 +95,38 @@ def _latest_job_description() -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
 
 
+def _state_path_for_artifact(fit_map_path: Path) -> Path:
+    parent = fit_map_path.parent
+    if parent != CAREER_STATE and (parent / "workflow_state.json").exists():
+        return parent / "workflow_state.json"
+    return CAREER_STATE / "workflow_state.json"
+
+
+def _fit_map_state_fingerprint_match(fit_map_path: Path, job_path: Path | None) -> bool:
+    if not job_path or not job_path.exists():
+        return False
+    state_path = _state_path_for_artifact(fit_map_path)
+    if not state_path.exists():
+        return False
+    state = read_json(state_path)
+    active = state.get("active_intake") if isinstance(state.get("active_intake"), dict) else {}
+    active_fingerprint = str(active.get("fingerprint") or "").strip()
+    task_fingerprints = state.get("fingerprints") if isinstance(state.get("fingerprints"), dict) else {}
+    fit_map_task = None
+    for task_name in ("fit_map.validate", "fit_map.score", "fit_map.build"):
+        payload = task_fingerprints.get(task_name)
+        if isinstance(payload, dict):
+            fit_map_task = payload
+            break
+    fit_map_fingerprint = str((fit_map_task or {}).get("active_job_fingerprint") or "").strip()
+    job_fingerprint = sha256_file(job_path)
+    return bool(
+        active_fingerprint
+        and fit_map_fingerprint
+        and active_fingerprint == fit_map_fingerprint == job_fingerprint
+    )
+
+
 def _normalize_key(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")
 
@@ -295,15 +327,15 @@ def status(
     fit_map, fit_map_error = _safe_read_json(fit_map_path)
     draft_placeholders = _placeholder_paths(draft) if isinstance(draft, dict) else []
     draft_validation_error = _draft_validation_error(draft, draft_placeholders)
-    fit_map_job_match = False
+    fit_map_job_match = _fit_map_state_fingerprint_match(fit_map_path, job_path)
     keyword_registration = {"registered": False, "reason": "fit_map_missing", "path": str(KEYWORD_REGISTRY)}
-    if job_path and isinstance(fit_map, dict):
+    if job_path and isinstance(fit_map, dict) and not fit_map_job_match:
         job_text = job_path.read_text(encoding="utf-8", errors="replace").casefold()
         cargo = str(fit_map.get("cargo", "")).casefold()
         empresa = str(fit_map.get("empresa", "")).casefold()
         fit_map_job_match = bool(cargo and empresa and cargo in job_text and empresa in job_text)
-        if fit_map_job_match:
-            keyword_registration = _keywords_registered(fit_map)
+    if fit_map_job_match and isinstance(fit_map, dict):
+        keyword_registration = _keywords_registered(fit_map)
 
     if not job_path:
         next_step = "salvar descrição da vaga"

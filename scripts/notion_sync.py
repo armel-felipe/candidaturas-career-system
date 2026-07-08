@@ -28,6 +28,11 @@ AUTOMATION_STATUS_DOWNGRADES = {
     "aplicacao feita": AUTOMATION_STATUS_CEILING,
 }
 ALLOW_DUPLICATE_CREATE_ENV = "NOTION_ALLOW_DUPLICATE_CREATE"
+PROTECTED_UPDATE_STATUSES = {
+    "aplicacao feita",
+    "desisti da vaga",
+    "deletada",
+}
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -976,6 +981,17 @@ def extract_saved_property(payload: dict, logical_name: str) -> str:
         if value:
             return value
     return ""
+
+
+def ensure_page_status_allows_update(current_page: dict, *, allow_terminal_status_update: bool = False) -> None:
+    if allow_terminal_status_update:
+        return
+    current_status = extract_saved_property(current_page, "status").strip()
+    if normalize_text(current_status) in PROTECTED_UPDATE_STATUSES:
+        raise SystemExit(
+            "Refusing to update a Notion record that is already in a protected terminal status "
+            f"('{current_status}'). Resolve the target record first or use an explicit maintenance override."
+        )
 
 
 def split_terms(value: str) -> list[str]:
@@ -2422,6 +2438,7 @@ def update_from_fit_map(
     dry_run: bool = False,
     append_summary: bool = True,
     allow_mismatch: bool = False,
+    allow_terminal_status_update: bool = False,
     status: str = "Aplicação andamento",
     extra_artifacts: Optional[list[Path]] = None,
     extra_notes: Optional[list[str]] = None,
@@ -2429,6 +2446,10 @@ def update_from_fit_map(
     fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
     status = sanitize_automation_status(status)
     current_page = extract_page_payload(token, page_id)
+    ensure_page_status_allows_update(
+        current_page,
+        allow_terminal_status_update=allow_terminal_status_update,
+    )
     current_blocks = retrieve_blocks(token, page_id)
     page_description = (current_page.get("description") or "").strip()
     current_source_url = str(current_page.get("source_url") or "").strip()
@@ -2525,6 +2546,7 @@ def update_from_fit_map_record(
     dry_run: bool = False,
     append_summary: bool = True,
     allow_mismatch: bool = False,
+    allow_terminal_status_update: bool = False,
     status: str = "Aplicação andamento",
     extra_artifacts: Optional[list[Path]] = None,
     extra_notes: Optional[list[str]] = None,
@@ -2539,6 +2561,7 @@ def update_from_fit_map_record(
         dry_run=dry_run,
         append_summary=append_summary,
         allow_mismatch=allow_mismatch,
+        allow_terminal_status_update=allow_terminal_status_update,
         status=status,
         extra_artifacts=extra_artifacts,
         extra_notes=extra_notes,
@@ -2942,6 +2965,7 @@ def main() -> int:
     update_parser.add_argument("--dry-run", action="store_true")
     update_parser.add_argument("--no-append-summary", action="store_true")
     update_parser.add_argument("--allow-mismatch", action="store_true")
+    update_parser.add_argument("--allow-terminal-status-update", action="store_true")
     update_parser.add_argument("--compact", action="store_true")
     update_parser.add_argument("--status", default="Aplicação andamento")
     update_parser.add_argument("--extra-artifact", action="append", default=[])
@@ -2954,6 +2978,7 @@ def main() -> int:
     update_record_parser.add_argument("--dry-run", action="store_true")
     update_record_parser.add_argument("--no-append-summary", action="store_true")
     update_record_parser.add_argument("--allow-mismatch", action="store_true")
+    update_record_parser.add_argument("--allow-terminal-status-update", action="store_true")
     update_record_parser.add_argument("--compact", action="store_true")
     update_record_parser.add_argument("--status", default="Aplicação andamento")
     update_record_parser.add_argument("--extra-artifact", action="append", default=[])
@@ -3153,6 +3178,7 @@ def main() -> int:
             dry_run=args.dry_run,
             append_summary=not args.no_append_summary,
             allow_mismatch=args.allow_mismatch,
+            allow_terminal_status_update=args.allow_terminal_status_update,
             status=args.status,
             extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
             extra_notes=list(args.extra_note or []),
@@ -3170,6 +3196,7 @@ def main() -> int:
             dry_run=args.dry_run,
             append_summary=not args.no_append_summary,
             allow_mismatch=args.allow_mismatch,
+            allow_terminal_status_update=args.allow_terminal_status_update,
             status=args.status,
             extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
             extra_notes=list(args.extra_note or []),
