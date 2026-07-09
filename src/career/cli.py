@@ -77,8 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
     multiagent_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     multiagent_request.add_argument("--objective")
     multiagent_request.add_argument("--extras", default="{}")
+    multiagent_request.add_argument("--application-id")
     multiagent_validate_request = multiagent_sub.add_parser("validate-request")
     multiagent_validate_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
+    multiagent_validate_request.add_argument("--application-id")
     multiagent_sub.add_parser("validate-workspace-clean")
 
     intake = subparsers.add_parser("intake")
@@ -577,14 +579,24 @@ def main(argv: list[str] | None = None) -> int:
                 _dump(multiagent_service.write_local_model_map())
                 return 0
             if args.action == "request":
+                extras = json.loads(args.extras)
+                if args.application_id:
+                    extras["application_id"] = args.application_id
                 _dump(
                     HarnessSupervisor(Path.cwd()).prepare_specialist(
-                        args.step, objective=args.objective, extras=json.loads(args.extras)
+                        args.step, objective=args.objective, extras=extras
                     )
                 )
                 return 0
             if args.action == "validate-request":
-                result = multiagent_service.validate_request(args.step)
+                request_path = None
+                if args.application_id:
+                    request_path = (
+                        application_context_service.paths_for(args.application_id).requests_dir
+                        / "manual_agent_requests"
+                        / f"{args.step}_request.json"
+                    )
+                result = multiagent_service.validate_request(args.step, request_path=request_path)
                 _dump(result)
                 return 0 if result.get("status") == "ok" else 1
             if args.action == "validate-workspace-clean":

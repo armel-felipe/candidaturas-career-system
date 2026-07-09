@@ -81,6 +81,8 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - quando o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/fit_map.draft.json`; não entregar análise textual nem reaproveitar FIT_MAP antigo
 - preencher `.career-state/fit_map.draft.json` significa o agente editar o arquivo persistido; é proibido responder com instruções para o usuário preencher o template, imprimir o JSON bruto do template ou tratar placeholders como entrega
 - em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map` e seguir as `Operational Rules`
+- em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`, não parar após intake, extração, template, guard, leitura de request ou `validate:fit-map:draft`; continuar até `fit_map.json` final validado, `fit-map:summary`, `validate:fit-map:quality` e menu de próximos passos
+- quando o usuário escolher uma vaga por número depois de listar vagas salvas do LinkedIn, resolver a URL em `inbox/linkedin_saved_jobs.json`, executar `npm run intake:linkedin-job -- --url "<url>"` e seguir até o FIT_MAP final sem pedir nova confirmação para prosseguir
 - após qualquer edição de `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`; se falhar, corrigir e reexecutar antes de responder ao usuário
 - se `.career-state/fit_map.draft.json` ficar com JSON inválido, executar `npm run fit-map:template` para resetar o template da vaga ativa antes de continuar
 - quando o draft analítico já estiver preenchido, prefira `npm run fit-map:finalize`

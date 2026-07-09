@@ -589,6 +589,8 @@ Regras operacionais:
 - `fit-map-agent`: se o draft tiver placeholders, deve editar o arquivo; não pode imprimir template bruto nem pedir ao usuário para preencher
 - `fit-map-agent`: se o request indicar `Current FIT_MAP.matches_active_job = false`, o FIT_MAP ativo é antigo e não pode ser reutilizado
 - `fit-map-agent`: depois de editar, deve rodar `npm run validate:fit-map:draft`; se o JSON quebrar ou a validação falhar, deve corrigir antes de responder
+- `fit-map-agent` em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`: análise de vaga não termina no intake nem na validação do draft; depois de `validate:fit-map:draft` passar, executar `npm run fit-map:finalize`, `npm run fit-map:summary` e `npm run validate:fit-map:quality`, então apresentar nota oficial e menu de próximos passos
+- quando o usuário pedir `avalie/análise a vaga <número>` após listar vagas salvas do LinkedIn, resolver a URL em `inbox/linkedin_saved_jobs.json`, executar `npm run intake:linkedin-job -- --url "<url>"` e continuar imediatamente até o FIT_MAP final; não pedir nova confirmação para "prosseguir"
 - `cv-agent`: não pode entregar apenas texto; deve produzir DOCX em `outputs/`, validar DOCX e rodar `cv:deliver` no artefato final quando a entrega OneDrive/rclone estiver configurada
 - `notion-agent`: deve bloquear mismatch, template vazio sem descrição local ou mojibake; se a policy local não autorizar autoexecução, a escrita real continua proibida sem aprovação explícita depois do dry-run
 - `email-agent`: deve rodar revisão textual antes do preview e só criar draft real após aprovação explícita; nunca pergunta remetente
@@ -619,6 +621,7 @@ Ao avaliar modelos locais neste projeto, usar este criterio minimo:
 - depois de salvar a vaga e ler as referencias obrigatorias, deve ir direto para `npm run fit-map:template`
 - se o template já existe e ainda tem placeholders, rodar `npm run fit-map:resume`; a ação seguinte deve preencher `.career-state/fit_map.draft.json` ou declarar bloqueio real
 - se `npm run fit-map:guard` retornar `blocked=true`, qualquer resposta subsequente sem edição do draft conta como falha de benchmark
+- em sessão local direta, `stalled=true` também inclui parar após intake, extração LinkedIn, `fit-map:template`, `agent:guard`, leitura de request ou `validate:fit-map:draft` sem produzir `fit_map.json` final validado e menu de próximos passos
 - logs suspeitos devem ser avaliados com `python3 scripts/diagnose_session_stall.py <session.md>`; `stalled=true` significa execução parcial
 
 ## Paths locais

@@ -5,6 +5,7 @@
 .auth_token
 .db_id
 .continue/
+.hermes/
 
 # Dependencies
 node_modules/

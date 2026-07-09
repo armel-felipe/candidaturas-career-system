@@ -58,9 +58,11 @@ LOCAL_MODEL_TRIGGER_MAP = [
         "then": [
             "read .career-state/agent_requests/fit-map_request.md",
             "read active_intake.job_description_path from the request, but summarize it briefly in chat",
+            "do not stop after intake; analysis is only complete after final FIT_MAP validation and summary/menu",
             "if fit-map:status reports draft.valid_json=false, run npm run fit-map:template and regenerate the request",
             "edit .career-state/fit_map.draft.json as one complete valid JSON object",
             "npm run validate:fit-map:draft",
+            "if running as a direct local session, run npm run fit-map:finalize after draft validation",
             "after finalize, run npm run fit-map:summary and npm run validate:fit-map:quality",
             "if validation fails, fix the draft and rerun validation before responding",
         ],
@@ -75,6 +77,26 @@ LOCAL_MODEL_TRIGGER_MAP = [
         ],
     },
     {
+        "trigger": "Avalie vaga <numero> depois de listar vagas salvas do LinkedIn",
+        "canonical_entry_command": "read inbox/linkedin_saved_jobs.json, resolve the selected job URL, then run npm run intake:linkedin-job -- --url \"<url>\"",
+        "then": [
+            "run npm run agent:guard",
+            "if allowed_next_action=fill_fit_map_draft, run npm run multiagent:request -- fit-map",
+            "read .career-state/agent_requests/fit-map_request.md",
+            "edit .career-state/fit_map.draft.json; do not ask the user to confirm continuation",
+            "npm run validate:fit-map:draft",
+            "if running as a direct local session, run npm run fit-map:finalize",
+            "run npm run fit-map:summary and npm run validate:fit-map:quality",
+            "only then show the fit summary and ask whether to register in Notion, generate CV, FERAS, cover letter, or habilidades",
+        ],
+        "forbidden": [
+            "say 'if you want to proceed' after the user already asked to evaluate",
+            "stop after extracting the LinkedIn description",
+            "reuse an old FIT_MAP when matches_active_job=false",
+            "deliver only a textual analysis without .career-state/fit_map.json validated",
+        ],
+    },
+    {
         "trigger": "Continue / retomar FIT_MAP travado",
         "canonical_entry_command": "npm run fit-map:status",
         "then": [
@@ -82,6 +104,7 @@ LOCAL_MODEL_TRIGGER_MAP = [
             "npm run multiagent:request -- fit-map",
             "read .career-state/agent_requests/fit-map_request.md",
             "follow exactly the Operational Rules",
+            "if running as a direct local session, continue through finalize/summary/menu instead of stopping at draft validation",
         ],
         "forbidden": [
             "explain the whole workflow again",
@@ -142,12 +165,21 @@ CONTRACTS: dict[str, AgentContract] = {
             "npm run fit-map:check:score-draft",
             "npm run fit-map:check:complete-draft",
             "npm run validate:fit-map:draft",
+            "npm run fit-map:finalize",
+            "npm run fit-map:build",
+            "npm run fit-map:score",
+            "npm run validate:fit-map",
             "npm run validate:fit-map:quality",
+            "npm run keywords:register",
+            "npm run registry:summary",
         ),
-        expected_outputs=(".career-state/fit_map.draft.json",),
+        expected_outputs=(
+            ".career-state/fit_map.draft.json",
+            ".career-state/fit_map.json when running outside HarnessSupervisor",
+        ),
         forbidden_actions=BASE_FORBIDDEN_ACTIONS
         + (
-            "rodar fit-map:finalize",
+            "rodar fit-map:finalize antes de validate:fit-map:draft passar",
             "editar .career-state/fit_map.json",
             "escrever nota final na conversa antes do gate",
             "pedir que o usuario preencha o draft",
@@ -488,6 +520,7 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
         "forbidden_actions": list(contract.forbidden_actions),
         "validation_commands": list(contract.validation_commands),
         "operational_rules": _operational_rules(contract),
+        "non_stop_contract": _non_stop_contract(contract),
         "completion_contract": {
             "status_values": ["completed", "blocked"],
             "must_report": [
@@ -614,6 +647,9 @@ def _request_markdown(payload: dict[str, Any]) -> str:
         "## Operational Rules",
         *[f"- {item}" for item in payload.get("operational_rules", [])],
         "",
+        "## Non-Stop Contract",
+        *[f"- {item}" for item in payload.get("non_stop_contract", [])],
+        "",
         "## Forbidden Actions",
         *[f"- `{item}`" for item in payload["forbidden_actions"]],
         "",
@@ -685,6 +721,25 @@ def _prepare_compact_inputs_for_step(step: str, active: dict[str, Any] | None) -
         derived_context_service.build_all_for_fit_map()
 
 
+def _non_stop_contract(contract: AgentContract) -> list[str]:
+    if contract.step == "fit-map":
+        return [
+            "Pedido do usuario: avaliar/analisar vaga.",
+            "Nao parar depois de extrair/salvar a descricao, gerar template, rodar guard, ler request ou validar draft.",
+            "Se rodando via HarnessSupervisor especialista: parar somente apos escrever .career-state/fit_map.draft.json e validate:fit-map:draft passar; o harness finaliza automaticamente.",
+            "Se rodando como Hermes/OpenCode/Codex direto no workspace: continuar ate .career-state/fit_map.json existir para a vaga ativa, fit-map:summary passar e validate:fit-map:quality passar.",
+            "Resposta final esperada: resumo curto da aderencia com nota oficial e menu: registrar no Notion, gerar CV, pitch FERAS, carta ou habilidades.",
+            "Se nao conseguir chegar nesse estado, declarar execucao parcial/bloqueada com o ultimo comando executado e blocker_reason objetivo.",
+        ]
+    if contract.step == "cv":
+        return [
+            "Pedido de CV nao termina em texto: termina com DOCX validado em outputs/ e cv:deliver/cv:approve executado conforme configuracao.",
+        ]
+    return [
+        "Nao tratar comando intermediario bem-sucedido como conclusao se Expected Outputs ainda nao existir ou validacao obrigatoria nao passou.",
+    ]
+
+
 def _operational_rules(contract: AgentContract) -> list[str]:
     rules = [
         "Ler este request antes de qualquer arquivo longo.",
@@ -707,6 +762,7 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Se .career-state/fit_map.draft.json tiver placeholders, a proxima acao e editar o arquivo.",
                 "Preferir substituir o JSON inteiro por um objeto completo e valido; nao aplicar patches parciais que quebrem a estrutura.",
                 "Leitura do draft sem edicao nao conta como progresso.",
+                "Intake concluido nao e conclusao da analise; e apenas pre-requisito para preencher o draft.",
                 "Usar somente evidencias e numeros encontrados nas referencias permitidas; se nao houver prova, declarar GAP.",
                 "Nao inventar empresa_origem, resultado_numero, fonte_base, percentuais, prazos ou experiencias.",
                 "Nao usar '---', texto generico ou placeholders fracos para passar pelo gate.",
@@ -715,6 +771,7 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Nao colar o FIT_MAP/draft completo nem diffs longos na conversa; usar o arquivo como fonte de verdade.",
                 "Depois de qualquer edicao, rodar npm run validate:fit-map:draft antes de responder.",
                 "Se a validacao falhar, corrigir o arquivo e reexecutar; nao entregar proximos passos ao usuario.",
+                "Se estiver rodando como sessao local direta, fora do HarnessSupervisor, depois de validate:fit-map:draft passar execute npm run fit-map:finalize, npm run fit-map:summary e npm run validate:fit-map:quality antes de responder.",
             ]
         )
     elif contract.step == "cv":

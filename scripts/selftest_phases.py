@@ -21,6 +21,7 @@ from career.schemas.fit_map import FitMapDraftSchema, FitMapFinalSchema
 from career.schemas.notion import NotionApplicationsCacheSchema
 from career.schemas.review import CvReviewReportSchema
 from career.utils import read_json
+from career.utils import sha256_file
 from career.utils import ValidationFailure
 from career.workflow.state_machine import WorkflowStateMachine
 import notion_sync
@@ -31,6 +32,9 @@ import install_hermes_harness_hook
 import hermes_harness_context_hook
 from career.cli import build_parser
 from career.services import applications_v2 as applications_service
+from career.services import application_context as application_context_service
+from career.services import fit_map as fit_map_service
+from career.services import multiagent as multiagent_service
 from career.services.agent_runner import AgentRunRequest, AgentRunResult, SubprocessAgentRunner
 from career.services.harness_supervisor import HarnessSupervisor
 from career.services.harness_runs import ExclusiveRunLock, HarnessRunStore, begin_specialist_run
@@ -1484,6 +1488,69 @@ def phase_37c() -> None:
             raise SystemExit(f"resolve_source_url should fallback to active_intake URL: {resolved}")
 
 
+def phase_37d() -> None:
+    class CapturingSupervisor(HarnessSupervisor):
+        def __init__(self, root: Path):
+            super().__init__(root)
+            self.captured: dict[str, Any] | None = None
+
+        def execute_specialist(
+            self,
+            step: str,
+            *,
+            objective: str | None = None,
+            extras: dict[str, Any] | None = None,
+            model: str | None = None,
+            variant: str | None = None,
+        ) -> dict[str, Any]:
+            self.captured = {
+                "step": step,
+                "objective": objective,
+                "extras": extras,
+            }
+            return {"status": "completed"}
+
+    temp_root = OUTPUTS / "_tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp_dir:
+        root = Path(tmp_dir)
+        state_dir = root / ".career-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "workflow_state.json").write_text(json.dumps({}), encoding="utf-8")
+        cwd = Path.cwd()
+        os.chdir(root)
+        try:
+            app_paths = application_context_service.ensure_application(
+                source_type="linkedin_job",
+                source_id="https://www.linkedin.com/jobs/view/123/",
+                company="Acme",
+                role="Head of Operations",
+                preferred_id="local_session_acme",
+            )
+            application_context_service.register_session(
+                runtime="cli",
+                profile_id="default",
+                session_id="sess-1",
+                application_id=app_paths.application_id,
+                channel="cli",
+            )
+            supervisor = CapturingSupervisor(root)
+            result = supervisor.handle_message(
+                "registre no notion a vaga ativa",
+                channel="cli",
+                execute=True,
+                runtime_context={"runtime": "cli", "profile_id": "default", "session_id": "sess-1"},
+            )
+        finally:
+            os.chdir(cwd)
+        captured = supervisor.captured or {}
+        extras = captured.get("extras") or {}
+        if result.get("status") != "completed":
+            raise SystemExit(f"Session-bound Notion update dispatch should complete with stubbed specialist: {result}")
+        if extras.get("application_id") != app_paths.application_id:
+            raise SystemExit(f"application_id from the current session should be forwarded to the notion specialist: {captured}")
+
+
 def phase_38() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
@@ -1827,6 +1894,50 @@ def phase_46() -> None:
             raise SystemExit("Email draft should remain manual under the default harness policy.")
 
 
+def phase_46b() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        app_dir = tmp / "applications_v2" / "notion_429"
+        app_dir.mkdir(parents=True, exist_ok=True)
+        workflow_state = app_dir / "workflow_state.json"
+        fit_map = app_dir / "fit_map.json"
+        job_description = app_dir / "job_description.md"
+        job_description.write_text(
+            "# Head de Customer Success & Operações\n\nDescrição sem o nome literal da empresa.\n",
+            encoding="utf-8",
+        )
+        fingerprint = sha256_file(job_description)
+        workflow_state.write_text(
+            json.dumps(
+                {
+                    "active_intake": {"fingerprint": fingerprint},
+                    "fingerprints": {
+                        "fit_map.validate": {"active_job_fingerprint": fingerprint},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        fit_map.write_text(
+            json.dumps(
+                {
+                    "cargo": "Head de Customer Success & Operações",
+                    "empresa": "Cliente Moura's RH (não identificado)",
+                    "keywords_habilidade_ats": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        status = fit_map_service.status(
+            draft_path=tmp / "missing_draft.json",
+            fit_map_path=fit_map,
+            job_description_path=job_description,
+        )
+        if not status.get("fit_map", {}).get("matches_active_job"):
+            raise SystemExit(f"fit_map status should trust workflow fingerprints before brittle text matching: {status}")
+
+
 def phase_47() -> None:
     temp_root = OUTPUTS / "_tmp"
     temp_root.mkdir(parents=True, exist_ok=True)
@@ -1954,6 +2065,16 @@ def phase_49() -> None:
             raise SystemExit(f"Numeric reply to agent_menu should route to notion_update: {routed}")
 
 
+def phase_54() -> None:
+    supervisor = HarnessSupervisor()
+    diagnostic = supervisor.classify("minha duvida é por que está gerando 2 versões de cv por vez?")
+    if diagnostic.workflow != "generic_assistant":
+        raise SystemExit(f"Diagnostic question about duplicate CVs should not trigger a new cv_request: {diagnostic}")
+    explicit = supervisor.classify("faça o cv personalizado em docx")
+    if explicit.workflow != "cv":
+        raise SystemExit(f"Explicit CV request should keep routing to cv: {explicit}")
+
+
 def phase_52() -> None:
     original_existing = notion_sync._existing_application_records
     try:
@@ -2012,6 +2133,23 @@ def phase_52() -> None:
         notion_sync._existing_application_records = original_existing  # type: ignore[assignment]
 
 
+def phase_53() -> None:
+    fit_contract = multiagent_service.CONTRACTS["fit-map"]
+    non_stop = multiagent_service._non_stop_contract(fit_contract)
+    joined = "\n".join(non_stop)
+    if "Nao parar depois de extrair/salvar" not in joined:
+        raise SystemExit(f"Fit-map non-stop contract should block stopping after intake: {non_stop}")
+    if "Hermes/OpenCode/Codex direto no workspace" not in joined:
+        raise SystemExit(f"Fit-map non-stop contract should distinguish direct local sessions: {non_stop}")
+    triggers = {item["trigger"] for item in multiagent_service.LOCAL_MODEL_TRIGGER_MAP}
+    if "Avalie vaga <numero> depois de listar vagas salvas do LinkedIn" not in triggers:
+        raise SystemExit(f"Local model trigger map should cover numbered saved-job selection: {triggers}")
+    allowed_commands = set(fit_contract.allowed_commands)
+    required_commands = {"npm run fit-map:finalize", "npm run fit-map:summary", "npm run validate:fit-map:quality"}
+    if not required_commands.issubset(allowed_commands):
+        raise SystemExit(f"Direct local fit-map completion commands missing: {allowed_commands}")
+
+
 PHASES = {
     1: phase_1,
     2: phase_2,
@@ -2065,6 +2203,8 @@ PHASES = {
     50: phase_37b,
     51: phase_37c,
     52: phase_52,
+    53: phase_53,
+    54: phase_54,
 }
 
 

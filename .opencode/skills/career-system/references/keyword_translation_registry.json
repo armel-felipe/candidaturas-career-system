@@ -1177,6 +1177,65 @@
       ],
       "accepted_variants": [],
       "usage_notes": "Em contexto brasileiro, 'operações de CD' é coloquial e defensável."
+    },
+    "sales_and_operations_planning": {
+      "canonical_keyword": "Sales and Operations Planning (S&OP)",
+      "pt_br_preferred": "S&OP",
+      "pt_br_alternatives": [
+        "planejamento de vendas e operações",
+        "S&OP executivo",
+        "processo de S&OP"
+      ],
+      "accepted_variants": [
+        "S&OP"
+      ],
+      "usage_notes": "S&OP é termo consagrado no mercado brasileiro. 'Planejamento de vendas e operações' é equivalente canônico."
+    },
+    "financial_planning_analysis": {
+      "canonical_keyword": "Financial Planning & Analysis (FP&A)",
+      "pt_br_preferred": "planejamento e análise financeira",
+      "pt_br_alternatives": [
+        "análise financeira",
+        "gestão financeira",
+        "leitura de P&L",
+        "controle orçamentário",
+        "análise de P&L"
+      ],
+      "accepted_variants": [
+        "FP&A",
+        "P&L"
+      ],
+      "usage_notes": "Em CV PT-BR, 'planejamento e análise financeira' ou 'gestão financeira' cobrem FP&A. 'P&L' é aceito como variante."
+    },
+    "demand_planning": {
+      "canonical_keyword": "Demand Planning",
+      "pt_br_preferred": "planejamento de demanda",
+      "pt_br_alternatives": [
+        "previsão de demanda",
+        "planejamento da demanda"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'planejamento de demanda' é equivalente canônico."
+    },
+    "market_analysis": {
+      "canonical_keyword": "Market Analysis",
+      "pt_br_preferred": "análise de mercado",
+      "pt_br_alternatives": [
+        "análises de mercado",
+        "inteligência de mercado"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'análise de mercado' é equivalente canônico."
+    },
+    "competitive_intelligence": {
+      "canonical_keyword": "Competitive Intelligence",
+      "pt_br_preferred": "inteligência competitiva",
+      "pt_br_alternatives": [
+        "análise competitiva",
+        "inteligência de mercado"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'inteligência competitiva' é equivalente canônico."
     }
   }
 }

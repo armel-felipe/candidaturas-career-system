@@ -142,6 +142,7 @@ Regra de contexto compacto:
 - editar e validar `.career-state/fit_map.draft.json` no filesystem; não colar o draft, FIT_MAP ou diff completo na conversa
 - `npm run validate:fit-map:draft` e `npm run validate:fit-map` retornam resumo compacto por padrão; usar `--full` apenas em manutenção explícita
 - após `npm run fit-map:finalize`, rodar `npm run fit-map:summary` e `npm run validate:fit-map:quality` antes de entregar análise feita por modelo local
+- em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`, análise de vaga não termina no intake, extração, template, guard, leitura de request ou `validate:fit-map:draft`; continuar até `fit_map.json` final validado, resumo oficial e menu de próximos passos
 - quando precisar inspecionar JSON, usar campos específicos ou projeções pequenas; nunca `cat` no FIT_MAP/draft/registry/cache
 - a resposta ao usuário deve citar paths, contagens, nota e blockers, não payloads internos
 
@@ -172,6 +173,7 @@ Politica anti-travamento:
 - antes de preencher `.career-state/fit_map.draft.json`, nao escrever subtotais nem nota final na conversa; classificar itens, evidencias e severidades diretamente no draft
 - em caso de duvida sobre retomada ou estado misto, executar `npm run fit-map:status` e seguir exatamente `next_required_step`
 - se `next_required_step` for `preencher .career-state/fit_map.draft.json`, executar `npm run fit-map:resume` e então editar o draft; nao entregar mais uma análise textual antes da persistência
+- se a vaga veio de seleção numérica da lista salva do LinkedIn, resolver a URL salva, executar `npm run intake:linkedin-job -- --url "<url>"` e seguir até FIT_MAP final; não pedir confirmação adicional para prosseguir
 - se o draft foi lido e ainda tem placeholders, não resumir o template para o usuário; usar a descrição salva e as referências obrigatórias para substituir os placeholders no próprio arquivo
 - se o draft ficar com JSON inválido por patch parcial, executar `npm run fit-map:template`, regenerar o request se necessário e recomeçar a edição a partir do template válido
 - depois de `npm run fit-map:template`, executar `npm run fit-map:guard`; se retornar `guard=blocked`, a próxima ação deve ser o `required_next_command`, sem explicar o workflow nem continuar análise em texto livre

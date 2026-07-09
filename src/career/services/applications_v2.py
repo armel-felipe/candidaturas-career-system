@@ -678,10 +678,8 @@ def _expected_cv_docx_path(paths: dict[str, Path]) -> Path:
     manifest = read_json(paths["manifest"])
     role = str(manifest.get("role") or manifest.get("title") or "vaga")
     company = str(manifest.get("company") or "empresa")
-    if paths["fit_map"].exists():
-        fit_map = read_json(paths["fit_map"])
-        role = str(fit_map.get("cargo") or role)
-        company = str(fit_map.get("empresa") or company)
+    # Keep the artifact name tied to the original application identity so a
+    # translated/adapted FIT_MAP label does not create a second DOCX filename.
     output_name = f"felipe_armel_cv_{_ascii_slug(role)}_{_ascii_slug(company)}{manifest.get('required_cv_filename_suffix') or ''}.docx"
     return OUTPUTS / output_name
 

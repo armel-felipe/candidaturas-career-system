@@ -231,7 +231,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
             "source_fit_map": ".career-state/fit_map.json",
             "job_family": job_family,
         },
-        "output_name": _output_name(fit_map),
+        "output_name": _output_name(fit_map, active=active),
         "mode": "concise",
         "persona": _persona_name(fit_map),
         "summary": summary_text,
@@ -548,9 +548,13 @@ def _persona_name(fit_map: dict[str, Any]) -> str:
     return "operacoes_planejamento"
 
 
-def _output_name(fit_map: dict[str, Any]) -> str:
-    cargo = _slug(str(fit_map.get("cargo") or "vaga"))
-    empresa = _slug(str(fit_map.get("empresa") or "empresa"))
+def _output_name(fit_map: dict[str, Any], *, active: Any | None = None) -> str:
+    # Keep the artifact name stable across reruns by preferring the original
+    # intake identity instead of translated/adapted labels inside the FIT_MAP.
+    cargo_source = str(getattr(active, "role", "") or fit_map.get("cargo") or "vaga")
+    empresa_source = str(getattr(active, "company", "") or fit_map.get("empresa") or "empresa")
+    cargo = _slug(cargo_source)
+    empresa = _slug(empresa_source)
     suffix = "_en" if str(fit_map.get("idioma") or "").strip().lower().startswith("en") else ""
     return f"felipe_armel_cv_{cargo}_{empresa}{suffix}.docx"
 

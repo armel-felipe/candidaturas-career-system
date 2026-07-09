@@ -263,6 +263,14 @@ class HarnessSupervisor:
                 parameters=parameters,
             )
 
+        if self._is_meta_question_about_generated_outputs(lowered):
+            return self._decision(
+                "generic_assistant",
+                "chat",
+                "high",
+                "meta_question_about_previous_output",
+            )
+
         if any(token in lowered for token in ("curriculo", "currículo", "gerar cv", "adaptar cv")) or re.search(
             r"\bcv\b", lowered
         ):
@@ -289,6 +297,63 @@ class HarnessSupervisor:
         company = company_match.group(1).strip() if company_match else None
         role = role_match.group(1).strip() if role_match else None
         return company, role
+
+    @staticmethod
+    def _is_meta_question_about_generated_outputs(lowered: str) -> bool:
+        if not lowered:
+            return False
+        output_terms = (
+            " cv ",
+            "curriculo",
+            "currículo",
+            "docx",
+            "arquivo",
+            "arquivos",
+            "versao",
+            "versão",
+            "versoes",
+            "versões",
+        )
+        diagnostic_terms = (
+            "por que",
+            "porque",
+            "duvida",
+            "dúvida",
+            "como assim",
+            "o que aconteceu",
+            "acontecendo",
+            "esta gerando",
+            "está gerando",
+            "gerando 2",
+            "gerando duas",
+            "duplic",
+            "bug",
+            "erro",
+            "problema",
+        )
+        explicit_action_terms = (
+            "faça",
+            "faca",
+            "gere",
+            "gerar",
+            "crie",
+            "criar",
+            "refaça",
+            "refaca",
+            "corrija",
+            "corrigir",
+            "ajuste",
+            "ajustar",
+            "atualize",
+            "atualizar",
+            "adapte",
+            "adaptar",
+        )
+        padded = f" {lowered} "
+        mentions_outputs = any(term in padded for term in output_terms)
+        is_diagnostic = any(term in lowered for term in diagnostic_terms) or "?" in lowered
+        requests_action = any(term in lowered for term in explicit_action_terms)
+        return mentions_outputs and is_diagnostic and not requests_action
 
     def prepare_specialist(
         self,
