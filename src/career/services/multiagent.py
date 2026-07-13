@@ -1,5 +1,31 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
+from career.services.agent_contracts import CONTRACTS, AgentContracts
+from career.services.agent_requests import AgentRequestBuilder
+
+# Re-export AgentContracts and AgentRequestBuilder
+__all__ = [
+    "CONTRACTS",
+    "AgentContracts",
+    "AgentRequestBuilder",
+    "AgentContract",
+    "REQUEST_DIR",
+    "RUNBOOK_PATH",
+    "LOCAL_MODEL_MAP_PATH",
+    "WORKSPACE_FORBIDDEN_PATTERNS",
+    "BASE_FORBIDDEN_ACTIONS",
+    "LOCAL_MODEL_TRIGGER_MAP",
+    "write_request",
+    "validate_request",
+    "write_runbook",
+    "write_local_model_map",
+    "validate_workspace_clean",
+    "maestro",
+]
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -128,306 +154,6 @@ LOCAL_MODEL_TRIGGER_MAP = [
         ],
     },
 ]
-
-
-CONTRACTS: dict[str, AgentContract] = {
-    "fit-map": AgentContract(
-        step="fit-map",
-        agent="fit-map-agent",
-        purpose=(
-            "Preencher somente .career-state/fit_map.draft.json para a vaga ativa, "
-            "editando o arquivo no filesystem. Nao pedir que o usuario preencha "
-            "o draft e nao imprimir o template bruto como resposta."
-        ),
-        allowed_files=(
-            ".career-state/workflow_state.json",
-            ".career-state/fit_map.draft.json",
-            ".career-state/derived/job_extract.json",
-            ".career-state/derived/job_sections.json",
-            ".career-state/derived/job_keywords.json",
-            ".career-state/derived/reference_digest.json",
-            ".career-state/derived/candidate_evidence_pack.json",
-            ".career-state/derived/fit_map_seed.json",
-            ".career-state/derived/manifest.json",
-            ".career-state/memory/profile_facts.json",
-            ".career-state/memory/application_rules.json",
-            ".career-state/memory/evidence_index.json",
-        ),
-        allowed_commands=(
-            "npm run agent:guard",
-            "npm run fit-map:status",
-            "npm run fit-map:guard",
-            "npm run fit-map:template",
-            "npm run fit-map:draft-summary",
-            "npm run fit-map:summary",
-            "npm run fit-map:check:extract",
-            "npm run fit-map:check:map-evidence",
-            "npm run fit-map:check:score-draft",
-            "npm run fit-map:check:complete-draft",
-            "npm run validate:fit-map:draft",
-            "npm run fit-map:finalize",
-            "npm run fit-map:build",
-            "npm run fit-map:score",
-            "npm run validate:fit-map",
-            "npm run validate:fit-map:quality",
-            "npm run keywords:register",
-            "npm run registry:summary",
-        ),
-        expected_outputs=(
-            ".career-state/fit_map.draft.json",
-            ".career-state/fit_map.json when running outside HarnessSupervisor",
-        ),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "rodar fit-map:finalize antes de validate:fit-map:draft passar",
-            "editar .career-state/fit_map.json",
-            "escrever nota final na conversa antes do gate",
-            "pedir que o usuario preencha o draft",
-            "imprimir o template bruto do draft como substituto da edicao",
-            "sugerir nano/editor ao usuario para substituir placeholders",
-        ),
-        validation_commands=(
-            "npm run validate:fit-map:draft",
-            "npm run fit-map:guard",
-        ),
-    ),
-    "cv": AgentContract(
-        step="cv",
-        agent="cv-agent",
-        purpose=(
-            "Gerar cv_content persistido e DOCX de CV a partir do FIT_MAP ativo, mantendo idioma, "
-            "keywords e restricoes do perfil. A entrega so pode ser considerada pronta "
-            "apos validacao DOCX e cv:deliver no artefato final quando OneDrive/rclone estiver configurado."
-        ),
-        allowed_files=(
-            ".career-state/fit_map.json",
-            ".career-state/derived/cv_input_pack.json",
-            ".career-state/derived/cv_content_seed.json",
-            ".career-state/cv_content.json",
-            ".career-state/derived/reference_digest.json",
-            ".career-state/derived/manifest.json",
-            ".career-state/memory/profile_facts.json",
-            ".career-state/memory/application_rules.json",
-            ".opencode/skills/cv-generator/SKILL.md",
-            "scripts/docx/generate_custom_cv.js",
-        ),
-        allowed_commands=(
-            "npm run context:assert-active",
-            "npm run cv:build-content",
-            "npm run cv:validate-content",
-            "npm run cv:docx",
-            "npm run validate:docx",
-            "npm run cv:approve -- --artifact outputs/<cv>.docx",
-            "npm run cv:deliver -- --artifact outputs/<cv>.docx",
-        ),
-        expected_outputs=(
-            "outputs/<cv>.docx",
-            "outputs/_tmp/output_review_report.json",
-            "outputs/_tmp/polish_review.json",
-        ),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "entregar CV sem npm run cv:deliver quando OneDrive/rclone estiver configurado",
-            "limpar outputs/_tmp antes da aprovacao",
-            "alterar numeros criticos",
-            "entregar CV sem DOCX final em outputs/",
-            "considerar warnings como blockers sem o gate indicar blocker",
-            "ignorar idioma requerido pela descricao da vaga",
-        ),
-        validation_commands=(
-            "npm run cv:validate-content",
-            "npm run validate:docx",
-            "npm run cv:deliver -- --artifact outputs/<cv>.docx",
-        ),
-    ),
-    "cover-letter": AgentContract(
-        step="cover-letter",
-        agent="cover-letter-agent",
-        purpose=(
-            "Gerar carta de apresentacao a partir de pack compacto persistido, sem reler "
-            "referencias longas no caminho feliz. O artefato deve nascer em arquivo local antes de qualquer entrega."
-        ),
-        allowed_files=(
-            ".career-state/fit_map.json",
-            ".career-state/derived/cover_letter_input_pack.json",
-            ".career-state/derived/reference_digest.json",
-            ".career-state/derived/manifest.json",
-            ".opencode/skills/cover-letter/SKILL.md",
-        ),
-        allowed_commands=(
-            "npm run cover-letter:build",
-            "python3 scripts/cover_letter_to_pdf.py --input <arquivo.md> --output <arquivo.pdf>",
-            "npm run deliver:artifact -- --file outputs/<arquivo.pdf>",
-        ),
-        expected_outputs=(
-            "outputs/<cover_letter>.md",
-            "outputs/<cover_letter>.pdf",
-        ),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "entregar carta apenas na conversa",
-            "reabrir referencias longas sem necessidade objetiva",
-            "usar tom genérico ou claims nao defensaveis",
-            "prosseguir para entrega sem arquivo local persistido",
-        ),
-        validation_commands=("npm run cover-letter:build",),
-    ),
-    "feras": AgentContract(
-        step="feras",
-        agent="feras-agent",
-        purpose=(
-            "Gerar FERAS estruturado e pitch fluido a partir de pack compacto persistido, "
-            "mantendo consistencia com FIT_MAP e sem recarregar referencias longas no caminho feliz."
-        ),
-        allowed_files=(
-            ".career-state/fit_map.json",
-            ".career-state/derived/feras_input_pack.json",
-            ".career-state/derived/reference_digest.json",
-            ".career-state/derived/manifest.json",
-            ".opencode/skills/feras-pitch/SKILL.md",
-        ),
-        allowed_commands=("npm run feras:build",),
-        expected_outputs=("outputs/<feras>.md",),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "entregar feras apenas na conversa sem artefato local",
-            "usar tom de coach ou claims nao defensaveis",
-            "reabrir referencias longas sem necessidade objetiva",
-        ),
-        validation_commands=("npm run feras:build",),
-    ),
-    "habilidades": AgentContract(
-        step="habilidades",
-        agent="habilidades-agent",
-        purpose=(
-            "Gerar habilidades Gupy e Mercado Livre a partir do pack compacto da vaga ativa, "
-            "respeitando os catalogos permitidos e persistindo os dois artefatos."
-        ),
-        allowed_files=(
-            ".career-state/fit_map.json",
-            ".career-state/derived/habilidades_input_pack.json",
-            ".career-state/derived/manifest.json",
-            ".opencode/skills/habilidades-chave/SKILL.md",
-        ),
-        allowed_commands=(
-            "npm run habilidades:check",
-            "npm run habilidades:validate:gupy -- outputs/<habilidades_gupy>.md",
-            "npm run habilidades:validate:mercado-livre -- outputs/<habilidades_mercado_livre>.md",
-        ),
-        expected_outputs=(
-            "outputs/<habilidades_gupy>.md",
-            "outputs/<habilidades_mercado_livre>.md",
-        ),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "misturar catalogos Gupy e Mercado Livre",
-            "inventar habilidade fora do catalogo ativo",
-            "entregar listas apenas na conversa",
-        ),
-        validation_commands=(
-            "npm run habilidades:validate:gupy -- outputs/<habilidades_gupy>.md",
-            "npm run habilidades:validate:mercado-livre -- outputs/<habilidades_mercado_livre>.md",
-        ),
-    ),
-    "notion-update": AgentContract(
-        step="notion-update",
-        agent="notion-agent",
-        purpose=(
-            "Preparar dry-run de criacao/atualizacao Notion usando apenas scripts locais. "
-            "Escrita real depende da policy do harness: Gmail sempre manual; "
-            "Notion pode autoexecutar quando o pedido explicito do usuario ja autoriza a escrita."
-        ),
-        allowed_files=(
-            ".career-state/fit_map.json",
-            ".career-state/derived/active_context.json",
-            ".career-state/derived/job_extract.json",
-            ".career-state/derived/manifest.json",
-            ".opencode/skills/notion-transactions/SKILL.md",
-        ),
-        allowed_commands=(
-            "npm run notion:update-record-current -- <id_unico> --dry-run",
-            "npm run notion:link-record -- <id_unico>",
-            "npm run notion:record-summary -- <id_unico>",
-            "npm run notion:create-current -- --dry-run",
-            "python3 scripts/notion_sync.py update-description-record <id_unico> --job-description <arquivo.md> --source-url \"<url>\" --dry-run",
-            "python3 scripts/notion_sync.py create-description-record --job-description <arquivo.md> --company \"<empresa>\" --role \"<cargo>\" --source-url \"<url>\" --dry-run",
-        ),
-        expected_outputs=("dry-run validado; escrita real conforme policy do harness",),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "executar escrita real sem pedido explicito do usuario ou fora da policy do harness",
-            "usar MCP de Notion",
-            "usar --allow-mismatch",
-            "consultar .env ou copiar NOTION_TOKEN",
-            "criar duplicata quando a vaga nasceu no Notion",
-            "aceitar texto com mojibake como pronto",
-        ),
-        validation_commands=("npm run agent:guard",),
-    ),
-    "email-draft": AgentContract(
-        step="email-draft",
-        agent="email-agent",
-        purpose=(
-            "Preparar preview revisado de email e criar draft Gmail somente apos aprovacao "
-            "explicita do usuario. Nunca enviar email automaticamente."
-        ),
-        allowed_files=(
-            ".career-state/fit_map.json",
-            ".opencode/skills/self-email-draft/SKILL.md",
-            "outputs/<anexo>",
-        ),
-        allowed_commands=(
-            "python3 scripts/review_email_text.py --subject \"<assunto>\" --body \"<corpo>\"",
-            "python3 scripts/create_gmail_draft.py --to \"<email>\" --subject \"<assunto>\" --body \"<corpo>\" --dry-run",
-            "python3 scripts/create_gmail_draft.py --to \"<email>\" --subject \"<assunto>\" --body \"<corpo>\" --attach \"<arquivo>\"",
-        ),
-        expected_outputs=("preview revisado", "draft Gmail apenas apos aprovacao"),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "enviar email automaticamente",
-            "perguntar email remetente",
-            "criar draft real sem aprovacao explicita",
-            "pular review_email_text.py antes do preview",
-            "anexar arquivo inexistente",
-            "vazar termos internos do pipeline no corpo do email",
-        ),
-        validation_commands=("python3 scripts/review_email_text.py --subject \"<assunto>\" --body \"<corpo>\"",),
-    ),
-    "linkedin": AgentContract(
-        step="linkedin",
-        agent="linkedin-agent",
-        purpose=(
-            "Extrair e persistir descricao de vaga/post LinkedIn via scripts locais autenticados. "
-            "Nunca analisar URL diretamente sem salvar a descricao e registrar active_intake."
-        ),
-        allowed_files=(
-            ".career-state/linkedin_job_extract.json",
-            ".career-state/linkedin_post_extract.json",
-            "inbox/job_descriptions/<descricao>.md",
-            "inbox/linkedin_posts/<post>.md",
-            ".opencode/skills/linkedin-job-extractor/SKILL.md",
-            "LINKEDIN_AUTH_RUNBOOK.md",
-        ),
-        allowed_commands=(
-            "npm run intake:linkedin-job -- --url \"<url>\"",
-            "npm run intake:linkedin-post -- --url \"<url>\" --company \"<empresa>\" --role \"<cargo>\"",
-            "npm run linkedin:extract:authenticated -- --url \"<url>\"",
-            "npm run linkedin:post:extract:authenticated -- --url \"<url>\" --company \"<empresa>\" --role \"<cargo>\"",
-            "npm run linkedin:auth",
-        ),
-        expected_outputs=("inbox/job_descriptions/<descricao>.md", ".career-state/workflow_state.json"),
-        forbidden_actions=BASE_FORBIDDEN_ACTIONS
-        + (
-            "usar web_search/browser generico",
-            "automatizar login/senha",
-            "analisar URL sem salvar descricao",
-            "usar navegador generico para contornar sessao expirada",
-            "prosseguir para FIT_MAP sem active_intake",
-            "inventar descricao quando a extracao falhar",
-        ),
-        validation_commands=("npm run agent:guard",),
-    ),
-}
 
 
 def _relative_existing(paths: tuple[str, ...]) -> list[str]:

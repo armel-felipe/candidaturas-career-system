@@ -7,7 +7,6 @@ import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable
 from typing import Any
 
 from career.paths import CAREER_STATE
@@ -17,6 +16,12 @@ from career.services.approvals import ApprovalStore
 from career.services.approved_actions import ApprovedActionExecutor
 from career.services.harness_runs import HarnessRunStore, begin_specialist_run
 from career.utils import ValidationFailure, read_json, utc_now_iso
+
+from src.career.services.classifier import Classifier
+from src.career.services.router import Router
+from src.career.services.menu import MenuBuilder
+from src.career.services.executor import Executor
+from src.career.services.database import Database
 
 
 LINKEDIN_JOB_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/(?:jobs(?:/view)?|job)/[^\s]+", re.IGNORECASE)
@@ -71,26 +76,13 @@ SPECIALIST_OUTPUT_PATTERNS = {
 
 ACTIVE_INTAKE_STALE_AFTER = timedelta(hours=24)
 DEFAULT_HARNESS_AUTOMATION = {
-    "fit_map": {
-        "auto_finalize": True,
-    },
-    "approvals": {
-        "notion_write": "explicit_request",
-        "email_draft": "manual",
-    },
+    "fit_map": {"auto_finalize": True},
+    "approvals": {"notion_write": "explicit_request", "email_draft": "manual"},
 }
 PREVIEW_HINTS = (
-    "dry-run",
-    "dry run",
-    "prévia",
-    "previa",
-    "preview",
-    "sem escrever",
-    "sem atualizar",
-    "nao atualizar",
-    "não atualizar",
-    "so mostrar",
-    "só mostrar",
+    "dry-run", "dry run", "prévia", "previa", "preview",
+    "sem escrever", "sem atualizar", "nao atualizar", "não atualizar",
+    "so mostrar", "só mostrar",
 )
 
 
@@ -110,11 +102,22 @@ class DispatchDecision:
 
 
 class HarnessSupervisor:
-    """Deterministic front door shared by CLI, chat harnesses and Telegram."""
-
     def __init__(self, root: Path | None = None, runner: SubprocessAgentRunner | None = None):
         self.root = root
         self.runner = runner or (SubprocessAgentRunner(root) if root else None)
+        self.db = Database()
+        self.classifier = Classifier()
+        self.router = Router()
+        self.menu = MenuBuilder()
+        self.executor = Executor(self.db)
+
+    def process(self, message: str) -> dict:
+        intent = self.classifier.classify(message)
+        route = self.router.route(intent)
+        if route["specialist"] is None:
+            return {"intent": intent, "action": "clarify", "message": "Could not determine intent"}
+        result = self.executor.run(str(route["specialist"]), {"message": message})
+        return {"intent": intent, "action": route["next_step"], **result}
 
     def classify(self, message: str) -> DispatchDecision:
         raw_text = str(message or "").strip()
@@ -134,12 +137,7 @@ class HarnessSupervisor:
             return self._decision("invalid_menu_selection", "conversation", "high", invalid_selection)
 
         if self._is_runtime_introspection(lowered):
-            return self._decision(
-                "runtime_introspection",
-                "status",
-                "high",
-                "runtime_introspection_request",
-            )
+            return self._decision("runtime_introspection", "status", "high", "runtime_introspection_request")
 
         analysis_requested = any(
             token in lowered for token in ("avali", "analis", "aderencia", "aderência", "fit_map", "fit map")
@@ -148,10 +146,7 @@ class HarnessSupervisor:
         job_match = LINKEDIN_JOB_RE.search(text)
         if job_match:
             return self._decision(
-                "linkedin_job_intake",
-                "intake",
-                "high",
-                "linkedin_job_url",
+                "linkedin_job_intake", "intake", "high", "linkedin_job_url",
                 parameters={"url": job_match.group(0)},
             )
 
@@ -159,10 +154,7 @@ class HarnessSupervisor:
         if post_match:
             company, role = self._company_role(raw_text)
             return self._decision(
-                "linkedin_post_intake",
-                "intake",
-                "high",
-                "linkedin_post_url",
+                "linkedin_post_intake", "intake", "high", "linkedin_post_url",
                 parameters={"url": post_match.group(0), "company": company, "role": role},
             )
 
@@ -170,8 +162,7 @@ class HarnessSupervisor:
         if generic_url_match:
             company, role = self._company_role(raw_text)
             return self._decision(
-                "external_url_intake",
-                "intake",
+                "external_url_intake", "intake",
                 "high" if analysis_requested or text == generic_url_match.group(0) else "medium",
                 "generic_job_url",
                 parameters={"url": generic_url_match.group(0), "company": company, "role": role},
@@ -183,10 +174,8 @@ class HarnessSupervisor:
         if any(
             phrase in lowered
             for phrase in (
-                "continue o trabalho em andamento",
-                "retomar trabalho em andamento",
-                "retome o trabalho em andamento",
-                "continue de onde parou",
+                "continue o trabalho em andamento", "retomar trabalho em andamento",
+                "retome o trabalho em andamento", "continue de onde parou",
             )
         ):
             return self._decision("resume", "resume", "high", "resume_active_workflow_request")
@@ -202,78 +191,46 @@ class HarnessSupervisor:
         notion_match = NOTION_ID_RE.search(text)
         if notion_match and any(token in lowered for token in ("avali", "analis", "fit", "aderencia", "aderência")):
             return self._decision(
-                "notion_job_analysis",
-                "intake",
-                "high",
-                "notion_record_analysis",
+                "notion_job_analysis", "intake", "high", "notion_record_analysis",
                 parameters={"record_id": int(notion_match.group(1))},
             )
 
         if "notion" in lowered and any(token in lowered for token in ("avali", "analis", "fit")):
-            return self._decision(
-                "collect_notion_id", "conversation", "high", "notion_analysis_requires_record_id"
-            )
+            return self._decision("collect_notion_id", "conversation", "high", "notion_analysis_requires_record_id")
 
         if "linkedin" in lowered and any(token in lowered for token in ("avali", "analis", "vaga")):
-            return self._decision(
-                "collect_linkedin_url", "conversation", "high", "linkedin_analysis_requires_url"
-            )
+            return self._decision("collect_linkedin_url", "conversation", "high", "linkedin_analysis_requires_url")
 
         if any(phrase in lowered for phrase in ("colar vaga", "colar uma vaga", "enviar vaga em texto")):
-            return self._decision(
-                "collect_pasted_job", "conversation", "high", "pasted_job_requires_content"
-            )
+            return self._decision("collect_pasted_job", "conversation", "high", "pasted_job_requires_content")
 
         if len(raw_text) >= 500 and analysis_requested:
             company, role = self._company_role(raw_text)
             if company and role:
                 return self._decision(
-                    "pasted_job_intake",
-                    "intake",
-                    "high",
-                    "long_job_text_with_metadata",
+                    "pasted_job_intake", "intake", "high", "long_job_text_with_metadata",
                     parameters={"company": company, "role": role, "text": raw_text},
                 )
             return self._decision(
-                "pasted_job_missing_metadata",
-                "intake",
-                "high",
-                "long_job_text_requires_company_and_role",
+                "pasted_job_missing_metadata", "intake", "high", "long_job_text_requires_company_and_role",
             )
 
         if any(token in lowered for token in ("email", "gmail")):
-            return self._decision(
-                "email_draft",
-                "email-draft",
-                "high",
-                "email_request",
-                requires_approval=True,
-            )
+            return self._decision("email_draft", "email-draft", "high", "email_request", requires_approval=True)
 
         if "notion" in lowered and any(token in lowered for token in ("atualiz", "registre", "salve", "crie")):
             parameters: dict[str, Any] = {}
             if notion_match:
                 parameters["record_id"] = int(notion_match.group(1))
             return self._decision(
-                "notion_update",
-                "notion-update",
-                "high",
-                "notion_write_request",
-                requires_approval=True,
-                parameters=parameters,
+                "notion_update", "notion-update", "high", "notion_write_request",
+                requires_approval=True, parameters=parameters,
             )
 
         if self._is_meta_question_about_generated_outputs(lowered):
-            return self._decision(
-                "generic_assistant",
-                "chat",
-                "high",
-                "meta_question_about_previous_output",
-            )
+            return self._decision("generic_assistant", "chat", "high", "meta_question_about_previous_output")
 
-        if any(token in lowered for token in ("curriculo", "currículo", "gerar cv", "adaptar cv")) or re.search(
-            r"\bcv\b", lowered
-        ):
+        if any(token in lowered for token in ("curriculo", "currículo", "gerar cv", "adaptar cv")) or re.search(r"\bcv\b", lowered):
             return self._decision("cv", "cv", "high", "cv_request")
 
         if any(token in lowered for token in ("carta de apresentacao", "carta de apresentação", "cover letter")):
@@ -302,52 +259,15 @@ class HarnessSupervisor:
     def _is_meta_question_about_generated_outputs(lowered: str) -> bool:
         if not lowered:
             return False
-        output_terms = (
-            " cv ",
-            "curriculo",
-            "currículo",
-            "docx",
-            "arquivo",
-            "arquivos",
-            "versao",
-            "versão",
-            "versoes",
-            "versões",
-        )
+        output_terms = (" cv ", "curriculo", "currículo", "docx", "arquivo", "arquivos", "versao", "versão", "versoes", "versões")
         diagnostic_terms = (
-            "por que",
-            "porque",
-            "duvida",
-            "dúvida",
-            "como assim",
-            "o que aconteceu",
-            "acontecendo",
-            "esta gerando",
-            "está gerando",
-            "gerando 2",
-            "gerando duas",
-            "duplic",
-            "bug",
-            "erro",
-            "problema",
+            "por que", "porque", "duvida", "dúvida", "como assim", "o que aconteceu",
+            "acontecendo", "esta gerando", "está gerando", "gerando 2", "gerando duas",
+            "duplic", "bug", "erro", "problema",
         )
         explicit_action_terms = (
-            "faça",
-            "faca",
-            "gere",
-            "gerar",
-            "crie",
-            "criar",
-            "refaça",
-            "refaca",
-            "corrija",
-            "corrigir",
-            "ajuste",
-            "ajustar",
-            "atualize",
-            "atualizar",
-            "adapte",
-            "adaptar",
+            "faça", "faca", "gere", "gerar", "crie", "criar", "refaça", "refaca",
+            "corrija", "corrigir", "ajuste", "ajustar", "atualize", "atualizar", "adapte", "adaptar",
         )
         padded = f" {lowered} "
         mentions_outputs = any(term in padded for term in output_terms)
@@ -355,22 +275,13 @@ class HarnessSupervisor:
         requests_action = any(term in lowered for term in explicit_action_terms)
         return mentions_outputs and is_diagnostic and not requests_action
 
-    def prepare_specialist(
-        self,
-        step: str,
-        *,
-        objective: str | None = None,
-        extras: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    def prepare_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None) -> dict[str, Any]:
         from career.services import multiagent as multiagent_service
-
         request = multiagent_service.write_request(step, objective=objective, extras=extras)
         validation = multiagent_service.validate_request(step, request_path=self.root / request["request_json"] if self.root else None)
         result: dict[str, Any] = {
             "status": "prepared" if validation.get("status") == "ok" else "blocked",
-            "step": step,
-            "request": request,
-            "validation": validation,
+            "step": step, "request": request, "validation": validation,
         }
         if step in {"notion-update", "email-draft"} and self.root:
             request_payload = read_json(self.root / request["versioned_request_json"])
@@ -384,10 +295,7 @@ class HarnessSupervisor:
                     "pending_action_path": pending_action_path,
                 },
             )
-            result["approval"] = {
-                "approval_id": approval["approval_id"],
-                "status": approval["status"],
-            }
+            result["approval"] = {"approval_id": approval["approval_id"], "status": approval["status"]}
         return result
 
     def execute_approved_action(self, approval_id: str) -> dict[str, Any]:
@@ -396,39 +304,19 @@ class HarnessSupervisor:
         approvals = ApprovalStore(self.root)
         approval = approvals.get(approval_id)
         if approval.get("status") != "approved":
-            return {
-                "status": "blocked",
-                "blocker_reason": "approval_not_approved",
-                "approval": approval,
-            }
+            return {"status": "blocked", "blocker_reason": "approval_not_approved", "approval": approval}
         pending_path = str((approval.get("payload") or {}).get("pending_action_path") or "")
         if not pending_path:
-            return {
-                "status": "blocked",
-                "blocker_reason": "pending_action_path_missing",
-                "approval": approval,
-            }
+            return {"status": "blocked", "blocker_reason": "pending_action_path_missing", "approval": approval}
         result = ApprovedActionExecutor(self.root).execute(self.root / pending_path)
         consumed = approvals.consume(approval_id)
         return {"status": "completed", "approval": consumed, "result": result}
 
     def prepare_all_specialists(self) -> dict[str, Any]:
         from career.services import multiagent as multiagent_service
+        return {"status": "prepared", "requests": [self.prepare_specialist(step) for step in multiagent_service.CONTRACTS]}
 
-        return {
-            "status": "prepared",
-            "requests": [self.prepare_specialist(step) for step in multiagent_service.CONTRACTS],
-        }
-
-    def execute_specialist(
-        self,
-        step: str,
-        *,
-        objective: str | None = None,
-        extras: dict[str, Any] | None = None,
-        model: str | None = None,
-        variant: str | None = None,
-    ) -> dict[str, Any]:
+    def execute_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None, model: str | None = None, variant: str | None = None) -> dict[str, Any]:
         if not self.root or not self.runner:
             raise ValueError("HarnessSupervisor requires root and runner to execute specialists.")
         prepared = self.prepare_specialist(step, objective=objective, extras=extras)
@@ -444,37 +332,20 @@ class HarnessSupervisor:
         runner_config = config.get(runner_key, {"command": "hermes", "agent": "build", "timeout_minutes": 90})
         active_model = model or str(config.get("active_model") or "")
         active_variant = variant or str(config.get("active_variant") or "")
-        instruction = (
-            "Leia o request anexado, execute somente esta etapa, grave os outputs permitidos "
-            "e rode os comandos de validacao definidos no request."
-        )
+        instruction = "Leia o request anexado, execute somente esta etapa, grave os outputs permitidos e rode os comandos de validacao definidos no request."
         run_request = AgentRunRequest(
-            stage=step,
-            record_key=str(request["request_id"]),
-            request_path=request_md,
-            instruction=instruction,
-            runner_config=runner_config,
-            model=active_model,
-            variant=active_variant,
+            stage=step, record_key=str(request["request_id"]), request_path=request_md,
+            instruction=instruction, runner_config=runner_config,
+            model=active_model, variant=active_variant,
         )
-        specialist_run = begin_specialist_run(
-            self.root,
-            run_dir,
-            SPECIALIST_OUTPUT_PATTERNS.get(step, []),
-        )
+        specialist_run = begin_specialist_run(self.root, run_dir, SPECIALIST_OUTPUT_PATTERNS.get(step, []))
         command = self.runner.build_command(run_request)
         result = self.runner.run(run_request)
         isolation = specialist_run.inspect()
         payload = {
-            "stage": step,
-            "request_id": request["request_id"],
-            "command": command,
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "finished_at": utc_now_iso(),
-            "run_dir": str(run_dir.relative_to(self.root)),
-            "isolation": isolation,
+            "stage": step, "request_id": request["request_id"], "command": command,
+            "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+            "finished_at": utc_now_iso(), "run_dir": str(run_dir.relative_to(self.root)), "isolation": isolation,
         }
         specialist_run.finish(payload, isolation)
         status = "completed"
@@ -497,26 +368,10 @@ class HarnessSupervisor:
                 payload["approval_execution"] = auto_execution
                 status = "completed" if auto_execution.get("status") == "completed" else "blocked"
                 if status == "blocked":
-                    payload["blocker_reason"] = str(
-                        auto_execution.get("blocker_reason") or "approved_action_auto_execution_failed"
-                    )
-        return {
-            **prepared,
-            "status": status,
-            "execution": payload,
-        }
+                    payload["blocker_reason"] = str(auto_execution.get("blocker_reason") or "approved_action_auto_execution_failed")
+        return {**prepared, "status": status, "execution": payload}
 
-    def handle_message(
-        self,
-        message: str,
-        *,
-        channel: str = "cli",
-        execute: bool = False,
-        max_per_run: int | None = None,
-        model: str | None = None,
-        variant: str | None = None,
-        runtime_context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    def handle_message(self, message: str, *, channel: str = "cli", execute: bool = False, max_per_run: int | None = None, model: str | None = None, variant: str | None = None, runtime_context: dict[str, Any] | None = None) -> dict[str, Any]:
         user_message = message
         pending = self._resolve_pending_input(message)
         if pending:
@@ -528,175 +383,92 @@ class HarnessSupervisor:
             if input_request:
                 self._write_pending_input(input_request)
                 return {
-                    "status": "awaiting_input",
-                    "channel": channel,
-                    "message": original_message,
-                    "decision": self._decision(
-                        "collect_input", "conversation", "high", "menu_selection_requires_input"
-                    ).to_dict(),
-                    "menu_selection": selection,
-                    "executed": False,
-                    "result": input_request,
+                    "status": "awaiting_input", "channel": channel, "message": original_message,
+                    "decision": self._decision("collect_input", "conversation", "high", "menu_selection_requires_input").to_dict(),
+                    "menu_selection": selection, "executed": False, "result": input_request,
                 }
             message = str(selection["prompt"])
         decision = self.classify(message)
-        envelope: dict[str, Any] = {
-            "status": "routed",
-            "channel": channel,
-            "message": original_message,
-            "decision": decision.to_dict(),
-            "executed": False,
-        }
+        envelope: dict[str, Any] = {"status": "routed", "channel": channel, "message": original_message, "decision": decision.to_dict(), "executed": False}
         if selection:
             envelope["menu_selection"] = selection
         if pending:
             envelope["pending_input"] = pending
         if not execute:
             return envelope
-
         workflow = decision.workflow
         try:
             if workflow == "menu":
                 self._clear_pending_input()
                 envelope["result"] = self._build_session_menu()
             elif workflow in {"collect_notion_id", "collect_linkedin_url", "collect_pasted_job"}:
-                input_kind = {
-                    "collect_notion_id": "notion_id",
-                    "collect_linkedin_url": "linkedin_job_url",
-                    "collect_pasted_job": "pasted_job",
-                }[workflow]
+                input_kind = {"collect_notion_id": "notion_id", "collect_linkedin_url": "linkedin_job_url", "collect_pasted_job": "pasted_job"}[workflow]
                 display_text = {
                     "notion_id": "Qual é o número da vaga no Notion? Pode responder somente com o número.",
                     "linkedin_job_url": "Envie a URL da vaga no LinkedIn.",
-                    "pasted_job": (
-                        "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. "
-                        "Depois inclua a descrição completa."
-                    ),
+                    "pasted_job": "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. Depois inclua a descrição completa.",
                 }[input_kind]
-                request = {
-                    "status": "awaiting_input",
-                    "kind": "input_request",
-                    "input_kind": input_kind,
-                    "display_text": display_text,
-                }
+                request = {"status": "awaiting_input", "kind": "input_request", "input_kind": input_kind, "display_text": display_text}
                 self._write_pending_input(request)
                 envelope["result"] = request
             elif workflow == "resume":
                 envelope["result"] = self._resume_and_continue(message, model=model, variant=variant)
             elif workflow == "applications_status":
                 from career.services import applications_v2 as applications_service
-
                 envelope["result"] = applications_service.heartbeat_status()
             elif workflow == "applications_heartbeat":
                 from career.services import applications_v2 as applications_service
-
                 envelope["result"] = applications_service.run_heartbeat(
-                    applications_service.HeartbeatV2Options(
-                        max_per_run=max_per_run,
-                        run_agent=True,
-                        dry_run=False,
-                        model=model,
-                        variant=variant,
-                    )
+                    applications_service.HeartbeatV2Options(max_per_run=max_per_run, run_agent=True, dry_run=False, model=model, variant=variant)
                 )
             elif workflow == "notion_job_analysis":
                 from career.services import agent_guard as agent_guard_service
-
                 record_id = int((decision.parameters or {})["record_id"])
                 intake_result = agent_guard_service.evaluate_notion(record_id)
                 self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
-                    specialist=self.execute_specialist(
-                        "fit-map",
-                        objective=f"Avaliar vaga Notion {record_id}",
-                        extras={"application_id": intake_result.get("application_id")},
-                        model=model,
-                        variant=variant,
-                    ),
+                    specialist=self.execute_specialist("fit-map", objective=f"Avaliar vaga Notion {record_id}", extras={"application_id": intake_result.get("application_id")}, model=model, variant=variant),
                 )
             elif workflow == "linkedin_job_intake":
                 from career.services import intake as intake_service
-
                 hints = self._saved_job_metadata_hints(selection)
-                intake_result = intake_service.from_linkedin_job(
-                    str((decision.parameters or {})["url"]),
-                    metadata_hints=hints,
-                )
+                intake_result = intake_service.from_linkedin_job(str((decision.parameters or {})["url"]), metadata_hints=hints)
                 self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
-                    specialist=self.execute_specialist(
-                        "fit-map",
-                        objective=message,
-                        extras={"application_id": intake_result.get("application_id")},
-                        model=model,
-                        variant=variant,
-                    ),
+                    specialist=self.execute_specialist("fit-map", objective=message, extras={"application_id": intake_result.get("application_id")}, model=model, variant=variant),
                 )
             elif workflow == "linkedin_post_intake":
                 from career.services import intake as intake_service
-
                 parameters = decision.parameters or {}
                 if not parameters.get("company") or not parameters.get("role"):
                     envelope["status"] = "blocked"
                     envelope["blocker_reason"] = "linkedin_post_requires_company_and_role"
                     return envelope
-                intake_result = intake_service.from_linkedin_post(
-                    url=str(parameters["url"]),
-                    company=str(parameters["company"]),
-                    role=str(parameters["role"]),
-                )
+                intake_result = intake_service.from_linkedin_post(url=str(parameters["url"]), company=str(parameters["company"]), role=str(parameters["role"]))
                 self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
-                    specialist=self.execute_specialist(
-                        "fit-map",
-                        objective=message,
-                        extras={"application_id": intake_result.get("application_id")},
-                        model=model,
-                        variant=variant,
-                    ),
+                    specialist=self.execute_specialist("fit-map", objective=message, extras={"application_id": intake_result.get("application_id")}, model=model, variant=variant),
                 )
             elif workflow == "external_url_intake":
                 from career.services import intake as intake_service
-
                 parameters = decision.parameters or {}
-                intake_result = intake_service.from_url(
-                    url=str(parameters["url"]),
-                    company=str(parameters["company"]) if parameters.get("company") else None,
-                    role=str(parameters["role"]) if parameters.get("role") else None,
-                )
+                intake_result = intake_service.from_url(url=str(parameters["url"]), company=str(parameters["company"]) if parameters.get("company") else None, role=str(parameters["role"]) if parameters.get("role") else None)
                 self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
-                    specialist=self.execute_specialist(
-                        "fit-map",
-                        objective=message,
-                        extras={"application_id": intake_result.get("application_id")},
-                        model=model,
-                        variant=variant,
-                    ),
+                    specialist=self.execute_specialist("fit-map", objective=message, extras={"application_id": intake_result.get("application_id")}, model=model, variant=variant),
                 )
             elif workflow == "pasted_job_intake":
                 from career.services import intake as intake_service
-
                 parameters = decision.parameters or {}
-                intake_result = intake_service.from_paste(
-                    company=str(parameters["company"]),
-                    role=str(parameters["role"]),
-                    text=str(parameters["text"]),
-                )
+                intake_result = intake_service.from_paste(company=str(parameters["company"]), role=str(parameters["role"]), text=str(parameters["text"]))
                 self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
-                    specialist=self.execute_specialist(
-                        "fit-map",
-                        objective=f"Analisar {parameters['role']} na {parameters['company']}",
-                        extras={"application_id": intake_result.get("application_id")},
-                        model=model,
-                        variant=variant,
-                    ),
+                    specialist=self.execute_specialist("fit-map", objective=f"Analisar {parameters['role']} na {parameters['company']}", extras={"application_id": intake_result.get("application_id")}, model=model, variant=variant),
                 )
             elif workflow == "pasted_job_missing_metadata":
                 envelope["status"] = "blocked"
@@ -706,7 +478,6 @@ class HarnessSupervisor:
                 envelope["result"] = self._extract_linkedin_saved_jobs()
             elif workflow == "runtime_introspection":
                 from career.services import project as project_service
-
                 envelope["result"] = project_service.hermes_runtime_snapshot()
                 if isinstance(envelope["result"], dict):
                     stale = self._stale_active_intake_summary()
@@ -716,43 +487,11 @@ class HarnessSupervisor:
                 stale = self._stale_active_intake_summary()
                 display_text = "Esse número não existe no menu atual. Responda com um número listado ou peça `menu` para recarregar."
                 if stale:
-                    display_text += (
-                        f"\n\nHá um trabalho anterior salvo ({stale.get('role') or '-'} | {stale.get('company') or '-'})"
-                        " mas ele parece antigo; se quiser retomá-lo, diga `continue o trabalho em andamento`."
-                    )
-                envelope["result"] = {
-                    "status": "blocked",
-                    "kind": "invalid_menu_selection",
-                    "blocker_reason": "menu_selection_not_found",
-                    "display_text": display_text,
-                }
-            elif workflow in {
-                "fit_map",
-                "cv",
-                "cover_letter",
-                "feras",
-                "habilidades",
-                "notion_update",
-                "email_draft",
-            }:
-                step = {
-                    "fit_map": "fit-map",
-                    "cover_letter": "cover-letter",
-                    "notion_update": "notion-update",
-                    "email_draft": "email-draft",
-                }.get(workflow, workflow)
-                envelope["result"] = self.execute_specialist(
-                    step,
-                    objective=message,
-                    extras=self._specialist_extras(
-                        workflow,
-                        decision.parameters,
-                        runtime_context,
-                        channel=channel,
-                    ),
-                    model=model,
-                    variant=variant,
-                )
+                    display_text += f"\n\nHá um trabalho anterior salvo ({stale.get('role') or '-'} | {stale.get('company') or '-'}) mas ele parece antigo; se quiser retomá-lo, diga `continue o trabalho em andamento`."
+                envelope["result"] = {"status": "blocked", "kind": "invalid_menu_selection", "blocker_reason": "menu_selection_not_found", "display_text": display_text}
+            elif workflow in {"fit_map", "cv", "cover_letter", "feras", "habilidades", "notion_update", "email_draft"}:
+                step = {"fit_map": "fit-map", "cover_letter": "cover-letter", "notion_update": "notion-update", "email_draft": "email-draft"}.get(workflow, workflow)
+                envelope["result"] = self.execute_specialist(step, objective=message, extras=self._specialist_extras(workflow, decision.parameters, runtime_context, channel=channel), model=model, variant=variant)
             elif workflow == "generic_assistant":
                 envelope["result"] = self._run_generic_message(message, model=model)
             else:
@@ -761,40 +500,22 @@ class HarnessSupervisor:
                 return envelope
         except ValidationFailure as exc:
             self._clear_menu_state()
-            envelope["result"] = {
-                "status": "blocked",
-                "kind": "validation_failure",
-                "blocker_reason": "workflow_validation_failed",
-                "display_text": str(exc),
-            }
+            envelope["result"] = {"status": "blocked", "kind": "validation_failure", "blocker_reason": "workflow_validation_failed", "display_text": str(exc)}
         envelope["result"] = self._decorate_result_payload(envelope.get("result"))
         self._sync_menu_state_for_result(envelope.get("result"))
         result_status = envelope.get("result", {}).get("status") if isinstance(envelope.get("result"), dict) else None
         envelope["executed"] = result_status != "awaiting_input"
-        envelope["status"] = (
-            result_status
-            if result_status in {"blocked", "awaiting_input", "awaiting_approval"}
-            else "completed"
-        )
+        envelope["status"] = result_status if result_status in {"blocked", "awaiting_input", "awaiting_approval"} else "completed"
         return envelope
 
     @staticmethod
     def _pipeline_result(*, intake: dict[str, Any], specialist: dict[str, Any]) -> dict[str, Any]:
         specialist_status = str(specialist.get("status") or "")
         status = specialist_status if specialist_status in {"blocked", "awaiting_approval"} else "completed"
-        return {
-            "status": status,
-            "intake": intake,
-            "specialist": specialist,
-        }
+        return {"status": status, "intake": intake, "specialist": specialist}
 
     @staticmethod
-    def _bind_session_to_intake(
-        runtime_context: dict[str, Any] | None,
-        intake_result: dict[str, Any],
-        *,
-        channel: str,
-    ) -> None:
+    def _bind_session_to_intake(runtime_context: dict[str, Any] | None, intake_result: dict[str, Any], *, channel: str) -> None:
         if not runtime_context:
             return
         application_id = intake_result.get("application_id")
@@ -805,30 +526,15 @@ class HarnessSupervisor:
         if not session_id:
             return
         profile_id = str(runtime_context.get("profile_id") or "").strip() or None
-        application_context_service.register_session(
-            runtime=runtime,
-            profile_id=profile_id,
-            session_id=session_id,
-            application_id=str(application_id),
-            channel=channel,
-        )
+        application_context_service.register_session(runtime=runtime, profile_id=profile_id, session_id=session_id, application_id=str(application_id), channel=channel)
 
-    def _resume_and_continue(
-        self, message: str, *, model: str | None, variant: str | None
-    ) -> dict[str, Any]:
+    def _resume_and_continue(self, message: str, *, model: str | None, variant: str | None) -> dict[str, Any]:
         from career.services import intake as intake_service
-
         resume = intake_service.resume()
         next_step = str(resume.get("next_required_step") or "")
         if "fill_fit_map" in next_step or "draft" in next_step:
-            specialist = self.execute_specialist(
-                "fit-map", objective=message, model=model, variant=variant
-            )
-            return {
-                "status": "blocked" if specialist.get("status") == "blocked" else "completed",
-                "resume": resume,
-                "specialist": specialist,
-            }
+            specialist = self.execute_specialist("fit-map", objective=message, model=model, variant=variant)
+            return {"status": "blocked" if specialist.get("status") == "blocked" else "completed", "resume": resume, "specialist": specialist}
         return resume
 
     def _session_application_id(self, runtime_context: dict[str, Any] | None, *, channel: str) -> str | None:
@@ -839,20 +545,9 @@ class HarnessSupervisor:
             return None
         runtime = str(runtime_context.get("runtime") or channel or "cli")
         profile_id = str(runtime_context.get("profile_id") or "").strip() or None
-        return application_context_service.resolve_session(
-            runtime=runtime,
-            session_id=session_id,
-            profile_id=profile_id,
-        )
+        return application_context_service.resolve_session(runtime=runtime, session_id=session_id, profile_id=profile_id)
 
-    def _specialist_extras(
-        self,
-        workflow: str,
-        parameters: dict[str, Any] | None,
-        runtime_context: dict[str, Any] | None,
-        *,
-        channel: str,
-    ) -> dict[str, Any] | None:
+    def _specialist_extras(self, workflow: str, parameters: dict[str, Any] | None, runtime_context: dict[str, Any] | None, *, channel: str) -> dict[str, Any] | None:
         extras = dict(parameters or {})
         application_id = self._session_application_id(runtime_context, channel=channel)
         if application_id:
@@ -870,27 +565,11 @@ class HarnessSupervisor:
     def _extract_linkedin_saved_jobs(self) -> dict[str, Any]:
         if not self.root:
             return {"status": "blocked", "blocker_reason": "harness_root_missing"}
-        completed = subprocess.run(
-            ["npm", "run", "linkedin:saved-jobs:extract"],
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10 * 60,
-        )
+        completed = subprocess.run(["npm", "run", "linkedin:saved-jobs:extract"], cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10 * 60)
         if completed.returncode != 0:
             combined = f"{completed.stdout}\n{completed.stderr}"
             reason = "linkedin_auth_required" if "session" in combined.casefold() else "saved_jobs_extraction_failed"
-            return {
-                "status": "blocked",
-                "blocker_reason": reason,
-                "display_text": (
-                    "A sessão do LinkedIn expirou. Preciso que você autentique o LinkedIn para continuar."
-                    if reason == "linkedin_auth_required"
-                    else "Não consegui atualizar as vagas salvas do LinkedIn. A extração foi interrompida."
-                ),
-            }
+            return {"status": "blocked", "blocker_reason": reason, "display_text": "A sessão do LinkedIn expirou. Preciso que você autentique o LinkedIn para continuar." if reason == "linkedin_auth_required" else "Não consegui atualizar as vagas salvas do LinkedIn. A extração foi interrompida."}
         output_path = self.root / "inbox" / "linkedin_saved_jobs.json"
         if not output_path.exists():
             return {"status": "blocked", "blocker_reason": "saved_jobs_output_missing"}
@@ -899,26 +578,16 @@ class HarnessSupervisor:
         self._write_saved_jobs_menu_state(jobs)
         lines = ["Vagas salvas no LinkedIn:"]
         for index, job in enumerate(jobs, start=1):
-            lines.append(
-                f"{index}. {job.get('title') or '-'} | {job.get('company') or '-'} | {job.get('location') or '-'}"
-            )
+            lines.append(f"{index}. {job.get('title') or '-'} | {job.get('company') or '-'} | {job.get('location') or '-'}")
             lines.append(f"   {job.get('url') or '-'}")
         lines.extend(["", "Responda com o número ou a URL da vaga que você quer analisar."])
-        return {
-            "status": "completed",
-            "kind": "linkedin_saved_jobs",
-            "extracted_at": payload.get("extractedAt"),
-            "total": len(jobs),
-            "jobs": jobs,
-            "display_text": "\n".join(lines),
-        }
+        return {"status": "completed", "kind": "linkedin_saved_jobs", "extracted_at": payload.get("extractedAt"), "total": len(jobs), "jobs": jobs, "display_text": "\n".join(lines)}
 
     def _finalize_fit_map_pipeline(self) -> dict[str, Any]:
         if not self.root:
             return {"status": "blocked", "blocker_reason": "harness_root_missing"}
         from career.services import fit_map as fit_map_service
         from career.tasks.registry import run_task
-
         draft_path = CAREER_STATE / "fit_map.draft.json"
         fit_map_path = CAREER_STATE / "fit_map.json"
         try:
@@ -928,83 +597,30 @@ class HarnessSupervisor:
                 "score": run_task("fit_map.score", {"path": str(fit_map_path)}),
                 "validate": run_task("fit_map.validate", {"path": str(fit_map_path)}),
             }
-            register_command = [
-                str(self.root / "scripts" / "python.sh"),
-                "scripts/register_keywords.py",
-                "--fit-map",
-                str(fit_map_path),
-            ]
-            registered = subprocess.run(
-                register_command,
-                cwd=self.root,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=10 * 60,
-            )
+            register_command = [str(self.root / "scripts" / "python.sh"), "scripts/register_keywords.py", "--fit-map", str(fit_map_path)]
+            registered = subprocess.run(register_command, cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10 * 60)
             if registered.returncode != 0:
-                return {
-                    "status": "blocked",
-                    "blocker_reason": "register_keywords_failed",
-                    "command": register_command,
-                    "stderr": (registered.stderr or registered.stdout)[-2000:],
-                }
+                return {"status": "blocked", "blocker_reason": "register_keywords_failed", "command": register_command, "stderr": (registered.stderr or registered.stdout)[-2000:]}
             summary = fit_map_service.payload_summary(fit_map_path)
             quality = fit_map_service.quality_report(fit_map_path)
             registry = fit_map_service.registry_summary()
-            return {
-                "status": "completed",
-                "commands_executed": [
-                    "fit_map.validate_draft",
-                    "fit_map.build",
-                    "fit_map.score",
-                    "fit_map.validate",
-                    "scripts/register_keywords.py --fit-map .career-state/fit_map.json",
-                ],
-                "results": results,
-                "summary": {
-                    "cargo": summary.get("cargo"),
-                    "empresa": summary.get("empresa"),
-                    "nota_final": summary.get("nota_final"),
-                    "keyword_registration": registry.get("registered"),
-                    "quality_status": quality.get("status"),
-                },
-            }
+            return {"status": "completed", "commands_executed": ["fit_map.validate_draft", "fit_map.build", "fit_map.score", "fit_map.validate", "scripts/register_keywords.py --fit-map .career-state/fit_map.json"], "results": results, "summary": {"cargo": summary.get("cargo"), "empresa": summary.get("empresa"), "nota_final": summary.get("nota_final"), "keyword_registration": registry.get("registered"), "quality_status": quality.get("status")}}
         except Exception as exc:
-            return {
-                "status": "blocked",
-                "blocker_reason": "fit_map_finalize_failed",
-                "error": str(exc),
-            }
+            return {"status": "blocked", "blocker_reason": "fit_map_finalize_failed", "error": str(exc)}
 
-    def _maybe_auto_execute_approved_action(
-        self,
-        step: str,
-        *,
-        objective: str | None,
-        prepared: dict[str, Any],
-    ) -> dict[str, Any] | None:
+    def _maybe_auto_execute_approved_action(self, step: str, *, objective: str | None, prepared: dict[str, Any]) -> dict[str, Any] | None:
         if not self.root:
             return None
         if not self._should_auto_execute_approved_action(step, objective=objective):
             return None
         approval_id = str((prepared.get("approval") or {}).get("approval_id") or "").strip()
         if not approval_id:
-            return {
-                "status": "blocked",
-                "blocker_reason": "approval_id_missing",
-            }
+            return {"status": "blocked", "blocker_reason": "approval_id_missing"}
         try:
             ApprovalStore(self.root).approve(approval_id)
             executed = self.execute_approved_action(approval_id)
         except ValidationFailure as exc:
-            return {
-                "status": "blocked",
-                "blocker_reason": "approved_action_validation_failed",
-                "error": str(exc),
-                "approval_id": approval_id,
-            }
+            return {"status": "blocked", "blocker_reason": "approved_action_validation_failed", "error": str(exc), "approval_id": approval_id}
         executed["auto_approved"] = True
         executed["approval_policy"] = self._approval_policy(step)
         return executed
@@ -1039,10 +655,7 @@ class HarnessSupervisor:
     def _automation_config(self) -> dict[str, Any]:
         config_path = self.root / ".career-state" / "applications_v2" / "config.json" if self.root else None
         payload = read_json(config_path) if config_path and config_path.exists() else {}
-        merged = {
-            "fit_map": {**DEFAULT_HARNESS_AUTOMATION["fit_map"]},
-            "approvals": {**DEFAULT_HARNESS_AUTOMATION["approvals"]},
-        }
+        merged = {"fit_map": {**DEFAULT_HARNESS_AUTOMATION["fit_map"]}, "approvals": {**DEFAULT_HARNESS_AUTOMATION["approvals"]}}
         harness = payload.get("harness", {}) if isinstance(payload.get("harness"), dict) else {}
         if isinstance(harness.get("fit_map"), dict):
             merged["fit_map"].update(harness["fit_map"])
@@ -1054,240 +667,70 @@ class HarnessSupervisor:
         if not self.root:
             return
         from career.utils import write_json
-
         numbered_items = []
         for index, job in enumerate(jobs, start=1):
-            numbered_items.append(
-                {
-                    "number": index,
-                    "section_id": "linkedin_saved_jobs",
-                    "section_title": "Vagas salvas no LinkedIn",
-                    "id": f"linkedin_saved_job_{job.get('jobId') or index}",
-                    "title": job.get("title"),
-                    "description": f"{job.get('company') or '-'} | {job.get('location') or '-'}",
-                    "prompt": job.get("url"),
-                    "recommended": False,
-                }
-            )
-        write_json(
-            self.root / ".career-state" / "harness" / "menu_state.json",
-            {
-                "kind": "session_menu_state",
-                "updated_at": utc_now_iso(),
-                "menu_context": "linkedin_saved_jobs",
-                "headline": "Vagas salvas no LinkedIn",
-                "numbered_items": numbered_items,
-            },
-        )
+            numbered_items.append({"number": index, "section_id": "linkedin_saved_jobs", "section_title": "Vagas salvas no LinkedIn", "id": f"linkedin_saved_job_{job.get('jobId') or index}", "title": job.get("title"), "description": f"{job.get('company') or '-'} | {job.get('location') or '-'}", "prompt": job.get("url"), "recommended": False})
+        write_json(self.root / ".career-state" / "harness" / "menu_state.json", {"kind": "session_menu_state", "updated_at": utc_now_iso(), "menu_context": "linkedin_saved_jobs", "headline": "Vagas salvas no LinkedIn", "numbered_items": numbered_items})
 
     def _build_session_menu(self) -> dict[str, Any]:
         active = self._active_intake_summary()
         stale = self._stale_active_intake_summary()
         if active:
             payload = {
-                "status": "completed",
-                "kind": "session_menu",
-                "menu_context": "active_job",
-                "headline": "Ha uma vaga ativa. Posso continuar daqui.",
-                "active_intake": active,
+                "status": "completed", "kind": "session_menu", "menu_context": "active_job",
+                "headline": "Ha uma vaga ativa. Posso continuar daqui.", "active_intake": active,
                 "sections": [
-                    {
-                        "id": "continue_active_job",
-                        "title": "Continuar vaga ativa",
-                        "items": [
-                            self._menu_item(
-                                "resume",
-                                "Retomar trabalho em andamento",
-                                "Continuar exatamente do proximo passo salvo no estado local.",
-                                "continue o trabalho em andamento",
-                                recommended=True,
-                            ),
-                            self._menu_item(
-                                "fit_map",
-                                "Continuar analise da vaga ativa",
-                                "Seguir o pipeline da analise/FIT_MAP da vaga atual.",
-                                "continue a analise da vaga ativa",
-                            ),
-                        ],
-                    },
-                    {
-                        "id": "generate_outputs",
-                        "title": "Gerar entregaveis da vaga ativa",
-                        "items": [
-                            self._menu_item(
-                                "cv",
-                                "Gerar CV",
-                                "Produzir o curriculo orientado pela vaga ativa.",
-                                "gere um CV para a vaga ativa",
-                            ),
-                            self._menu_item(
-                                "feras",
-                                "Gerar pitch / FERAS",
-                                "Produzir o pitch executivo e o texto FERAS.",
-                                "gere um pitch FERAS para a vaga ativa",
-                            ),
-                            self._menu_item(
-                                "cover_letter",
-                                "Gerar carta",
-                                "Produzir a carta de apresentacao da vaga ativa.",
-                                "gere uma carta de apresentacao para a vaga ativa",
-                            ),
-                            self._menu_item(
-                                "habilidades",
-                                "Gerar habilidades ATS/Gupy",
-                                "Montar habilidades-chave e resumo ATS da vaga ativa.",
-                                "gere habilidades ATS para a vaga ativa",
-                            ),
-                        ],
-                    },
-                    {
-                        "id": "capture_new_job",
-                        "title": "Trocar para outra vaga",
-                        "items": [
-                            self._menu_item(
-                                "linkedin_saved_jobs",
-                                "Ver vagas salvas no LinkedIn",
-                                "Abrir o rastreador salvo e escolher uma nova vaga.",
-                                "listar minhas vagas salvas",
-                            ),
-                            self._menu_item(
-                                "notion_job_analysis",
-                                "Avaliar vaga do Notion por ID",
-                                "Iniciar analise de uma vaga ja cadastrada no Notion.",
-                                "quero avaliar uma vaga do Notion",
-                            ),
-                            self._menu_item(
-                                "linkedin_job_intake",
-                                "Avaliar vaga do LinkedIn por URL",
-                                "Extrair a descricao da vaga e iniciar nova analise.",
-                                "quero avaliar uma vaga do LinkedIn",
-                            ),
-                            self._menu_item(
-                                "pasted_job_intake",
-                                "Colar nova vaga para analise",
-                                "Salvar uma descricao colada e abrir novo intake.",
-                                "quero colar uma vaga para analise",
-                            ),
-                        ],
-                    },
-                    {
-                        "id": "notion_actions",
-                        "title": "Notion",
-                        "items": [
-                            self._menu_item(
-                                "notion_update",
-                                "Atualizar ou criar vaga no Notion",
-                                "Preparar o dry-run de escrita no Notion a partir do estado atual.",
-                                "atualize a vaga no Notion",
-                            ),
-                        ],
-                    },
+                    {"id": "continue_active_job", "title": "Continuar vaga ativa", "items": [
+                        self._menu_item("resume", "Retomar trabalho em andamento", "Continuar exatamente do proximo passo salvo no estado local.", "continue o trabalho em andamento", recommended=True),
+                        self._menu_item("fit_map", "Continuar analise da vaga ativa", "Seguir o pipeline da analise/FIT_MAP da vaga atual.", "continue a analise da vaga ativa"),
+                    ]},
+                    {"id": "generate_outputs", "title": "Gerar entregaveis da vaga ativa", "items": [
+                        self._menu_item("cv", "Gerar CV", "Produzir o curriculo orientado pela vaga ativa.", "gere um CV para a vaga ativa"),
+                        self._menu_item("feras", "Gerar pitch / FERAS", "Produzir o pitch executivo e o texto FERAS.", "gere um pitch FERAS para a vaga ativa"),
+                        self._menu_item("cover_letter", "Gerar carta", "Produzir a carta de apresentacao da vaga ativa.", "gere uma carta de apresentacao para a vaga ativa"),
+                        self._menu_item("habilidades", "Gerar habilidades ATS/Gupy", "Montar habilidades-chave e resumo ATS da vaga ativa.", "gere habilidades ATS para a vaga ativa"),
+                    ]},
+                    {"id": "capture_new_job", "title": "Trocar para outra vaga", "items": [
+                        self._menu_item("linkedin_saved_jobs", "Ver vagas salvas no LinkedIn", "Abrir o rastreador salvo e escolher uma nova vaga.", "listar minhas vagas salvas"),
+                        self._menu_item("notion_job_analysis", "Avaliar vaga do Notion por ID", "Iniciar analise de uma vaga ja cadastrada no Notion.", "quero avaliar uma vaga do Notion"),
+                        self._menu_item("linkedin_job_intake", "Avaliar vaga do LinkedIn por URL", "Extrair a descricao da vaga e iniciar nova analise.", "quero avaliar uma vaga do LinkedIn"),
+                        self._menu_item("pasted_job_intake", "Colar nova vaga para analise", "Salvar uma descricao colada e abrir novo intake.", "quero colar uma vaga para analise"),
+                    ]},
+                    {"id": "notion_actions", "title": "Notion", "items": [
+                        self._menu_item("notion_update", "Atualizar ou criar vaga no Notion", "Preparar o dry-run de escrita no Notion a partir do estado atual.", "atualize a vaga no Notion"),
+                    ]},
                 ],
             }
             return self._finalize_menu_payload(payload)
         payload = {
-            "status": "completed",
-            "kind": "session_menu",
-            "menu_context": "no_active_job",
-            "headline": (
-                "Nao ha vaga ativa recente. Estas sao as entradas mais uteis para comecar."
-                if stale
-                else "Nao ha vaga ativa. Estas sao as entradas mais uteis para comecar."
-            ),
+            "status": "completed", "kind": "session_menu", "menu_context": "no_active_job",
+            "headline": "Nao ha vaga ativa recente. Estas sao as entradas mais uteis para comecar." if not stale else "Nao ha vaga ativa. Estas sao as entradas mais uteis para comecar.",
             "sections": [
-                {
-                    "id": "new_job_sources",
-                    "title": "Entradas de vaga",
-                    "items": [
-                        self._menu_item(
-                            "linkedin_saved_jobs",
-                            "Ver vagas salvas no LinkedIn",
-                            "Listar as vagas salvas no Jobs Tracker para escolher uma.",
-                            "listar minhas vagas salvas",
-                            recommended=True,
-                        ),
-                        self._menu_item(
-                            "notion_job_analysis",
-                            "Avaliar vaga do Notion por ID",
-                            "Avaliar rapidamente uma vaga ja registrada no Notion.",
-                            "quero avaliar uma vaga do Notion",
-                            recommended=True,
-                        ),
-                        self._menu_item(
-                            "linkedin_job_intake",
-                            "Avaliar vaga do LinkedIn por URL",
-                            "Extrair e persistir uma vaga do LinkedIn antes da analise.",
-                            "quero avaliar uma vaga do LinkedIn",
-                        ),
-                        self._menu_item(
-                            "pasted_job_intake",
-                            "Colar nova vaga para analise",
-                            "Usar texto colado quando a vaga nao vier do LinkedIn nem do Notion.",
-                            "quero colar uma vaga para analise",
-                        ),
-                    ],
-                },
+                {"id": "new_job_sources", "title": "Entradas de vaga", "items": [
+                    self._menu_item("linkedin_saved_jobs", "Ver vagas salvas no LinkedIn", "Listar as vagas salvas no Jobs Tracker para escolher uma.", "listar minhas vagas salvas", recommended=True),
+                    self._menu_item("notion_job_analysis", "Avaliar vaga do Notion por ID", "Avaliar rapidamente uma vaga ja registrada no Notion.", "quero avaliar uma vaga do Notion", recommended=True),
+                    self._menu_item("linkedin_job_intake", "Avaliar vaga do LinkedIn por URL", "Extrair e persistir uma vaga do LinkedIn antes da analise.", "quero avaliar uma vaga do LinkedIn"),
+                    self._menu_item("pasted_job_intake", "Colar nova vaga para analise", "Usar texto colado quando a vaga nao vier do LinkedIn nem do Notion.", "quero colar uma vaga para analise"),
+                ]},
             ],
         }
         if stale:
             payload["stale_active_intake"] = stale
-            payload["sections"].append(
-                {
-                    "id": "resume_previous_job",
-                    "title": "Retomar Trabalho Antigo",
-                    "items": [
-                        self._menu_item(
-                            "resume",
-                            f"Retomar {stale.get('role') or 'vaga anterior'}",
-                            "Continuar manualmente o trabalho salvo anteriormente, mesmo ele parecendo antigo.",
-                            "continue o trabalho em andamento",
-                        )
-                    ],
-                }
-            )
+            payload["sections"].append({"id": "resume_previous_job", "title": "Retomar Trabalho Antigo", "items": [self._menu_item("resume", f"Retomar {stale.get('role') or 'vaga anterior'}", "Continuar manualmente o trabalho salvo anteriormente, mesmo ele parecendo antigo.", "continue o trabalho em andamento")]})
         return self._finalize_menu_payload(payload)
 
-    def run_application_stage(
-        self,
-        *,
-        stage: str,
-        record_key: str,
-        application_dir: Path,
-        request_json: Path,
-        request_md: Path,
-        runner_config: dict[str, Any],
-        model: str = "",
-        variant: str = "",
-        on_start: Callable[[list[str]], None] | None = None,
-    ) -> dict[str, Any]:
+    def run_application_stage(self, *, stage: str, record_key: str, application_dir: Path, request_json: Path, request_md: Path, runner_config: dict[str, Any], model: str = "", variant: str = "", on_start: Callable | None = None) -> dict[str, Any]:
         if not self.root or not self.runner:
             raise ValueError("HarnessSupervisor requires root and runner to execute stages.")
         instruction = self._stage_instruction(stage)
-        run_request = AgentRunRequest(
-            stage=stage,
-            record_key=record_key,
-            request_path=request_md,
-            instruction=instruction,
-            runner_config=runner_config,
-            model=model,
-            variant=variant,
-        )
+        run_request = AgentRunRequest(stage=stage, record_key=record_key, request_path=request_md, instruction=instruction, runner_config=runner_config, model=model, variant=variant)
         harness_run = HarnessRunStore(self.root, application_dir).begin(stage, request_json, request_md)
         command = self.runner.build_command(run_request)
         if on_start:
             on_start(command)
         result = self.runner.run(run_request)
         isolation = harness_run.inspect()
-        payload = {
-            "stage": stage,
-            "command": command,
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "finished_at": utc_now_iso(),
-            "run_dir": str(harness_run.run_dir.relative_to(self.root)),
-            "isolation": isolation,
-        }
+        payload = {"stage": stage, "command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "finished_at": utc_now_iso(), "run_dir": str(harness_run.run_dir.relative_to(self.root)), "isolation": isolation}
         harness_run.finish(payload, isolation)
         return payload
 
@@ -1313,64 +756,18 @@ class HarnessSupervisor:
         command.extend(["-z", message])
         env = os.environ.copy()
         env["CAREER_HARNESS_SUBAGENT"] = "1"
-        completed = subprocess.run(
-            command,
-            cwd=self.root,
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15 * 60,
-        )
+        completed = subprocess.run(command, cwd=self.root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15 * 60)
         stdout = (completed.stdout or "").strip()
         stderr = (completed.stderr or "").strip()
-        return {
-            "status": "completed" if completed.returncode == 0 else "blocked",
-            "mode": "generic_hermes_fallback",
-            **({"display_text": stdout} if completed.returncode == 0 and stdout else {}),
-            "command": command,
-            "stdout": stdout,
-            "stderr": stderr,
-            "returncode": completed.returncode,
-            **({"blocker_reason": "generic_runner_failed"} if completed.returncode != 0 else {}),
-        }
+        return {"status": "completed" if completed.returncode == 0 else "blocked", "mode": "generic_hermes_fallback", **({"display_text": stdout} if completed.returncode == 0 and stdout else {}), "command": command, "stdout": stdout, "stderr": stderr, "returncode": completed.returncode, **({"blocker_reason": "generic_runner_failed"} if completed.returncode != 0 else {})}
 
     @staticmethod
-    def _decision(
-        workflow: str,
-        stage: str,
-        confidence: str,
-        reason: str,
-        *,
-        requires_approval: bool = False,
-        parameters: dict[str, Any] | None = None,
-    ) -> DispatchDecision:
-        return DispatchDecision(
-            workflow=workflow,
-            stage=stage,
-            confidence=confidence,
-            reason=reason,
-            requires_approval=requires_approval,
-            parameters=parameters,
-        )
+    def _decision(workflow: str, stage: str, confidence: str, reason: str, *, requires_approval: bool = False, parameters: dict[str, Any] | None = None) -> DispatchDecision:
+        return DispatchDecision(workflow=workflow, stage=stage, confidence=confidence, reason=reason, requires_approval=requires_approval, parameters=parameters)
 
     @staticmethod
-    def _menu_item(
-        item_id: str,
-        title: str,
-        description: str,
-        prompt: str,
-        *,
-        recommended: bool = False,
-    ) -> dict[str, Any]:
-        return {
-            "id": item_id,
-            "title": title,
-            "description": description,
-            "prompt": prompt,
-            "recommended": recommended,
-        }
+    def _menu_item(item_id: str, title: str, description: str, prompt: str, *, recommended: bool = False) -> dict[str, Any]:
+        return {"id": item_id, "title": title, "description": description, "prompt": prompt, "recommended": recommended}
 
     def _finalize_menu_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         numbered_items = self._numbered_menu_items(payload.get("sections") or [])
@@ -1388,33 +785,13 @@ class HarnessSupervisor:
             section_id = str(section.get("id") or "")
             section_title = str(section.get("title") or "")
             for item in section.get("items") or []:
-                numbered.append(
-                    {
-                        "number": index,
-                        "section_id": section_id,
-                        "section_title": section_title,
-                        "id": item.get("id"),
-                        "title": item.get("title"),
-                        "description": item.get("description"),
-                        "prompt": item.get("prompt"),
-                        "recommended": bool(item.get("recommended")),
-                    }
-                )
+                numbered.append({"number": index, "section_id": section_id, "section_title": section_title, "id": item.get("id"), "title": item.get("title"), "description": item.get("description"), "prompt": item.get("prompt"), "recommended": bool(item.get("recommended"))})
                 index += 1
         return numbered
 
     def _write_menu_state(self, payload: dict[str, Any]) -> None:
-        state = {
-            "kind": "session_menu_state",
-            "updated_at": utc_now_iso(),
-            "menu_context": payload.get("menu_context"),
-            "headline": payload.get("headline"),
-            "numbered_items": payload.get("numbered_items") or [],
-        }
-        path = self.root / ".career-state" / "harness" / "menu_state.json"
         from career.utils import write_json
-
-        write_json(path, state)
+        write_json(self.root / ".career-state" / "harness" / "menu_state.json", {"kind": "session_menu_state", "updated_at": utc_now_iso(), "menu_context": payload.get("menu_context"), "headline": payload.get("headline"), "numbered_items": payload.get("numbered_items") or []})
 
     def _clear_menu_state(self) -> None:
         if not self.root:
@@ -1435,22 +812,15 @@ class HarnessSupervisor:
         if not self._result_has_completed_fit_map(result):
             return None
         from career.services import fit_map as fit_map_service
-
         summary = fit_map_service.payload_summary()
         if summary.get("status") != "ok":
             return None
         nota_final = summary.get("nota_final")
         nota_text = f"{float(nota_final):.1f}/10" if isinstance(nota_final, (int, float)) else "n/d"
         keyword_registration = summary.get("keyword_registration") or {}
-        keyword_line = (
-            "Keywords ATS registradas: sim."
-            if keyword_registration.get("registered")
-            else "Keywords ATS pendentes de registro."
-        )
+        keyword_line = "Keywords ATS registradas: sim." if keyword_registration.get("registered") else "Keywords ATS pendentes de registro."
         payload = {
-            "status": result.get("status") or "completed",
-            "kind": "agent_menu",
-            "menu_context": "active_job",
+            "status": result.get("status") or "completed", "kind": "agent_menu", "menu_context": "active_job",
             "headline": "A analise da vaga foi concluida. Posso seguir para a proxima entrega.",
             "active_intake": self._active_intake_summary() or self._stale_active_intake_summary(),
             "summary_lines": [
@@ -1459,45 +829,13 @@ class HarnessSupervisor:
                 f"Gaps mapeados: {summary.get('gaps_count') or 0} | Objecoes mapeadas: {summary.get('objecoes_count') or 0}",
                 keyword_line,
             ],
-            "sections": [
-                {
-                    "id": "post_fit_map_actions",
-                    "title": "Proximos passos possiveis",
-                    "items": [
-                        self._menu_item(
-                            "cv",
-                            "Gerar CV",
-                            "Produzir o curriculo orientado pela vaga ativa.",
-                            "gere um CV para a vaga ativa",
-                            recommended=True,
-                        ),
-                        self._menu_item(
-                            "feras",
-                            "Pitch/FERAS",
-                            "Produzir o pitch executivo e o texto FERAS.",
-                            "gere um pitch FERAS para a vaga ativa",
-                        ),
-                        self._menu_item(
-                            "cover_letter",
-                            "Carta de apresentacao",
-                            "Produzir a carta de apresentacao da vaga ativa.",
-                            "gere uma carta de apresentacao para a vaga ativa",
-                        ),
-                        self._menu_item(
-                            "habilidades",
-                            "Habilidades ATS/Gupy",
-                            "Montar habilidades-chave e resumo ATS da vaga ativa.",
-                            "gere habilidades ATS para a vaga ativa",
-                        ),
-                        self._menu_item(
-                            "notion_update",
-                            "Criar no Notion",
-                            "Criar ou atualizar o registro da vaga no Notion a partir do estado atual.",
-                            "crie registro no Notion para a vaga ativa",
-                        ),
-                    ],
-                }
-            ],
+            "sections": [{"id": "post_fit_map_actions", "title": "Proximos passos possiveis", "items": [
+                self._menu_item("cv", "Gerar CV", "Produzir o curriculo orientado pela vaga ativa.", "gere um CV para a vaga ativa", recommended=True),
+                self._menu_item("feras", "Pitch/FERAS", "Produzir o pitch executivo e o texto FERAS.", "gere um pitch FERAS para a vaga ativa"),
+                self._menu_item("cover_letter", "Carta de apresentacao", "Produzir a carta de apresentacao da vaga ativa.", "gere uma carta de apresentacao para a vaga ativa"),
+                self._menu_item("habilidades", "Habilidades ATS/Gupy", "Montar habilidades-chave e resumo ATS da vaga ativa.", "gere habilidades ATS para a vaga ativa"),
+                self._menu_item("notion_update", "Criar no Notion", "Criar ou atualizar o registro da vaga no Notion a partir do estado atual.", "crie registro no Notion para a vaga ativa"),
+            ]}],
         }
         return self._finalize_menu_payload(payload)
 
@@ -1508,11 +846,7 @@ class HarnessSupervisor:
         if str(result.get("step") or "") == "fit-map":
             return True
         specialist = result.get("specialist")
-        return (
-            isinstance(specialist, dict)
-            and str(specialist.get("status") or "") == "completed"
-            and str(specialist.get("step") or "") == "fit-map"
-        )
+        return isinstance(specialist, dict) and str(specialist.get("status") or "") == "completed" and str(specialist.get("step") or "") == "fit-map"
 
     def _sync_menu_state_for_result(self, result: Any) -> None:
         if not self.root or not isinstance(result, dict):
@@ -1532,14 +866,7 @@ class HarnessSupervisor:
         selected = next((item for item in items if int(item.get("number") or 0) == int(text)), None)
         if not selected:
             return None
-        return {
-            "number": int(text),
-            "id": selected.get("id"),
-            "title": selected.get("title"),
-            "description": selected.get("description"),
-            "prompt": selected.get("prompt"),
-            "menu_context": payload.get("menu_context"),
-        }
+        return {"number": int(text), "id": selected.get("id"), "title": selected.get("title"), "description": selected.get("description"), "prompt": selected.get("prompt"), "menu_context": payload.get("menu_context")}
 
     def _invalid_menu_selection(self, message: str) -> str | None:
         text = " ".join(str(message or "").strip().split())
@@ -1568,28 +895,14 @@ class HarnessSupervisor:
     def _menu_input_request(selection: dict[str, Any]) -> dict[str, Any] | None:
         item_id = str(selection.get("id") or "")
         requests = {
-            "notion_job_analysis": (
-                "notion_id",
-                "Qual é o número da vaga no Notion? Pode responder somente com o número.",
-            ),
-            "linkedin_job_intake": (
-                "linkedin_job_url",
-                "Envie a URL da vaga no LinkedIn.",
-            ),
-            "pasted_job_intake": (
-                "pasted_job",
-                "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. Depois inclua a descrição completa.",
-            ),
+            "notion_job_analysis": ("notion_id", "Qual é o número da vaga no Notion? Pode responder somente com o número."),
+            "linkedin_job_intake": ("linkedin_job_url", "Envie a URL da vaga no LinkedIn."),
+            "pasted_job_intake": ("pasted_job", "Cole a vaga com duas linhas no início: Empresa: nome e Cargo: nome. Depois inclua a descrição completa."),
         }
         request = requests.get(item_id)
         if not request:
             return None
-        return {
-            "status": "awaiting_input",
-            "kind": "input_request",
-            "input_kind": request[0],
-            "display_text": request[1],
-        }
+        return {"status": "awaiting_input", "kind": "input_request", "input_kind": request[0], "display_text": request[1]}
 
     @staticmethod
     def _saved_job_metadata_hints(selection: dict[str, Any] | None) -> dict[str, str]:
@@ -1600,21 +913,13 @@ class HarnessSupervisor:
         description = str(selection.get("description") or "")
         if " | " in description:
             company, location = [part.strip() for part in description.split(" | ", 1)]
-        return {
-            "role": str(selection.get("title") or "").strip(),
-            "company": company,
-            "location": location,
-        }
+        return {"role": str(selection.get("title") or "").strip(), "company": company, "location": location}
 
     def _write_pending_input(self, request: dict[str, Any]) -> None:
         if not self.root:
             return
         from career.utils import write_json
-
-        write_json(
-            self.root / ".career-state" / "harness" / "pending_input.json",
-            {**request, "updated_at": utc_now_iso()},
-        )
+        write_json(self.root / ".career-state" / "harness" / "pending_input.json", {**request, "updated_at": utc_now_iso()})
 
     def _clear_pending_input(self) -> None:
         if not self.root:
@@ -1647,17 +952,11 @@ class HarnessSupervisor:
         active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else None
         stale = payload.get("stale_active_intake") if isinstance(payload.get("stale_active_intake"), dict) else None
         if active:
-            company = str(active.get("company") or "-")
-            role = str(active.get("role") or "-")
-            next_step = str(active.get("next_required_step") or "-")
-            lines.append(f"Vaga ativa: {role} | {company}")
-            lines.append(f"Próximo passo salvo: {next_step}")
+            lines.append(f"Vaga ativa: {active.get('role') or '-'} | {active.get('company') or '-'}")
+            lines.append(f"Próximo passo salvo: {active.get('next_required_step') or '-'}")
         elif stale:
-            company = str(stale.get("company") or "-")
-            role = str(stale.get("role") or "-")
-            updated_at = str(stale.get("updated_at") or "-")
-            lines.append(f"Trabalho antigo detectado: {role} | {company}")
-            lines.append(f"Última atualização salva: {updated_at}")
+            lines.append(f"Trabalho antigo detectado: {stale.get('role') or '-'} | {stale.get('company') or '-'}")
+            lines.append(f"Última atualização salva: {stale.get('updated_at') or '-'}")
         for summary_line in payload.get("summary_lines") or []:
             if isinstance(summary_line, str) and summary_line.strip():
                 lines.append(summary_line)
@@ -1705,16 +1004,7 @@ class HarnessSupervisor:
 
     @staticmethod
     def _normalize_active_intake(active: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "source_type": active.get("source_type"),
-            "source_id": active.get("source_id"),
-            "company": active.get("company"),
-            "role": active.get("role"),
-            "job_description_path": active.get("job_description_path"),
-            "next_required_step": active.get("next_required_step"),
-            "status": active.get("status"),
-            "updated_at": active.get("updated_at"),
-        }
+        return {"source_type": active.get("source_type"), "source_id": active.get("source_id"), "company": active.get("company"), "role": active.get("role"), "job_description_path": active.get("job_description_path"), "next_required_step": active.get("next_required_step"), "status": active.get("status"), "updated_at": active.get("updated_at")}
 
     @staticmethod
     def _is_stale_active_intake(active: dict[str, Any]) -> bool:
@@ -1731,43 +1021,12 @@ class HarnessSupervisor:
 
     @staticmethod
     def _is_runtime_introspection(lowered: str) -> bool:
-        triggers = (
-            "temperatura",
-            "temperature",
-            "config do hermes",
-            "configuração do hermes",
-            "configuracao do hermes",
-            "hermes config",
-            "qual modelo",
-            "que modelo",
-            "model you are using",
-            "modelo que vc está usando",
-            "modelo que vc esta usando",
-            "runtime do hermes",
-            "runtime local",
-        )
+        triggers = ("temperatura", "temperature", "config do hermes", "configuração do hermes", "configuracao do hermes", "hermes config", "qual modelo", "que modelo", "model you are using", "modelo que vc está usando", "modelo que vc esta usando", "runtime do hermes", "runtime local")
         return any(trigger in lowered for trigger in triggers)
 
     @staticmethod
     def _is_menu_request(lowered: str) -> bool:
-        if lowered.strip(" !.,?") in {
-            "oi",
-            "ola",
-            "olá",
-            "bom dia",
-            "boa tarde",
-            "boa noite",
-        }:
+        if lowered.strip(" !.,?") in {"oi", "ola", "olá", "bom dia", "boa tarde", "boa noite"}:
             return True
-        triggers = (
-            "menu",
-            "opcoes",
-            "opções",
-            "nova sessao",
-            "nova sessão",
-            "o que posso fazer",
-            "atalhos",
-            "acoes comuns",
-            "ações comuns",
-        )
+        triggers = ("menu", "opcoes", "opções", "nova sessao", "nova sessão", "o que posso fazer", "atalhos", "acoes comuns", "ações comuns")
         return any(trigger in lowered for trigger in triggers)

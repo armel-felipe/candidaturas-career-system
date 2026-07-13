@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 from pathlib import Path
 import sys
 
@@ -24,6 +25,7 @@ from career.services import notion as notion_service
 from career.services import project as project_service
 from career.services import review as review_service
 from career.services import workflow_reset as workflow_reset_service
+from career.services.session_memory import SessionMemoryService
 from career.tasks.registry import run_pipeline, run_task
 from career.utils import CareerError
 from career.workflow.state_store import WorkflowStateStore
@@ -310,6 +312,34 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_reset = workflow_sub.add_parser("reset")
     workflow_reset.add_argument("--dry-run", action="store_true")
     workflow_reset.add_argument("--no-backup", action="store_true")
+
+    session = subparsers.add_parser("session")
+    session_sub = session.add_subparsers(dest="action", required=True)
+    session_status = session_sub.add_parser("status")
+    session_status.add_argument("--session-id")
+    session_set = session_sub.add_parser("set")
+    session_set.add_argument("key")
+    session_set.add_argument("value")
+    session_set.add_argument("--session-id")
+    session_set.add_argument("--ttl", type=int, default=3600)
+    session_get = session_sub.add_parser("get")
+    session_get.add_argument("key")
+    session_get.add_argument("--session-id")
+    session_get_all = session_sub.add_parser("get-all")
+    session_get_all.add_argument("--session-id")
+    session_clean = session_sub.add_parser("clean")
+    session_clean.add_argument("--session-id")
+    session_reset = session_sub.add_parser("reset")
+    session_reset.add_argument("--session-id")
+
+    query = subparsers.add_parser("query")
+    query.add_argument("--filter", default="")
+    query.add_argument("--format", choices=["table", "json", "human", "ids"], default="table")
+    query.add_argument("--source", choices=["applications", "notion"], default="applications")
+    query.add_argument("--count", action="store_true")
+    query.add_argument("--limit", type=int)
+    query.add_argument("--offset", type=int, default=0)
+    query.add_argument("--list-filters", action="store_true")
     return parser
 
 
@@ -1094,6 +1124,56 @@ def main(argv: list[str] | None = None) -> int:
             result = run_pipeline(args.task_names, json.loads(args.arguments), state_store=state_store)
             _dump(result)
             return 0
+
+    if args.command == "session":
+        session_id = args.session_id or str(uuid.uuid4())
+        db = Database()
+        db.init_schema()
+        svc = SessionMemoryService(db)
+        if args.action == "status":
+            _dump({"session_id": session_id, "memory": svc.status(session_id)})
+        elif args.action == "set":
+            svc.set(session_id, args.key, args.value, ttl_seconds=args.ttl)
+            _dump({"session_id": session_id, "key": args.key, "ttl": args.ttl, "status": "set"})
+        elif args.action == "get":
+            value = svc.get(session_id, args.key)
+            _dump({"session_id": session_id, "key": args.key, "value": value})
+        elif args.action == "get-all":
+            _dump({"session_id": session_id, "memory": svc.get_all(session_id)})
+        elif args.action == "clean":
+            svc.clean(session_id)
+            _dump({"session_id": session_id, "status": "cleaned"})
+        elif args.action == "reset":
+            svc.reset(session_id)
+            _dump({"session_id": session_id, "status": "reset"})
+        return 0
+
+    if args.command == "query":
+        from career.services.database import Database
+        from career.services.query_engine import QueryEngine
+
+        db = Database()
+        db.init_schema()
+        engine = QueryEngine(db)
+
+        if args.list_filters:
+            _dump(engine.list_filters())
+            return 0
+
+        if args.count:
+            result = engine.count(args.filter, source=args.source)
+            _dump({"count": result, "filter": args.filter, "source": args.source})
+            return 0
+
+        rows = engine.execute(
+            args.filter,
+            source=args.source,
+            limit=args.limit,
+            offset=args.offset,
+        )
+        output = engine.format_output(rows, fmt=args.format)
+        print(output)
+        return 0
 
     parser.print_help()
     return 2
