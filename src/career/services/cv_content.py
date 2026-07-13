@@ -195,9 +195,15 @@ EXPERIENCE_CATALOG: list[dict[str, Any]] = [
 ]
 
 
-DEFAULT_EDUCATION = [
+DEFAULT_EDUCATION_PT = [
     "MBA Corporate Strategy — BSP Business School São Paulo (2017)",
     "Engenheiro Químico — Faculdades Oswaldo Cruz (2014)",
+    "Six Sigma Green Belt — Setec Consulting (2020)",
+]
+
+DEFAULT_EDUCATION_EN = [
+    "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo (2017)",
+    "B.Sc. Chemical Engineering — Faculdades Oswaldo Cruz (2014)",
     "Six Sigma Green Belt — Setec Consulting (2020)",
 ]
 
@@ -220,6 +226,8 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
     summary_text, summary_support = _build_summary(selected_with_bullets, fit_map)
+    is_en = str(fit_map.get("idioma") or "").strip().lower().startswith("en")
+    education_list = DEFAULT_EDUCATION_EN if is_en else DEFAULT_EDUCATION_PT
     payload = {
         "metadata": {
             "kind": "cv_content",
@@ -254,8 +262,8 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
             }
             for exp in selected_with_bullets
         ],
-        "education": list(DEFAULT_EDUCATION),
-        "formacao": list(DEFAULT_EDUCATION),
+        "education": list(education_list),
+        "formacao": list(DEFAULT_EDUCATION_PT),
         "languages": list(DEFAULT_LANGUAGES),
         "idiomas": list(DEFAULT_LANGUAGES),
         "stack": DEFAULT_STACK,
