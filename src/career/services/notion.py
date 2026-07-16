@@ -1,11 +1,226 @@
 from __future__ import annotations
 
-import notion_sync as legacy_notion
 from pathlib import Path
 import re
+import sys
+import unicodedata
+
+try:
+    import notion_sync as legacy_notion
+except ModuleNotFoundError:
+    scripts_path = Path(__file__).resolve().parents[3] / "scripts"
+    sys.path.insert(0, str(scripts_path))
+    import notion_sync as legacy_notion
 
 from career.schemas.notion import NotionApplicationsCacheSchema
 from career.utils import read_json
+
+
+_COMPARISON_OPERATORS = {
+    "maior ou igual a": "greater_than_or_equal_to",
+    "menor ou igual a": "less_than_or_equal_to",
+    "maior que": "greater_than",
+    "menor que": "less_than",
+    "igual a": "equals",
+}
+_TEXT_TYPES = {"title", "rich_text"}
+_SUPPORTED_FILTER_TYPES = _TEXT_TYPES | {"status", "select", "checkbox", "number", "date"}
+_CONVERSATIONAL_FIELD_ALIASES = {
+    "empresa": "company",
+    "companhia": "company",
+    "cargo": "role",
+    "vaga": "role",
+    "aderencia": "fit",
+    "nota": "fit",
+    "status": "status",
+    "etapa funil": "status",
+}
+
+
+def _normalize_filter_text(value: str) -> str:
+    return "".join(
+        char for char in unicodedata.normalize("NFKD", str(value or "").casefold())
+        if not unicodedata.combining(char)
+    )
+
+
+def _filter_property_names(schema: dict) -> list[tuple[str, str, dict]]:
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    names: dict[str, tuple[str, str, dict]] = {}
+    for name, prop in properties.items():
+        names[_normalize_filter_text(name)] = (name, name, prop)
+    for logical_name, aliases in legacy_notion.PROPERTY_ALIASES.items():
+        for alias in aliases:
+            prop = properties.get(alias)
+            if prop:
+                names[_normalize_filter_text(logical_name)] = (logical_name, alias, prop)
+                break
+    for conversational_name, logical_name in _CONVERSATIONAL_FIELD_ALIASES.items():
+        aliases = legacy_notion.PROPERTY_ALIASES.get(logical_name, [])
+        prop_name = next((alias for alias in aliases if alias in properties), None)
+        if prop_name:
+            names[_normalize_filter_text(conversational_name)] = (conversational_name, prop_name, properties[prop_name])
+    return sorted(names.values(), key=lambda item: len(_normalize_filter_text(item[0])), reverse=True)
+
+
+def _split_filter_clause(clause: str, schema: dict) -> tuple[str, str, dict, str]:
+    normalized = _normalize_filter_text(clause).strip()
+    for alias, property_name, prop in _filter_property_names(schema):
+        if normalized == _normalize_filter_text(alias):
+            return alias, property_name, prop, ""
+        prefix = f"{_normalize_filter_text(alias)} "
+        if normalized.startswith(prefix):
+            return alias, property_name, prop, clause[len(alias):].strip()
+    raise ValueError(f"Campo de filtro não reconhecido: {clause!r}.")
+
+
+def _parse_filter_value(property_name: str, prop: dict, text: str) -> tuple[str, str | float | bool]:
+    property_type = str(prop.get("type") or "")
+    if property_type not in _SUPPORTED_FILTER_TYPES:
+        raise ValueError(f"O campo {property_name!r} tem tipo {property_type!r}, que não pode ser filtrado.")
+
+    normalized = _normalize_filter_text(text).strip()
+    operator = "equals"
+    for phrase, notion_operator in _COMPARISON_OPERATORS.items():
+        if normalized.startswith(phrase + " "):
+            operator = notion_operator
+            text = text[len(phrase):].strip()
+            break
+    if not text:
+        raise ValueError(f"Informe um valor para o campo {property_name!r}.")
+
+    if property_type in {"status", "select"}:
+        options = ((prop.get(property_type) or {}).get("options") or [])
+        matched = next(
+            (str(option.get("name")) for option in options if _normalize_filter_text(option.get("name", "")) == _normalize_filter_text(text)),
+            None,
+        )
+        if not matched:
+            raise ValueError(f"{property_name}: valor inválido {text!r}.")
+        return "equals", matched
+    if property_type == "checkbox":
+        accepted = {"sim": True, "true": True, "nao": False, "false": False}
+        if normalized not in accepted:
+            raise ValueError(f"{property_name}: use sim ou não.")
+        return "equals", accepted[normalized]
+    if property_type in {"number", "date"}:
+        if operator == "equals" and normalized in _COMPARISON_OPERATORS:
+            raise ValueError(f"Informe um valor para o campo {property_name!r}.")
+        if property_type == "number":
+            try:
+                return operator, float(text.replace(",", "."))
+            except ValueError as exc:
+                raise ValueError(f"{property_name}: informe um número válido.") from exc
+        return operator, text
+    if operator != "equals":
+        raise ValueError(f"{property_name}: comparações numéricas ou de data não são válidas para texto.")
+    return "contains", text
+
+
+def parse_application_filters(text: str, schema: dict) -> list[dict]:
+    clauses = [item.strip() for item in re.split(r"\s+e\s+", str(text or ""), flags=re.IGNORECASE) if item.strip()]
+    if not clauses:
+        raise ValueError("Informe pelo menos um filtro.")
+    filters = []
+    for clause in clauses:
+        _alias, property_name, prop, value_text = _split_filter_clause(clause, schema)
+        operator, value = _parse_filter_value(property_name, prop, value_text)
+        filters.append({
+            "property_name": property_name,
+            "property_type": str(prop.get("type")),
+            "operator": operator,
+            "value": value,
+        })
+    return filters
+
+
+def build_application_filter(filters: list[dict]) -> dict:
+    if not filters:
+        raise ValueError("Informe pelo menos um filtro.")
+    clauses = []
+    for item in filters:
+        property_type = item["property_type"]
+        operator = item["operator"]
+        if property_type in _TEXT_TYPES:
+            clauses.append({"property": item["property_name"], property_type: {"contains": item["value"]}})
+        else:
+            clauses.append({"property": item["property_name"], property_type: {operator: item["value"]}})
+    return clauses[0] if len(clauses) == 1 else {"and": clauses}
+
+
+def _display_filters(filters: list[dict]) -> list[str]:
+    labels = {
+        "greater_than": ">",
+        "greater_than_or_equal_to": ">=",
+        "less_than": "<",
+        "less_than_or_equal_to": "<=",
+        "equals": "=",
+        "contains": "contém",
+    }
+    return [f"{item['property_name']} {labels[item['operator']]} {item['value']}" for item in filters]
+
+
+def application_filter_guidance(schema: dict) -> dict:
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    status_property = next((prop for prop in properties.values() if prop.get("type") == "status"), {})
+    return {
+        "supported_fields": sorted(properties),
+        "available_statuses": [str(option.get("name")) for option in ((status_property.get("status") or {}).get("options") or [])],
+    }
+
+
+def live_application_filter_guidance(token: str, database_id: str) -> dict:
+    data_source_id = legacy_notion.discover_data_source_id(token, database_id)
+    return application_filter_guidance(legacy_notion.retrieve_data_source(token, data_source_id))
+
+
+def query_live_applications(token: str, database_id: str, filter_text: str, limit: int = 20) -> dict:
+    if not str(filter_text or "").strip():
+        raise ValueError("Informe pelo menos um filtro. Use Etapa Funil com um dos status disponíveis.")
+    data_source_id = legacy_notion.discover_data_source_id(token, database_id)
+    schema = legacy_notion.retrieve_data_source(token, data_source_id)
+    filters = parse_application_filters(filter_text, schema)
+    response = legacy_notion.query_data_source(
+        token,
+        data_source_id,
+        {"page_size": min(max(int(limit), 1), 20), "filter": build_application_filter(filters)},
+    )
+    records = [_direct_application_record(page) for page in response.get("results", [])]
+    return {
+        "status": "completed",
+        "filters": _display_filters(filters),
+        "count": len(records),
+        "records": records,
+        **application_filter_guidance(schema),
+    }
+
+
+def _table_cell(value: object) -> str:
+    text = str(value or "-").replace("|", "\\|").replace("\n", " ").strip()
+    return text or "-"
+
+
+def format_application_table(result: dict) -> str:
+    filters = ", ".join(str(item) for item in result.get("filters") or [])
+    records = result.get("records") or []
+    if not records:
+        return f"0 registro(s) para: {filters or '-'}"
+    lines = [
+        f"{len(records)} registro(s) para: {filters}",
+        "",
+        "ID | Cargo | Empresa | Etapa Funil | Aderência | Link",
+        "--- | --- | --- | --- | --- | ---",
+    ]
+    for item in records:
+        lines.append(" | ".join([
+            _table_cell(item.get("record_id")),
+            _table_cell(item.get("role")),
+            _table_cell(item.get("company")),
+            _table_cell(item.get("status")),
+            _table_cell(item.get("fit_score")),
+            _table_cell(item.get("notion_url")),
+        ]))
+    return "\n".join(lines)
 
 
 def build_cache(

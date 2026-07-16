@@ -340,6 +340,7 @@ Regra global para drafts de email:
 ```bash
 npm run intake:notion-record -- <id_unico>                  # entrada padrão para avaliar/analisar vaga por ID do Notion
 npm run notion:list                                          # lista candidaturas
+npm run notion:list-filtered -- --filter "Etapa Funil Fila Agente" # lista ao vivo com filtro nativo
 npm run notion:link-record -- <id_unico>                    # resolve link por ID sem varrer cache
 npm run notion:record-summary -- <id_unico>                 # alias compacto do link por ID
 npm run notion:templates                                     # lista templates disponíveis
@@ -367,6 +368,11 @@ Regra operacional padrão para vaga nova:
 - `create-description-record` fica restrito a captura precoce deliberada antes do `FIT_MAP`
 - quando o usuário pedir para registrar outputs fora do pacote padrão, anexar `--extra-artifact <arquivo>` e/ou `--extra-note "<texto>"` na criação/atualização do Notion
 - esses extras devem entrar no corpo da página como memória complementar da vaga, úteis para registrar hipóteses, listas alternativas de habilidades, outputs de outro runtime ou observações curadas
+
+Regra para consulta conversacional de candidaturas:
+- pedidos como `traga vagas com Etapa Funil Fila Agente` consultam o Notion ao vivo, sem usar cache local
+- a consulta exige pelo menos um filtro e combina filtros por `E`; os campos e valores são validados contra o schema atual do Notion
+- a lista retorna `ID`, cargo, empresa, `Etapa Funil`, aderência e link; responder com uma ID retornada inicia o pipeline canônico de análise dessa vaga
 
 ## Orquestrador automático de candidaturas
 

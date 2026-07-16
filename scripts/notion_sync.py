@@ -2905,6 +2905,10 @@ def main() -> int:
     list_parser = subparsers.add_parser("list")
     list_parser.add_argument("--limit", type=int, default=20)
 
+    filtered_list_parser = subparsers.add_parser("list-filtered")
+    filtered_list_parser.add_argument("--filter", required=True)
+    filtered_list_parser.add_argument("--limit", type=int, default=20)
+
     link_record_parser = subparsers.add_parser("link-record")
     link_record_parser.add_argument("record_id", type=int)
     link_record_parser.add_argument("--compact", action="store_true")
@@ -3030,6 +3034,17 @@ def main() -> int:
 
     if args.command == "list":
         print(json.dumps(list_pages(token, database_id, args.limit), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "list-filtered":
+        from career.services import notion as notion_service
+
+        try:
+            result = notion_service.query_live_applications(token, database_id, args.filter, args.limit)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(notion_service.format_application_table(result))
         return 0
 
     if args.command == "link-record":

@@ -17,11 +17,11 @@ from career.services.approved_actions import ApprovedActionExecutor
 from career.services.harness_runs import HarnessRunStore, begin_specialist_run
 from career.utils import ValidationFailure, read_json, utc_now_iso
 
-from src.career.services.classifier import Classifier
-from src.career.services.router import Router
-from src.career.services.menu import MenuBuilder
-from src.career.services.executor import Executor
-from src.career.services.database import Database
+from career.services.classifier import Classifier
+from career.services.router import Router
+from career.services.menu import MenuBuilder
+from career.services.executor import Executor
+from career.services.database import Database
 
 
 LINKEDIN_JOB_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/(?:jobs(?:/view)?|job)/[^\s]+", re.IGNORECASE)
@@ -188,6 +188,16 @@ class HarnessSupervisor:
         if any(phrase in lowered for phrase in ("status das candidaturas", "status da fila", "applications status")):
             return self._decision("applications_status", "status", "high", "applications_status_request")
 
+        notion_filter = self._notion_application_filter_request(text)
+        if notion_filter:
+            return self._decision(
+                "notion_application_list", "query", "high", "notion_live_filtered_list_request",
+                parameters={"filter_text": notion_filter},
+            )
+
+        if self._is_generic_application_list_request(lowered):
+            return self._decision("notion_application_filter_guidance", "query", "high", "notion_filter_required")
+
         notion_match = NOTION_ID_RE.search(text)
         if notion_match and any(token in lowered for token in ("avali", "analis", "fit", "aderencia", "aderência")):
             return self._decision(
@@ -246,6 +256,22 @@ class HarnessSupervisor:
             return self._decision("fit_map", "fit-map", "medium", "job_analysis_request")
 
         return self._decision("generic_assistant", "chat", "low", "no_deterministic_route")
+
+    @staticmethod
+    def _notion_application_filter_request(text: str) -> str | None:
+        match = re.search(
+            r"\b(?:traga|liste|listar|listagem)\b.*?\b(?:vagas|registros|candidaturas)?\s*com\s+(.+)$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        filter_text = match.group(1).strip()
+        return filter_text or None
+
+    @staticmethod
+    def _is_generic_application_list_request(lowered: str) -> bool:
+        return bool(re.search(r"\b(?:traga|liste|listar|listagem)\b.*\b(?:vagas|registros|candidaturas)\b", lowered))
 
     @staticmethod
     def _company_role(message: str) -> tuple[str | None, str | None]:
@@ -374,6 +400,20 @@ class HarnessSupervisor:
     def handle_message(self, message: str, *, channel: str = "cli", execute: bool = False, max_per_run: int | None = None, model: str | None = None, variant: str | None = None, runtime_context: dict[str, Any] | None = None) -> dict[str, Any]:
         user_message = message
         pending = self._resolve_pending_input(message)
+        invalid_pending_selection = self._invalid_pending_record_selection(message)
+        if invalid_pending_selection:
+            return {
+                "status": "awaiting_input",
+                "channel": channel,
+                "message": user_message,
+                "executed": False,
+                "result": {
+                    "status": "awaiting_input",
+                    "kind": "notion_record_selection",
+                    "blocker_reason": invalid_pending_selection,
+                    "display_text": "Essa ID não estava na última lista. Responda com uma das IDs exibidas.",
+                },
+            }
         if pending:
             message = str(pending["message"])
         selection = self._resolve_menu_selection(message)
@@ -416,6 +456,36 @@ class HarnessSupervisor:
             elif workflow == "applications_status":
                 from career.services import applications_v2 as applications_service
                 envelope["result"] = applications_service.heartbeat_status()
+            elif workflow == "notion_application_filter_guidance":
+                from career.services import notion as notion_service
+                token, database_id = notion_service.notion_config()
+                guidance = notion_service.live_application_filter_guidance(token, database_id)
+                statuses = ", ".join(guidance.get("available_statuses") or []) or "indisponíveis"
+                request = {
+                    "status": "awaiting_input",
+                    "kind": "notion_application_filter",
+                    "input_kind": "notion_application_filter",
+                    "display_text": f"Informe pelo menos um filtro. Exemplo: Etapa Funil Fila Agente. Status disponíveis: {statuses}.",
+                }
+                self._write_pending_input(request)
+                envelope["result"] = request
+            elif workflow == "notion_application_list":
+                from career.services import notion as notion_service
+                token, database_id = notion_service.notion_config()
+                result = notion_service.query_live_applications(
+                    token,
+                    database_id,
+                    str((decision.parameters or {}).get("filter_text") or ""),
+                )
+                record_ids = [int(item["record_id"]) for item in result.get("records") or [] if isinstance(item.get("record_id"), int)]
+                self._write_pending_input({"input_kind": "notion_record_selection", "record_ids": record_ids})
+                envelope["result"] = {
+                    "status": "completed",
+                    "kind": "notion_application_list",
+                    "display_text": notion_service.format_application_table(result),
+                    "count": result["count"],
+                    "filters": result["filters"],
+                }
             elif workflow == "applications_heartbeat":
                 from career.services import applications_v2 as applications_service
                 envelope["result"] = applications_service.run_heartbeat(
@@ -938,6 +1008,12 @@ class HarnessSupervisor:
         resolved: str | None = None
         if input_kind == "notion_id" and re.fullmatch(r"\d+", text):
             resolved = f"avalie vaga Notion {text}"
+        elif input_kind == "notion_record_selection" and re.fullmatch(r"\d+", text):
+            record_ids = {int(item) for item in pending.get("record_ids") or []}
+            if int(text) in record_ids:
+                resolved = f"avalie vaga Notion {text}"
+        elif input_kind == "notion_application_filter" and text:
+            resolved = f"traga vagas com {text}"
         elif input_kind == "linkedin_job_url" and LINKEDIN_JOB_RE.search(text):
             resolved = text
         elif input_kind == "pasted_job" and len(text) >= 200:
@@ -946,6 +1022,18 @@ class HarnessSupervisor:
             return None
         path.unlink(missing_ok=True)
         return {"input_kind": input_kind, "message": resolved}
+
+    def _invalid_pending_record_selection(self, message: str) -> str | None:
+        if not self.root or not re.fullmatch(r"\d+", str(message or "").strip()):
+            return None
+        path = self.root / ".career-state" / "harness" / "pending_input.json"
+        if not path.exists():
+            return None
+        pending = read_json(path)
+        if str(pending.get("input_kind") or "") != "notion_record_selection":
+            return None
+        record_ids = {int(item) for item in pending.get("record_ids") or []}
+        return "notion_record_selection_not_found" if int(message) not in record_ids else None
 
     def _render_menu_text(self, payload: dict[str, Any]) -> str:
         lines = [str(payload.get("headline") or "Menu")]

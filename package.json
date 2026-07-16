@@ -66,6 +66,7 @@
     "notion:schema:governance": "./scripts/python.sh scripts/notion_sync.py ensure-governance-schema",
     "notion:backfill:governance": "./scripts/python.sh scripts/notion_sync.py backfill-governance-fields",
     "notion:list": "./scripts/python.sh scripts/notion_sync.py list",
+    "notion:list-filtered": "./scripts/python.sh scripts/notion_sync.py list-filtered",
     "notion:link-record": "./scripts/python.sh scripts/notion_sync.py link-record",
     "notion:record-summary": "./scripts/python.sh scripts/notion_sync.py link-record --compact",
     "notion:templates": "./scripts/python.sh scripts/notion_sync.py templates",

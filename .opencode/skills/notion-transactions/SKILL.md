@@ -66,7 +66,15 @@ Listar candidaturas:
 
 ```bash
 npm run notion:list
+npm run notion:list-filtered -- --filter "Etapa Funil Fila Agente"
 ```
+
+Consulta filtrada conversacional:
+
+- pedidos como `traga vagas com Etapa Funil Fila Agente` usam consulta ao vivo no Notion e não usam cache local;
+- é obrigatório informar pelo menos um filtro; combinações usam `E` e os campos/valores são validados pelo schema ativo;
+- a lista curta retorna ID, cargo, empresa, Etapa Funil, aderência e link;
+- quando o usuário responder com uma ID listada, encaminhar diretamente para `agent:evaluate-notion -- <id_unico>`.
 
 Obter link do registro por ID único sem varrer cache:
 
