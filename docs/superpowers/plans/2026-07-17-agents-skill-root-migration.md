@@ -255,12 +255,12 @@ Run:
 ```bash
 python3 scripts/validate_project_structure.py
 pytest -q
-rg -n --hidden --glob '!.git/**' --glob '!docs/superpowers/plans/**' --glob '!docs/superpowers/specs/**' '\\.opencode(?:/|\\b)' .
+rg -n --hidden --glob '!.git/**' --glob '!docs/superpowers/plans/**' --glob '!docs/superpowers/specs/**' --glob '!scripts/validate_project_structure.py' --glob '!tests/test_project_structure.py' '\\.opencode(?:/|\\b)' .
 git diff --check
 git status --short
 ```
 
-Expected: structural validation prints `Project structure validation passed.`; pytest passes; legacy-reference search has no output; diff check is clean; status contains only the intentional migration changes before commit.
+Expected: structural validation prints `Project structure validation passed.`; pytest passes; legacy-reference search has no output outside `scripts/validate_project_structure.py` and `tests/test_project_structure.py`; those two files are excluded because their `.opencode` strings are enforcement literals, not active legacy references. Diff check is clean; status contains only the intentional migration changes before commit.
 
 - [ ] **Step 4: Commit the enforcement and tests**
 
