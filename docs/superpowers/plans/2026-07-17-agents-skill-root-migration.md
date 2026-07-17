@@ -255,12 +255,20 @@ Run:
 ```bash
 python3 scripts/validate_project_structure.py
 pytest -q
-rg -n --hidden --glob '!.git/**' --glob '!docs/superpowers/plans/**' --glob '!docs/superpowers/specs/**' --glob '!scripts/validate_project_structure.py' --glob '!tests/test_project_structure.py' '\\.opencode(?:/|\\b)' .
+for active_root in AGENTS.md COMO_USAR.md .agents .env.example .vscode scripts src sessions inbox; do
+  [ -e "$active_root" ] || continue
+  if rg -n --hidden --glob '!.git/**' --glob '!docs/superpowers/plans/**' --glob '!docs/superpowers/specs/**' --glob '!scripts/validate_project_structure.py' --glob '!tests/test_project_structure.py' '\\.opencode(?:/|\\b)' "$active_root"; then
+    exit 1
+  else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || exit "$scan_status"
+  fi
+done
 git diff --check
 git status --short
 ```
 
-Expected: structural validation prints `Project structure validation passed.`; pytest passes; legacy-reference search has no output outside `scripts/validate_project_structure.py` and `tests/test_project_structure.py`; those two files are excluded because their `.opencode` strings are enforcement literals, not active legacy references. Diff check is clean; status contains only the intentional migration changes before commit.
+Expected: structural validation prints `Project structure validation passed.`; pytest passes; the legacy-reference search has no output across the active roots governed by `SCAN_ROOTS`; its existence check skips optional active roots that do not exist while reporting any real `rg` error. Historical plan/spec directories remain excluded because they are intentionally preserved archives; `scripts/validate_project_structure.py` and `tests/test_project_structure.py` remain excluded because their `.opencode` strings are enforcement literals, not active legacy references. Diff check is clean; status contains only the intentional migration changes before commit.
 
 - [ ] **Step 4: Commit the enforcement and tests**
 
