@@ -135,8 +135,7 @@ OpenCode e acionado no terminal. Dois modos:
 **Modo interativo (recomendado para candidaturas):**
 
 ```bash
-# Iniciar sessão no diretório do projeto
-cd "/Users/mac/llm server/projetos/candidaturas"
+# Na raiz do repositório clonado
 opencode
 ```
 

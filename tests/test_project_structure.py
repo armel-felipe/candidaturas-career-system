@@ -15,3 +15,9 @@ def test_agents_skill_root_is_canonical_and_valid(capsys):
     assert ".opencode/skills" in validate_project_structure.FORBIDDEN_TEXT
     assert validate_project_structure.main() == 0
     assert "Project structure validation passed." in capsys.readouterr().out
+
+
+def test_project_has_no_machine_specific_workspace_path():
+    forbidden = "/Users/mac/llm server/projetos/candidaturas"
+    assert forbidden in validate_project_structure.FORBIDDEN_TEXT
+    assert validate_project_structure.main() == 0

@@ -237,7 +237,8 @@ const doc = new Document({
   }]
 });
 
-const outPath = "/Users/mac/llm server/projetos/candidaturas/outputs/_tmp/cv_diretor_operacoes_confidencial.docx";
+const workspace = path.resolve(__dirname, "..", "..");
+const outPath = path.join(workspace, "outputs", "_tmp", "cv_diretor_operacoes_confidencial.docx");
 Packer.toBuffer(doc).then(buffer => {
   fs.writeFileSync(outPath, buffer);
   console.log("ok");
