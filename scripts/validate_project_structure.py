@@ -59,6 +59,7 @@ FORBIDDEN_ROOT_FILE_PATTERNS = [
 SCAN_ROOTS = [
     "AGENTS.md",
     "COMO_USAR.md",
+    "LINKEDIN_AUTH_RUNBOOK.md",
     ".agents",
     ".env.example",
     ".vscode",
@@ -85,6 +86,7 @@ FORBIDDEN_TEXT = [
     "extract_skills.ps1",
     "install_opencode_skills.ps1",
     "opencode:skills",
+    "/Users/mac/llm server/projetos/candidaturas",
 ]
 
 REQUIRED_AGENT_GUARD_SNIPPETS = [
