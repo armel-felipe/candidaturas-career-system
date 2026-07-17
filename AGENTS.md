@@ -4,16 +4,16 @@ Sistema local de candidatura executiva. Toda tarefa relacionada a vaga, CV, pitc
 
 ## Governança das skills
 
-Fonte canônica de manutenção: `.opencode/skills/{skill}/SKILL.md`.
+Fonte canônica de manutenção: `.agents/skills/{skill}/SKILL.md`.
 
 Regra operacional:
-- Para criar, corrigir, refatorar ou revisar uma skill, editar sempre `.opencode/skills/{skill}/SKILL.md`
-- Nunca criar uma pasta paralela de skills fora de `.opencode/skills/`
-- Ao citar uma skill em respostas, revisões ou instruções de manutenção, preferir sempre o caminho canônico em `.opencode/skills/`
+- Para criar, corrigir, refatorar ou revisar uma skill, editar sempre `.agents/skills/{skill}/SKILL.md`
+- Nunca criar uma pasta paralela de skills fora de `.agents/skills/`
+- Ao citar uma skill em respostas, revisões ou instruções de manutenção, preferir sempre o caminho canônico em `.agents/skills/`
 
 ## Regra de execução obrigatória
 
-Antes de executar qualquer skill, ler o arquivo `SKILL.md` correspondente em `.opencode/skills/{skill}/SKILL.md`. Nunca executar de memória — os arquivos são atualizados com frequência.
+Antes de executar qualquer skill, ler o arquivo `SKILL.md` correspondente em `.agents/skills/{skill}/SKILL.md`. Nunca executar de memória — os arquivos são atualizados com frequência.
 
 Executar uma skill significa cumprir o workflow operacional descrito no arquivo, incluindo:
 - leitura dos arquivos de referência exigidos
@@ -45,8 +45,8 @@ Para OpenCode e agentes locais, o ponto de entrada canônico deste projeto é `A
 
 Ordem canônica de execução:
 1. Carregar `AGENTS.md` via `opencode.json`
-2. Ler `.opencode/skills/career-system/SKILL.md`
-3. Ler `.opencode/skills/{skill}/SKILL.md` antes de executar a skill pedida
+2. Ler `.agents/skills/career-system/SKILL.md`
+3. Ler `.agents/skills/{skill}/SKILL.md` antes de executar a skill pedida
 
 Arquivos `LOCAL_LLM_*` podem existir como documentação auxiliar para outros runtimes, mas não fazem parte do fluxo canônico do projeto e não substituem `AGENTS.md` nem nenhum `SKILL.md`.
 
@@ -81,8 +81,8 @@ Regras de progressao para agentes locais:
 | Posicionamento para cargo novo | `career-fit-analysis` (Modo 3) |
 | Resetar estado / limpar base / reinicie / reiniciar / recomeçar do zero / estado contaminado / "quebrou o projeto" | Reset operacional: `npm run workflow:reset -- --dry-run` → `npm run workflow:reset` se confirmado |
 
-Instrução completa de cada skill: `.opencode/skills/{skill}/SKILL.md`.
-Orquestração e regras globais: `.opencode/skills/career-system/SKILL.md`.
+Instrução completa de cada skill: `.agents/skills/{skill}/SKILL.md`.
+Orquestração e regras globais: `.agents/skills/career-system/SKILL.md`.
 
 ## Reset operacional seguro
 
@@ -130,7 +130,7 @@ npm run agent:evaluate-notion-local -- <id_unico>          # alias explícito do
 ```
 
 Regra operacional:
-- `intake:*` são comandos npm, não nomes de skill; a skill correspondente é `.opencode/skills/intake-orchestrator/SKILL.md`
+- `intake:*` são comandos npm, não nomes de skill; a skill correspondente é `.agents/skills/intake-orchestrator/SKILL.md`
 - para `Avalie vaga Notion <número>`, executar preferencialmente `npm run agent:evaluate-notion -- <número>`; este comando é compatível com modelos locais/menores e também gera o mapa local e o request compacto antes de devolver a próxima ação
 - `npm run agent:evaluate-notion-local -- <número>` existe como alias explícito do mesmo modo operacional; fallback permitido: `npm run intake:notion-record -- <número>`
 - após qualquer intake, executar `npm run agent:guard` se houver dúvida, interrupção, output truncado ou tentação de fallback
@@ -167,7 +167,7 @@ Regra para URL de vaga LinkedIn:
 - nunca tentar analisar a URL diretamente sem antes persistir a descrição extraída
 
 Regra para vagas salvas do LinkedIn/Rastreador de vagas:
-- pedidos para listar vagas salvas, ver "minhas vagas", consultar saved jobs ou escolher uma vaga salva para análise devem executar `.opencode/skills/linkedin-saved-jobs/SKILL.md`
+- pedidos para listar vagas salvas, ver "minhas vagas", consultar saved jobs ou escolher uma vaga salva para análise devem executar `.agents/skills/linkedin-saved-jobs/SKILL.md`
 - a skill `linkedin-saved-jobs` só identifica vagas e URLs salvas; ela não analisa aderência, não gera FIT_MAP e não substitui intake
 - o comando obrigatório para listar é `npm run linkedin:saved-jobs:extract`, que abre `https://www.linkedin.com/jobs-tracker/`, usa a sessão Playwright persistida, lê a aba `Salvas` e grava `inbox/linkedin_saved_jobs.json`
 - não ler `inbox/linkedin_saved_jobs.json` antigo como substituto da extração, salvo pedido explícito para consultar a última extração salva
@@ -329,7 +329,7 @@ python3 scripts/create_gmail_draft.py --to "<email>" --subject "<assunto>" --bod
 Regra global para drafts de email:
 - toda tarefa de email por Gmail usa `self-email-draft`
 - o remetente é sempre a conta Gmail autenticada pelo OAuth local; nunca perguntar email de envio/remetente
-- para email de candidatura, usar os templates Multinacional ou Startup definidos em `.opencode/skills/self-email-draft/SKILL.md`
+- para email de candidatura, usar os templates Multinacional ou Startup definidos em `.agents/skills/self-email-draft/SKILL.md`
 - antes de criar draft real, revisar ortografia/fluidez, remover termos internos ou canônicos, e exibir destino, assunto, corpo completo e anexos validados
 - `scripts/review_email_text.py` deve passar antes do preview aprovado e antes do draft real
 - só executar `create_gmail_draft.py` sem `--dry-run` depois de aprovação explícita do usuário
@@ -470,12 +470,12 @@ Este repositório deve ser executado priorizando o OpenCode no diretório raiz d
 
 Configuração local do runtime:
 - `opencode.json`
-- `.opencode/skills/`
+- `.agents/skills/`
 
 Regras operacionais:
 - o agente padrão deve ser `build`
 - instruções carregadas via `opencode.json` devem incluir `AGENTS.md`
-- skills devem ser descobertas em `.opencode/skills/` e lidas a partir do `SKILL.md` correspondente antes da execução
+- skills devem ser descobertas em `.agents/skills/` e lidas a partir do `SKILL.md` correspondente antes da execução
 - permissões devem favorecer execução local do projeto sem depender de `settings.json` do Claude
 
 ## Camada operacional estruturada
@@ -519,7 +519,7 @@ Comportamentos obrigatórios:
 Comportamentos proibidos:
 - colar JSON completo do FIT_MAP ou do draft na conversa
 - colar diff completo de reescrita de FIT_MAP/draft
-- usar `grep -r`/`rg` amplo em `inbox/notion`, `.career-state`, `outputs` ou `.opencode` sem filtro e limite estrito
+- usar `grep -r`/`rg` amplo em `inbox/notion`, `.career-state`, `outputs` ou `.agents` sem filtro e limite estrito
 - usar leitura de cache local como substituto para comando canônico de Notion por ID
 - tratar output truncado como evidência completa
 
@@ -611,7 +611,7 @@ Antes e depois de qualquer manutenção estrutural, mudança em skills ou saneam
 npm run validate:structure
 ```
 
-Essa validação deve falhar se houver caminhos legados, pastas paralelas de skill, estado local paralelo ou instaladores antigos de skills fora de `.opencode/skills/`.
+Essa validação deve falhar se houver caminhos legados, pastas paralelas de skill, estado local paralelo ou instaladores antigos de skills fora de `.agents/skills/`.
 
 Ela tambem deve falhar se a skill `career-fit-analysis` ou qualquer documentacao operacional voltar a documentar um fluxo ambiguo para salvar a vaga antes do FIT_MAP.
 
@@ -634,7 +634,7 @@ Ao avaliar modelos locais neste projeto, usar este criterio minimo:
 
 | Recurso | Caminho |
 |---|---|
-| Referências canônicas | `.opencode/skills/career-system/references/` |
+| Referências canônicas | `.agents/skills/career-system/references/` |
 | Memória canônica por candidatura | `.career-state/applications_v2/<ID>/` |
 | Estado canônico por candidatura | `.career-state/applications_v2/<ID>/state.json` |
 | FIT_MAP canônico por candidatura | `.career-state/applications_v2/<ID>/fit_map.json` |
@@ -652,7 +652,7 @@ Ao avaliar modelos locais neste projeto, usar este criterio minimo:
 
 Toda interação com o Notion é feita exclusivamente via `scripts/notion_sync.py` e `scripts/notion_query.py`. Ferramentas MCP de Notion (`notion-fetch`, `notion-search`, `notion-update-page`, `notion-create-pages` e similares) são **proibidas** neste projeto — independente do motor de IA em uso.
 
-Notion tem skill operacional própria: `.opencode/skills/notion-transactions/SKILL.md`. Essa skill é uma camada de workflow; a implementação continua exclusivamente nos scripts locais. Não procurar, carregar nem inventar skills como `notion-query`, `notion-cli-fallback`, `notion-create-description`, `notion-update-record` ou equivalentes.
+Notion tem skill operacional própria: `.agents/skills/notion-transactions/SKILL.md`. Essa skill é uma camada de workflow; a implementação continua exclusivamente nos scripts locais. Não procurar, carregar nem inventar skills como `notion-query`, `notion-cli-fallback`, `notion-create-description`, `notion-update-record` ou equivalentes.
 
 Também é proibido consultar `.env`, copiar `NOTION_TOKEN`, montar `curl` manual ou chamar a API pública do Notion diretamente. Os scripts locais carregam a configuração e resolvem diferenças de API, data source, propriedades e template.
 

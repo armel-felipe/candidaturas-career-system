@@ -6,12 +6,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-OPENCODE_SKILLS = ROOT / ".opencode" / "skills"
+AGENT_SKILLS = ROOT / ".agents" / "skills"
 
 FORBIDDEN_PATHS = [
     "skills",
     ".claude",
-    ".agents",
+    ".opencode",
     "CLAUDE.md",
     "local_state",
     "install_agent_heartbeat_60min.bat",
@@ -59,10 +59,12 @@ FORBIDDEN_ROOT_FILE_PATTERNS = [
 SCAN_ROOTS = [
     "AGENTS.md",
     "COMO_USAR.md",
-    ".continue",
-    ".opencode",
+    "LINKEDIN_AUTH_RUNBOOK.md",
+    ".agents",
+    ".env.example",
     ".vscode",
     "scripts",
+    "src",
     "sessions",
     "inbox",
 ]
@@ -75,6 +77,7 @@ IGNORED_PARTS = {
 }
 
 FORBIDDEN_TEXT = [
+    ".opencode/skills",
     "CLAUDE.md",
     "/mnt/skills",
     "local_state/",
@@ -83,6 +86,7 @@ FORBIDDEN_TEXT = [
     "extract_skills.ps1",
     "install_opencode_skills.ps1",
     "opencode:skills",
+    "/Users/mac/llm server/projetos/candidaturas",
 ]
 
 REQUIRED_AGENT_GUARD_SNIPPETS = [
@@ -92,7 +96,7 @@ REQUIRED_AGENT_GUARD_SNIPPETS = [
 ]
 
 DOC_EXPECTATIONS = {
-    ".opencode/skills/career-fit-analysis/SKILL.md": [
+    ".agents/skills/career-fit-analysis/SKILL.md": [
         "### Primeiras 5 ações obrigatórias",
         'python scripts/save_job_description.py --company "<empresa>" --role "<cargo>" --text-file <arquivo_com_texto_bruto_da_vaga>',
         "depois de carregar esta skill, a proxima resposta deve executar uma acao concreta",
@@ -118,7 +122,7 @@ DOC_EXPECTATIONS = {
         "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
         "qualquer bloco \"Revisão concluída\" sem `cv:approve` ou `cv:deliver` executado sobre o artefato final é inválido",
     ],
-    ".opencode/skills/career-system/SKILL.md": [
+    ".agents/skills/career-system/SKILL.md": [
         "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
         "aprovar CV em DOCX sem executar o gate objetivo `scripts/review_output.py` sobre o artefato final em `outputs/`",
         "tratar inspeção do script gerador como substituto da revisão do DOCX final",
@@ -170,11 +174,11 @@ def read_text(path: Path) -> str:
 def main() -> int:
     failures: list[str] = []
 
-    if not OPENCODE_SKILLS.is_dir():
-        failures.append("Missing canonical skill root: .opencode/skills")
+    if not AGENT_SKILLS.is_dir():
+        failures.append("Missing canonical skill root: .agents/skills")
 
     for name in REQUIRED_SKILLS:
-        skill_path = OPENCODE_SKILLS / name / "SKILL.md"
+        skill_path = AGENT_SKILLS / name / "SKILL.md"
         if not skill_path.is_file():
             failures.append(f"Missing required skill file: {skill_path.relative_to(ROOT)}")
 

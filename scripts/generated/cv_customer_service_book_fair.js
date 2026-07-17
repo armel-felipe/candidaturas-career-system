@@ -4,6 +4,7 @@ const {
   LevelFormat, Numbering
 } = require("docx");
 const fs = require("fs");
+const path = require("path");
 
 const pt = n => n * 2; // half-points — NUNCA n * 20
 
@@ -254,6 +255,8 @@ const doc = new Document({
 });
 
 Packer.toBuffer(doc).then(buffer => {
-  fs.writeFileSync("/Users/mac/llm server/projetos/candidaturas/outputs/_tmp/cv_customer_service_book_fair.docx", buffer);
+  const workspace = path.resolve(__dirname, "..", "..");
+  const outPath = path.join(workspace, "outputs", "_tmp", "cv_customer_service_book_fair.docx");
+  fs.writeFileSync(outPath, buffer);
   console.log("ok");
 });

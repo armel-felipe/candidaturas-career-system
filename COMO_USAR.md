@@ -1,7 +1,7 @@
 # COMO USAR — Guia Operacional do Sistema de Candidatura
 
 O runtime prioritario deste projeto e o **OpenCode**.
-Ele le `AGENTS.md`, descobre skills via `.opencode/skills/`, executa scripts locais e produz os outputs finais deste repositorio.
+Ele le `AGENTS.md`, descobre skills via `.agents/skills/`, executa scripts locais e produz os outputs finais deste repositorio.
 Este documento e o manual de operacao do fluxo OpenCode-first.
 
 O projeto agora tambem possui uma camada operacional estruturada em `src/career/`, com:
@@ -16,11 +16,11 @@ O projeto agora tambem possui uma camada operacional estruturada em `src/career/
 ## 1. Arquitetura em uma linha
 
 ```
-AGENTS.md  →  .opencode/skills/career-system/SKILL.md
+AGENTS.md  →  .agents/skills/career-system/SKILL.md
                          ↓
-              .opencode/skills/ (fonte canonica + discovery)
+              .agents/skills/ (fonte canonica + discovery)
                          ↓
-    .opencode/skills/career-system/references/   (fonte da verdade)
+    .agents/skills/career-system/references/   (fonte da verdade)
                          ↓
        .career-state/applications_v2/<ID>/       (memoria canonica da candidatura)
                          ↓
@@ -83,8 +83,8 @@ Use sempre este caminho, sem variantes:
 
 1. iniciar o OpenCode na raiz do projeto
 2. deixar o runtime carregar `AGENTS.md` via `opencode.json`
-3. ler `.opencode/skills/career-system/SKILL.md`
-4. ler `.opencode/skills/{skill}/SKILL.md` da tarefa pedida
+3. ler `.agents/skills/career-system/SKILL.md`
+4. ler `.agents/skills/{skill}/SKILL.md` da tarefa pedida
 5. executar a proxima acao concreta da skill usando as tools reais do ambiente
 
 Todos os runtimes usam `AGENTS.md` como ponto de entrada canonico. Nao existe ponte paralela por runtime.
@@ -99,8 +99,8 @@ Regra de interpretacao:
 
 Para manutencao do projeto, existe uma regra unica:
 
-- `.opencode/skills/{skill}/SKILL.md` e a fonte canonica
-- qualquer ajuste, melhoria ou criacao de skill deve ser feito sempre em `.opencode/skills/`
+- `.agents/skills/{skill}/SKILL.md` e a fonte canonica
+- qualquer ajuste, melhoria ou criacao de skill deve ser feito sempre em `.agents/skills/`
 
 Em outras palavras: OpenCode e Codex devem operar sobre o mesmo caminho fisico de skill.
 
@@ -135,8 +135,7 @@ OpenCode e acionado no terminal. Dois modos:
 **Modo interativo (recomendado para candidaturas):**
 
 ```bash
-# Iniciar sessão no diretório do projeto
-cd "/Users/mac/llm server/projetos/candidaturas"
+# Na raiz do repositório clonado
 opencode
 ```
 
@@ -287,7 +286,7 @@ Arquivos principais para retomada:
 
 ## 5. Atualizar arquivos de referência
 
-Todos os arquivos de referência ficam em `.opencode/skills/career-system/references/`. Qualquer motor pode ler e atualizar.
+Todos os arquivos de referência ficam em `.agents/skills/career-system/references/`. Qualquer motor pode ler e atualizar.
 
 ### 5.1 Tabela de referências e quando atualizar
 
@@ -299,7 +298,7 @@ Todos os arquivos de referência ficam em `.opencode/skills/career-system/refere
 | `dicionario_palavras_chave_mercado.md` | Vocabulário da vaga → base de conhecimento | Nova keyword validada ou proibida identificada |
 | `diretrizes_carta_de_apresentacao.md` | Modelo e regras de carta | Mudança de estilo ou estrutura da carta |
 | `habilidades_gupy.json` | 30 habilidades oficiais da plataforma Gupy | Gupy adicionar ou remover habilidades da lista |
-| `.opencode/skills/habilidades-chave/references/habilidades_mercado_livre.json` | Catálogo derivado da imagem de habilidades do usuário | Ajustar catálogo de habilidades externas, como Mercado Livre |
+| `.agents/skills/habilidades-chave/references/habilidades_mercado_livre.json` | Catálogo derivado da imagem de habilidades do usuário | Ajustar catálogo de habilidades externas, como Mercado Livre |
 | `competencias_matrix.json` | 53 competências × 16 experiências | Nova competência mapeada, nova evidência |
 | `competencias_por_experiencia.json` | Top competências por experiência | Repriorização após nova vaga analisada |
 | `competencias_linkedin.json` | 85 habilidades LinkedIn com status ativo/inativo | Mudança no perfil LinkedIn |
@@ -358,9 +357,9 @@ Não é necessário dizer "edita o JSON" — basta descrever o que deve mudar. O
 
 ## 6. Atualizar discovery do OpenCode
 
-As skills ficam localmente em `.opencode/skills/{skill}/SKILL.md`.
+As skills ficam localmente em `.agents/skills/{skill}/SKILL.md`.
 
-**Regra pratica:** edite sempre `.opencode/skills/`.
+**Regra pratica:** edite sempre `.agents/skills/`.
 Nao crie pasta paralela de skills.
 
 ---
@@ -371,7 +370,7 @@ Nao crie pasta paralela de skills.
 
 Motivo: o projeto precisa manter um unico caminho operacional para rastreabilidade, consistencia e reproducao de comportamento.
 
-A skill operacional de Notion é `.opencode/skills/notion-transactions/SKILL.md`. Ela organiza leitura, criação, atualização, dry-run e validação. A implementação permanece nos scripts locais `scripts/notion_sync.py` e `scripts/notion_query.py`, chamados via shell local do macOS.
+A skill operacional de Notion é `.agents/skills/notion-transactions/SKILL.md`. Ela organiza leitura, criação, atualização, dry-run e validação. A implementação permanece nos scripts locais `scripts/notion_sync.py` e `scripts/notion_query.py`, chamados via shell local do macOS.
 
 Não procurar skills inexistentes como `notion-query`, `notion-cli-fallback`, `notion-create-description` ou similares. Também não ler `.env`, não imprimir `NOTION_TOKEN`, não montar `curl` manual e não chamar a API pública do Notion diretamente.
 
@@ -673,7 +672,7 @@ Ao testar modelos locais, considere a sessao saudavel apenas se estes sinais apa
   OK  AGENTS.md
   OK  opencode.json
 
-=== Referências antigas em .opencode/skills/*.md (SKILL.md apenas) ===
+=== Referências antigas em .agents/skills/*.md (SKILL.md apenas) ===
   Nenhuma referência antiga encontrada.
 ```
 
@@ -697,7 +696,7 @@ Estas regras valem para qualquer modelo ou runtime. Nenhum deles pode viola-las:
 - Em respostas curtas de formulário/entrevista, responder direto, mitigar com fatos e evitar frases abertas como “minha abordagem é setor-agnóstica”, “aprendo rápido” ou “eu faria o mesmo”.
 - `output-reviewer` roda obrigatoriamente após toda skill de produção, antes de entregar qualquer documento
 - Datas de experiência: sempre lidas de `autoconhecimento.md` — nunca de memória ou sessão anterior
-- Notion: usar a skill `.opencode/skills/notion-transactions/SKILL.md`; toda execução real continua exclusivamente via `scripts/notion_sync.py`, `scripts/notion_query.py` e comandos `npm run notion:*` — nunca via MCP, `curl` manual ou cliente direto de API
+- Notion: usar a skill `.agents/skills/notion-transactions/SKILL.md`; toda execução real continua exclusivamente via `scripts/notion_sync.py`, `scripts/notion_query.py` e comandos `npm run notion:*` — nunca via MCP, `curl` manual ou cliente direto de API
 
 ---
 
@@ -714,7 +713,7 @@ Estas regras valem para qualquer modelo ou runtime. Nenhum deles pode viola-las:
 | VivaReal | Área de CS | 91 pessoas |
 | Trifil | Redução de GGF | R$ 8MM |
 
-Fonte: `.opencode/skills/career-system/references/perfil_restricoes.md` — sempre consultar antes de gerar qualquer documento.
+Fonte: `.agents/skills/career-system/references/perfil_restricoes.md` — sempre consultar antes de gerar qualquer documento.
 
 ## 11. Ponto de entrada oficial
 

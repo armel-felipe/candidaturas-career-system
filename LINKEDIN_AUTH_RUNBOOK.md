@@ -45,10 +45,10 @@ Use esta regra antes de executar qualquer comando:
 Todos os comandos deste runbook assumem a raiz atual do projeto:
 
 ```bash
-cd "/Users/mac/llm server/projetos/candidaturas"
+cd "$(git rev-parse --show-toplevel)"
 ```
 
-No servidor Ubuntu/RPi5, use o path correspondente local desse mesmo repositorio.
+Execute esse comando a partir de qualquer subpasta do clone Git. Ele resolve a raiz local do repositorio no MacBook, Ubuntu ou RPi5.
 
 Se voce rodar comandos fora da raiz, o npm pode falhar ao procurar `package.json`.
 
@@ -67,7 +67,7 @@ Use este fluxo quando o comando sera executado diretamente no macOS.
 ### 1. Entrar Na Pasta Do Projeto
 
 ```bash
-cd "/Users/mac/llm server/projetos/candidaturas"
+cd "$(git rev-parse --show-toplevel)"
 ```
 
 ### 2. Validar O Modo Local
@@ -354,10 +354,10 @@ Voce esta fora da pasta do projeto.
 Corrigir no MacBook:
 
 ```bash
-cd "/Users/mac/llm server/projetos/candidaturas"
+cd "$(git rev-parse --show-toplevel)"
 ```
 
-No servidor Ubuntu/RPi5, entre na raiz local equivalente do repositorio.
+No servidor Ubuntu/RPi5, use o mesmo comando a partir de uma subpasta do clone.
 
 ### `LinkedIn exige login, mas não há DISPLAY/WAYLAND_DISPLAY`
 
@@ -419,7 +419,7 @@ Se o LinkedIn pedir captcha, verificacao de seguranca adicional ou bloquear a au
 MacBook:
 
 ```bash
-cd "/Users/mac/llm server/projetos/candidaturas"
+cd "$(git rev-parse --show-toplevel)"
 npx playwright install chromium
 npm run linkedin:auth
 npm run linkedin:extract:authenticated -- --url "<url-da-vaga>"

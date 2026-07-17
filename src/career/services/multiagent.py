@@ -69,7 +69,7 @@ BASE_FORBIDDEN_ACTIONS = (
     "usar browser/web_search para LinkedIn",
     "imprimir arquivos JSON/Markdown grandes na conversa",
     "usar cat em FIT_MAP, caches do Notion, registry ATS ou referencias longas",
-    "usar grep -r/rg amplo em inbox/notion, outputs, .career-state ou .opencode sem limite estrito",
+    "usar grep -r/rg amplo em inbox/notion, outputs, .career-state ou .agents sem limite estrito",
     "colar diff gigante de artefato intermediario no chat",
     "entregar conclusao sem artefato persistido",
     "reaproveitar FIT_MAP antigo para vaga nova",
@@ -392,7 +392,7 @@ def _allowed_files_for(contract: AgentContract, active: dict[str, Any] | None) -
         files = derived_context_service.fit_map_compact_files()
     elif contract.step == "cv":
         files = derived_context_service.cv_compact_files() + [
-            ".opencode/skills/cv-generator/SKILL.md",
+            ".agents/skills/cv-generator/SKILL.md",
             "scripts/docx/generate_custom_cv.js",
         ]
     elif contract.step == "cover-letter":
@@ -401,7 +401,7 @@ def _allowed_files_for(contract: AgentContract, active: dict[str, Any] | None) -
             ".career-state/derived/cover_letter_input_pack.json",
             ".career-state/derived/reference_digest.json",
             ".career-state/derived/manifest.json",
-            ".opencode/skills/cover-letter/SKILL.md",
+            ".agents/skills/cover-letter/SKILL.md",
         ]
     elif contract.step == "feras":
         files = [
@@ -409,14 +409,14 @@ def _allowed_files_for(contract: AgentContract, active: dict[str, Any] | None) -
             ".career-state/derived/feras_input_pack.json",
             ".career-state/derived/reference_digest.json",
             ".career-state/derived/manifest.json",
-            ".opencode/skills/feras-pitch/SKILL.md",
+            ".agents/skills/feras-pitch/SKILL.md",
         ]
     elif contract.step == "habilidades":
         files = [
             ".career-state/fit_map.json",
             ".career-state/derived/habilidades_input_pack.json",
             ".career-state/derived/manifest.json",
-            ".opencode/skills/habilidades-chave/SKILL.md",
+            ".agents/skills/habilidades-chave/SKILL.md",
         ]
     if contract.step in {"fit-map", "notion-update"} and active:
         job_description_path = active.get("job_description_path")

@@ -11,7 +11,7 @@ from career.paths import CAREER_STATE, ROOT
 from career.utils import read_json, write_json
 
 
-REFERENCES = ROOT / ".opencode" / "skills" / "career-system" / "references"
+REFERENCES = ROOT / ".agents" / "skills" / "career-system" / "references"
 MEMORY_DIR = CAREER_STATE / "memory"
 DERIVED_DIR = CAREER_STATE / "derived"
 NOTION_CACHE = ROOT / "inbox" / "notion" / "applications_cache.json"

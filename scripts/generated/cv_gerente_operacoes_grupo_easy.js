@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path");
 const {
   Document, Packer, Paragraph, TextRun, ExternalHyperlink,
   TabStopType, TabStopPosition, LevelFormat, AlignmentType,
@@ -267,7 +268,8 @@ const doc = new Document({
 });
 
 // --- output ---
-const outPath = "/Users/mac/llm server/projetos/candidaturas/outputs/_tmp/cv_gerente_operacoes_grupo_easy.docx";
+const workspace = path.resolve(__dirname, "..", "..");
+const outPath = path.join(workspace, "outputs", "_tmp", "cv_gerente_operacoes_grupo_easy.docx");
 Packer.toBuffer(doc).then(buffer => {
   fs.writeFileSync(outPath, buffer);
   console.log("ok");
