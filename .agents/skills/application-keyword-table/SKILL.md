@@ -7,9 +7,9 @@ description: Gera a tabela de candidatura no formato `keyword coberta | empresa 
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/application-keyword-table/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/application-keyword-table/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/application-keyword-table/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/application-keyword-table/SKILL.md`.
 
 Leia também `../career-system/SKILL.md` antes de executar. Esta skill existe para produzir uma saída curta, útil para formulário de candidatura, com foco nas keywords mais relevantes que já têm evidência real na base.
 

@@ -14,9 +14,9 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/career-fit-analysis/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/career-fit-analysis/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/career-fit-analysis/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/career-fit-analysis/SKILL.md`.
 
 ## Adaptação Local OpenCode
 

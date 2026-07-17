@@ -12,9 +12,9 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/career-system/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/career-system/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/career-system/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/career-system/SKILL.md`.
 
 Guia de manutenção da biblioteca de skills: `references/skill-library-maintenance.md`. Consulte este guia ao receber pedidos de revisão/atualização da skill library — ele define o checklist de auditoria, a ordem de preferência e os pitfalls a evitar.
 
@@ -25,19 +25,19 @@ Use esta skill como camada orquestradora antes de qualquer rotina de candidatura
 ## Runtime Local
 
 - Workspace raiz: resolver pelo diretório atual do projeto.
-- Memória compartilhada: `.opencode/skills/career-system/references/`.
+- Memória compartilhada: `.agents/skills/career-system/references/`.
 - Estado ativo: `.career-state/fit_map.json`.
 - Saídas finais: `outputs/`.
 - Scripts locais: `scripts/`.
 - Registro técnico local de keywords ATS: `.career-state/derived/keyword_ats_registry.json`.
-- Dicionário canônico de equivalentes PT-BR para keywords ATS: `.opencode/skills/career-system/references/keyword_translation_registry.json`.
+- Dicionário canônico de equivalentes PT-BR para keywords ATS: `.agents/skills/career-system/references/keyword_translation_registry.json`.
 - Memória derivada a partir do histórico de candidaturas para priorizar traduções PT-BR: `.career-state/derived/keyword_translation_candidates.json`.
 - Integração Notion: `scripts/notion_sync.py`.
 - Caminhos do runtime devem ser resolvidos a partir da raiz local do workspace.
 
 ## Skills Disponíveis
 
-Antes de executar uma tarefa que aciona uma skill, leia o `SKILL.md` correspondente na pasta `.opencode/skills/`.
+Antes de executar uma tarefa que aciona uma skill, leia o `SKILL.md` correspondente na pasta `.agents/skills/`.
 
 A tabela completa de gatilho → skill do projeto está em `references/routing-table.md`. Consulte-a quando o usuário pedir uma tarefa de candidatura e você precisar determinar qual skill do projeto carregar.
 
@@ -309,7 +309,7 @@ Use as referências nesta ordem:
 2. `palavras_chave_carreira.md` para localizar evidência e resultados por keyword.
 3. `autoconhecimento.md` para validar datas, contexto, escopo, ferramentas e defensabilidade.
 4. `perfil_restricoes.md` para validar números críticos, narrativas protegidas e restrições.
-5. `.opencode/skills/habilidades-chave/references/habilidades_mercado_livre.json` para listas derivadas de catálogos externos. `habilidades_gupy.json` somente para Gupy — lista oficial de 30 habilidades selecionáveis. Nunca usar habilidade fora da fonte ativa do modo selecionado e nunca normalizar o texto de um catálogo para parecer o do outro.
+5. `.agents/skills/habilidades-chave/references/habilidades_mercado_livre.json` para listas derivadas de catálogos externos. `habilidades_gupy.json` somente para Gupy — lista oficial de 30 habilidades selecionáveis. Nunca usar habilidade fora da fonte ativa do modo selecionado e nunca normalizar o texto de um catálogo para parecer o do outro.
 6. `competencias_matrix.json` e `competencias_por_experiencia.json` para comparativos de competências e análises de fit por cargo quando solicitado. `competencias_linkedin.json` para gestão das habilidades do perfil LinkedIn.
 7. `keyword_ats_registry.json` como artefato técnico local para gate, reviewer e estatística operacional da vaga.
 
@@ -406,7 +406,7 @@ Antes e depois de qualquer manutenção estrutural, mudança em skills ou saneam
 npm run validate:structure
 ```
 
-Essa validação deve falhar se houver caminhos legados, pastas paralelas de skill, estado local paralelo ou instaladores antigos de skills fora de `.opencode/skills/`.
+Essa validação deve falhar se houver caminhos legados, pastas paralelas de skill, estado local paralelo ou instaladores antigos de skills fora de `.agents/skills/`.
 
 ## Contexto e Estado — Prevenção de Stale Reuse
 
@@ -490,7 +490,7 @@ python3 scripts/create_gmail_draft.py --to "<email>" --subject "<assunto>" --bod
 Regra global para drafts de email:
 - toda tarefa de email por Gmail usa `self-email-draft`
 - o remetente é sempre a conta Gmail autenticada pelo OAuth local; nunca perguntar email de envio/remetente
-- para email de candidatura, usar os templates Multinacional ou Startup definidos em `.opencode/skills/self-email-draft/SKILL.md`
+- para email de candidatura, usar os templates Multinacional ou Startup definidos em `.agents/skills/self-email-draft/SKILL.md`
 - antes de criar draft real, revisar ortografia/fluidez, remover termos internos ou canônicos, e exibir destino, assunto, corpo completo e anexos validados
 - `scripts/review_email_text.py` deve passar antes do preview aprovado e antes do draft real
 - só executar `create_gmail_draft.py` sem `--dry-run` depois de aprovação explícita do usuário
@@ -520,7 +520,7 @@ Use esse histórico para:
 
 **Canal único:** toda interação com o Notion neste projeto usa exclusivamente os scripts locais `scripts/notion_sync.py` e `scripts/notion_query.py`. Ferramentas MCP de Notion — como `notion-fetch`, `notion-search`, `notion-update-page`, `notion-create-pages`, `notion-create-comment`, `notion-move-pages` e similares — são **proibidas**, mesmo quando disponíveis no runtime em uso. Esta restrição existe para garantir paridade de comportamento e rastreabilidade operacional.
 
-Notion tem skill operacional própria em `.opencode/skills/notion-transactions/SKILL.md`. Essa skill organiza o workflow; a implementação continua nos scripts locais. Não procurar skills `notion-query`, `notion-cli-fallback`, `notion-create-description`, `notion-update-record` ou nomes semelhantes. Para `Notion <número>`, executar `npm run notion:prepare-record -- <número>` ou `python3 scripts/notion_sync.py prepare-analysis-from-record <número>`.
+Notion tem skill operacional própria em `.agents/skills/notion-transactions/SKILL.md`. Essa skill organiza o workflow; a implementação continua nos scripts locais. Não procurar skills `notion-query`, `notion-cli-fallback`, `notion-create-description`, `notion-update-record` ou nomes semelhantes. Para `Notion <número>`, executar `npm run notion:prepare-record -- <número>` ou `python3 scripts/notion_sync.py prepare-analysis-from-record <número>`.
 
 Para avaliar/analisar vaga por `Notion <número>`, o comando preferencial é `npm run intake:notion-record -- <número>`.
 

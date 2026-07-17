@@ -27,7 +27,7 @@ Ela transforma qualquer origem em um estado comum:
 `intake:notion-record`, `intake:paste`, `intake:linkedin-job`, `intake:linkedin-post`, `intake:url` e `intake:resume`
 são comandos npm. Não tentar carregá-los como skills.
 
-Antes de executar esta skill, leia também `.opencode/skills/career-system/SKILL.md`.
+Antes de executar esta skill, leia também `.agents/skills/career-system/SKILL.md`.
 
 ## Comandos
 

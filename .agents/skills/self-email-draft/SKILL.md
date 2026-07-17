@@ -14,7 +14,7 @@ description: >
 
 ## Governanca da Skill
 
-Manutencao canonica desta skill: `.opencode/skills/self-email-draft/SKILL.md`.
+Manutencao canonica desta skill: `.agents/skills/self-email-draft/SKILL.md`.
 
 Qualquer ajuste nesta skill deve ser feito no caminho canonico acima.
 

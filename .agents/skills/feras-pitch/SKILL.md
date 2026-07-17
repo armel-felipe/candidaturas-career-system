@@ -13,9 +13,9 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/feras-pitch/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/feras-pitch/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/feras-pitch/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/feras-pitch/SKILL.md`.
 
 ## Adaptação Local OpenCode
 

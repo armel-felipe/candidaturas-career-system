@@ -12,7 +12,7 @@ description: >
 
 ## Governança
 
-Manutenção canônica desta skill: `.opencode/skills/linkedin-saved-jobs/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/linkedin-saved-jobs/SKILL.md`.
 Script principal: `scripts/linkedin_saved_jobs_extractor.js`.
 
 ## Escopo
@@ -122,7 +122,7 @@ Estrutura:
 
 ## Workflow Operacional
 
-1. Ler `.opencode/skills/career-system/SKILL.md` e este arquivo.
+1. Ler `.agents/skills/career-system/SKILL.md` e este arquivo.
 2. Executar `npm run linkedin:saved-jobs:extract`.
 3. Se falhar por sessão expirada, executar `npm run linkedin:auth` e repetir o
    extrator. Se a autenticação exigir ação manual do usuário, declarar bloqueio.

@@ -12,9 +12,9 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/cv-generator/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/cv-generator/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/cv-generator/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/cv-generator/SKILL.md`.
 
 ## Adaptação Local OpenCode
 
@@ -559,7 +559,7 @@ Antes de escrever os bullets do CV, consumir `keywords_habilidade_ats` do FIT_MA
 
 Referências obrigatórias para CV em PT-BR:
 - `.career-state/derived/keyword_ats_registry.json`
-- `.opencode/skills/career-system/references/keyword_translation_registry.json`
+- `.agents/skills/career-system/references/keyword_translation_registry.json`
 - `.career-state/derived/keyword_translation_candidates.json`
 
 Uso correto dessas referências:

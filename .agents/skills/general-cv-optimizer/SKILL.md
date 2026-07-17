@@ -10,7 +10,7 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/general-cv-optimizer/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/general-cv-optimizer/SKILL.md`.
 
 Antes de executar, leia também `../career-system/SKILL.md`. Esta skill não substitui `cv-generator` para vagas específicas;
 ela cria o CV mestre e os relatórios de plataforma para busca ativa e reposicionamento geral.

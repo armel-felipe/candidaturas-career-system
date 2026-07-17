@@ -20,19 +20,19 @@ Este projeto possui 7 skills instaladas. Elas são o mecanismo principal de exec
 
 **Ordem obrigatória para qualquer skill acionada:**
 ```
-1. abrir `.opencode/skills/{nome-da-skill}/SKILL.md`
+1. abrir `.agents/skills/{nome-da-skill}/SKILL.md`
 2. Executar o fluxo conforme o arquivo lido — nunca conforme memória de versões anteriores
 ```
 
 **Caminho completo das skills instaladas:**
 ```
-/.opencode/skills/career-fit-analysis/SKILL.md
-/.opencode/skills/cv-generator/SKILL.md
-/.opencode/skills/feras-pitch/SKILL.md
-/.opencode/skills/cover-letter/SKILL.md
-/.opencode/skills/habilidades-chave/SKILL.md
-/.opencode/skills/output-reviewer/SKILL.md
-/.opencode/skills/networking-message/SKILL.md
+/.agents/skills/career-fit-analysis/SKILL.md
+/.agents/skills/cv-generator/SKILL.md
+/.agents/skills/feras-pitch/SKILL.md
+/.agents/skills/cover-letter/SKILL.md
+/.agents/skills/habilidades-chave/SKILL.md
+/.agents/skills/output-reviewer/SKILL.md
+/.agents/skills/networking-message/SKILL.md
 ```
 
 Se o agente iniciar uma execução sem ter lido o arquivo primeiro, deve interromper, ler o arquivo e reiniciar.

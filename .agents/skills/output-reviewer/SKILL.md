@@ -8,9 +8,9 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/output-reviewer/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/output-reviewer/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/output-reviewer/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/output-reviewer/SKILL.md`.
 
 ## Adaptação Local OpenCode
 
@@ -166,7 +166,7 @@ Regras:
 - se `cv:approve` ou `cv:deliver` retornar erro, `Approved for delivery: no`, `approved_for_delivery=false`, ou listar blockers, a revisão está reprovada e a entrega fica bloqueada
 - se `cv:deliver` falhar apenas por rclone/OneDrive depois de aprovação local confirmada, declarar execução parcial: arquivo local aprovado em `outputs/`, entrega remota bloqueada
 - aprovação manual nunca substitui este comando
-- em CV PT-BR, equivalentes canônicos em `.opencode/skills/career-system/references/keyword_translation_registry.json` contam como cobertura aceitável das top 8 keywords
+- em CV PT-BR, equivalentes canônicos em `.agents/skills/career-system/references/keyword_translation_registry.json` contam como cobertura aceitável das top 8 keywords
 - o arquivo canônico é `.career-state/derived/keyword_translation_candidates.json`: ele mostra, a partir do histórico real de candidaturas, quais keywords em inglês mais frequentemente pedem tradução ou wording alternativo em PT-BR
 
 Política ATS para CV:

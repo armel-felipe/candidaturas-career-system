@@ -1,12 +1,12 @@
 # Routing Table — Career System
 
-Mapeamento de gatilhos do usuário para skills do projeto em `.opencode/skills/`.
+Mapeamento de gatilhos do usuário para skills do projeto em `.agents/skills/`.
 
 Fonte canônica: `AGENTS.md` na raiz do projeto. Mantenha sincronizada com a tabela em AGENTS.md.
 
 ## Tabela de Roteamento
 
-| O usuário pede | Skill a executar (`.opencode/skills/{skill}/SKILL.md`) |
+| O usuário pede | Skill a executar (`.agents/skills/{skill}/SKILL.md`) |
 |---|---|
 | Analisar vaga / "como me encaixo" / colar anúncio | `intake-orchestrator` → `career-fit-analysis` |
 | "Avalie a vaga em <URL>" / "analise a vaga em <URL>" com URL `linkedin.com/jobs/view/...`, `linkedin.com/jobs/...` ou `linkedin.com/job/...` | `intake-orchestrator` → `career-fit-analysis` |
@@ -31,7 +31,7 @@ Fonte canônica: `AGENTS.md` na raiz do projeto. Mantenha sincronizada com a tab
 | Quais cargos combinam comigo | `career-fit-analysis` (Modo 2) |
 | Posicionamento para cargo novo | `career-fit-analysis` (Modo 3) |
 
-## Skills do Projeto (`.opencode/skills/`)
+## Skills do Projeto (`.agents/skills/`)
 
 Skills operacionais roteadas pelo sistema:
 
@@ -63,10 +63,10 @@ Skills auxiliares (não roteadas diretamente, mas usadas como suporte):
 ## Regra de Execução
 
 1. Identificar o gatilho na tabela acima
-2. Carregar o `SKILL.md` correspondente em `.opencode/skills/{skill}/SKILL.md`
+2. Carregar o `SKILL.md` correspondente em `.agents/skills/{skill}/SKILL.md`
 3. Executar o workflow completo descrito na skill (não apenas ler)
 4. Se a skill falhar ou não puder ser executada, declarar bloqueio objetivo
 
 ## Skills que NÃO têm Hermes skill própria
 
-Skills do projeto em `.opencode/skills/` NÃO têm Hermes skills correspondentes. O Hermes `career-system` umbrella é o único ponto de entrada. Para carregar uma skill do projeto, use `skill_view(name='career-system')` e depois leia o `SKILL.md` canônico em `.opencode/skills/{skill}/SKILL.md` via `read_file` ou `search_files`.
+Skills do projeto em `.agents/skills/` NÃO têm Hermes skills correspondentes. O Hermes `career-system` umbrella é o único ponto de entrada. Para carregar uma skill do projeto, use `skill_view(name='career-system')` e depois leia o `SKILL.md` canônico em `.agents/skills/{skill}/SKILL.md` via `read_file` ou `search_files`.

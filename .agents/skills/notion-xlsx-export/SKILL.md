@@ -37,9 +37,9 @@ O layout de saída é fixo e segue o padrão já validado neste projeto:
 
 Antes de executar, ler também:
 
-1. `.opencode/skills/career-system/SKILL.md`
-2. `.opencode/skills/notion-transactions/SKILL.md`
-3. `.opencode/skills/xlsx/SKILL.md`
+1. `.agents/skills/career-system/SKILL.md`
+2. `.agents/skills/notion-transactions/SKILL.md`
+3. `.agents/skills/xlsx/SKILL.md`
 
 Motivo:
 

@@ -431,9 +431,9 @@ O sistema usa gatilhos linguísticos para identificar qual skill acionar. Abaixo
 
 ## TRACKER DE CANDIDATURAS — NOTION
 
-O projeto se conecta ao banco de dados "Aplicações" no Notion por scripts locais, nunca por MCP. A skill operacional é `.opencode/skills/notion-transactions/SKILL.md`, e a implementação canônica fica em `scripts/notion_sync.py`, `scripts/notion_query.py` e nos comandos `npm run notion:*`. Cada vaga tem um registro com ID numérico no campo único `ID`.
+O projeto se conecta ao banco de dados "Aplicações" no Notion por scripts locais, nunca por MCP. A skill operacional é `.agents/skills/notion-transactions/SKILL.md`, e a implementação canônica fica em `scripts/notion_sync.py`, `scripts/notion_query.py` e nos comandos `npm run notion:*`. Cada vaga tem um registro com ID numérico no campo único `ID`.
 
-**Regra operacional:** quando precisar avaliar/analisar uma vaga específica, usar `npm run intake:notion-record -- <id_unico>`. Para leitura simples, criação, atualização de descrição, atualização de FIT_MAP ou sincronização de histórico, seguir `.opencode/skills/notion-transactions/SKILL.md`. Não ler `.env`, não copiar `NOTION_TOKEN`, não fazer `curl` manual e não chamar endpoints do Notion diretamente.
+**Regra operacional:** quando precisar avaliar/analisar uma vaga específica, usar `npm run intake:notion-record -- <id_unico>`. Para leitura simples, criação, atualização de descrição, atualização de FIT_MAP ou sincronização de histórico, seguir `.agents/skills/notion-transactions/SKILL.md`. Não ler `.env`, não copiar `NOTION_TOKEN`, não fazer `curl` manual e não chamar endpoints do Notion diretamente.
 
 Toda vaga específica entra pelo orquestrador `intake:*`, que salva a descrição, registra `active_intake`, recria `.career-state/fit_map.draft.json` e devolve `next_required_step`.
 

@@ -14,9 +14,9 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/networking-message/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/networking-message/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/networking-message/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/networking-message/SKILL.md`.
 
 ## Adaptação Local OpenCode
 

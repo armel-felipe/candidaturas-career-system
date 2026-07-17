@@ -32,7 +32,7 @@ Ativar SEMPRE que o usuário:
 | Notion ID (ex: "Notion 248") | Executar `npm run intake:notion-record -- <ID>` |
 | URL externa não-LinkedIn | Executar `npm run intake:url -- --url "<url>" --company "<empresa>" --role "<cargo>"`; `--company/--role` são fallback. Se a extração falhar por página ruim, descrição curta ou metadado fraco, pedir texto bruto |
 
-Notion usa a skill operacional `.opencode/skills/notion-transactions/SKILL.md`, mas a implementação continua nos scripts locais. Não procurar `notion-query`, `notion-cli-fallback` ou qualquer skill `notion-*` inventada; não ler `.env`, não extrair token e não fazer `curl` direto na API do Notion.
+Notion usa a skill operacional `.agents/skills/notion-transactions/SKILL.md`, mas a implementação continua nos scripts locais. Não procurar `notion-query`, `notion-cli-fallback` ou qualquer skill `notion-*` inventada; não ler `.env`, não extrair token e não fazer `curl` direto na API do Notion.
 
 Após qualquer intake:
 - Se `status = ready_for_model_analysis`, usar `job_description_path` e preencher `.career-state/fit_map.draft.json`.
@@ -47,10 +47,10 @@ npm run intake:resume
 
 ### Passo 3 — Ler as 4 referências obrigatórias (se ainda não lidas nesta sessão)
 
-1. `.opencode/skills/career-system/references/dicionario_palavras_chave_mercado.md`
-2. `.opencode/skills/career-system/references/palavras_chave_carreira.md`
-3. `.opencode/skills/career-system/references/autoconhecimento.md`
-4. `.opencode/skills/career-system/references/perfil_restricoes.md`
+1. `.agents/skills/career-system/references/dicionario_palavras_chave_mercado.md`
+2. `.agents/skills/career-system/references/palavras_chave_carreira.md`
+3. `.agents/skills/career-system/references/autoconhecimento.md`
+4. `.agents/skills/career-system/references/perfil_restricoes.md`
 
 ### Passo 4 — Gerar template e montar draft FIT_MAP
 

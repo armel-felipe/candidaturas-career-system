@@ -13,7 +13,7 @@ description: >
 
 ## Governança
 
-Manutenção canônica desta skill: `.opencode/skills/linkedin-job-extractor/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/linkedin-job-extractor/SKILL.md`.
 
 Antes de executar esta skill, leia este arquivo. Leitura não conta como execução; a execução só termina quando a vaga
 for extraída, salva e validada, ou quando houver bloqueio explícito.

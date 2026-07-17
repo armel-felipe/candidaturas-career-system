@@ -12,10 +12,10 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/habilidades-chave/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/habilidades-chave/SKILL.md`.
 
 Se precisar alterar gatilhos, referência da imagem, formato de saída ou regra de ranqueamento, editar sempre este arquivo
-e os recursos dentro de `.opencode/skills/habilidades-chave/`.
+e os recursos dentro de `.agents/skills/habilidades-chave/`.
 
 ## Objetivo Operacional
 

@@ -12,9 +12,9 @@ description: >
 
 ## Governança da Skill
 
-Manutenção canônica desta skill: `.opencode/skills/cover-letter/SKILL.md`.
+Manutenção canônica desta skill: `.agents/skills/cover-letter/SKILL.md`.
 
-Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.opencode/skills/cover-letter/SKILL.md`.
+Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skills/cover-letter/SKILL.md`.
 
 ## Adaptação Local OpenCode
 
