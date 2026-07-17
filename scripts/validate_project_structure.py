@@ -66,7 +66,6 @@ SCAN_ROOTS = [
     "scripts",
     "src",
     "sessions",
-    "inbox",
 ]
 
 IGNORED_PARTS = {
