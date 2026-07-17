@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 
 
-DEFAULT_TRANSLATION_REGISTRY = Path(".opencode/skills/career-system/references/keyword_translation_registry.json")
+DEFAULT_TRANSLATION_REGISTRY = Path(".agents/skills/career-system/references/keyword_translation_registry.json")
 DEFAULT_TRANSLATION_CANDIDATES = Path(".career-state/derived/keyword_translation_candidates.json")
 
 

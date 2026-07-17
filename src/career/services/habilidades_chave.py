@@ -8,14 +8,14 @@ from career.paths import CAREER_STATE, ROOT
 from career.utils import ValidationFailure, read_json
 
 
-GUPY_CATALOG = ROOT / ".opencode" / "skills" / "career-system" / "references" / "habilidades_gupy.json"
-MERCADO_LIVRE_CATALOG = ROOT / ".opencode" / "skills" / "habilidades-chave" / "references" / "habilidades_mercado_livre.json"
+GUPY_CATALOG = ROOT / ".agents" / "skills" / "career-system" / "references" / "habilidades_gupy.json"
+MERCADO_LIVRE_CATALOG = ROOT / ".agents" / "skills" / "habilidades-chave" / "references" / "habilidades_mercado_livre.json"
 REQUIRED_REFERENCES = [
-    ROOT / ".opencode" / "skills" / "career-system" / "references" / "dicionario_palavras_chave_mercado.md",
-    ROOT / ".opencode" / "skills" / "career-system" / "references" / "palavras_chave_carreira.md",
-    ROOT / ".opencode" / "skills" / "career-system" / "references" / "autoconhecimento.md",
-    ROOT / ".opencode" / "skills" / "career-system" / "references" / "perfil_restricoes.md",
-    ROOT / ".opencode" / "skills" / "habilidades-chave" / "references" / "story-building-template.md",
+    ROOT / ".agents" / "skills" / "career-system" / "references" / "dicionario_palavras_chave_mercado.md",
+    ROOT / ".agents" / "skills" / "career-system" / "references" / "palavras_chave_carreira.md",
+    ROOT / ".agents" / "skills" / "career-system" / "references" / "autoconhecimento.md",
+    ROOT / ".agents" / "skills" / "career-system" / "references" / "perfil_restricoes.md",
+    ROOT / ".agents" / "skills" / "habilidades-chave" / "references" / "story-building-template.md",
 ]
 
 

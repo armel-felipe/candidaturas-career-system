@@ -103,7 +103,7 @@ def local_strict_status() -> dict[str, Any]:
             "use compact npm commands before ad hoc shell inspection",
             "prefer derived context artifacts and request validators before opening long references",
             "do not cat FIT_MAP, draft, Notion cache, ATS registry, or long references",
-            "do not run broad grep/rg over inbox/notion, .career-state, outputs, or .opencode",
+            "do not run broad grep/rg over inbox/notion, .career-state, outputs, or .agents",
             "answer with paths, counts, status, blockers, and next command",
         ],
     }

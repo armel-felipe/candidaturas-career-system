@@ -15,7 +15,7 @@ from career.workflow.state_store import WorkflowStateStore
 
 DERIVED_DIR = CAREER_STATE / "derived"
 ACTIVE_CONTEXT_PATH = DERIVED_DIR / "active_context.json"
-REFERENCES = ROOT / ".opencode" / "skills" / "career-system" / "references"
+REFERENCES = ROOT / ".agents" / "skills" / "career-system" / "references"
 JOB_EXTRACT_PATH = DERIVED_DIR / "job_extract.json"
 JOB_SECTIONS_PATH = DERIVED_DIR / "job_sections.json"
 JOB_KEYWORDS_PATH = DERIVED_DIR / "job_keywords.json"
@@ -446,10 +446,10 @@ def fit_map_compact_files() -> list[str]:
 
 
 def fit_map_fallback_reference_files() -> list[str]:
-    return [".opencode/skills/career-system/references/dicionario_palavras_chave_mercado.md",
-            ".opencode/skills/career-system/references/palavras_chave_carreira.md",
-            ".opencode/skills/career-system/references/autoconhecimento.md",
-            ".opencode/skills/career-system/references/perfil_restricoes.md"]
+    return [".agents/skills/career-system/references/dicionario_palavras_chave_mercado.md",
+            ".agents/skills/career-system/references/palavras_chave_carreira.md",
+            ".agents/skills/career-system/references/autoconhecimento.md",
+            ".agents/skills/career-system/references/perfil_restricoes.md"]
 
 
 def cv_compact_files() -> list[str]:
