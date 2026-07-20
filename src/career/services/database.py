@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from career.paths import CAREER_STATE
 
@@ -109,8 +111,113 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_session_memory_session_key
                 ON session_memory(session_id, key);
+
+            CREATE TABLE IF NOT EXISTS application_runs (
+                run_id TEXT PRIMARY KEY,
+                application_id TEXT NOT NULL,
+                graph_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'planned',
+                contract_version TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_application_runs_application_created
+                ON application_runs(application_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS cell_nodes (
+                run_id TEXT NOT NULL REFERENCES application_runs(run_id),
+                node_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'planned',
+                requires_json TEXT NOT NULL DEFAULT '[]',
+                reserved_by TEXT,
+                reservation_expires_at TEXT,
+                latest_attempt INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cell_nodes_run_status
+                ON cell_nodes(run_id, status);
+
+            CREATE TABLE IF NOT EXISTS cell_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                worker_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                finished_at TEXT,
+                detail_json TEXT,
+                UNIQUE (run_id, node_id, attempt),
+                FOREIGN KEY (run_id, node_id) REFERENCES cell_nodes(run_id, node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cell_attempts_run_node
+                ON cell_attempts(run_id, node_id);
+
+            CREATE TABLE IF NOT EXISTS artifacts (
+                artifact_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES application_runs(run_id),
+                node_id TEXT NOT NULL,
+                artifact_name TEXT NOT NULL,
+                path TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                input_hash TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_artifacts_run_node
+                ON artifacts(run_id, node_id);
+
+            CREATE TABLE IF NOT EXISTS resource_locks (
+                resource_name TEXT PRIMARY KEY,
+                worker_id TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_resource_locks_resource_expires
+                ON resource_locks(resource_name, expires_at);
+
+            CREATE TABLE IF NOT EXISTS workspace_leases (
+                lease_name TEXT PRIMARY KEY,
+                worker_id TEXT NOT NULL,
+                run_id TEXT REFERENCES application_runs(run_id),
+                acquired_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_workspace_leases_expires
+                ON workspace_leases(expires_at);
+
+            CREATE TABLE IF NOT EXISTS artifact_dependencies (
+                artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id),
+                input_hash TEXT NOT NULL,
+                input_path TEXT,
+                source_kind TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (artifact_id, input_hash)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_artifact_dependencies_artifact_input
+                ON artifact_dependencies(artifact_id, input_hash);
         """)
         conn.commit()
+
+    @contextmanager
+    def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:
+        conn = self.get_connection()
+        conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+        try:
+            yield conn
+        except BaseException:
+            conn.rollback()
+            raise
+        else:
+            conn.commit()
 
     def execute(self, sql: str, params: tuple | None = None) -> sqlite3.Cursor:
         conn = self.get_connection()
