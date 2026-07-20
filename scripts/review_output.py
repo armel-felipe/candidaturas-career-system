@@ -159,7 +159,7 @@ def extract_summary_experience_lines(lines: list[str]) -> list[str]:
         start = 0
 
     end = len(lines)
-    for marker in ("Formação", "Stack técnica", "Idiomas", "Education", "Technical Skills", "Languages"):
+    for marker in ("Formação", "Stack técnica", "Idiomas", "Education", "Technical Skills", "Technical Stack", "Languages"):
         try:
             marker_index = lines.index(marker)
         except ValueError:
@@ -179,7 +179,7 @@ def extract_experience_lines(lines: list[str]) -> list[str]:
         return []
 
     end = len(lines)
-    for marker in ("Formação", "Stack técnica", "Idiomas", "Education", "Technical Skills", "Languages"):
+    for marker in ("Formação", "Stack técnica", "Idiomas", "Education", "Technical Skills", "Technical Stack", "Languages"):
         try:
             marker_index = lines.index(marker)
         except ValueError:
@@ -571,8 +571,8 @@ def build_cv_review(
         },
         {
             "id": "stack_section_present",
-            "passed": "Stack técnica" in full_text or "Technical Skills" in full_text,
-            "evidence": "Stack técnica / Technical Skills",
+            "passed": "Stack técnica" in full_text or "Technical Skills" in full_text or "Technical Stack" in full_text,
+            "evidence": "Stack técnica / Technical Skills / Technical Stack",
         },
         {
             "id": "idiomas_section_present",

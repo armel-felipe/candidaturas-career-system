@@ -203,13 +203,18 @@ DEFAULT_EDUCATION_PT = [
 
 DEFAULT_EDUCATION_EN = [
     "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo (2017)",
-    "B.Sc. Chemical Engineering — Faculdades Oswaldo Cruz (2014)",
+    "Bachelor's Degree in Chemical Engineering — Faculdades Oswaldo Cruz (2014)",
     "Six Sigma Green Belt — Setec Consulting (2020)",
 ]
 
 DEFAULT_LANGUAGES = [
     "Português — Nativo",
     "Inglês — Avançado",
+]
+
+DEFAULT_LANGUAGES_EN = [
+    "Portuguese — Native",
+    "English — Advanced",
 ]
 
 DEFAULT_STACK = "Excel/VBA · SQL · Python · Databricks · Grafana · Tableau · Power BI · Metabase"
@@ -222,11 +227,11 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     job_family = _infer_job_family(fit_map)
     selected = _select_experiences(fit_map)
     ensure(4 <= len(selected) <= 8, "cv_content_requires_between_4_and_8_experiences")
+    is_en = _cv_language(fit_map) == "en"
     selected_with_bullets = [_materialize_experience(entry, job_family) for entry in selected]
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
     summary_text, summary_support = _build_summary(selected_with_bullets, fit_map)
-    is_en = str(fit_map.get("idioma") or "").strip().lower().startswith("en")
     education_list = DEFAULT_EDUCATION_EN if is_en else DEFAULT_EDUCATION_PT
     payload = {
         "metadata": {
@@ -238,6 +243,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
             "empresa": fit_map.get("empresa"),
             "source_fit_map": ".career-state/fit_map.json",
             "job_family": job_family,
+            "language": "en" if is_en else "pt-BR",
         },
         "output_name": _output_name(fit_map, active=active),
         "mode": "concise",
@@ -264,7 +270,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
         ],
         "education": list(education_list),
         "formacao": list(DEFAULT_EDUCATION_PT),
-        "languages": list(DEFAULT_LANGUAGES),
+        "languages": list(DEFAULT_LANGUAGES_EN if is_en else DEFAULT_LANGUAGES),
         "idiomas": list(DEFAULT_LANGUAGES),
         "stack": DEFAULT_STACK,
         "ats_keyword_coverage": coverage,
@@ -565,6 +571,10 @@ def _output_name(fit_map: dict[str, Any], *, active: Any | None = None) -> str:
     empresa = _slug(empresa_source)
     suffix = "_en" if str(fit_map.get("idioma") or "").strip().lower().startswith("en") else ""
     return f"felipe_armel_cv_{cargo}_{empresa}{suffix}.docx"
+
+
+def _cv_language(fit_map: dict[str, Any]) -> str:
+    return "en" if str(fit_map.get("idioma") or "").strip().casefold().startswith("en") else "pt-BR"
 
 
 def _normalize(text: str) -> str:
