@@ -96,6 +96,7 @@ git commit -m "feat: add transactional cellular run store"
 - Create: src/career/cells/__init__.py
 - Create: src/career/cells/contracts.py
 - Create: src/career/cells/planner.py
+- Modify: src/career/services/application_context.py
 - Create: tests/test_cell_planner.py
 
 **Interfaces:**
@@ -128,6 +129,8 @@ Expected: FAIL with missing career.cells module.
 
 Use frozen dataclasses. Each contract defines requires, produces, validators, resources, invalidates, repair_scope, max_attempts, and allows_external_effect. The compiler rejects unknown deliverables, missing contracts, duplicate node IDs, output-path collisions and cycles before persisting a plan. It includes capture_source only when no job description exists.
 
+Extend paths_for(application_id, root: Path | None = None) so the planner tests can construct application-local paths below tmp_path without altering the workspace. The default remains the current applications directory.
+
 - [ ] **Step 4: Run focused tests**
 
 Run: pytest tests/test_cell_planner.py -q
@@ -137,7 +140,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ~~~bash
-git add src/career/cells tests/test_cell_planner.py
+git add src/career/cells src/career/services/application_context.py tests/test_cell_planner.py
 git commit -m "feat: compile application cell graphs"
 ~~~
 
