@@ -307,6 +307,10 @@ class CellExecutor:
         )
         return completion
 
+    def is_terminal(self, run_id: str) -> bool:
+        statuses = self.resume(run_id).statuses.values()
+        return bool(statuses) and all(status in {"validated", "blocked"} for status in statuses)
+
     def mark_validated(self, run_id: str, node_id: str) -> None:
         """Persist a synthetic validated attempt for orchestration tests and imports."""
         _plan, paths = self._load_run(run_id)
@@ -572,6 +576,15 @@ class CellExecutor:
                         "metadata": dict(output.metadata),
                     },
                     resource_leases=acquired_resources,
+                    published_artifacts=tuple(
+                        {
+                            "artifact_name": item.manifest["artifact_name"],
+                            "path": str(item.path),
+                            "sha256": item.manifest["sha256"],
+                            "inputs": item.manifest["inputs"],
+                        }
+                        for item in published
+                    ),
                 )
             except Exception as exc:
                 manifest_store.rollback_publications(

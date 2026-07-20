@@ -526,13 +526,28 @@ def _cell_run_payload(executor: CellExecutor, run_id: str, *, status: str | None
             "SELECT path FROM artifacts WHERE run_id = ? ORDER BY path", (run_id,)
         )
     ]
+    active_nodes = sorted(
+        node_id
+        for node_id, node_status in resumed.statuses.items()
+        if node_status in {"reserved", "running"}
+    )
+    pending_nodes = sorted(
+        node_id
+        for node_id, node_status in resumed.statuses.items()
+        if node_status not in {"validated", "blocked", "reserved", "running"}
+    )
     if blocked_nodes:
         next_action = (
             "career applications repair "
             f"--application-id {resumed.application_id} --run-id {run_id} "
             f"--node {blocked_nodes[0]} --reason <reason>"
         )
-    elif ready_nodes:
+    elif active_nodes:
+        next_action = (
+            "career applications inspect-run "
+            f"--application-id {resumed.application_id} --run-id {run_id}"
+        )
+    elif ready_nodes or pending_nodes:
         next_action = (
             "career applications run "
             f"--application-id {resumed.application_id} --run-id {run_id}"
@@ -542,7 +557,17 @@ def _cell_run_payload(executor: CellExecutor, run_id: str, *, status: str | None
             "career applications inspect-run "
             f"--application-id {resumed.application_id} --run-id {run_id}"
         )
-    resolved_status = status or ("blocked" if blocked_nodes else "ready" if ready_nodes else "completed")
+    resolved_status = status or (
+        "blocked"
+        if blocked_nodes
+        else "running"
+        if active_nodes
+        else "ready"
+        if ready_nodes
+        else "pending"
+        if pending_nodes
+        else "completed"
+    )
     return {
         "status": resolved_status,
         "run_id": run_id,
@@ -573,6 +598,11 @@ def _harness_human_summary(result: dict) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if hasattr(args, "application_id") and args.application_id is not None:
+        try:
+            application_context_service.validate_application_id(args.application_id)
+        except ValueError as exc:
+            parser.error(str(exc))
 
     if args.command == "harness":
         supervisor = HarnessSupervisor(Path.cwd())
@@ -993,6 +1023,8 @@ def main(argv: list[str] | None = None) -> int:
                 _scoped_cell_run(executor, args.application_id, args.run_id)
                 if args.action == "run":
                     executor.run_ready(args.run_id)
+                    if executor.is_terminal(args.run_id):
+                        executor.finalize(args.run_id)
                     _dump(_cell_run_payload(executor, args.run_id))
                     return 0
                 if args.action == "repair":

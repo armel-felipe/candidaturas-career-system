@@ -17,6 +17,21 @@ SESSION_REGISTRY = CAREER_STATE / "session_registry.json"
 ALIAS_INDEX = CAREER_STATE / "application_alias_index.json"
 
 
+def validate_application_id(application_id: str) -> str:
+    """Return a single safe application path segment or reject the identifier."""
+    if (
+        not isinstance(application_id, str)
+        or not application_id
+        or application_id in {".", ".."}
+        or "/" in application_id
+        or "\\" in application_id
+        or "\x00" in application_id
+        or Path(application_id).is_absolute()
+    ):
+        raise ValueError("application_id must be a non-empty relative path segment")
+    return application_id
+
+
 def _slug(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9]+", "_", str(value or "").strip().lower())
     normalized = re.sub(r"_+", "_", normalized).strip("_")
@@ -70,6 +85,7 @@ class ApplicationPaths:
 
 
 def paths_for(application_id: str, root: Path | None = None) -> ApplicationPaths:
+    application_id = validate_application_id(application_id)
     app_dir = (Path(root) if root is not None else APPLICATIONS_DIR) / application_id
     return ApplicationPaths(
         application_id=application_id,
@@ -106,6 +122,7 @@ def ensure_application(
     preferred_id: str | None = None,
 ) -> ApplicationPaths:
     if preferred_id:
+        validate_application_id(preferred_id)
         application_id = _slug(preferred_id)
     elif record_id is not None:
         application_id = f"notion_{_slug(str(record_id))}"
@@ -180,6 +197,7 @@ def register_session(
     profile_id: str | None = None,
     channel: str | None = None,
 ) -> dict[str, Any]:
+    application_id = validate_application_id(application_id)
     profile_id = profile_id or ("default" if runtime != "hermes" else profile_id_from_env())
     key = session_key(runtime=runtime, profile_id=profile_id, session_id=session_id)
     registry = read_json(SESSION_REGISTRY) if SESSION_REGISTRY.exists() else {"sessions": {}}
@@ -203,7 +221,7 @@ def resolve_session(*, runtime: str, session_id: str, profile_id: str | None = N
     registry = read_json(SESSION_REGISTRY)
     item = registry.get("sessions", {}).get(session_key(runtime=runtime, profile_id=profile_id, session_id=session_id))
     if isinstance(item, dict) and item.get("application_id"):
-        return str(item["application_id"])
+        return validate_application_id(str(item["application_id"]))
     return None
 
 

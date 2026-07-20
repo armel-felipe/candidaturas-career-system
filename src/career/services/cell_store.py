@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 from collections.abc import Mapping
@@ -217,6 +218,7 @@ class CellStore:
         worker_id: str,
         receipt: Mapping[str, Any],
         resource_leases: Iterable[Mapping[str, Any]] = (),
+        published_artifacts: Iterable[Mapping[str, Any]] = (),
     ) -> dict[str, Any]:
         """Finish only the active attempt owned by ``worker_id``.
 
@@ -225,6 +227,7 @@ class CellStore:
         """
         receipt_json = self._receipt_json(status, receipt)
         leases = tuple(resource_leases)
+        artifacts = self._published_artifacts(status, receipt, published_artifacts)
 
         with self.database.transaction(immediate=True) as conn:
             now = self._now()
@@ -261,8 +264,72 @@ class CellStore:
             ).rowcount
             if attempt_updated != 1:
                 raise RuntimeError(f"stale or unowned cell attempt: {run_id}/{node_id}/{attempt}")
+            for artifact in artifacts:
+                conn.execute(
+                    """INSERT INTO artifacts
+                       (artifact_id, run_id, node_id, artifact_name, path, content_hash,
+                        input_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        artifact["artifact_id"],
+                        run_id,
+                        node_id,
+                        artifact["artifact_name"],
+                        artifact["path"],
+                        artifact["sha256"],
+                        artifact["input_hash"],
+                        now,
+                    ),
+                )
 
         return {"run_id": run_id, "node_id": node_id, "attempt": attempt, "status": status}
+
+    @classmethod
+    def _published_artifacts(
+        cls,
+        status: str,
+        receipt: Mapping[str, Any],
+        published_artifacts: Iterable[Mapping[str, Any]],
+    ) -> tuple[dict[str, str | None], ...]:
+        artifacts = tuple(published_artifacts)
+        if status != "validated":
+            if artifacts:
+                raise ValueError("only validated attempts may record published artifacts")
+            return ()
+
+        normalized: list[dict[str, str | None]] = []
+        receipt_paths = receipt["paths"]
+        receipt_hashes = receipt["hashes"]
+        for artifact in artifacts:
+            if not isinstance(artifact, Mapping):
+                raise ValueError("published artifact must be a mapping")
+            artifact_name = artifact.get("artifact_name")
+            path = artifact.get("path")
+            digest = artifact.get("sha256")
+            inputs = artifact.get("inputs", {})
+            if (
+                not isinstance(artifact_name, str)
+                or not artifact_name
+                or not isinstance(path, str)
+                or path not in receipt_paths
+                or not isinstance(digest, str)
+                or receipt_hashes.get(path) != digest
+                or not cls._SHA256_RE.fullmatch(digest)
+                or not isinstance(inputs, Mapping)
+            ):
+                raise ValueError("published artifact does not match the validated receipt")
+            normalized.append(
+                {
+                    "artifact_id": hashlib.sha256(
+                        f"{path}\0{digest}".encode("utf-8")
+                    ).hexdigest(),
+                    "artifact_name": artifact_name,
+                    "path": path,
+                    "sha256": digest,
+                    "input_hash": hashlib.sha256(cls._json(inputs).encode("utf-8")).hexdigest(),
+                }
+            )
+        return tuple(normalized)
 
     def acquire_resource_lock(
         self,

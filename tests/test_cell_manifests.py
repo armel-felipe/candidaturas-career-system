@@ -686,3 +686,9 @@ def test_application_paths_expose_cell_data_directories(tmp_path):
     assert paths.artifacts_dir == paths.app_dir / "artifacts"
     assert paths.reviews_dir == paths.app_dir / "reviews"
     assert paths.run_completion_manifest == paths.app_dir / "run_completion_manifest.json"
+
+
+@pytest.mark.parametrize("application_id", ["../escape", "/tmp/escape", "app/child", r"app\\child"])
+def test_application_paths_reject_unsafe_application_ids(tmp_path, application_id):
+    with pytest.raises(ValueError, match="application_id"):
+        paths_for(application_id, root=tmp_path)
