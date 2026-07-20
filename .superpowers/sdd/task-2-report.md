@@ -1,43 +1,107 @@
-# Task 2 Report — Move the skill library and migrate runtime paths
+# Task 2 Report — Versioned cell contracts and immutable DAG compilation
 
-## Scope completed
+## Status
 
-- Moved the complete skill library with `git mv .opencode .agents`.
-- Verified that `.opencode` no longer exists and that all 34 `SKILL.md` files are now under `.agents/skills/`.
-- Updated the exact runtime paths listed in the Task 2 brief:
-  - `derived_context.py` reference root and four fallback-reference strings;
-  - `habilidades_chave.py` catalogs and required references;
-  - `memory.py` reference root;
-  - `multiagent.py` narrow-search guard and four `SKILL.md` request paths;
-  - `project.py` narrow-search guard;
-  - `keyword_translation_utils.py` registry default;
-  - `.env.example` `CAREER_REFERENCES` value.
+Complete. Task 2 was implemented in the commit `feat: compile application cell graphs`.
 
-## Validation evidence
+## Scope delivered
 
-1. Red test before the move:
-   - `pytest -q tests/test_project_structure.py`
-   - Failed as expected because `.agents/skills/career-system/SKILL.md` did not yet exist.
-2. Post-change targeted checks:
-   - `.opencode` absent: passed.
-   - `.agents/skills/career-system/SKILL.md` present: passed.
-   - Skill count: 34 `SKILL.md` files.
-   - Targeted legacy-reference scan over the seven edited runtime files plus `.env.example`: 0 matches.
-   - `python3 -m compileall -q src/career/services scripts/keyword_translation_utils.py`: passed.
-   - `git diff --check`: passed.
+- Added frozen `CellContract`, `NodePlan`, and `RunPlan` dataclasses.
+- Added versioned `CELL_CONTRACTS` entries for all 15 required node IDs.
+- Added `compile_run_plan(application_id, requested_deliverables, application_paths)`.
+- Compiled application-local output paths and persisted validated plans to `app_dir/plans/<run_id>.json`.
+- Added DAG helpers `dependencies_of`, `ready_after`, and `is_acyclic`.
+- Added validation before persistence for unknown deliverables, missing contracts, duplicate node IDs, output-path collisions, and cycles.
+- Added conditional `capture_source`: present only when `job_description.md` does not exist.
+- Extended `paths_for(application_id, root: Path | None = None)` while preserving `APPLICATIONS_DIR` as the default root.
+- Kept the Task 1 `CellStore` and database/schema invariants unchanged.
 
-## Expected residual outside Task 2 scope
+## TDD evidence
 
-The exact broad scan mandated in the brief does not return clean yet, and
-`pytest -q tests/test_project_structure.py` consequently fails, because
-`scripts/validate_project_structure.py` still contains the legacy `.opencode`
-validator constants and required-file strings (lines 9, 63, 95, 121, and 174).
-The parent agent confirmed that file is owned by Task 4, so it was deliberately
-left unchanged in this task. No application runtime path listed in Task 2
-retains a legacy reference.
+### RED
+
+Command:
+
+```bash
+pytest tests/test_cell_planner.py -q
+```
+
+Result before production code:
+
+```text
+ModuleNotFoundError: No module named 'career.cells'
+1 error in 0.05s
+exit code 2
+```
+
+The failure was the expected missing compiler/module failure from the brief.
+
+### GREEN — focused tests
+
+Command:
+
+```bash
+pytest tests/test_cell_planner.py -q
+```
+
+Result:
+
+```text
+9 passed in 0.05s
+exit code 0
+```
+
+Coverage includes the two required graph behaviors plus frozen/persisted plans, conditional source capture, and every required pre-persistence rejection.
+
+### Full regression suite
+
+Command:
+
+```bash
+pytest -q
+```
+
+Result:
+
+```text
+84 passed in 2.48s
+exit code 0
+```
+
+### Additional verification
+
+Commands:
+
+```bash
+python3 -m compileall -q src/career/cells src/career/services/application_context.py tests/test_cell_planner.py
+git diff --check
+git diff --cached --check
+```
+
+Results: all exited `0` with no diagnostics.
+
+## Files changed
+
+- `src/career/cells/__init__.py`
+- `src/career/cells/contracts.py`
+- `src/career/cells/planner.py`
+- `src/career/services/application_context.py`
+- `tests/test_cell_planner.py`
 
 ## Self-review
 
-- Confirmed every edited path corresponds to the Task 2 brief.
-- Confirmed no AGENTS.md, COMO_USAR.md, or skill-internal documentation was edited.
-- Confirmed the directory move is represented as Git renames, not copied files.
+- Requirements: all interfaces, required fields, required node IDs, validation gates, conditional capture behavior, persistence, and temporary-root support from the brief are represented in code and tests.
+- Isolation: compiled output paths are resolved below the supplied application's `app_dir`; the default path behavior remains unchanged.
+- Persistence safety: invalid registries/graphs fail before the `plans/` directory or plan JSON is created, as asserted by tests.
+- Immutability/determinism: dataclasses are frozen; node order is topological with lexical tie-breaking; edges and resource locks are sorted tuples.
+- Branching: CV and FERAS become independently ready after `analyze_fit`; final Notion sync depends on the requested reviewed deliverable branches.
+- Scope discipline: no changes were made to `CellStore`, the SQLite schema, or unrelated application behavior. Existing untracked `.inbox/` content was left untouched and excluded from the commit.
+- Review findings: only import ordering and one long conditional were adjusted after inspection; behavior stayed unchanged and all verification was rerun afterward.
+
+## Commit
+
+```text
+feat: compile application cell graphs
+```
+
+The final hash is reported by the executing agent after the commit is created.

@@ -64,8 +64,8 @@ class ApplicationPaths:
     requests_dir: Path
 
 
-def paths_for(application_id: str) -> ApplicationPaths:
-    app_dir = APPLICATIONS_DIR / application_id
+def paths_for(application_id: str, root: Path | None = None) -> ApplicationPaths:
+    app_dir = (Path(root) if root is not None else APPLICATIONS_DIR) / application_id
     return ApplicationPaths(
         application_id=application_id,
         app_dir=app_dir,
