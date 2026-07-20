@@ -241,7 +241,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     selected_with_bullets = [_materialize_experience(entry, job_family, language="en" if is_en else "pt-BR") for entry in selected]
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
-    summary_text, summary_support = _build_summary(selected_with_bullets, fit_map)
+    summary_text, summary_support = _build_summary(selected_with_bullets, fit_map, language="en" if is_en else "pt-BR")
     education_list = DEFAULT_EDUCATION_EN if is_en else DEFAULT_EDUCATION_PT
     payload = {
         "metadata": {
@@ -474,9 +474,9 @@ def _best_bullet_index(bullets: list[str], keyword: str) -> int:
     return 0
 
 
-def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any], *, language: str = "pt-BR") -> tuple[str, list[dict[str, Any]]]:
     cargo = str(fit_map.get("cargo") or "a vaga")
-    support_pairs = _summary_support_pairs(selected)
+    support_pairs = _summary_support_pairs(selected, language=language)
     supports = [
         {
             "summary_fragment": fragment,
@@ -488,6 +488,10 @@ def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any]) -> t
         }
         for fragment, exp_index, bullet_index in support_pairs
     ]
+    if language == "en":
+        opening = "Operations executive with 20+ years of experience in operations, commercial planning, and business intelligence."
+        summary = f"{opening} I have delivered {supports[0]['summary_fragment']}. I also led initiatives that generated {supports[1]['summary_fragment']}. I am pursuing a {cargo} role connecting channels, pricing, data, and execution."
+        return summary, supports
     opening = _summary_opening(fit_map)
     summary = (
         f"{opening} "
@@ -536,7 +540,7 @@ def _summary_opening(fit_map: dict[str, Any]) -> str:
     return "Executivo com mais de 20 anos em operações, planejamento comercial e inteligência de negócios."
 
 
-def _summary_support_pairs(selected: list[dict[str, Any]]) -> list[tuple[str, int, int]]:
+def _summary_support_pairs(selected: list[dict[str, Any]], *, language: str = "pt-BR") -> list[tuple[str, int, int]]:
     desired = [
         "wehandle_head_operacoes",
         "ifood_diretor_operacoes",
@@ -555,6 +559,16 @@ def _summary_support_pairs(selected: list[dict[str, Any]]) -> list[tuple[str, in
         "trifil_inteligencia_comercial": ("faturamento anual de R$80M para R$120M com algoritmo de alocação de estoque", 2),
         "renault_cs": ("conversão de leads de 24% para 46% com operação internalizada", 2),
     }
+    if language == "en":
+        summary_fragments = {
+            "wehandle_head_operacoes": ("a 13% reduction in cost per contact and a 15% gross-margin impact", 2),
+            "ifood_diretor_operacoes": ("expansion from 400 to 800 cities and management of an annual R$300M budget", 2),
+            "ifood_head_operacoes": ("R$70M in annual savings and a 60% reduction in cancellations in Mexico", 2),
+            "trifil_sop": ("40K SKUs under S&OP governance and an R$8M overhead reduction", 2),
+            "vivareal_planejamento_operacoes": ("inbound SDR conversion from 18% to 50% and a 40% sales-cost reduction", 2),
+            "trifil_inteligencia_comercial": ("annual revenue growth from R$80M to R$120M through an inventory-allocation algorithm", 2),
+            "renault_cs": ("lead conversion growth from 24% to 46% through an in-house operation", 2),
+        }
     by_id = {entry["id"]: index for index, entry in enumerate(selected)}
     pairs: list[tuple[str, int, int]] = []
     for experience_id in desired:
