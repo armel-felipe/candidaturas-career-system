@@ -4,6 +4,12 @@
 
 Complete. Task 2 was implemented in the commit `feat: compile application cell graphs`.
 
+## Important review findings remediated
+
+- Registry integrity is now validated before any graph selection or persistence: every mapping key must equal its contract's `node_id`, and every `requires` or `invalidates` reference must name a known contract. An inconsistent registry is rejected before the plans directory is created.
+- Compiled output paths are now resolved through an application-directory containment check. Paths that resolve outside `application_paths.app_dir` (including `../escape`) or to the application directory itself are rejected before persistence.
+- Regression coverage adds red/green tests for key/contract mismatches, unknown `requires`, unknown `invalidates`, and an escaping output path.
+
 ## Scope delivered
 
 - Added frozen `CellContract`, `NodePlan`, and `RunPlan` dataclasses.
@@ -47,11 +53,11 @@ pytest tests/test_cell_planner.py -q
 Result:
 
 ```text
-9 passed in 0.05s
+13 passed in 0.04s
 exit code 0
 ```
 
-Coverage includes the two required graph behaviors plus frozen/persisted plans, conditional source capture, and every required pre-persistence rejection.
+Coverage includes the two required graph behaviors plus frozen/persisted plans, conditional source capture, every required pre-persistence rejection, registry-reference integrity, and application-local output containment.
 
 ### Full regression suite
 
@@ -64,7 +70,7 @@ pytest -q
 Result:
 
 ```text
-84 passed in 2.48s
+88 passed in 1.96s
 exit code 0
 ```
 
@@ -97,6 +103,7 @@ Results: all exited `0` with no diagnostics.
 - Branching: CV and FERAS become independently ready after `analyze_fit`; final Notion sync depends on the requested reviewed deliverable branches.
 - Scope discipline: no changes were made to `CellStore`, the SQLite schema, or unrelated application behavior. Existing untracked `.inbox/` content was left untouched and excluded from the commit.
 - Review findings: only import ordering and one long conditional were adjusted after inspection; behavior stayed unchanged and all verification was rerun afterward.
+- Important review remediation: planner registry and output-path containment checks were added with regression tests; all validations still run before a plan is persisted.
 
 ## Commit
 

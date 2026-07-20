@@ -190,10 +190,30 @@ def compile_run_plan(
 def _validated_contract_registry(
     contracts: dict[str, CellContract],
 ) -> dict[str, CellContract]:
+    for key, contract in contracts.items():
+        if key != contract.node_id:
+            raise ValueError(
+                "registry key must match contract node ID: "
+                f"{key!r} != {contract.node_id!r}"
+            )
+
     node_ids = [contract.node_id for contract in contracts.values()]
     duplicates = sorted({node_id for node_id in node_ids if node_ids.count(node_id) > 1})
     if duplicates:
         raise ValueError(f"duplicate node ID(s): {', '.join(duplicates)}")
+
+    known_contracts = set(contracts)
+    for contract in contracts.values():
+        for reference_type, references in (
+            ("requires", contract.requires),
+            ("invalidates", contract.invalidates),
+        ):
+            unknown = sorted(set(references) - known_contracts)
+            if unknown:
+                raise ValueError(
+                    f"unknown {reference_type} reference(s) for {contract.node_id}: "
+                    f"{', '.join(unknown)}"
+                )
     return dict(contracts)
 
 
@@ -214,7 +234,7 @@ def _compile_node(contract: CellContract, requires: tuple[str, ...], app_dir: Pa
     return NodePlan(
         node_id=contract.node_id,
         requires=requires,
-        produces=tuple(str((app_dir / path).resolve()) for path in contract.produces),
+        produces=tuple(_resolve_output_path(app_dir, path) for path in contract.produces),
         validators=contract.validators,
         resources=contract.resources,
         invalidates=contract.invalidates,
@@ -223,6 +243,24 @@ def _compile_node(contract: CellContract, requires: tuple[str, ...], app_dir: Pa
         allows_external_effect=contract.allows_external_effect,
         contract_version=contract.version,
     )
+
+
+def _resolve_output_path(app_dir: Path, output_path: str) -> str:
+    resolved_app_dir = app_dir.resolve()
+    resolved_output_path = (app_dir / output_path).resolve()
+    try:
+        relative_output_path = resolved_output_path.relative_to(resolved_app_dir)
+    except ValueError as exc:
+        raise ValueError(
+            "output path must be strictly within application directory: "
+            f"{output_path}"
+        ) from exc
+    if relative_output_path == Path("."):
+        raise ValueError(
+            "output path must be strictly within application directory: "
+            f"{output_path}"
+        )
+    return str(resolved_output_path)
 
 
 def _topological_order(nodes: tuple[NodePlan, ...]) -> tuple[NodePlan, ...]:

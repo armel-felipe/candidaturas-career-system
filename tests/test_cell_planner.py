@@ -54,25 +54,60 @@ def test_unknown_deliverables_are_rejected_without_persisting(tmp_path):
     assert not (paths.app_dir / "plans").exists()
 
 
-def test_missing_contract_is_rejected_without_persisting(tmp_path, monkeypatch):
+def test_missing_contract_reference_is_rejected_without_persisting(tmp_path, monkeypatch):
     paths = paths_for("app-1", root=tmp_path)
     contracts = dict(CELL_CONTRACTS)
     del contracts["review_feras"]
     monkeypatch.setattr(planner, "CELL_CONTRACTS", contracts)
 
-    with pytest.raises(ValueError, match="missing contract"):
+    with pytest.raises(ValueError, match="unknown invalidates reference"):
         compile_run_plan("app-1", {"feras"}, paths)
 
     assert not (paths.app_dir / "plans").exists()
 
 
-def test_duplicate_node_ids_are_rejected_without_persisting(tmp_path, monkeypatch):
+def test_registry_key_mismatch_is_rejected_without_persisting(tmp_path, monkeypatch):
     paths = paths_for("app-1", root=tmp_path)
     contracts = dict(CELL_CONTRACTS)
     contracts["duplicate"] = replace(contracts["analyze_fit"], node_id="normalize_job")
     monkeypatch.setattr(planner, "CELL_CONTRACTS", contracts)
 
-    with pytest.raises(ValueError, match="duplicate node ID"):
+    with pytest.raises(ValueError, match="registry key must match contract node ID"):
+        compile_run_plan("app-1", {"cv"}, paths)
+
+    assert not (paths.app_dir / "plans").exists()
+
+
+@pytest.mark.parametrize(
+    ("replacement", "error"),
+    [
+        (
+            lambda contracts: {**contracts, "renamed_analyze_fit": contracts["analyze_fit"]},
+            "registry key must match contract node ID",
+        ),
+        (
+            lambda contracts: {
+                **contracts,
+                "analyze_fit": replace(contracts["analyze_fit"], requires=("unknown_node",)),
+            },
+            "unknown requires reference",
+        ),
+        (
+            lambda contracts: {
+                **contracts,
+                "analyze_fit": replace(contracts["analyze_fit"], invalidates=("unknown_node",)),
+            },
+            "unknown invalidates reference",
+        ),
+    ],
+)
+def test_inconsistent_contract_registry_is_rejected_without_persisting(
+    tmp_path, monkeypatch, replacement, error
+):
+    paths = paths_for("app-1", root=tmp_path)
+    monkeypatch.setattr(planner, "CELL_CONTRACTS", replacement(dict(CELL_CONTRACTS)))
+
+    with pytest.raises(ValueError, match=error):
         compile_run_plan("app-1", {"cv"}, paths)
 
     assert not (paths.app_dir / "plans").exists()
@@ -88,6 +123,20 @@ def test_output_path_collisions_are_rejected_without_persisting(tmp_path, monkey
 
     with pytest.raises(ValueError, match="output-path collision"):
         compile_run_plan("app-1", {"cv", "feras"}, paths)
+
+    assert not (paths.app_dir / "plans").exists()
+
+
+def test_output_path_escape_is_rejected_without_persisting(tmp_path, monkeypatch):
+    paths = paths_for("app-1", root=tmp_path)
+    contracts = dict(CELL_CONTRACTS)
+    contracts["generate_feras"] = replace(
+        contracts["generate_feras"], produces=("../escaped.md",)
+    )
+    monkeypatch.setattr(planner, "CELL_CONTRACTS", contracts)
+
+    with pytest.raises(ValueError, match="output path must be strictly within application directory"):
+        compile_run_plan("app-1", {"feras"}, paths)
 
     assert not (paths.app_dir / "plans").exists()
 
