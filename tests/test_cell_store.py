@@ -160,6 +160,36 @@ def test_finish_attempt_rejects_stale_attempt_without_mutating_current_node(db):
     ) == {"status": "reserved", "reserved_by": "worker-b", "latest_attempt": 2}
 
 
+def test_finish_attempt_rejects_expired_lease_without_mutating_node(db):
+    store = CellStore(db)
+    store.create_run("app-a", "run-a", graph={"nodes": ["fit"]})
+    reservation = store.reserve_node("run-a", "fit", "worker-a")
+    db.execute(
+        "UPDATE cell_nodes SET reservation_expires_at = ? WHERE run_id = ? AND node_id = ?",
+        ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(), "run-a", "fit"),
+    )
+
+    with pytest.raises(RuntimeError, match="stale or unowned"):
+        store.finish_attempt(
+            "run-a",
+            "fit",
+            reservation["attempt"],
+            "validated",
+            worker_id="worker-a",
+            receipt={"status": "validated", "paths": [], "hashes": {}, "metadata": {}},
+        )
+
+    assert db.fetch_one(
+        "SELECT status, worker_id, finished_at FROM cell_attempts "
+        "WHERE run_id = ? AND node_id = ? AND attempt = ?",
+        ("run-a", "fit", reservation["attempt"]),
+    ) == {"status": "reserved", "worker_id": "worker-a", "finished_at": None}
+    assert db.fetch_one(
+        "SELECT status, reserved_by FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+        ("run-a", "fit"),
+    ) == {"status": "reserved", "reserved_by": "worker-a"}
+
+
 def test_list_ready_nodes_excludes_nodes_with_unvalidated_dependencies(db):
     store = CellStore(db)
     store.create_run(

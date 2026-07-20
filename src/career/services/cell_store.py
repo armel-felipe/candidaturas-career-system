@@ -119,16 +119,17 @@ class CellStore:
         Receipts intentionally store a bounded, structured pointer to output
         rather than agent output or other arbitrary payloads.
         """
-        now = self._now()
         receipt_json = self._receipt_json(status, receipt)
 
         with self.database.transaction(immediate=True) as conn:
+            now = self._now()
             node_updated = conn.execute(
                 """UPDATE cell_nodes
                    SET status = ?, reserved_by = NULL, reservation_expires_at = NULL, updated_at = ?
                    WHERE run_id = ? AND node_id = ? AND latest_attempt = ?
-                     AND reserved_by = ? AND status IN ('reserved', 'running')""",
-                (status, now, run_id, node_id, attempt, worker_id),
+                     AND reserved_by = ? AND status IN ('reserved', 'running')
+                     AND reservation_expires_at > ?""",
+                (status, now, run_id, node_id, attempt, worker_id, now),
             ).rowcount
             if node_updated != 1:
                 raise RuntimeError(f"stale or unowned cell attempt: {run_id}/{node_id}/{attempt}")

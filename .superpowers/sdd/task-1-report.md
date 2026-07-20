@@ -50,6 +50,35 @@ Implementation commit: `c076405 feat: add transactional cellular run store`.
 | `python -m py_compile src/career/services/database.py src/career/services/cell_store.py` | exit 0 |
 | `git diff --check` | exit 0 |
 
+## Important review fix — expired completion lease
+
+Follow-up commit: `fix: reject completion after cell lease expiry`.
+
+- `finish_attempt` now computes its comparison timestamp inside the same
+  immediate transaction and requires `reservation_expires_at > now` in the
+  ownership-bound `cell_nodes` update.
+- Therefore a worker cannot validate or otherwise complete an attempt after
+  its reservation expires, even during the interval before another worker
+  reserves the node. A zero-row node update raises before the attempt update;
+  the transaction rolls back so neither record is mutated.
+- `resource_locks` remain unchanged and globally exclusive, as specified.
+
+### Regression test and verification
+
+- `test_finish_attempt_rejects_expired_lease_without_mutating_node` expires a
+  reservation without creating a second reservation, verifies completion is
+  rejected, and verifies both the attempt and node remain reserved rather than
+  becoming `validated`.
+
+| Command | Result |
+| --- | --- |
+| `pytest tests/test_cell_store.py -q` (RED) | `1 failed, 8 passed`: expired lease incorrectly completed before the fix |
+| `pytest tests/test_cell_store.py -q` | `9 passed in 0.08s` |
+| `pytest tests/test_database.py tests/test_cell_store.py -q` | `13 passed in 0.08s` |
+| `pytest -q` | `75 passed in 2.00s` |
+| `python -m py_compile src/career/services/cell_store.py src/career/services/database.py` | exit 0 |
+| `git diff --check` | exit 0 |
+
 ## Self-review
 
 - Reservation and lock acquisition each use `Database.transaction(immediate=True)`
