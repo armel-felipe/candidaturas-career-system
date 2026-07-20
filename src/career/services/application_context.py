@@ -48,6 +48,11 @@ def session_key(*, runtime: str, profile_id: str, session_id: str) -> str:
 class ApplicationPaths:
     application_id: str
     app_dir: Path
+    plans_dir: Path
+    cells_dir: Path
+    artifacts_dir: Path
+    reviews_dir: Path
+    run_completion_manifest: Path
     identity: Path
     state: Path
     workflow_state: Path
@@ -69,6 +74,11 @@ def paths_for(application_id: str, root: Path | None = None) -> ApplicationPaths
     return ApplicationPaths(
         application_id=application_id,
         app_dir=app_dir,
+        plans_dir=app_dir / "plans",
+        cells_dir=app_dir / "cells",
+        artifacts_dir=app_dir / "artifacts",
+        reviews_dir=app_dir / "reviews",
+        run_completion_manifest=app_dir / "run_completion_manifest.json",
         identity=app_dir / "identity.json",
         state=app_dir / "state.json",
         workflow_state=app_dir / "workflow_state.json",
@@ -106,8 +116,15 @@ def ensure_application(
 
     paths = paths_for(application_id)
     paths.app_dir.mkdir(parents=True, exist_ok=True)
-    paths.derived_dir.mkdir(parents=True, exist_ok=True)
-    paths.requests_dir.mkdir(parents=True, exist_ok=True)
+    for directory in (
+        paths.plans_dir,
+        paths.cells_dir,
+        paths.artifacts_dir,
+        paths.reviews_dir,
+        paths.derived_dir,
+        paths.requests_dir,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
 
     identity = read_json(paths.identity) if paths.identity.exists() else {}
     aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
