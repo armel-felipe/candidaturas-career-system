@@ -211,6 +211,17 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
     contract = CONTRACTS.get(step)
     if not contract:
         raise ValidationFailure(f"Unknown multiagent step: {step}")
+    if isinstance(contract, dict):
+        contract = AgentContract(
+            step=step,
+            agent=step,
+            purpose=f"Execute {step}",
+            allowed_files=tuple(contract.get("inputs", ())),
+            allowed_commands=(),
+            expected_outputs=tuple(contract.get("outputs", ())),
+            forbidden_actions=BASE_FORBIDDEN_ACTIONS,
+            validation_commands=tuple(contract.get("rules", ())),
+        )
     request_extras = dict(extras or {})
     application_id = str(request_extras.get("application_id") or "").strip()
     app_paths = application_context_service.paths_for(application_id) if application_id else None

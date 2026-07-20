@@ -1416,7 +1416,7 @@ def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
             f"experiences[{index}] bullet 2 must explain how the result happened using a concrete mechanism or transferable capability."
         )
     if bullet2.count(" e ") + bullet2.count(",") >= 4 and not any(
-        signal in lowered for signal in ("para ", "com ", "usando ", "a fim de ")
+        signal in lowered for signal in ("para ", "com ", "usando ", "a fim de ", "to ", "with ", "using ")
     ):
         raise ValidationFailure(
             f"experiences[{index}] bullet 2 looks like a loose list of tools/skills; convert it into causal prose."
@@ -1427,7 +1427,7 @@ def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
             raise ValidationFailure(
                 f"experiences[{index}] bullet 2 repeats too much of bullet 1; use it for repositioning leverage instead of scope."
             )
-    if bullet3 and not any(connector in lowered for connector in ("para ", "com ", "usando ", "a fim de ", "sustentar ")):
+    if bullet3 and not any(connector in lowered for connector in ("para ", "com ", "usando ", "a fim de ", "sustentar ", "to ", "with ", "using ", "in order to ", "to sustain ")):
         raise ValidationFailure(
             f"experiences[{index}] bullet 2 must create a clearer bridge to bullet 3 using causal phrasing."
         )

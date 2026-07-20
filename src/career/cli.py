@@ -98,6 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
     intake_paste.add_argument("--application-id")
     intake_linkedin_job = intake_sub.add_parser("linkedin-job")
     intake_linkedin_job.add_argument("--url", required=True)
+    intake_linkedin_job.add_argument("--company")
+    intake_linkedin_job.add_argument("--role")
     intake_linkedin_job.add_argument("--application-id")
     intake_linkedin_post = intake_sub.add_parser("linkedin-post")
     intake_linkedin_post.add_argument("--url", required=True)
@@ -654,7 +656,8 @@ def main(argv: list[str] | None = None) -> int:
                 _dump(intake_service.from_paste(company=args.company, role=args.role, text=text, application_id=args.application_id))
                 return 0
             if args.action == "linkedin-job":
-                _dump(intake_service.from_linkedin_job(args.url, application_id=args.application_id))
+                hints = {key: value for key, value in {"company": args.company, "role": args.role}.items() if value}
+                _dump(intake_service.from_linkedin_job(args.url, metadata_hints=hints, application_id=args.application_id))
                 return 0
             if args.action == "linkedin-post":
                 _dump(intake_service.from_linkedin_post(url=args.url, company=args.company, role=args.role, application_id=args.application_id))
