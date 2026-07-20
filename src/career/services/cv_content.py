@@ -219,6 +219,16 @@ DEFAULT_LANGUAGES_EN = [
 
 DEFAULT_STACK = "Excel/VBA · SQL · Python · Databricks · Grafana · Tableau · Power BI · Metabase"
 
+EN_EXPERIENCE_TEXT = {
+    "wehandle_head_operacoes": ("Head of Operations", "I led Support, CX, and Back Office, managing a 30-person team and connecting service, product, and data to accelerate the company's digital transformation.", "I implemented two platform migrations, human-centered AI automation, and API data integrations to scale operations and improve product prioritization.", "I reduced cost per contact from R$4.14 to R$3.61 (-13%), raised CSAT from 85% to 92%, cut handling time from 20 to 8 minutes, and generated a 15% gross-margin impact."),
+    "ifood_diretor_operacoes": ("Operations Director", "I led FieldOps, Payments, and New Business, managing 240 direct and indirect people across geographic expansion, dedicated fleet, and budget allocation.", "I connected marketing, product, supply, and operations through a monthly executive S&OP cadence, using scenarios and trade-offs to support growth and efficiency decisions.", "I expanded logistics coverage from 400 to 800 cities, reduced fleet unavailability from 5% to 1%, increased bundled trips from 12% to 25%, and managed an annual R$300M budget."),
+    "ifood_head_operacoes": ("Head of Operations", "I led live operations, regional operations, pricing, data modeling, and fleet planning with a 28-person team in a fast-paced cross-functional environment.", "I built Grafana dashboards, modeled data with SQL, Databricks, and Tableau, and ran controlled pricing and incentive experiments to balance supply, demand, and service levels.", "I generated R$70M in annual savings with a service-level simulator, cut MPOS distribution cost by 80%, reduced delivery time from 14 to 2 days, and lowered cancellations in Mexico by 60%."),
+    "renault_cs": ("Customer Success Manager", "I transitioned two BPO operations with 40 workstations to an in-house eight-person team, redesigning lead operations for stronger quality control and SLA management.", "I established funnel governance with data, self-configured dialers, and real-time monitoring to stabilize commercial execution.", "I increased lead conversion from 24% to 46% and obtained approval for the transformation project in two meetings through a correctly modeled ROI."),
+    "vivareal_planejamento_operacoes": ("Commercial Planning and Operations Manager", "I led commercial planning, business development, sales channels, pricing policy, and SDR, quality, and real-estate listing operations, totaling 33 people and five direct leaders.", "I built daily SQL and automated Excel dashboards, organized the SDR pipeline, set sales goals, and prioritized the product roadmap to sustain execution and growth.", "I increased inbound SDR conversion from 18% to 50%, reduced sales cost by 40%, recovered R$1M from delinquency campaigns, and scaled the designed CS area to 91 people."),
+    "trifil_sop": ("S&OP Coordinator", "I created the S&OP function from scratch, managing 40K finished-goods SKUs across two brands and all distribution channels, with accountability for OTIF, fill rate, and safety stock.", "I developed an Excel/VBA simulator to validate MRP and evaluate S&OP scenarios, coordinated S&OE, and mediated constraints between commercial and manufacturing teams.", "I reduced R$8M in manufacturing overhead through energy, gas, maintenance, and packaging optimization while maintaining the R$154M annual target and delivering R$4.6M in realized savings by August."),
+    "trifil_inteligencia_comercial": ("Commercial Intelligence Coordinator", "I created the commercial intelligence function, supporting executive leadership with market information, sales channels, commissions, commercial opportunities, and pricing policy.", "I built data analyses, BI dashboards, and Excel/VBA routines to support commercial decisions, normalize ERP data, and prepare the foundation for the B2B system.", "I reduced daily reporting time from four hours to 14 minutes and increased annual revenue from R$80M to R$120M through a margin- and revenue-based inventory-allocation algorithm."),
+}
+
 
 def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     active = derived_context_service.resolve_active_job_context()
@@ -228,7 +238,7 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     selected = _select_experiences(fit_map)
     ensure(4 <= len(selected) <= 8, "cv_content_requires_between_4_and_8_experiences")
     is_en = _cv_language(fit_map) == "en"
-    selected_with_bullets = [_materialize_experience(entry, job_family) for entry in selected]
+    selected_with_bullets = [_materialize_experience(entry, job_family, language="en" if is_en else "pt-BR") for entry in selected]
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
     summary_text, summary_support = _build_summary(selected_with_bullets, fit_map)
@@ -438,7 +448,10 @@ def _infer_job_family(fit_map: dict[str, Any]) -> str:
     return "operations"
 
 
-def _materialize_experience(entry: dict[str, Any], job_family: str) -> dict[str, Any]:
+def _materialize_experience(entry: dict[str, Any], job_family: str, *, language: str = "pt-BR") -> dict[str, Any]:
+    if language == "en":
+        role, scope, leverage, result = EN_EXPERIENCE_TEXT[entry["id"]]
+        return {**entry, "role": role, "scope_bullet": scope, "result_bullet": result, "bullets": [scope, leverage, result], "job_family": job_family}
     leverage = entry.get("leverage") if isinstance(entry.get("leverage"), dict) else {}
     bullet2 = str(leverage.get(job_family) or leverage.get("default") or "").strip()
     bullets = [
