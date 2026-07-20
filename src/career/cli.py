@@ -25,7 +25,9 @@ from career.services import notion as notion_service
 from career.services import project as project_service
 from career.services import review as review_service
 from career.services import workflow_reset as workflow_reset_service
+from career.services.database import Database
 from career.services.session_memory import SessionMemoryService
+from career.cells.executor import CellExecutor
 from career.tasks.registry import run_pipeline, run_task
 from career.utils import CareerError
 from career.workflow.state_store import WorkflowStateStore
@@ -265,6 +267,25 @@ def build_parser() -> argparse.ArgumentParser:
     applications_migrate = applications_sub.add_parser("migrate-global-state")
     applications_migrate.add_argument("--application-id")
     applications_migrate.add_argument("--dry-run", action="store_true")
+    applications_plan = applications_sub.add_parser("plan")
+    applications_plan.add_argument("--application-id", required=True)
+    applications_plan.add_argument(
+        "--deliverable",
+        action="append",
+        required=True,
+        choices=["cv", "notion", "feras", "cover_letter", "habilidades"],
+    )
+    applications_run = applications_sub.add_parser("run")
+    applications_run.add_argument("--application-id", required=True)
+    applications_run.add_argument("--run-id", required=True)
+    applications_repair = applications_sub.add_parser("repair")
+    applications_repair.add_argument("--application-id", required=True)
+    applications_repair.add_argument("--run-id", required=True)
+    applications_repair.add_argument("--node", required=True)
+    applications_repair.add_argument("--reason", required=True)
+    applications_inspect_run = applications_sub.add_parser("inspect-run")
+    applications_inspect_run.add_argument("--application-id", required=True)
+    applications_inspect_run.add_argument("--run-id", required=True)
 
     derive = subparsers.add_parser("derive")
     derive_sub = derive.add_subparsers(dest="action", required=True)
@@ -491,6 +512,52 @@ def _applications_status_human_summary(result: dict) -> str:
         ordered = ", ".join(f"{key}={value}" for key, value in sorted(stage_counts.items()))
         lines.append(f"Stages: {ordered}")
     return "\n".join(lines)
+
+
+def _cell_run_payload(executor: CellExecutor, run_id: str, *, status: str | None = None) -> dict:
+    resumed = executor.resume(run_id)
+    blocked_nodes = sorted(
+        node_id for node_id, node_status in resumed.statuses.items() if node_status == "blocked"
+    )
+    ready_nodes = sorted(resumed.ready_nodes)
+    artifact_paths = [
+        str(row["path"])
+        for row in executor.database.fetch_all(
+            "SELECT path FROM artifacts WHERE run_id = ? ORDER BY path", (run_id,)
+        )
+    ]
+    if blocked_nodes:
+        next_action = (
+            "career applications repair "
+            f"--application-id {resumed.application_id} --run-id {run_id} "
+            f"--node {blocked_nodes[0]} --reason <reason>"
+        )
+    elif ready_nodes:
+        next_action = (
+            "career applications run "
+            f"--application-id {resumed.application_id} --run-id {run_id}"
+        )
+    else:
+        next_action = (
+            "career applications inspect-run "
+            f"--application-id {resumed.application_id} --run-id {run_id}"
+        )
+    resolved_status = status or ("blocked" if blocked_nodes else "ready" if ready_nodes else "completed")
+    return {
+        "status": resolved_status,
+        "run_id": run_id,
+        "ready_nodes": ready_nodes,
+        "blocked_nodes": blocked_nodes,
+        "artifact_paths": artifact_paths,
+        "next_action": next_action,
+    }
+
+
+def _scoped_cell_run(executor: CellExecutor, application_id: str, run_id: str):
+    resumed = executor.resume(run_id)
+    if resumed.application_id != application_id:
+        raise ValueError(f"run does not belong to application: {application_id}")
+    return resumed
 
 
 def _harness_human_summary(result: dict) -> str | None:
@@ -914,6 +981,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "applications":
+        if args.action in {"plan", "run", "repair", "inspect-run"}:
+            database = Database()
+            database.init_schema()
+            executor = CellExecutor(database, worker_id="career-applications-cli")
+            try:
+                if args.action == "plan":
+                    plan = executor.plan(args.application_id, args.deliverable)
+                    _dump(_cell_run_payload(executor, plan.run_id, status="planned"))
+                    return 0
+                _scoped_cell_run(executor, args.application_id, args.run_id)
+                if args.action == "run":
+                    executor.run_ready(args.run_id)
+                    _dump(_cell_run_payload(executor, args.run_id))
+                    return 0
+                if args.action == "repair":
+                    executor.repair(args.run_id, args.node, args.reason)
+                    _dump(_cell_run_payload(executor, args.run_id, status="repairing"))
+                    return 0
+                _dump(_cell_run_payload(executor, args.run_id))
+                return 0
+            except (KeyError, RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            finally:
+                database.close()
         if args.action == "write-default-config":
             path = applications_v2_service.write_default_config()
             _dump({"config": str(path)})
@@ -1152,7 +1244,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "query":
-        from career.services.database import Database
         from career.services.query_engine import QueryEngine
 
         db = Database()
