@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -23,12 +24,16 @@ def orchestrator(tmp_path):
 def test_failed_render_repair_does_not_rerun_fit_map(orchestrator):
     run_id = orchestrator.plan("app-1", {"cv"}).run_id
     orchestrator.mark_validated(run_id, "analyze_fit")
+    orchestrator.mark_validated(run_id, "compose_cv")
     orchestrator.fail(run_id, "render_cv", "docx_layout")
 
     repaired = orchestrator.repair(run_id, "render_cv", "docx_layout")
 
     assert repaired.attempt == 2
     assert orchestrator.node_status(run_id, "analyze_fit") == "validated"
+    assert orchestrator.store.reserve_node(run_id, "review_cv", "other-worker") == {
+        "status": "busy"
+    }
 
 
 def test_executor_never_runs_child_before_parent(orchestrator):
@@ -185,7 +190,447 @@ def test_resource_lock_is_requested_only_by_contract(tmp_path, monkeypatch):
     database.close()
 
 
+def test_expired_owned_reservation_is_reclaimed_before_handler_runs(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = paths_for("app-1", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("job", encoding="utf-8")
+    calls: list[int] = []
+
+    def handler(context):
+        calls.append(context.attempt)
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"normalize_job": handler},
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-1", {"cv"})
+    first = executor.store.reserve_node(plan.run_id, "normalize_job", executor.worker_id)
+    database.execute(
+        "UPDATE cell_nodes SET reservation_expires_at = ? WHERE run_id = ? AND node_id = ?",
+        (
+            (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+            plan.run_id,
+            "normalize_job",
+        ),
+    )
+
+    results = executor.run_ready(plan.run_id)
+
+    result = next(item for item in results if item.node_id == "normalize_job")
+    assert result.attempt == 2
+    assert calls == [2]
+    assert database.fetch_one(
+        "SELECT status FROM cell_attempts WHERE run_id = ? AND node_id = ? AND attempt = ?",
+        (plan.run_id, "normalize_job", first["attempt"]),
+    ) == {"status": "cancelled"}
+    database.close()
+
+
+def test_executor_does_not_invoke_handler_after_node_lease_expires(tmp_path, monkeypatch):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    calls: list[str] = []
+    executor = CellExecutor(
+        database,
+        applications_root=tmp_path / "applications",
+        handlers={"capture_source": lambda context: calls.append(context.node_id)},
+    )
+    plan = executor.plan("app-1", {"cv"})
+    real_renew = executor.store.renew_node_reservation
+
+    def expire_then_renew(run_id, node_id, attempt, worker_id, **kwargs):
+        database.execute(
+            "UPDATE cell_nodes SET reservation_expires_at = ? WHERE run_id = ? AND node_id = ?",
+            ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(), run_id, node_id),
+        )
+        return real_renew(run_id, node_id, attempt, worker_id, **kwargs)
+
+    monkeypatch.setattr(executor.store, "renew_node_reservation", expire_then_renew)
+
+    results = executor.run_ready(plan.run_id)
+
+    result = next(item for item in results if item.node_id == "capture_source")
+    assert calls == []
+    assert result.status == "cancelled"
+    assert result.blocker == "node_lease_expired"
+    database.close()
+
+
+def test_executor_does_not_publish_when_node_lease_expires_during_handler(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+
+    def handler(context):
+        database.execute(
+            "UPDATE cell_nodes SET reservation_expires_at = ? "
+            "WHERE run_id = ? AND node_id = ?",
+            (
+                (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                context.run_id,
+                context.node_id,
+            ),
+        )
+        return CellOutput(artifacts={"job_description.md": "job"})
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"capture_source": handler},
+        validators={"validate-job-description": _passing_validator},
+    )
+    plan = executor.plan("app-1", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "capture_source"
+    )
+
+    assert result.status == "cancelled"
+    assert result.artifact_manifest_paths == ()
+    assert list((paths_for("app-1", root=applications_root).artifacts_dir).rglob("manifest.json")) == []
+    database.close()
+
+
+def test_executor_does_not_publish_when_resource_lease_expires_during_handler(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+
+    def handler(context):
+        database.execute(
+            "UPDATE resource_locks SET expires_at = ? WHERE resource_name = ?",
+            (
+                (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                "delivery:onedrive-cv",
+            ),
+        )
+        return CellOutput(artifacts={"cv_delivery_receipt.json": "{}"})
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"deliver_cv": handler},
+        validators={"validate-delivery-receipt": _passing_validator},
+    )
+    plan = executor.plan("app-1", {"cv"})
+    executor.mark_validated(plan.run_id, "review_cv")
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "deliver_cv"
+    )
+
+    assert result.status == "blocked"
+    assert result.blocker == "resource_lease_expired:delivery:onedrive-cv"
+    assert result.artifact_manifest_paths == ()
+    database.close()
+
+
+def test_executor_rolls_back_publication_when_node_lease_expires_during_publish(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={
+            "capture_source": lambda context: CellOutput(
+                artifacts={"job_description.md": "job"}
+            )
+        },
+        validators={"validate-job-description": _passing_validator},
+    )
+    plan = executor.plan("app-1", {"cv"})
+    from career.cells.manifests import ManifestStore
+
+    real_publish = ManifestStore.publish_files
+
+    def publish_then_expire(store, node_id, attempt, artifacts, **kwargs):
+        published = real_publish(store, node_id, attempt, artifacts, **kwargs)
+        database.execute(
+            "UPDATE cell_nodes SET reservation_expires_at = ? "
+            "WHERE run_id = ? AND node_id = ?",
+            (
+                (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                plan.run_id,
+                node_id,
+            ),
+        )
+        return published
+
+    monkeypatch.setattr(ManifestStore, "publish_files", publish_then_expire)
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "capture_source"
+    )
+
+    assert result.status == "cancelled"
+    assert list(paths_for("app-1", root=applications_root).artifacts_dir.rglob("manifest.json")) == []
+    database.close()
+
+
+def test_resume_reconciles_orphan_publication_after_process_interruption(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    handlers = {
+        "capture_source": lambda context: CellOutput(
+            artifacts={"job_description.md": "job"}
+        )
+    }
+    validators = {"validate-job-description": _passing_validator}
+    interrupted = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers=handlers,
+        validators=validators,
+    )
+    plan = interrupted.plan("app-1", {"cv"})
+
+    def interrupt_finish(*args, **kwargs):
+        raise KeyboardInterrupt("simulated process loss")
+
+    monkeypatch.setattr(interrupted.store, "finish_attempt", interrupt_finish)
+    with pytest.raises(KeyboardInterrupt, match="process loss"):
+        interrupted.run_ready(plan.run_id)
+    database.execute(
+        "UPDATE cell_nodes SET reservation_expires_at = ? "
+        "WHERE run_id = ? AND node_id = ?",
+        (
+            (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+            plan.run_id,
+            "capture_source",
+        ),
+    )
+
+    resumed = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers=handlers,
+        validators=validators,
+    )
+    result = next(
+        item for item in resumed.run_ready(plan.run_id) if item.node_id == "capture_source"
+    )
+
+    assert result.status == "validated"
+    assert result.attempt == 2
+    assert database.fetch_one(
+        "SELECT status FROM cell_attempts WHERE run_id = ? AND node_id = ? AND attempt = 1",
+        (plan.run_id, "capture_source"),
+    ) == {"status": "cancelled"}
+    database.close()
+
+
+def test_finish_atomically_rejects_resource_lease_lost_after_publication(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={
+            "deliver_cv": lambda context: CellOutput(
+                artifacts={"cv_delivery_receipt.json": "{}"}
+            )
+        },
+        validators={"validate-delivery-receipt": _passing_validator},
+    )
+    plan = executor.plan("app-1", {"cv"})
+    executor.mark_validated(plan.run_id, "review_cv")
+    real_finish = executor.store.finish_attempt
+
+    def expire_resource_then_finish(*args, **kwargs):
+        database.execute(
+            "UPDATE resource_locks SET expires_at = ? WHERE resource_name = ?",
+            (
+                (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                "delivery:onedrive-cv",
+            ),
+        )
+        return real_finish(*args, **kwargs)
+
+    monkeypatch.setattr(executor.store, "finish_attempt", expire_resource_then_finish)
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "deliver_cv"
+    )
+
+    assert result.status == "blocked"
+    assert result.blocker == "resource_lease_expired:delivery:onedrive-cv"
+    assert list(paths_for("app-1", root=applications_root).artifacts_dir.rglob("manifest.json")) == []
+    database.close()
+
+
+def test_executor_publishes_exact_multi_output_contract(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = paths_for("app-1", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("job", encoding="utf-8")
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={
+            "normalize_job": lambda context: CellOutput(
+                artifacts={
+                    "job_normalized.json": "normalized",
+                    "handover_summary.json": "handover",
+                    "evidence_index.json": "evidence",
+                }
+            )
+        },
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-1", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert result.status == "validated"
+    assert {item["artifact_name"] for item in manifest["outputs"]} == {
+        "job_normalized.json",
+        "handover_summary.json",
+        "evidence_index.json",
+    }
+    assert len(result.artifact_manifest_paths) == 3
+    database.close()
+
+
+@pytest.mark.parametrize(
+    "artifacts",
+    [
+        {"job_normalized.json": "normalized"},
+        {
+            "job_normalized.json": "normalized",
+            "handover_summary.json": "handover",
+            "evidence_index.json": "evidence",
+            "surprise.json": "arbitrary",
+        },
+    ],
+)
+def test_executor_rejects_missing_or_arbitrary_outputs(tmp_path, artifacts):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = paths_for("app-1", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("job", encoding="utf-8")
+    validator_calls: list[str] = []
+
+    def validator(context, output):
+        validator_calls.append(context.validator_command)
+        return _passing_validator(context, output)
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"normalize_job": lambda context: CellOutput(artifacts=artifacts)},
+        validators={"context:validate": validator},
+    )
+    plan = executor.plan("app-1", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    assert result.status == "blocked"
+    assert result.blocker.startswith("output_contract_mismatch:")
+    assert validator_calls == []
+    database.close()
+
+
+def test_repair_refuses_to_supersede_live_descendant(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    executor = CellExecutor(database, applications_root=tmp_path / "applications")
+    plan = executor.plan("app-1", {"cv"})
+    for node_id in ("normalize_job", "analyze_fit", "compose_cv", "render_cv"):
+        executor.mark_validated(plan.run_id, node_id)
+    reservation = executor.store.reserve_node(
+        plan.run_id, "review_cv", "review-worker", lease_seconds=300
+    )
+    executor.fail(plan.run_id, "render_cv", "docx_layout")
+
+    with pytest.raises(RuntimeError, match="active descendant.*review_cv"):
+        executor.repair(plan.run_id, "render_cv", "docx_layout")
+
+    assert executor.node_status(plan.run_id, "review_cv") == "reserved"
+    assert database.fetch_one(
+        "SELECT status FROM cell_attempts WHERE run_id = ? AND node_id = ? AND attempt = ?",
+        (plan.run_id, "review_cv", reservation["attempt"]),
+    ) == {"status": "reserved"}
+    assert executor.node_status(plan.run_id, "render_cv") == "blocked"
+    database.close()
+
+
+def test_executor_revalidates_dependency_artifact_before_child_handler(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    child_calls: list[str] = []
+    executor = CellExecutor(
+        database,
+        applications_root=tmp_path / "applications",
+        handlers={
+            "analyze_fit": lambda context: CellOutput(
+                artifacts={"fit_map.json": '{"score": 90}'}
+            ),
+            "compose_cv": lambda context: child_calls.append(context.node_id),
+        },
+        validators={
+            "validate:fit-map": _passing_validator,
+            "validate:fit-map:quality": _passing_validator,
+            "validate-provenance": _passing_validator,
+        },
+    )
+    plan = executor.plan("app-1", {"cv"})
+    executor.mark_validated(plan.run_id, "normalize_job")
+    fit_result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
+    )
+    artifact_manifest = json.loads(
+        fit_result.artifact_manifest_paths[0].read_text(encoding="utf-8")
+    )
+    Path(artifact_manifest["path"]).write_text("tampered", encoding="utf-8")
+
+    child_result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "compose_cv"
+    )
+
+    assert child_calls == []
+    assert child_result.status == "blocked"
+    assert child_result.blocker.startswith("input_materialization_error:")
+    database.close()
+
+
 def _write_report(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{}", encoding="utf-8")
     return path
+
+
+def _passing_validator(context, output):
+    report = context.paths.reviews_dir / (
+        f"{context.node_id}-{context.attempt}-{context.validator_command.replace(':', '-')}.json"
+    )
+    return ValidatorResult.passed(context.validator_command, _write_report(report))

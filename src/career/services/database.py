@@ -175,6 +175,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS resource_locks (
                 resource_name TEXT PRIMARY KEY,
                 worker_id TEXT NOT NULL,
+                lease_id TEXT,
                 acquired_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL
             );
@@ -205,6 +206,11 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_artifact_dependencies_artifact_input
                 ON artifact_dependencies(artifact_id, input_hash);
         """)
+        resource_lock_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(resource_locks)")
+        }
+        if "lease_id" not in resource_lock_columns:
+            conn.execute("ALTER TABLE resource_locks ADD COLUMN lease_id TEXT")
         conn.commit()
 
     @contextmanager

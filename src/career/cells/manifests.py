@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -115,7 +116,27 @@ class ManifestStore:
         inputs: Mapping[str, Any] | None = None,
         validators: Iterable[Mapping[str, Any]] = (),
     ) -> PublishedArtifact:
-        if not isinstance(content, bytes):
+        return self.publish_files(
+            node_id,
+            attempt,
+            {artifact_name: content},
+            inputs=inputs,
+            validators=validators,
+        )[0]
+
+    def publish_files(
+        self,
+        node_id: str,
+        attempt: int,
+        artifacts: Mapping[str, bytes],
+        *,
+        inputs: Mapping[str, Any] | None = None,
+        validators: Iterable[Mapping[str, Any]] = (),
+    ) -> tuple[PublishedArtifact, ...]:
+        """Publish one contract-complete output set under a single attempt claim."""
+        if not artifacts:
+            raise ValueError("at least one artifact is required")
+        if any(not isinstance(content, bytes) for content in artifacts.values()):
             raise TypeError("published content must be bytes")
         contract = CELL_CONTRACTS.get(node_id)
         if contract is None:
@@ -123,7 +144,6 @@ class ManifestStore:
         normalized_validators = self._normalize_validators(
             validators, required_commands=contract.validators
         )
-        safe_artifact_name = self._safe_segment(artifact_name, "artifact_name")
         attempt_record = self._load_or_begin_attempt(node_id, attempt, inputs or {})
         self._assert_attempt_identity(attempt_record.manifest, node_id, attempt)
         if attempt_record.manifest.get("contract_version") != contract.version:
@@ -142,85 +162,202 @@ class ManifestStore:
         if not isinstance(persisted_inputs, Mapping):
             raise ValueError(f"persisted attempt inputs are invalid: {node_id}/{attempt}")
         normalized_inputs = (
-            dict(persisted_inputs)
-            if inputs is None
-            else self._normalize_inputs(inputs)
+            dict(persisted_inputs) if inputs is None else self._normalize_inputs(inputs)
         )
         if normalized_inputs != persisted_inputs:
             raise ValueError(
                 f"publication inputs do not match persisted attempt inputs: {node_id}/{attempt}"
             )
+        expected_artifacts = {Path(path).name for path in contract.produces}
+        actual_artifacts = set(artifacts)
+        if (
+            any(not isinstance(name, str) for name in artifacts)
+            or actual_artifacts != expected_artifacts
+        ):
+            missing = sorted(expected_artifacts - {str(name) for name in actual_artifacts})
+            arbitrary = sorted({str(name) for name in actual_artifacts} - expected_artifacts)
+            raise ValueError(
+                "output contract mismatch:"
+                f"missing={','.join(missing) or '-'};"
+                f"arbitrary={','.join(arbitrary) or '-'}"
+            )
+
+        prepared: list[dict[str, Any]] = []
+        for artifact_name, content in artifacts.items():
+            safe_artifact_name = self._safe_segment(artifact_name, "artifact_name")
+            digest = hashlib.sha256(content).hexdigest()
+            revision = digest[: self._HASH_PREFIX_LENGTH]
+            revision_dir = self._target(
+                self.paths.artifacts_dir / safe_artifact_name / revision,
+                strict_child=True,
+            )
+            if revision_dir.exists():
+                raise RuntimeError(
+                    f"artifact revision already exists: {safe_artifact_name}/{revision}"
+                )
+            prepared.append(
+                {
+                    "artifact_name": safe_artifact_name,
+                    "content": content,
+                    "sha256": digest,
+                    "revision": revision,
+                    "revision_dir": revision_dir,
+                    "path": self._target(
+                        revision_dir / safe_artifact_name, strict_child=True
+                    ),
+                    "manifest_path": self._target(
+                        revision_dir / "manifest.json", strict_child=True
+                    ),
+                    "staging_path": self._target(
+                        attempt_record.staging_dir / safe_artifact_name,
+                        strict_child=True,
+                    ),
+                }
+            )
+
         self._claim_attempt_publication(attempt_record)
-        digest = hashlib.sha256(content).hexdigest()
-        revision = digest[: self._HASH_PREFIX_LENGTH]
-        revision_dir = self._target(
-            self.paths.artifacts_dir / safe_artifact_name / revision,
-            strict_child=True,
-        )
-        publication_path = self._target(
-            revision_dir / safe_artifact_name,
-            strict_child=True,
-        )
-        artifact_manifest_path = self._target(
-            revision_dir / "manifest.json",
-            strict_child=True,
-        )
-        staging_path = self._target(
-            attempt_record.staging_dir / safe_artifact_name,
-            strict_child=True,
-        )
-        attempt_record.staging_dir.mkdir(parents=True, exist_ok=True)
-        staging_path.write_bytes(content)
-        revision_dir.parent.mkdir(parents=True, exist_ok=True)
+        created_revision_dirs: list[Path] = []
+        published: list[PublishedArtifact] = []
         try:
-            revision_dir.mkdir()
-        except FileExistsError as exc:
-            staging_path.unlink(missing_ok=True)
-            raise RuntimeError(
-                f"artifact revision already exists: {safe_artifact_name}/{revision}"
-            ) from exc
-        os.replace(staging_path, publication_path)
+            attempt_record.staging_dir.mkdir(parents=True, exist_ok=True)
+            for item in prepared:
+                item["staging_path"].write_bytes(item["content"])
+            for item in prepared:
+                revision_dir = item["revision_dir"]
+                revision_dir.parent.mkdir(parents=True, exist_ok=True)
+                revision_dir.mkdir()
+                created_revision_dirs.append(revision_dir)
+                os.replace(item["staging_path"], item["path"])
+                artifact_manifest = {
+                    "kind": "artifact_manifest",
+                    "application_id": self.paths.application_id,
+                    "run_id": attempt_record.manifest.get("run_id", ""),
+                    "node_id": node_id,
+                    "attempt": attempt,
+                    "artifact_name": item["artifact_name"],
+                    "path": str(item["path"]),
+                    "manifest_path": str(item["manifest_path"]),
+                    "sha256": item["sha256"],
+                    "revision": item["revision"],
+                    "inputs": normalized_inputs,
+                    "validators": normalized_validators,
+                    "status": "validated",
+                    "published_at": utc_now_iso(),
+                }
+                self._write_json_once(
+                    item["manifest_path"], artifact_manifest, "artifact revision manifest"
+                )
+                published.append(
+                    PublishedArtifact(
+                        path=item["path"],
+                        manifest_path=item["manifest_path"],
+                        manifest=artifact_manifest,
+                    )
+                )
+            attempt_manifest = dict(attempt_record.manifest)
+            attempt_manifest["validators"] = normalized_validators
+            attempt_manifest["outputs"] = [
+                {
+                    "artifact_name": item.manifest["artifact_name"],
+                    "path": str(item.path),
+                    "sha256": item.manifest["sha256"],
+                    "revision": item.manifest["revision"],
+                    "manifest_path": str(item.manifest_path),
+                }
+                for item in published
+            ]
+            attempt_manifest["status"] = "validated"
+            attempt_manifest["finished_at"] = utc_now_iso()
+            write_json(attempt_record.path, attempt_manifest)
+        except Exception:
+            for item in prepared:
+                item["staging_path"].unlink(missing_ok=True)
+            for revision_dir in reversed(created_revision_dirs):
+                shutil.rmtree(revision_dir, ignore_errors=True)
+            raise
+        return tuple(published)
 
-        artifact_manifest = {
-            "kind": "artifact_manifest",
-            "application_id": self.paths.application_id,
-            "run_id": attempt_record.manifest.get("run_id", ""),
-            "node_id": node_id,
-            "attempt": attempt,
-            "artifact_name": safe_artifact_name,
-            "path": str(publication_path),
-            "manifest_path": str(artifact_manifest_path),
-            "sha256": digest,
-            "revision": revision,
-            "inputs": normalized_inputs,
-            "validators": normalized_validators,
-            "status": "validated",
-            "published_at": utc_now_iso(),
+    def rollback_publications(
+        self,
+        node_id: str,
+        attempt: int,
+        publications: Iterable[PublishedArtifact],
+    ) -> None:
+        """Remove an output set that lost its executor fencing lease."""
+        record = self._load_attempt(node_id, attempt)
+        publication_list = tuple(publications)
+        run_id = str(record.manifest.get("run_id", ""))
+        validated_publications: list[PublishedArtifact] = []
+        for publication in publication_list:
+            persisted = self._persisted_validated_artifact(publication, run_id)
+            if (
+                persisted.get("node_id") != node_id
+                or persisted.get("attempt") != attempt
+            ):
+                raise ValueError("rollback publication identity mismatch")
+            validated_publications.append(
+                PublishedArtifact(
+                    path=self._target(Path(str(persisted["path"])), strict_child=True),
+                    manifest_path=self._target(
+                        Path(str(persisted["manifest_path"])), strict_child=True
+                    ),
+                    manifest=persisted,
+                )
+            )
+        expected_manifest_paths = {
+            str(item.manifest_path) for item in validated_publications
         }
-        self._write_json_once(
-            artifact_manifest_path, artifact_manifest, "artifact revision manifest"
-        )
+        recorded_manifest_paths = {
+            str(self._target(Path(str(item.get("manifest_path", ""))), strict_child=True))
+            for item in record.manifest.get("outputs", ())
+            if isinstance(item, Mapping)
+        }
+        if expected_manifest_paths != recorded_manifest_paths:
+            raise ValueError("rollback publications do not match persisted attempt outputs")
+        for publication in validated_publications:
+            shutil.rmtree(publication.manifest_path.parent)
+        manifest = dict(record.manifest)
+        manifest["outputs"] = []
+        manifest["validators"] = []
+        manifest["status"] = "reserved"
+        manifest.pop("finished_at", None)
+        write_json(record.path, manifest)
 
-        attempt_manifest = dict(attempt_record.manifest)
-        attempt_manifest["validators"] = normalized_validators
-        attempt_manifest["outputs"] = [
-            *attempt_manifest.get("outputs", []),
-            {
-                "artifact_name": safe_artifact_name,
-                "path": str(publication_path),
-                "sha256": digest,
-                "revision": revision,
-                "manifest_path": str(artifact_manifest_path),
-            },
-        ]
-        attempt_manifest["status"] = "validated"
-        attempt_manifest["finished_at"] = utc_now_iso()
-        write_json(attempt_record.path, attempt_manifest)
-        return PublishedArtifact(
-            path=publication_path,
-            manifest_path=artifact_manifest_path,
-            manifest=artifact_manifest,
-        )
+    def reconcile_expired_attempt(self, node_id: str, attempt: int) -> None:
+        """Remove uncommitted publications before an expired attempt is reclaimed."""
+        manifest_path = self._attempt_dir(node_id, attempt) / "manifest.json"
+        if not manifest_path.is_file():
+            return
+        record = self._load_attempt(node_id, attempt)
+        publications: list[PublishedArtifact] = []
+        for output in record.manifest.get("outputs", ()):
+            if not isinstance(output, Mapping) or not output.get("manifest_path"):
+                raise ValueError("expired attempt has invalid persisted output")
+            manifest_path = self._target(
+                Path(str(output["manifest_path"])), strict_child=True
+            )
+            try:
+                manifest_path.relative_to(self.paths.artifacts_dir.resolve())
+            except ValueError as exc:
+                raise ValueError(
+                    f"expired artifact manifest must be within artifacts directory: {manifest_path}"
+                ) from exc
+            persisted = read_json(manifest_path)
+            publications.append(
+                PublishedArtifact(
+                    path=Path(str(persisted["path"])).resolve(),
+                    manifest_path=manifest_path,
+                    manifest=dict(persisted),
+                )
+            )
+        if publications:
+            self.rollback_publications(node_id, attempt, publications)
+            record = self._load_attempt(node_id, attempt)
+        manifest = dict(record.manifest)
+        manifest["status"] = "cancelled"
+        manifest["blocker"] = {"reason": "lease_expired"}
+        manifest["finished_at"] = utc_now_iso()
+        write_json(record.path, manifest)
 
     def finish_run(
         self,

@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable
+from uuid import uuid4
 
 from career.services.database import Database
 
@@ -65,12 +66,29 @@ class CellStore:
 
         with self.database.transaction(immediate=True) as conn:
             row = conn.execute(
-                """SELECT status, reservation_expires_at, latest_attempt
+                """SELECT status, reservation_expires_at, latest_attempt, requires_json
                    FROM cell_nodes WHERE run_id = ? AND node_id = ?""",
                 (run_id, node_id),
             ).fetchone()
             if row is None:
                 raise KeyError(f"unknown cell node: {run_id}/{node_id}")
+
+            requirements = json.loads(row["requires_json"])
+            if requirements:
+                placeholders = ",".join("?" for _ in requirements)
+                dependency_rows = conn.execute(
+                    f"""SELECT node_id, status FROM cell_nodes
+                        WHERE run_id = ? AND node_id IN ({placeholders})""",
+                    (run_id, *requirements),
+                ).fetchall()
+                dependency_statuses = {
+                    item["node_id"]: item["status"] for item in dependency_rows
+                }
+                if any(
+                    dependency_statuses.get(required) != "validated"
+                    for required in requirements
+                ):
+                    return {"status": "busy"}
 
             active_reservation = (
                 row["status"] in {"reserved", "running"}
@@ -79,6 +97,29 @@ class CellStore:
             )
             if active_reservation or row["status"] not in {"planned", "repairing", "reserved", "running"}:
                 return {"status": "busy"}
+
+            if row["status"] in self._ACTIVE_ATTEMPT_STATUSES:
+                stale_attempt = int(row["latest_attempt"])
+                conn.execute(
+                    """UPDATE cell_attempts
+                       SET status = 'cancelled', finished_at = ?, detail_json = ?
+                       WHERE run_id = ? AND node_id = ? AND attempt = ?
+                         AND status IN ('reserved', 'running') AND finished_at IS NULL""",
+                    (
+                        now,
+                        self._json(
+                            {
+                                "status": "cancelled",
+                                "paths": [],
+                                "hashes": {},
+                                "metadata": {"reason": "lease_expired"},
+                            }
+                        ),
+                        run_id,
+                        node_id,
+                        stale_attempt,
+                    ),
+                )
 
             attempt = int(row["latest_attempt"]) + 1
             conn.execute(
@@ -104,6 +145,68 @@ class CellStore:
             "expires_at": expires_at,
         }
 
+    def renew_node_reservation(
+        self,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        worker_id: str,
+        *,
+        lease_seconds: int = 300,
+    ) -> dict[str, Any]:
+        now = self._now()
+        expires_at = self._expires_at(lease_seconds)
+        with self.database.transaction(immediate=True) as conn:
+            renewed = conn.execute(
+                """UPDATE cell_nodes
+                   SET reservation_expires_at = ?, updated_at = ?
+                   WHERE run_id = ? AND node_id = ? AND latest_attempt = ?
+                     AND reserved_by = ? AND status IN ('reserved', 'running')
+                     AND reservation_expires_at > ?""",
+                (expires_at, now, run_id, node_id, attempt, worker_id, now),
+            ).rowcount == 1
+        return {
+            "renewed": renewed,
+            "run_id": run_id,
+            "node_id": node_id,
+            "attempt": attempt,
+            "expires_at": expires_at if renewed else None,
+        }
+
+    def cancel_expired_reservation(
+        self, run_id: str, node_id: str, attempt: int, worker_id: str
+    ) -> dict[str, Any]:
+        now = self._now()
+        receipt = self._receipt_json(
+            "cancelled",
+            {
+                "status": "cancelled",
+                "paths": [],
+                "hashes": {},
+                "metadata": {"reason": "lease_expired"},
+            },
+        )
+        with self.database.transaction(immediate=True) as conn:
+            cancelled = conn.execute(
+                """UPDATE cell_nodes
+                   SET status = 'planned', reserved_by = NULL,
+                       reservation_expires_at = NULL, updated_at = ?
+                   WHERE run_id = ? AND node_id = ? AND latest_attempt = ?
+                     AND reserved_by = ? AND status IN ('reserved', 'running')
+                     AND reservation_expires_at <= ?""",
+                (now, run_id, node_id, attempt, worker_id, now),
+            ).rowcount == 1
+            if cancelled:
+                conn.execute(
+                    """UPDATE cell_attempts
+                       SET status = 'cancelled', finished_at = ?, detail_json = ?
+                       WHERE run_id = ? AND node_id = ? AND attempt = ?
+                         AND worker_id = ? AND status IN ('reserved', 'running')
+                         AND finished_at IS NULL""",
+                    (now, receipt, run_id, node_id, attempt, worker_id),
+                )
+        return {"cancelled": cancelled, "run_id": run_id, "node_id": node_id, "attempt": attempt}
+
     def finish_attempt(
         self,
         run_id: str,
@@ -113,6 +216,7 @@ class CellStore:
         *,
         worker_id: str,
         receipt: Mapping[str, Any],
+        resource_leases: Iterable[Mapping[str, Any]] = (),
     ) -> dict[str, Any]:
         """Finish only the active attempt owned by ``worker_id``.
 
@@ -120,9 +224,23 @@ class CellStore:
         rather than agent output or other arbitrary payloads.
         """
         receipt_json = self._receipt_json(status, receipt)
+        leases = tuple(resource_leases)
 
         with self.database.transaction(immediate=True) as conn:
             now = self._now()
+            for lease in leases:
+                resource_name = str(lease.get("resource_name", ""))
+                lease_id = str(lease.get("lease_id", ""))
+                if not resource_name or not lease_id:
+                    raise ValueError("resource lease requires resource_name and lease_id")
+                owned = conn.execute(
+                    """SELECT 1 FROM resource_locks
+                       WHERE resource_name = ? AND worker_id = ? AND lease_id = ?
+                         AND expires_at > ?""",
+                    (resource_name, worker_id, lease_id, now),
+                ).fetchone()
+                if owned is None:
+                    raise RuntimeError(f"stale resource lease: {resource_name}")
             node_updated = conn.execute(
                 """UPDATE cell_nodes
                    SET status = ?, reserved_by = NULL, reservation_expires_at = NULL, updated_at = ?
@@ -155,21 +273,24 @@ class CellStore:
     ) -> dict[str, Any]:
         now = self._now()
         expires_at = self._expires_at(lease_seconds)
+        lease_id = f"lease_{uuid4().hex}"
 
         with self.database.transaction(immediate=True) as conn:
             updated = conn.execute(
-                """INSERT INTO resource_locks (resource_name, worker_id, acquired_at, expires_at)
-                   VALUES (?, ?, ?, ?)
+                """INSERT INTO resource_locks
+                   (resource_name, worker_id, lease_id, acquired_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?)
                    ON CONFLICT(resource_name) DO UPDATE SET
                        worker_id = excluded.worker_id,
+                       lease_id = excluded.lease_id,
                        acquired_at = excluded.acquired_at,
                        expires_at = excluded.expires_at
                    WHERE resource_locks.expires_at <= excluded.acquired_at
-                      OR resource_locks.worker_id = excluded.worker_id""",
-                (resource_name, worker_id, now, expires_at),
+                   """,
+                (resource_name, worker_id, lease_id, now, expires_at),
             ).rowcount
             lock = conn.execute(
-                """SELECT worker_id, expires_at FROM resource_locks
+                """SELECT worker_id, lease_id, acquired_at, expires_at FROM resource_locks
                    WHERE resource_name = ?""",
                 (resource_name,),
             ).fetchone()
@@ -178,24 +299,57 @@ class CellStore:
             "acquired": updated == 1 and lock["worker_id"] == worker_id,
             "resource_name": resource_name,
             "worker_id": lock["worker_id"],
+            "lease_id": lock["lease_id"],
+            "acquired_at": lock["acquired_at"],
             "expires_at": lock["expires_at"],
         }
 
-    def release_resource_lock(self, resource_name: str, worker_id: str) -> dict[str, Any]:
+    def renew_resource_lock(
+        self,
+        resource_name: str,
+        worker_id: str,
+        lease_id: str,
+        *,
+        lease_seconds: int = 300,
+    ) -> dict[str, Any]:
+        now = self._now()
+        expires_at = self._expires_at(lease_seconds)
+        with self.database.transaction(immediate=True) as conn:
+            renewed = conn.execute(
+                """UPDATE resource_locks SET expires_at = ?
+                   WHERE resource_name = ? AND worker_id = ? AND lease_id = ?
+                     AND expires_at > ?""",
+                (expires_at, resource_name, worker_id, lease_id, now),
+            ).rowcount == 1
+        return {
+            "renewed": renewed,
+            "resource_name": resource_name,
+            "lease_id": lease_id,
+            "expires_at": expires_at if renewed else None,
+        }
+
+    def release_resource_lock(
+        self, resource_name: str, worker_id: str, *, lease_id: str
+    ) -> dict[str, Any]:
         with self.database.transaction(immediate=True) as conn:
             released = conn.execute(
-                "DELETE FROM resource_locks WHERE resource_name = ? AND worker_id = ?",
-                (resource_name, worker_id),
+                """DELETE FROM resource_locks
+                   WHERE resource_name = ? AND worker_id = ? AND lease_id = ?""",
+                (resource_name, worker_id, lease_id),
             ).rowcount == 1
         return {"released": released, "resource_name": resource_name}
 
     def list_ready_nodes(self, run_id: str) -> list[dict[str, Any]]:
+        now = self._now()
         rows = self.database.fetch_all(
             """SELECT node_id, status, requires_json, latest_attempt
                FROM cell_nodes
-               WHERE run_id = ? AND status IN ('planned', 'repairing')
+               WHERE run_id = ? AND (
+                   status IN ('planned', 'repairing')
+                   OR (status IN ('reserved', 'running') AND reservation_expires_at <= ?)
+               )
                ORDER BY node_id""",
-            (run_id,),
+            (run_id, now),
         )
         statuses = {
             row["node_id"]: row["status"]

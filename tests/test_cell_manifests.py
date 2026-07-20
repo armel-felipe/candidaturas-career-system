@@ -50,7 +50,7 @@ def test_publish_records_input_hash_and_keeps_previous_revision(tmp_path):
     first = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b'{"version": 1}',
         inputs={"fit_map": "a"},
         validators=passed_validators(paths),
@@ -58,7 +58,7 @@ def test_publish_records_input_hash_and_keeps_previous_revision(tmp_path):
     second = store.publish_file(
         "compose_cv",
         2,
-        "cv_content",
+        "cv_content.json",
         b'{"version": 2}',
         inputs={"fit_map": "b"},
         validators=passed_validators(paths),
@@ -74,6 +74,69 @@ def test_publish_records_input_hash_and_keeps_previous_revision(tmp_path):
         "source_kind": "artifact",
     }
 
+
+def test_publish_files_enforces_complete_declared_output_set(tmp_path):
+    paths = paths_for("app-1", root=tmp_path)
+    store = ManifestStore(paths)
+    validators = passed_validators(paths, "normalize_job")
+
+    with pytest.raises(ValueError, match="output contract mismatch"):
+        store.publish_files(
+            "normalize_job",
+            1,
+            {"job_normalized.json": b"{}"},
+            validators=validators,
+        )
+
+    with pytest.raises(ValueError, match="output contract mismatch"):
+        store.publish_files(
+            "normalize_job",
+            2,
+            {
+                "job_normalized.json": b"{}",
+                "handover_summary.json": b"{}",
+                "evidence_index.json": b"{}",
+                "arbitrary.json": b"{}",
+            },
+            validators=validators,
+        )
+
+
+def test_reconcile_expired_attempt_never_deletes_forged_external_path(tmp_path):
+    paths = paths_for("app-1", root=tmp_path / "applications")
+    store = ManifestStore(paths)
+    attempt = store.begin_attempt("capture_source", 1, run_id="run-1")
+    external_dir = tmp_path / "external-victim"
+    external_dir.mkdir()
+    external_artifact = external_dir / "job_description.md"
+    external_artifact.write_text("do not delete", encoding="utf-8")
+    external_manifest = external_dir / "manifest.json"
+    forged_artifact = {
+        "kind": "artifact_manifest",
+        "application_id": "app-1",
+        "run_id": "run-1",
+        "node_id": "capture_source",
+        "attempt": 1,
+        "artifact_name": "job_description.md",
+        "path": str(external_artifact),
+        "manifest_path": str(external_manifest),
+        "sha256": "forged",
+        "revision": "forged",
+        "inputs": {},
+        "validators": [],
+        "status": "validated",
+    }
+    external_manifest.write_text(json.dumps(forged_artifact), encoding="utf-8")
+    manifest = json.loads(attempt.path.read_text(encoding="utf-8"))
+    manifest["status"] = "validated"
+    manifest["outputs"] = [forged_artifact]
+    attempt.path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="application directory|artifacts directory"):
+        store.reconcile_expired_attempt("capture_source", 1)
+
+    assert external_artifact.read_text(encoding="utf-8") == "do not delete"
+    assert external_manifest.is_file()
 
 def test_capability_rejects_other_application_path(tmp_path):
     application = tmp_path / "app-a"
@@ -218,7 +281,7 @@ def test_publish_uses_staging_and_atomic_replace(tmp_path, monkeypatch):
     published = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"validated",
         validators=passed_validators(paths),
     )
@@ -233,7 +296,7 @@ def test_publish_uses_staging_and_atomic_replace(tmp_path, monkeypatch):
         paths.cells_dir / "compose_cv" / "1" / "staging"
     ).resolve()
     assert target == published.path
-    assert published.path.parent.parent == paths.artifacts_dir.resolve() / "cv_content"
+    assert published.path.parent.parent == paths.artifacts_dir.resolve() / "cv_content.json"
     assert published.path.parent.name == published.manifest["sha256"][:12]
 
 
@@ -247,7 +310,7 @@ def test_publish_records_normalized_validators(tmp_path):
     published = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"validated",
         validators=[
             {
@@ -289,7 +352,7 @@ def test_publish_refuses_missing_or_unpassed_validators(tmp_path, validators):
         store.publish_file(
             "compose_cv",
             1,
-            "cv_content",
+            "cv_content.json",
             b"not validated",
             validators=validators,
         )
@@ -308,7 +371,7 @@ def test_publish_requires_every_validator_declared_by_node_contract(tmp_path):
         store.publish_file(
             "analyze_fit",
             1,
-            "fit_map",
+            "fit_map.json",
             b"validated by only one command",
             validators=[
                 {
@@ -334,7 +397,7 @@ def test_publish_rejects_inputs_that_differ_from_attempt_manifest(tmp_path):
         store.publish_file(
             "compose_cv",
             1,
-            "cv_content",
+            "cv_content.json",
             b"forged",
             inputs={"fit_map": "forged"},
             validators=passed_validators(paths),
@@ -363,7 +426,7 @@ def test_publish_rejects_identical_revision_without_overwriting_provenance(tmp_p
     first = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"identical",
         inputs={"fit_map": "first"},
         validators=passed_validators(paths),
@@ -374,7 +437,7 @@ def test_publish_rejects_identical_revision_without_overwriting_provenance(tmp_p
         store.publish_file(
             "compose_cv",
             2,
-            "cv_content",
+            "cv_content.json",
             b"identical",
             inputs={"fit_map": "forged"},
             validators=passed_validators(paths),
@@ -390,7 +453,7 @@ def test_publish_rejects_reuse_of_a_finalized_attempt(tmp_path):
     first = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"first",
         validators=passed_validators(paths),
     )
@@ -429,13 +492,13 @@ def test_concurrent_publications_cannot_reuse_the_same_attempt(tmp_path, monkeyp
 
     monkeypatch.setattr(store, "_load_or_begin_attempt", synchronized_load)
 
-    def publish(name):
+    def publish(content):
         try:
             store.publish_file(
                 "compose_cv",
                 1,
-                name,
-                name.encode(),
+                "cv_content.json",
+                content.encode(),
                 validators=validators,
             )
         except RuntimeError as exc:
@@ -460,7 +523,7 @@ def test_finish_run_uses_only_explicit_validated_artifacts_and_blockers(tmp_path
     published = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"validated",
         validators=passed_validators(paths),
     )
@@ -496,7 +559,7 @@ def test_finish_run_rejects_forged_artifact_mapping(tmp_path):
         "run_id": "run-1",
         "node_id": "compose_cv",
         "attempt": 1,
-        "artifact_name": "cv_content",
+        "artifact_name": "cv_content.json",
         "path": str(paths.artifacts_dir / "cv_content" / "fake" / "cv_content"),
         "sha256": "fake",
         "revision": "fake",
@@ -519,7 +582,7 @@ def test_finish_run_rejects_foreign_and_stale_persisted_artifacts(tmp_path):
     published = first_store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"validated",
         validators=passed_validators(first_paths),
     )
@@ -562,7 +625,7 @@ def test_finish_run_discovers_persisted_artifacts_and_blockers_when_omitted(tmp_
     published = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"validated",
         validators=passed_validators(paths),
     )
@@ -605,7 +668,7 @@ def test_finish_run_rejects_missing_persisted_output_revision(tmp_path):
     published = store.publish_file(
         "compose_cv",
         1,
-        "cv_content",
+        "cv_content.json",
         b"validated",
         validators=passed_validators(paths),
     )

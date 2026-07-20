@@ -130,6 +130,26 @@ class CellExecutor:
             )
             if reservation.get("status") != "reserved":
                 continue
+            if (
+                ready.get("status") in {"reserved", "running"}
+                and int(reservation["attempt"]) > int(ready["latest_attempt"])
+            ):
+                try:
+                    ManifestStore(paths).reconcile_expired_attempt(
+                        node_id, int(ready["latest_attempt"])
+                    )
+                except Exception as exc:
+                    results.append(
+                        self._block_reserved(
+                            paths,
+                            self._node(plan, node_id),
+                            reservation,
+                            f"reconciliation_error:{type(exc).__name__}:{exc}",
+                            (),
+                            (),
+                        )
+                    )
+                    continue
             results.append(
                 self._execute_reserved(plan, paths, self._node(plan, node_id), reservation)
             )
@@ -153,6 +173,37 @@ class CellExecutor:
         invalidated = self._contract_descendants(node_id, {item.node_id for item in plan.nodes})
         now = utc_now_iso()
         with self.database.transaction(immediate=True) as conn:
+            current = conn.execute(
+                """SELECT status, reservation_expires_at FROM cell_nodes
+                   WHERE run_id = ? AND node_id = ?""",
+                (run_id, node_id),
+            ).fetchone()
+            if (
+                current is not None
+                and current["status"] in {"reserved", "running"}
+                and current["reservation_expires_at"] is not None
+                and current["reservation_expires_at"] > now
+            ):
+                raise RuntimeError(f"cannot repair node with an active lease: {node_id}")
+            active_descendants = []
+            for descendant in invalidated:
+                descendant_row = conn.execute(
+                    """SELECT status, reservation_expires_at FROM cell_nodes
+                       WHERE run_id = ? AND node_id = ?""",
+                    (run_id, descendant),
+                ).fetchone()
+                if (
+                    descendant_row is not None
+                    and descendant_row["status"] in {"reserved", "running"}
+                    and descendant_row["reservation_expires_at"] is not None
+                    and descendant_row["reservation_expires_at"] > now
+                ):
+                    active_descendants.append(descendant)
+            if active_descendants:
+                raise RuntimeError(
+                    "cannot repair while active descendant lease(s) exist: "
+                    + ", ".join(sorted(active_descendants))
+                )
             conn.execute(
                 """UPDATE cell_nodes
                    SET status = 'repairing', reserved_by = NULL,
@@ -280,11 +331,25 @@ class CellExecutor:
 
         attempt = int(reservation["attempt"])
         manifest_store = ManifestStore(paths)
-        attempt_record = self._load_or_begin_execution_attempt(
-            manifest_store, paths, plan.run_id, node, attempt
-        )
+        try:
+            attempt_record = self._load_or_begin_execution_attempt(
+                manifest_store, paths, plan.run_id, node, attempt
+            )
+        except Exception as exc:
+            attempt_record = self._load_or_begin_unmaterialized_attempt(
+                manifest_store, paths, plan.run_id, node, attempt
+            )
+            return self._block_reserved(
+                paths,
+                node,
+                reservation,
+                f"input_materialization_error:{type(exc).__name__}:{exc}",
+                (),
+                (),
+                attempt_record=attempt_record,
+            )
         context = self._context_from_manifest(paths, node, attempt_record.path)
-        acquired_resources: list[str] = []
+        acquired_resources: list[Mapping[str, Any]] = []
         try:
             for resource in node.resources:
                 lock = self.store.acquire_resource_lock(
@@ -301,13 +366,41 @@ class CellExecutor:
                         (),
                         (),
                     )
-                acquired_resources.append(resource)
+                acquired_resources.append(lock)
 
             handler = self.handlers.get(node.node_id)
             if handler is None:
                 return self._block_reserved(
                     paths, node, reservation, "handler_not_registered", (), ()
                 )
+            node_lease = self.store.renew_node_reservation(
+                plan.run_id,
+                node.node_id,
+                attempt,
+                self.worker_id,
+                lease_seconds=self.lease_seconds,
+            )
+            if not node_lease["renewed"]:
+                return self._cancel_expired_execution(
+                    paths, node, reservation, attempt_record.path
+                )
+            for lock in acquired_resources:
+                renewed = self.store.renew_resource_lock(
+                    str(lock["resource_name"]),
+                    self.worker_id,
+                    str(lock["lease_id"]),
+                    lease_seconds=self.lease_seconds,
+                )
+                if not renewed["renewed"]:
+                    return self._block_reserved(
+                        paths,
+                        node,
+                        reservation,
+                        f"resource_lease_expired:{lock['resource_name']}",
+                        (),
+                        (),
+                        attempt_record=attempt_record,
+                    )
             try:
                 output = handler(context)
             except Exception as exc:
@@ -319,9 +412,43 @@ class CellExecutor:
                     (),
                     (),
                 )
+            lease_failure = self._renew_execution_leases(
+                plan.run_id, node.node_id, attempt, acquired_resources
+            )
+            if lease_failure == "node_lease_expired":
+                return self._cancel_expired_execution(
+                    paths, node, reservation, attempt_record.path
+                )
+            if lease_failure is not None:
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    lease_failure,
+                    (),
+                    (),
+                    attempt_record=attempt_record,
+                )
             if not isinstance(output, CellOutput):
                 return self._block_reserved(
                     paths, node, reservation, "handler_returned_invalid_output", (), ()
+                )
+
+            expected_artifacts = {Path(path).name for path in node.produces}
+            actual_artifacts = set(output.artifacts)
+            if actual_artifacts != expected_artifacts:
+                missing = sorted(expected_artifacts - actual_artifacts)
+                arbitrary = sorted(actual_artifacts - expected_artifacts)
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    "output_contract_mismatch:"
+                    f"missing={','.join(missing) or '-'};"
+                    f"arbitrary={','.join(arbitrary) or '-'}",
+                    (),
+                    (),
+                    attempt_record=attempt_record,
                 )
 
             try:
@@ -336,24 +463,43 @@ class CellExecutor:
                     (),
                 )
             validator_results = self._run_validators(context, output, node.validators)
+            lease_failure = self._renew_execution_leases(
+                plan.run_id, node.node_id, attempt, acquired_resources
+            )
+            if lease_failure == "node_lease_expired":
+                return self._cancel_expired_execution(
+                    paths, node, reservation, attempt_record.path
+                )
+            if lease_failure is not None:
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    lease_failure,
+                    staged_paths,
+                    validator_results,
+                    attempt_record=attempt_record,
+                )
             failures = [item for item in validator_results if item.result != "passed"]
             if failures:
                 reason = failures[0].reason or f"validator_failed:{failures[0].command}"
                 return self._block_reserved(
                     paths, node, reservation, reason, staged_paths, validator_results
                 )
-            if len(output.artifacts) != 1:
-                return self._block_reserved(
-                    paths,
-                    node,
-                    reservation,
-                    "executor_requires_one_published_artifact_per_cell",
-                    staged_paths,
-                    validator_results,
-                )
-
-            artifact_name, raw_content = next(iter(output.artifacts.items()))
-            content = raw_content.encode("utf-8") if isinstance(raw_content, str) else raw_content
+            if output.handover:
+                try:
+                    manifest_store.write_handover(
+                        node.node_id, attempt, output.handover
+                    )
+                except Exception as exc:
+                    return self._block_reserved(
+                        paths,
+                        node,
+                        reservation,
+                        f"handover_error:{type(exc).__name__}:{exc}",
+                        staged_paths,
+                        validator_results,
+                    )
             try:
                 CellStore._receipt_json(
                     "validated",
@@ -364,11 +510,18 @@ class CellExecutor:
                         "metadata": dict(output.metadata),
                     },
                 )
-                published = manifest_store.publish_file(
+                contents = {
+                    artifact_name: (
+                        raw_content.encode("utf-8")
+                        if isinstance(raw_content, str)
+                        else raw_content
+                    )
+                    for artifact_name, raw_content in output.artifacts.items()
+                }
+                published = manifest_store.publish_files(
                     node.node_id,
                     attempt,
-                    artifact_name,
-                    content,
+                    contents,
                     inputs=context.inputs,
                     validators=[
                         self._validator_mapping(item) for item in validator_results
@@ -383,32 +536,81 @@ class CellExecutor:
                     staged_paths,
                     validator_results,
                 )
-            if output.handover:
-                manifest_store.write_handover(node.node_id, attempt, output.handover)
-            self.store.finish_attempt(
-                plan.run_id,
-                node.node_id,
-                attempt,
-                "validated",
-                worker_id=self.worker_id,
-                receipt={
-                    "status": "validated",
-                    "paths": [str(published.path)],
-                    "hashes": {str(published.path): published.manifest["sha256"]},
-                    "metadata": dict(output.metadata),
-                },
+            lease_failure = self._renew_execution_leases(
+                plan.run_id, node.node_id, attempt, acquired_resources
             )
+            if lease_failure is not None:
+                manifest_store.rollback_publications(
+                    node.node_id, attempt, published
+                )
+                if lease_failure == "node_lease_expired":
+                    return self._cancel_expired_execution(
+                        paths, node, reservation, attempt_record.path
+                    )
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    lease_failure,
+                    (),
+                    validator_results,
+                    attempt_record=manifest_store._load_attempt(node.node_id, attempt),
+                )
+            try:
+                self.store.finish_attempt(
+                    plan.run_id,
+                    node.node_id,
+                    attempt,
+                    "validated",
+                    worker_id=self.worker_id,
+                    receipt={
+                        "status": "validated",
+                        "paths": [str(item.path) for item in published],
+                        "hashes": {
+                            str(item.path): item.manifest["sha256"] for item in published
+                        },
+                        "metadata": dict(output.metadata),
+                    },
+                    resource_leases=acquired_resources,
+                )
+            except Exception as exc:
+                manifest_store.rollback_publications(
+                    node.node_id, attempt, published
+                )
+                lease_failure = self._renew_execution_leases(
+                    plan.run_id, node.node_id, attempt, acquired_resources
+                )
+                if lease_failure == "node_lease_expired":
+                    return self._cancel_expired_execution(
+                        paths, node, reservation, attempt_record.path
+                    )
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    lease_failure
+                    or f"publication_commit_error:{type(exc).__name__}:{exc}",
+                    (),
+                    validator_results,
+                    attempt_record=manifest_store._load_attempt(node.node_id, attempt),
+                )
             return CellExecutionResult(
                 run_id=plan.run_id,
                 node_id=node.node_id,
                 attempt=attempt,
                 status="validated",
                 manifest_path=attempt_record.path,
-                artifact_manifest_paths=(published.manifest_path,),
+                artifact_manifest_paths=tuple(
+                    item.manifest_path for item in published
+                ),
             )
         finally:
-            for resource in reversed(acquired_resources):
-                self.store.release_resource_lock(resource, self.worker_id)
+            for lock in reversed(acquired_resources):
+                self.store.release_resource_lock(
+                    str(lock["resource_name"]),
+                    self.worker_id,
+                    lease_id=str(lock["lease_id"]),
+                )
 
     def _run_validators(
         self,
@@ -443,6 +645,33 @@ class CellExecutor:
                 )
         return tuple(results)
 
+    def _renew_execution_leases(
+        self,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        resource_locks: Iterable[Mapping[str, Any]],
+    ) -> str | None:
+        node_lease = self.store.renew_node_reservation(
+            run_id,
+            node_id,
+            attempt,
+            self.worker_id,
+            lease_seconds=self.lease_seconds,
+        )
+        if not node_lease["renewed"]:
+            return "node_lease_expired"
+        for lock in resource_locks:
+            renewed = self.store.renew_resource_lock(
+                str(lock["resource_name"]),
+                self.worker_id,
+                str(lock["lease_id"]),
+                lease_seconds=self.lease_seconds,
+            )
+            if not renewed["renewed"]:
+                return f"resource_lease_expired:{lock['resource_name']}"
+        return None
+
     def _stage_output(
         self, context: CellExecutionContext, output: CellOutput
     ) -> tuple[Path, ...]:
@@ -468,10 +697,12 @@ class CellExecutor:
         reason: str,
         staged_paths: Iterable[Path],
         validators: Iterable[ValidatorResult],
+        *,
+        attempt_record=None,
     ) -> CellExecutionResult:
         attempt = int(reservation["attempt"])
         manifest_store = ManifestStore(paths)
-        record = self._load_or_begin_execution_attempt(
+        record = attempt_record or self._load_or_begin_execution_attempt(
             manifest_store, paths, str(reservation["run_id"]), node, attempt
         )
         staged = tuple(Path(path) for path in staged_paths)
@@ -548,14 +779,73 @@ class CellExecutor:
         node: NodePlan,
         attempt: int,
     ):
+        inputs, read_paths = self._inputs_for_node(run_id, paths, node)
         manifest_path = paths.cells_dir / node.node_id / str(attempt) / "manifest.json"
         if manifest_path.is_file():
             record = store._load_attempt(node.node_id, attempt)
             if record.manifest.get("run_id") != run_id:
                 raise ValueError("attempt manifest belongs to another run")
-            return record
-        return self._begin_attempt(
-            paths, run_id, node, attempt, status="reserved"
+            if record.manifest.get("contract_version") != node.contract_version:
+                raise ValueError("attempt manifest contract version mismatch")
+            manifest = dict(record.manifest)
+            if manifest.get("status") not in {"reserved", "running", "repairing"}:
+                raise RuntimeError(
+                    f"attempt cannot execute from status: {manifest.get('status')}"
+                )
+            manifest["inputs"] = store._normalize_inputs(inputs)
+            manifest["capabilities"] = {
+                "read_paths": [str(store._target(path)) for path in read_paths],
+                "write_paths": [
+                    str(
+                        store._target(
+                            paths.cells_dir / node.node_id / str(attempt) / "staging"
+                        )
+                    ),
+                    str(store._target(paths.reviews_dir)),
+                ],
+            }
+            manifest["inputs_materialized_at"] = utc_now_iso()
+            write_json(record.path, manifest)
+            return store._load_attempt(node.node_id, attempt)
+        return ManifestStore(paths).begin_attempt(
+            node.node_id,
+            attempt,
+            run_id=run_id,
+            contract_version=node.contract_version,
+            inputs=inputs,
+            read_paths=read_paths,
+            write_paths=(
+                paths.cells_dir / node.node_id / str(attempt) / "staging",
+                paths.reviews_dir,
+            ),
+            context={"repair_scope": node.repair_scope},
+            status="reserved",
+        )
+
+    def _load_or_begin_unmaterialized_attempt(
+        self,
+        store: ManifestStore,
+        paths: ApplicationPaths,
+        run_id: str,
+        node: NodePlan,
+        attempt: int,
+    ):
+        manifest_path = paths.cells_dir / node.node_id / str(attempt) / "manifest.json"
+        if manifest_path.is_file():
+            return store._load_attempt(node.node_id, attempt)
+        return ManifestStore(paths).begin_attempt(
+            node.node_id,
+            attempt,
+            run_id=run_id,
+            contract_version=node.contract_version,
+            inputs={},
+            read_paths=(),
+            write_paths=(
+                paths.cells_dir / node.node_id / str(attempt) / "staging",
+                paths.reviews_dir,
+            ),
+            context={"repair_scope": node.repair_scope},
+            status="reserved",
         )
 
     def _context_from_manifest(
@@ -613,23 +903,98 @@ class CellExecutor:
                 / "manifest.json"
             )
             if not manifest_path.is_file():
-                continue
+                raise ValueError(f"dependency attempt manifest is missing: {dependency}")
             manifest = read_json(manifest_path)
-            for index, output in enumerate(manifest.get("outputs", ())):
+            if manifest.get("run_id") != run_id or manifest.get("status") != "validated":
+                raise ValueError(f"dependency attempt manifest is not validated: {dependency}")
+            if manifest.get("context", {}).get("synthetic") is True:
+                continue
+            outputs = manifest.get("outputs", ())
+            if not isinstance(outputs, list):
+                raise ValueError(f"dependency outputs are invalid: {dependency}")
+            expected = {Path(path).name for path in self._contract(dependency).produces}
+            actual = {
+                str(output.get("artifact_name", ""))
+                for output in outputs
+                if isinstance(output, Mapping)
+            }
+            if actual != expected or len(outputs) != len(expected):
+                raise ValueError(f"dependency outputs do not match contract: {dependency}")
+            manifest_store = ManifestStore(paths)
+            for index, output in enumerate(outputs):
                 if not isinstance(output, Mapping):
-                    continue
+                    raise ValueError(f"dependency output is invalid: {dependency}/{index}")
+                artifact_manifest_path = Path(str(output.get("manifest_path", "")))
+                if not artifact_manifest_path.is_file():
+                    raise ValueError(
+                        f"dependency artifact manifest is missing: {dependency}/{index}"
+                    )
+                persisted_artifact = manifest_store._persisted_validated_artifact(
+                    read_json(artifact_manifest_path), run_id
+                )
+                if (
+                    persisted_artifact.get("node_id") != dependency
+                    or persisted_artifact.get("attempt") != int(row["latest_attempt"])
+                ):
+                    raise ValueError(
+                        f"dependency artifact belongs to a stale attempt: {dependency}/{index}"
+                    )
+                for field in (
+                    "artifact_name",
+                    "path",
+                    "sha256",
+                    "revision",
+                    "manifest_path",
+                ):
+                    if output.get(field) != persisted_artifact.get(field):
+                        raise ValueError(
+                            f"dependency output provenance mismatch: {dependency}/{field}"
+                        )
+                if persisted_artifact["artifact_name"] not in expected:
+                    raise ValueError(
+                        f"dependency artifact is not declared by contract: {dependency}"
+                    )
                 key = f"{dependency}:{output.get('artifact_name', index)}"
                 inputs[key] = {
-                    "path": output["path"],
-                    "sha256": output["sha256"],
-                    "revision": output.get("revision"),
+                    "path": persisted_artifact["path"],
+                    "sha256": persisted_artifact["sha256"],
+                    "revision": persisted_artifact.get("revision"),
                     "source_kind": "validated_artifact",
                 }
-                read_paths.append(Path(str(output["path"])))
+                read_paths.append(Path(str(persisted_artifact["path"])))
         if node.node_id == "normalize_job" and paths.job_description.is_file():
             inputs["job_description"] = paths.job_description
             read_paths.append(paths.job_description)
         return inputs, tuple(read_paths)
+
+    def _cancel_expired_execution(
+        self,
+        paths: ApplicationPaths,
+        node: NodePlan,
+        reservation: Mapping[str, Any],
+        manifest_path: Path,
+    ) -> CellExecutionResult:
+        attempt = int(reservation["attempt"])
+        cancelled = self.store.cancel_expired_reservation(
+            str(reservation["run_id"]), node.node_id, attempt, self.worker_id
+        )
+        if manifest_path.is_file():
+            manifest = dict(read_json(manifest_path))
+            manifest["status"] = "cancelled"
+            manifest["blocker"] = {
+                "reason": "node_lease_expired",
+                "repair_scope": node.repair_scope,
+            }
+            manifest["finished_at"] = utc_now_iso()
+            write_json(manifest_path, manifest)
+        return CellExecutionResult(
+            run_id=str(reservation["run_id"]),
+            node_id=node.node_id,
+            attempt=attempt,
+            status="cancelled",
+            manifest_path=manifest_path,
+            blocker="node_lease_expired",
+        )
 
     def _set_manual_terminal(
         self,
@@ -778,12 +1143,14 @@ class CellExecutor:
         }
 
     def _owned_ready_reservations(self, run_id: str) -> list[dict[str, Any]]:
+        now = utc_now_iso()
         rows = self.database.fetch_all(
             """SELECT node_id, latest_attempt AS attempt
                FROM cell_nodes
                WHERE run_id = ? AND status = 'reserved' AND reserved_by = ?
+                 AND reservation_expires_at > ?
                ORDER BY node_id""",
-            (run_id, self.worker_id),
+            (run_id, self.worker_id, now),
         )
         return [
             {
