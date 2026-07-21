@@ -560,6 +560,7 @@ npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
 ./scripts/python.sh scripts/career_cli.py applications status --format human
@@ -609,9 +610,9 @@ Contrato de leitura para agentes:
 
 Deve haver **uma única cópia autoritativa do workspace** em execução. O `WorkspaceLease` SQLite pertence ao dono da cópia, não a uma vaga: o mesmo dono executa candidaturas distintas por um **pool limitado**, enquanto uma segunda cópia no MacBook ou RPi5 permanece bloqueada até handoff autorizado. O plano de controle é a mesma `.career-state/career.db`; **bancos SQLite fisicamente separados não se coordenam** e não oferecem fence cross-machine.
 
-Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. Uma cópia física diferente do banco falha antes de planejar, reservar ou executar célula. O heartbeat repassa o mesmo owner efetivo a todos os workers; leases do workspace, nó e recursos seguem renovados durante handler, validação, publicação e commit terminal.
+Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. A identidade também fica vinculada ao armazenamento físico atual; uma cópia byte a byte falha antes de maintenance, leitura da fila, planejamento, reserva ou execução. Cada invocação de produção recebe owner distinto, compartilhado apenas com os workers do próprio pool. Leases do workspace, nó e recursos seguem renovados durante handler, validação, publicação e commit terminal.
 
-Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Rodar `npm run applications:doctor-concurrency`, sincronizar a mesma `career.db` e manifests, e configurar `CAREER_CONTROL_DB_ID=<control_db_id>` no destino. Se a origem caiu, aguardar a expiração; takeover cross-owner sem ID autoritativo compatível falha fechado, e o autorizado registra dono/expiração anteriores antes de renovar. Nunca apagar `career.db`, lock ou manifesto para contornar o fence.
+Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Rodar `npm run applications:doctor-concurrency`, sincronizar a mesma `career.db` e manifests, configurar `CAREER_CONTROL_DB_ID=<control_db_id>` e, após confirmar release/expiração, executar no destino `npm run applications:authorize-handoff -- --control-db-id <control_db_id> --owner <owner_destino>`. O comando reata a autoridade à nova cópia física e audita o handoff. Se a origem caiu, aguardar a expiração. Nunca apagar `career.db`, lock ou manifesto para contornar o fence.
 
 Operação e recuperação:
 
@@ -621,6 +622,7 @@ npm run applications:run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:repair -- --application-id <ID> --run-id <RUN_ID> --node <NODE_ID> --reason "<motivo>"
 npm run applications:inspect-run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 ```
 
@@ -632,8 +634,8 @@ Contrato obrigatório:
 - correção usa `applications:repair` no nó bloqueado, preserva tentativas antigas e invalida apenas descendentes declarados
 - o heartbeat usa pool limitado por candidatura; `analyze_fit` chama o harness app-scoped com modelo/variant selecionados e retorna `awaiting_agent`, sem bloquear por draft ausente, quando o runner estiver temporariamente indisponível
 - todo draft sem vínculo com `application_id`, `run_id`, `node_id`, tentativa, fingerprint da vaga e hash do draft vai para quarentena; descrição alterada, `Reprocessar` ou agente que falhou depois de escrever parcialmente também invalidam o draft antes da retomada. `Reprocessar` é consumido uma única vez em `requests/cellular_reprocess_request.json`, e os heartbeats seguintes retomam o mesmo `run_id` até o status externo mudar
-- o harness bloqueia escrita não autorizada no estado global, `outputs/` e outras candidaturas, além das violações dentro da candidatura corrente
-- migração não reescreve fontes nem fabrica validação; exige DOCX válido e a cadeia real de hashes do reviewer `_approval_meta`, polish executado sem blockers e registry. Approval manifest adicional é aceito quando existir, mas não é inventado nem obrigatório. Receipt sem SQLite completo deve reconciliar manifests e banco idempotentemente, inclusive após crash; evidência incompleta fica `blocked`
+- o harness bloqueia escrita não autorizada no estado global, `outputs/`, outras candidaturas, requests de controle e tabelas autoritativas da `career.db`, além das violações dentro da candidatura corrente
+- migração não reescreve fontes nem fabrica validação; exige DOCX válido e a cadeia real do reviewer (`artifact` e `_approval_meta`), polish executado sem blockers e registry. Approval manifest adicional é aceito quando existir, mas não é inventado nem obrigatório. Receipts/manifests usam temp+fsync+replace e reconciliam o SQLite idempotentemente após crash ou arquivo truncado; evidência incompleta fica `blocked`
 - a aceitação paralela exige dois subprocessos reais, fingerprints/manifests/artefatos distintos, nenhuma escrita inesperada e exclusão do nó real `sync_notion_initial` pelo `notion-write` declarado em `CellContract.resources`
 
 Há dois tipos de interação com o Notion:

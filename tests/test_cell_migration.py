@@ -363,3 +363,92 @@ def test_migration_accepts_hash_chain_written_by_legacy_approval_service(
     assert result["imported_nodes"]["render_cv"] == "validated"
     assert result["imported_nodes"]["review_cv"] == "validated"
     assert not (legacy / "approved_cv_manifest.json").exists()
+
+
+def test_migration_accepts_real_review_artifact_and_approval_meta_schema(tmp_path):
+    legacy = tmp_path / "applications" / "app-1"
+    _seed_legacy_application(legacy)
+    artifact = legacy / "legacy_cv.docx"
+    _write_docx(artifact)
+    registry = legacy / "keyword_ats_registry.json"
+    write_json(registry, {"keywords": []})
+    fit_map = legacy / "fit_map.json"
+    polish = legacy / "polish_review.json"
+    write_json(
+        polish,
+        {
+            "artifact_path": str(artifact),
+            "language": "non-pt-BR",
+            "polish_executed": True,
+            "changed": False,
+            "sections_reviewed": [],
+            "english_terms_replaced": [],
+            "english_terms_kept": [],
+            "translation_registry_updates_required": [],
+            "translation_registry_updates_applied": [],
+            "rerun_required": False,
+            "approval_blockers": [],
+            "notes": ["Non PT-BR CV; editorial polish gate recorded as not applicable."],
+        },
+    )
+    review = legacy / "cv_review_report.json"
+    write_json(
+        review,
+        {
+            "artifact": str(artifact),
+            "approved_for_delivery": True,
+            "blockers": [],
+            "warnings": [],
+            "_approval_meta": {
+                "artifact_sha256": _sha256(artifact),
+                "fit_map_sha256": _sha256(fit_map),
+                "registry_sha256": _sha256(registry),
+                "polish_report": str(polish),
+                "polish_report_sha256": _sha256(polish),
+            },
+        },
+    )
+
+    result = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=tmp_path / "career.db",
+    )
+
+    assert result["imported_nodes"]["render_cv"] == "validated"
+    assert result["imported_nodes"]["review_cv"] == "validated"
+
+
+def test_migration_recovers_a_truncated_receipt_atomically_and_reconciles_db(
+    tmp_path,
+):
+    legacy = tmp_path / "applications" / "app-1"
+    _seed_legacy_application(legacy, reviewed="verified")
+    database_path = tmp_path / "career.db"
+    first = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=database_path,
+    )
+    manifest_path = Path(first["manifest_path"])
+    manifest_path.write_text('{"kind": "cellular_legacy_import_manifest"', encoding="utf-8")
+    database_path.unlink()
+
+    recovered = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=database_path,
+    )
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert recovered["run_id"] == first["run_id"] == payload["run_id"]
+    assert recovered["status"] == "reconciled"
+    assert not list(legacy.rglob("*.tmp"))
+    database = Database(database_path)
+    try:
+        assert database.fetch_one(
+            "SELECT application_id FROM application_runs WHERE run_id = ?",
+            (first["run_id"],),
+        ) == {"application_id": "app-1"}
+    finally:
+        database.close()

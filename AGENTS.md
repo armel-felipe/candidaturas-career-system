@@ -383,6 +383,7 @@ npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium  # override explícito opcional
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
 ./scripts/python.sh scripts/career_cli.py applications status --format human
@@ -423,12 +424,13 @@ Regra operacional do heartbeat:
 
 Regra de autoridade: deve existir **uma única cópia autoritativa do workspace** executando células. O lease SQLite diferencia o dono do workspace, não a candidatura: um mesmo dono pode processar várias candidaturas em paralelo por um **pool limitado**, mas uma segunda cópia no MacBook ou no RPi5 fica bloqueada até um handoff autorizado. O banco `.career-state/career.db` é o plano de controle compartilhado: **bancos SQLite fisicamente separados não se coordenam** e nunca devem ser apresentados como proteção cross-machine.
 
-Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. Uma cópia física diferente do banco deve falhar antes de planejar, reservar ou executar célula. O owner efetivo do heartbeat é compartilhado com todos os workers do pool; leases do workspace, do nó e dos recursos permanecem renovados durante handler, validação, publicação e commit terminal.
+Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. A identidade também fica vinculada ao armazenamento físico atual; uma cópia byte a byte do banco falha antes de maintenance, leitura da fila, planejamento, reserva ou execução. Cada invocação de produção recebe owner distinto, compartilhado apenas com os workers do próprio pool. Leases do workspace, do nó e dos recursos permanecem renovados durante handler, validação, publicação e commit terminal.
 
 Handoff MacBook ↔ RPi5:
 - interromper heartbeat, workers e launchd na máquina atual antes de iniciar a outra
 - preferir release pelo `WorkspaceLease.release(owner)` no desligamento controlado; se o processo morreu, aguardar a expiração do lease
-- executar `npm run applications:doctor-concurrency` na cópia autoritativa, transportar/sincronizar a mesma `career.db` com os manifests e configurar `CAREER_CONTROL_DB_ID=<control_db_id>` na máquina de destino
+- executar `npm run applications:doctor-concurrency` na origem, transportar/sincronizar a mesma `career.db` com os manifests e configurar `CAREER_CONTROL_DB_ID=<control_db_id>` na máquina de destino
+- depois de confirmar que o lease da origem foi liberado ou expirou, executar no destino `npm run applications:authorize-handoff -- --control-db-id <control_db_id> --owner <owner_destino>`; o comando reata a identidade à nova cópia física e grava o handoff no SQLite
 - takeover cross-owner após expiração falha fechado sem `CAREER_CONTROL_DB_ID` compatível; com a autoridade correta, registra `prior_owner`, `prior_expires_at`, `new_owner` e horário no SQLite antes de a nova máquina trabalhar
 - nunca apagar `career.db`, lock ou manifesto para forçar a troca de dono
 
@@ -440,6 +442,7 @@ npm run applications:run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:repair -- --application-id <ID> --run-id <RUN_ID> --node <NODE_ID> --reason "<motivo>"
 npm run applications:inspect-run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 ```
 
@@ -452,8 +455,8 @@ Regras duras:
 - reparo é local ao nó com `applications:repair`; preserve manifests/artefatos anteriores, invalide apenas descendentes declarados e retome pelo `run_id`
 - o heartbeat celular agenda candidaturas distintas no pool limitado; ao chegar em `analyze_fit`, reserva a tentativa, chama o harness app-scoped respeitando `--model/--variant` e, se o agente estiver indisponível, devolve `awaiting_agent` sem bloquear por draft ausente
 - todo draft sem vínculo com `application_id`, `run_id`, `node_id`, tentativa, fingerprint da vaga e hash do próprio draft é colocado em quarentena; mudança de descrição, `Reprocessar` e falha parcial do agente também invalidam/quarentenam o draft antes de nova tentativa. A solicitação `Reprocessar` é consumida uma única vez por `requests/cellular_reprocess_request.json`; heartbeats seguintes retomam o mesmo `run_id` até o status externo mudar, sem criar runs infinitos
-- o harness compara o workspace protegido antes/depois e bloqueia escrita não autorizada no estado global, `outputs/` e outras candidaturas, além das violações dentro da candidatura atual
-- migração apenas inventaria e hasheia fontes legadas; só valida CV quando DOCX, reviewer com `_approval_meta`, polish executado sem blockers e registry formam a cadeia real de hashes. Um approval manifest legado adicional é aceito quando existir, mas não é inventado nem obrigatório. Receipts existentes devem reconciliar idempotentemente o SQLite e manifests ausentes após crash; estado desconhecido entra como `blocked`, nunca como validado
+- o harness compara o workspace protegido antes/depois e bloqueia escrita não autorizada no estado global, `outputs/`, outras candidaturas, requests de controle e tabelas autoritativas da `career.db`, além das violações dentro da candidatura atual
+- migração apenas inventaria e hasheia fontes legadas; só valida CV quando DOCX, reviewer real (`artifact` e `_approval_meta`), polish executado sem blockers e registry formam a cadeia real de hashes. Um approval manifest legado adicional é aceito quando existir, mas não é inventado nem obrigatório. Receipts/manifests são publicados por temp+fsync+replace e reconciliam idempotentemente o SQLite após crash ou arquivo truncado; estado desconhecido entra como `blocked`, nunca como validado
 - `applications:verify-parallel` deve usar dois subprocessos reais, um SQLite compartilhado e duas candidaturas distintas, comprovando fingerprints/manifests/artefatos separados, zero escrita inesperada e exclusão do nó real `sync_notion_initial` pelo recurso `notion-write` declarado em `CellContract.resources`
 
 Entrega e persistência por candidatura:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,10 @@ def _cv_review_status(
         )
         legacy_review_valid = (
             review.get("approved_for_delivery") is True
-            and _matches_path(review.get("artifact_path"), artifact)
+            and not review.get("blockers")
+            and _matches_path(
+                review.get("artifact_path") or review.get("artifact"), artifact
+            )
             and approval_meta.get("artifact_sha256") == artifact_hash
             and approval_meta.get("fit_map_sha256") == _sha256(fit_map_path)
             and approval_meta.get("registry_sha256") == _sha256(registry_path)
@@ -243,13 +247,27 @@ def _run_graph(application_id: str, app_dir: Path, run_id: str) -> dict[str, Any
 
 def _write_json_once(path: Path, payload: dict[str, Any]) -> None:
     if path.exists():
-        if read_json(path) != payload:
+        try:
+            existing = read_json(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            existing = None
+        if existing == payload:
+            return
+        if existing is not None:
             raise RuntimeError(f"existing immutable import manifest differs: {path}")
-        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x", encoding="utf-8") as handle:
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+    directory_fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _persist_node_manifests(
@@ -478,17 +496,23 @@ def migrate_application(
         else _default_database_path(app_dir)
     )
     had_manifest = manifest_path.exists()
+    existing_manifest_valid = False
     had_database_run = _database_has_run(target_database, run_id)
     if had_manifest:
-        existing = read_json(manifest_path)
-        if (
-            existing.get("application_id") != application_id
-            or existing.get("source_artifacts") != sources
-            or existing.get("run_id") != run_id
-        ):
-            raise RuntimeError(
-                "existing cellular migration manifest does not match legacy sources"
-            )
+        try:
+            existing = read_json(manifest_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            existing = None
+        if existing is not None:
+            if (
+                existing.get("application_id") != application_id
+                or existing.get("source_artifacts") != sources
+                or existing.get("run_id") != run_id
+            ):
+                raise RuntimeError(
+                    "existing cellular migration manifest does not match legacy sources"
+                )
+            existing_manifest_valid = True
 
     graph = _run_graph(application_id, app_dir, run_id)
     _write_json_once(app_dir / "plans" / f"{run_id}.json", graph)
@@ -524,7 +548,7 @@ def migrate_application(
         },
         "created_at": utc_now_iso(),
     }
-    if not had_manifest:
+    if not existing_manifest_valid:
         _write_json_once(manifest_path, payload)
     result["status"] = (
         "reconciled"

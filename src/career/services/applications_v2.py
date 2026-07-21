@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from career.paths import CAREER_STATE, INBOX, OUTPUTS, ROOT
 from career.services import fit_map as fit_map_service
@@ -22,7 +23,11 @@ from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.harness_supervisor import HarnessSupervisor
 from career.services.harness_runs import ExclusiveRunLock
-from career.services.application_context import WorkspaceLease, paths_for
+from career.services.application_context import (
+    WorkspaceLease,
+    paths_for,
+    workspace_owner_from_env,
+)
 from career.services.cell_store import CellStore
 from career.services.database import Database
 from career.utils import (
@@ -1978,6 +1983,66 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         raise ValidationFailure(
             "cellular heartbeat requires --run-agent and does not downgrade to dry-run globals"
         )
+    control_db_id = str(
+        options.control_db_id or os.environ.get("CAREER_CONTROL_DB_ID") or ""
+    ).strip()
+    if not control_db_id:
+        raise ValueError(
+            "CAREER_CONTROL_DB_ID is required for an authoritative workspace entry point"
+        )
+    database_path = V2_DIR.parent / "career.db"
+    if not database_path.is_file():
+        raise ValueError("authoritative control database does not exist")
+    owner = options.workspace_owner or _production_workspace_owner()
+    authority_database = Database(database_path)
+    try:
+        actual_control_db_id = authority_database.control_db_identity()
+        if actual_control_db_id != control_db_id:
+            raise ValueError(
+                "configured authoritative control database identity does not match "
+                f"this database: expected={control_db_id} actual={actual_control_db_id}"
+            )
+        authority_database.init_schema()
+        authority = WorkspaceLease(
+            authority_database,
+            expected_control_db_id=control_db_id,
+            require_authority=True,
+        )
+        if not authority.acquire(owner, ttl_seconds=300):
+            raise ValidationFailure("authoritative workspace lease is unavailable")
+    finally:
+        authority_database.close()
+    try:
+        return _run_cellular_heartbeat_authorized(
+            replace(
+                options,
+                workspace_owner=owner,
+                control_db_id=control_db_id,
+            ),
+            database_path=database_path,
+        )
+    finally:
+        release_database = Database(database_path)
+        try:
+            WorkspaceLease(
+                release_database,
+                expected_control_db_id=control_db_id,
+                require_authority=True,
+            ).release(owner)
+        finally:
+            release_database.close()
+
+
+def _production_workspace_owner() -> str:
+    explicit = str(os.environ.get("CAREER_WORKSPACE_OWNER") or "").strip()
+    if explicit:
+        return explicit
+    return f"{workspace_owner_from_env()}:{os.getpid()}:{uuid4().hex}"
+
+
+def _run_cellular_heartbeat_authorized(
+    options: HeartbeatV2Options, *, database_path: Path
+) -> dict[str, Any]:
     V2_DIR.mkdir(parents=True, exist_ok=True)
     V2_LOG_DIR.mkdir(parents=True, exist_ok=True)
     started_at = utc_now_iso()
@@ -1991,34 +2056,6 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         else int(config["max_per_run"])
     )
     selected = _eligible(queue, config, effective_max)
-    database_path = V2_DIR.parent / "career.db"
-    database = Database(database_path)
-    database.init_schema()
-    try:
-        control_db_id = str(
-            options.control_db_id
-            or os.environ.get("CAREER_CONTROL_DB_ID")
-            or ""
-        ).strip()
-        owner = (
-            options.workspace_owner
-            or os.environ.get("CAREER_WORKSPACE_OWNER")
-            or "applications-cellular"
-        )
-        authority = WorkspaceLease(
-            database,
-            expected_control_db_id=control_db_id,
-            require_authority=True,
-        )
-        if not authority.acquire(owner, ttl_seconds=300):
-            raise ValidationFailure("authoritative workspace lease is unavailable")
-    finally:
-        database.close()
-    worker_options = replace(
-        options,
-        workspace_owner=owner,
-        control_db_id=control_db_id,
-    )
     results: list[dict[str, Any]] = []
     worker_count = min(
         len(selected),
@@ -2035,7 +2072,7 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
                 pool.submit(
                     _process_cellular_application,
                     application,
-                    options=worker_options,
+                    options=options,
                     config=config,
                     database_path=database_path,
                 ): index
@@ -2238,7 +2275,7 @@ def _process_cellular_application(
     )
     try:
         latest = database.fetch_one(
-            """SELECT run_id, status FROM application_runs
+            """SELECT run_id, status, created_at FROM application_runs
                WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
             (paths.application_id,),
         )
@@ -2257,6 +2294,16 @@ def _process_cellular_application(
             if reprocess_run_id
             else None
         )
+        if (
+            reprocess_run is None
+            and reprocess_request
+            and reprocess_request.get("status") == "pending"
+            and latest is not None
+            and latest["status"] not in {"completed", "cancelled"}
+            and str(latest.get("created_at") or "")
+            >= str(reprocess_request.get("created_at") or "")
+        ):
+            reprocess_run = latest
         if reprocess_run is not None:
             run_id = str(reprocess_run["run_id"])
         elif (
@@ -2265,18 +2312,21 @@ def _process_cellular_application(
             or bool(reprocess_request)
         ):
             run_id = executor.plan(paths.application_id, {"cv"}).run_id
-            if reprocess_request:
-                write_json(
-                    _reprocess_request_path(paths),
-                    {
-                        **reprocess_request,
-                        "status": "consumed",
-                        "run_id": run_id,
-                        "consumed_at": utc_now_iso(),
-                    },
-                )
         else:
             run_id = str(latest["run_id"])
+        if reprocess_request and (
+            reprocess_request.get("status") != "consumed"
+            or reprocess_request.get("run_id") != run_id
+        ):
+            write_json(
+                _reprocess_request_path(paths),
+                {
+                    **reprocess_request,
+                    "status": "consumed",
+                    "run_id": run_id,
+                    "consumed_at": utc_now_iso(),
+                },
+            )
 
         if "analyze_fit" in executor.ready_nodes(run_id):
             _quarantine_cellular_draft(paths, reason="stale")

@@ -26,12 +26,12 @@ Atualizado em: 2026-07-21 — Fatia E em revalidação
 
 ## Evidência objetiva atual da Fatia E (candidata à re-review)
 
-- `pytest -q tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py tests/test_database.py`: 38 testes focados aprovados.
-- `pytest -q`: 237 testes aprovados na suíte completa.
+- `pytest -q tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py tests/test_database.py`: 52 testes focados aprovados.
+- `pytest -q`: 251 testes aprovados na suíte completa.
 - `./scripts/python.sh scripts/career_cli.py project validate-structure`: estrutura canônica aprovada.
 - `npm run runtime:diagnose`: diagnóstico produzido em `outputs/_tmp/runtime_diagnosis.json`; sem finding celular bloqueante.
 - `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado/escrita inesperada, contenção observada e lock `notion-write` do nó real `sync_notion_initial` serializado.
-- Cobertura candidata: autoridade explícita da control DB em entrypoints de produção, handoff MacBook/RPi5 fail-closed, renovação até o commit terminal, pool limitado, draft vinculado/quarentenado, `Reprocessar` consumido uma vez, harness protegendo estado global/outputs/outras candidaturas, migração reconciliável com o schema legacy real e proibição de fallback global.
+- Cobertura candidata: autoridade explícita vinculada à cópia física da control DB antes de maintenance/fila, handoff MacBook/RPi5 auditado por comando explícito, owner distinto por invocação, renovação e validação do fence até o commit terminal, pool limitado, draft vinculado/quarentenado pelo executor, recuperação atômica do marker `Reprocessar`, harness protegendo estado global/outputs/outras candidaturas/requests/tabelas SQLite, migração atômica reconciliável com o schema real `artifact` + `_approval_meta` e proibição de fallback global.
 
 ## Estado da Fatia E
 

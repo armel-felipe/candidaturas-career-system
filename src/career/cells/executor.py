@@ -215,7 +215,12 @@ class CellExecutor:
         if reservation.get("status") != "reserved":
             raise RuntimeError(f"cell node could not be reserved: {run_id}/{node_id}")
         record = self._load_or_begin_execution_attempt(
-            ManifestStore(paths), paths, run_id, node, int(reservation["attempt"])
+            ManifestStore(paths),
+            paths,
+            run_id,
+            node,
+            int(reservation["attempt"]),
+            validate_draft_binding=False,
         )
         return PreparedCellAttempt(
             run_id=run_id,
@@ -615,6 +620,16 @@ class CellExecutor:
                     (),
                 )
             validator_results = self._run_validators(context, output, node.validators)
+            if keepalive["failure"]:
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    str(keepalive["failure"]),
+                    staged_paths,
+                    validator_results,
+                    attempt_record=attempt_record,
+                )
             lease_failure = self._renew_execution_leases(
                 plan.run_id, node.node_id, attempt, acquired_resources
             )
@@ -688,6 +703,19 @@ class CellExecutor:
                     staged_paths,
                     validator_results,
                 )
+            if keepalive["failure"]:
+                manifest_store.rollback_publications(
+                    node.node_id, attempt, published
+                )
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    str(keepalive["failure"]),
+                    (),
+                    validator_results,
+                    attempt_record=manifest_store._load_attempt(node.node_id, attempt),
+                )
             lease_failure = self._renew_execution_leases(
                 plan.run_id, node.node_id, attempt, acquired_resources
             )
@@ -723,6 +751,7 @@ class CellExecutor:
                         },
                         "metadata": self._receipt_metadata(output.metadata),
                     },
+                    workspace_owner=self.workspace_owner,
                     resource_leases=acquired_resources,
                     published_artifacts=tuple(
                         {
@@ -836,6 +865,10 @@ class CellExecutor:
         attempt: int,
         resource_locks: Iterable[Mapping[str, Any]],
     ) -> str | None:
+        if not self.workspace_lease.heartbeat(
+            self.workspace_owner, ttl_seconds=self.lease_seconds
+        ):
+            return "workspace_lease_expired"
         node_lease = self.store.renew_node_reservation(
             run_id,
             node_id,
@@ -1044,6 +1077,7 @@ class CellExecutor:
             run_id,
             paths,
             node,
+            attempt=attempt,
             allow_unvalidated=allow_unvalidated_inputs,
         )
         write_paths = self._write_paths_for_node(paths, node, attempt, run_id)
@@ -1069,8 +1103,16 @@ class CellExecutor:
         run_id: str,
         node: NodePlan,
         attempt: int,
+        *,
+        validate_draft_binding: bool = True,
     ):
-        inputs, read_paths = self._inputs_for_node(run_id, paths, node)
+        inputs, read_paths = self._inputs_for_node(
+            run_id,
+            paths,
+            node,
+            attempt=attempt,
+            validate_draft_binding=validate_draft_binding,
+        )
         manifest_path = paths.cells_dir / node.node_id / str(attempt) / "manifest.json"
         if manifest_path.is_file():
             record = store._load_attempt(node.node_id, attempt)
@@ -1164,7 +1206,9 @@ class CellExecutor:
         paths: ApplicationPaths,
         node: NodePlan,
         *,
+        attempt: int | None = None,
         allow_unvalidated: bool = False,
+        validate_draft_binding: bool = True,
     ) -> tuple[dict[str, Mapping[str, Any] | Path], tuple[Path, ...]]:
         inputs: dict[str, Mapping[str, Any] | Path] = {}
         read_paths: list[Path] = []
@@ -1255,6 +1299,12 @@ class CellExecutor:
         if node.node_id == "analyze_fit":
             read_paths.append(paths.fit_map_draft)
             if paths.fit_map_draft.is_file():
+                if validate_draft_binding:
+                    self._validate_fit_map_draft_binding(
+                        paths,
+                        run_id=run_id,
+                        attempt=int(attempt or 0),
+                    )
                 inputs["fit_map_draft"] = paths.fit_map_draft
         if node.node_id == "capture_source":
             source_input = paths.app_dir / "source_input.md"
@@ -1273,6 +1323,59 @@ class CellExecutor:
                 inputs["job_description"] = paths.job_description
                 read_paths.append(paths.job_description)
         return inputs, tuple(read_paths)
+
+    @staticmethod
+    def _validate_fit_map_draft_binding(
+        paths: ApplicationPaths, *, run_id: str, attempt: int
+    ) -> None:
+        binding_path = paths.app_dir / "fit_map.draft.binding.json"
+        if not binding_path.is_file():
+            return
+        reasons: list[str] = []
+        try:
+            binding = read_json(binding_path)
+        except Exception as exc:
+            binding = {}
+            reasons.append(f"invalid_json:{type(exc).__name__}")
+        draft_hash = hashlib.sha256(paths.fit_map_draft.read_bytes()).hexdigest()
+        job_hash = (
+            hashlib.sha256(paths.job_description.read_bytes()).hexdigest()
+            if paths.job_description.is_file()
+            else ""
+        )
+        expected_manifest = (
+            paths.cells_dir / "analyze_fit" / str(attempt) / "manifest.json"
+        ).resolve()
+        expected = {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": paths.application_id,
+            "run_id": run_id,
+            "node_id": "analyze_fit",
+            "attempt": attempt,
+            "job_fingerprint": job_hash,
+            "draft_sha256": draft_hash,
+        }
+        for key, value in expected.items():
+            if binding.get(key) != value:
+                reasons.append(f"{key}_mismatch")
+        manifest_value = str(binding.get("manifest_path") or "").strip()
+        if not manifest_value:
+            reasons.append("manifest_path_missing")
+        elif Path(manifest_value).resolve() != expected_manifest:
+            reasons.append("manifest_path_mismatch")
+        if not reasons:
+            return
+        quarantine = (
+            paths.requests_dir
+            / "quarantine"
+            / f"{utc_now_iso().replace(':', '').replace('+', '_')}_invalid_draft_binding"
+        )
+        quarantine.mkdir(parents=True, exist_ok=True)
+        if paths.fit_map_draft.exists():
+            paths.fit_map_draft.replace(quarantine / "invalid_fit_map.draft.json")
+        if binding_path.exists():
+            binding_path.replace(quarantine / "invalid_fit_map.draft.binding.json")
+        raise ValueError("draft_binding_invalid:" + ",".join(reasons))
 
     @staticmethod
     def _write_paths_for_node(

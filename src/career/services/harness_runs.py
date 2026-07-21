@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import fnmatch
+import sqlite3
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -73,7 +74,6 @@ class HarnessRun:
                 or (self.application_dir / path).resolve().is_relative_to(allowed_path)
                 for allowed_path in allowed
             )
-            and not path.startswith("requests/")
         ]
         after_workspace = _protected_workspace_snapshot(
             self.root, self.application_dir
@@ -103,7 +103,7 @@ class HarnessRun:
     def _snapshot_application_files(self) -> dict[str, str]:
         snapshot: dict[str, str] = {}
         for path in self.application_dir.rglob("*"):
-            if not path.is_file() or self.run_dir in path.parents or "requests" in path.relative_to(self.application_dir).parts:
+            if not path.is_file() or self.run_dir in path.parents:
                 continue
             snapshot[str(path.relative_to(self.application_dir))] = _file_hash(path)
         return snapshot
@@ -172,6 +172,56 @@ def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str
             ):
                 continue
             snapshot[str(resolved.relative_to(root))] = _file_hash(resolved)
+    snapshot.update(_protected_database_snapshot(root))
+    return snapshot
+
+
+def _protected_database_snapshot(root: Path) -> dict[str, str]:
+    database_path = root.resolve() / ".career-state" / "career.db"
+    if not database_path.is_file():
+        return {}
+    protected_queries = {
+        "workspace_authority": "SELECT * FROM workspace_authority",
+        "workspace_authority_handoffs": "SELECT * FROM workspace_authority_handoffs",
+        "applications": "SELECT * FROM applications",
+        "workflow_events": "SELECT * FROM workflow_events",
+        "application_runs": "SELECT * FROM application_runs",
+        "cell_nodes": (
+            "SELECT run_id, node_id, status, requires_json, reserved_by, "
+            "latest_attempt, created_at FROM cell_nodes"
+        ),
+        "cell_attempts": "SELECT * FROM cell_attempts",
+        "artifacts": "SELECT * FROM artifacts",
+        "artifact_dependencies": "SELECT * FROM artifact_dependencies",
+    }
+    snapshot: dict[str, str] = {}
+    connection = sqlite3.connect(
+        f"file:{database_path}?mode=ro", uri=True, timeout=2.0
+    )
+    try:
+        existing = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        for table, query in protected_queries.items():
+            if table not in existing:
+                continue
+            rows = sorted(
+                (tuple(row) for row in connection.execute(query).fetchall()),
+                key=repr,
+            )
+            encoded = json.dumps(rows, sort_keys=True, default=str).encode("utf-8")
+            snapshot[f".career-state/career.db::{table}"] = hashlib.sha256(
+                encoded
+            ).hexdigest()
+    except sqlite3.Error as exc:
+        snapshot[".career-state/career.db::integrity"] = (
+            f"error:{type(exc).__name__}:{exc}"
+        )
+    finally:
+        connection.close()
     return snapshot
 
 

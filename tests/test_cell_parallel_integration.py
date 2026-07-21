@@ -85,6 +85,9 @@ def test_package_exposes_cellular_migration_and_parallel_verification_aliases():
     assert package["scripts"]["applications:migrate-cellular"].endswith(
         "applications migrate-cellular"
     )
+    assert package["scripts"]["applications:authorize-handoff"].endswith(
+        "applications authorize-handoff"
+    )
     assert package["scripts"]["applications:verify-parallel"].endswith(
         "applications verify-parallel"
     )

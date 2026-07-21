@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -12,7 +14,7 @@ from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career import cli
 from career.services import applications_v2, derived_context, multiagent
-from career.services.application_context import WorkspaceLease
+from career.services.application_context import WorkspaceLease, workspace_owner_from_env
 from career.services.database import Database
 from career.services.harness_runs import HarnessRunStore, allowed_outputs_from_request
 from career.services.harness_supervisor import HarnessSupervisor
@@ -139,6 +141,156 @@ def test_production_workspace_entry_point_requires_authority_and_rejects_copy(
     finally:
         authoritative_db.close()
         copied_db.close()
+
+
+def test_authoritative_workspace_rejects_a_byte_copied_control_database(tmp_path):
+    authoritative_path = tmp_path / "authoritative" / "career.db"
+    copied_path = tmp_path / "copied" / "career.db"
+    authoritative = Database(authoritative_path)
+    authoritative.init_schema()
+    authority_id = authoritative.control_db_identity()
+    authoritative.close()
+    copied_path.parent.mkdir(parents=True)
+    shutil.copy2(authoritative_path, copied_path)
+
+    copied = Database(copied_path)
+    try:
+        with pytest.raises(ValueError, match="physical control database copy"):
+            WorkspaceLease(
+                copied,
+                expected_control_db_id=authority_id,
+                require_authority=True,
+            )
+    finally:
+        copied.close()
+
+
+def test_explicit_storage_handoff_rebinds_a_released_byte_copy(tmp_path):
+    source_path = tmp_path / "source" / "career.db"
+    target_path = tmp_path / "target" / "career.db"
+    source = Database(source_path)
+    source.init_schema()
+    control_db_id = source.control_db_identity()
+    lease = WorkspaceLease(source)
+    assert lease.acquire("macbook", ttl_seconds=60)
+    assert lease.release("macbook")
+    source.close()
+    target_path.parent.mkdir(parents=True)
+    shutil.copy2(source_path, target_path)
+
+    target = Database(target_path)
+    target.init_schema()
+    rebound = target.authorize_storage_handoff(
+        expected_control_db_id=control_db_id,
+        new_owner="rpi5",
+    )
+
+    assert rebound == target.physical_storage_identity()
+    assert WorkspaceLease(
+        target,
+        expected_control_db_id=control_db_id,
+        require_authority=True,
+    ).acquire("rpi5", ttl_seconds=60)
+    handoff = target.fetch_one(
+        "SELECT control_db_id, new_owner FROM workspace_authority_handoffs "
+        "ORDER BY id DESC LIMIT 1"
+    )
+    assert handoff == {"control_db_id": control_db_id, "new_owner": "rpi5"}
+    target.close()
+
+
+def test_authorize_handoff_cli_rebinds_control_database(tmp_path, monkeypatch, capsys):
+    source_path = tmp_path / "source" / "career.db"
+    target_path = tmp_path / "target" / "career.db"
+    source = Database(source_path)
+    source.init_schema()
+    control_db_id = source.control_db_identity()
+    source.close()
+    target_path.parent.mkdir(parents=True)
+    shutil.copy2(source_path, target_path)
+    monkeypatch.setattr(cli, "Database", lambda: Database(target_path))
+
+    exit_code = cli.main(
+        [
+            "applications",
+            "authorize-handoff",
+            "--control-db-id",
+            control_db_id,
+            "--owner",
+            "rpi5",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "authorized"
+    assert payload["control_db_id"] == control_db_id
+    assert payload["owner"] == "rpi5"
+
+
+def test_cellular_heartbeat_validates_authority_before_maintenance_or_queue(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    database = Database(v2_dir.parent / "career.db")
+    database.init_schema()
+    authority_id = database.control_db_identity()
+    database.close()
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
+    calls = {"maintenance": 0, "queue": 0}
+
+    def maintenance(*_args, **_kwargs):
+        calls["maintenance"] += 1
+        return {"executed": False}
+
+    def queue(*_args, **_kwargs):
+        calls["queue"] += 1
+        return []
+
+    monkeypatch.setattr(applications_v2, "_run_maintenance_sync", maintenance)
+    monkeypatch.setattr(applications_v2, "_load_queue", queue)
+
+    with pytest.raises(ValueError, match="authoritative control database"):
+        applications_v2.run_heartbeat(
+            applications_v2.HeartbeatV2Options(
+                max_per_run=1,
+                run_agent=True,
+                dry_run=False,
+                cellular=True,
+                control_db_id=authority_id + "-wrong",
+            )
+        )
+
+    assert calls == {"maintenance": 0, "queue": 0}
+    with pytest.raises(ValueError, match="CAREER_CONTROL_DB_ID"):
+        applications_v2.run_heartbeat(
+            applications_v2.HeartbeatV2Options(
+                max_per_run=1,
+                run_agent=True,
+                dry_run=False,
+                cellular=True,
+            )
+        )
+    assert calls == {"maintenance": 0, "queue": 0}
+
+
+def test_production_workspace_owner_is_unique_per_invocation_unless_explicit(
+    monkeypatch,
+):
+    monkeypatch.delenv("CAREER_WORKSPACE_OWNER", raising=False)
+
+    first = applications_v2._production_workspace_owner()
+    second = applications_v2._production_workspace_owner()
+
+    assert first != second
+    monkeypatch.setenv("CAREER_WORKSPACE_OWNER", "handoff-rpi5")
+    assert applications_v2._production_workspace_owner() == "handoff-rpi5"
+
+
+def test_default_workspace_owner_distinguishes_production_processes():
+    assert workspace_owner_from_env({}).endswith(f":{os.getpid()}")
+    assert workspace_owner_from_env({"CAREER_WORKSPACE_OWNER": "pool-owner"}) == "pool-owner"
 
 
 def test_expired_workspace_reacquire_records_takeover_even_for_same_owner(db):
@@ -320,6 +472,115 @@ def test_cell_executor_keeps_leases_alive_through_a_long_validator(tmp_path):
 
     assert result[0].status == "validated"
     assert contender_result == [False]
+
+
+def test_cell_executor_fences_publication_when_workspace_keepalive_fails_in_validator(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("Lead operations and planning.\n", encoding="utf-8")
+    validator_started = threading.Event()
+
+    def normalize(_context):
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": b"{}",
+                "handover_summary.json": b"{}",
+                "evidence_index.json": b"{}",
+            }
+        )
+
+    def slow_validator(context, _output):
+        validator_started.set()
+        time.sleep(0.5)
+        report = context.paths.reviews_dir / "lost-workspace.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("{}", encoding="utf-8")
+        return ValidatorResult.passed(context.validator_command, report)
+
+    original_heartbeat = WorkspaceLease.heartbeat
+
+    def lose_after_validator_starts(self, owner, ttl_seconds=None):
+        if validator_started.is_set():
+            return False
+        return original_heartbeat(self, owner, ttl_seconds)
+
+    monkeypatch.setattr(WorkspaceLease, "heartbeat", lose_after_validator_starts)
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"normalize_job": normalize},
+        validators={"context:validate": slow_validator},
+        workspace_owner="rpi5",
+        lease_seconds=1,
+    )
+    plan = executor.plan("app-a", {"cv"})
+
+    result = executor.run_ready(plan.run_id)[0]
+
+    assert result.status == "blocked"
+    assert result.blocker == "workspace_lease_expired"
+    assert result.artifact_manifest_paths == ()
+    assert not list(paths.artifacts_dir.rglob("manifest.json"))
+    database.close()
+
+
+def test_cell_executor_rolls_back_publication_if_workspace_fence_is_lost_at_commit(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    write_json(
+        paths.identity,
+        {"application_id": "app-a", "source_type": "paste", "source_id": "test"},
+    )
+    (paths.app_dir / "source_input.md").write_text("Lead operations.\n", encoding="utf-8")
+
+    def pass_validator(context, _output):
+        report = context.paths.reviews_dir / "commit-fence.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("{}", encoding="utf-8")
+        return ValidatorResult.passed(context.validator_command, report)
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={
+            "capture_source": lambda _context: CellOutput(
+                artifacts={"job_description.md": "Lead operations.\n"}
+            )
+        },
+        validators={"validate-job-description": pass_validator},
+        workspace_owner="rpi5",
+    )
+    plan = executor.plan("app-a", {"cv"})
+    real_finish = executor.store.finish_attempt
+
+    def expire_then_finish(*args, **kwargs):
+        database.execute(
+            "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
+            (
+                (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                WorkspaceLease.LEASE_NAME,
+            ),
+        )
+        return real_finish(*args, **kwargs)
+
+    monkeypatch.setattr(executor.store, "finish_attempt", expire_then_finish)
+
+    result = executor.run_ready(plan.run_id)[0]
+
+    assert result.status == "blocked"
+    assert "workspace" in result.blocker
+    assert not list(paths.artifacts_dir.rglob("manifest.json"))
+    database.close()
 
 
 def test_cellular_multiagent_request_requires_complete_identity_and_never_configures_globals(
@@ -738,6 +999,137 @@ def test_cellular_heartbeat_does_not_consume_unbound_existing_draft(
     assert not paths.fit_map_draft.exists()
 
 
+def test_executor_rejects_and_quarantines_a_tampered_fit_map_draft_binding(
+    tmp_path,
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("Lead operations and planning.\n", encoding="utf-8")
+    called: list[str] = []
+
+    def analyze(_context):
+        called.append("analyze_fit")
+        return CellOutput(artifacts={"fit_map.json": b'{"score": 8}'})
+
+    def pass_validator(context, _output):
+        report = context.paths.reviews_dir / f"{context.validator_command}.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("{}", encoding="utf-8")
+        return ValidatorResult.passed(context.validator_command, report)
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"analyze_fit": analyze},
+        validators={
+            "validate:fit-map": pass_validator,
+            "validate:fit-map:quality": pass_validator,
+            "validate-provenance": pass_validator,
+        },
+        workspace_owner="rpi5",
+    )
+    plan = executor.plan("app-a", {"cv"})
+    executor.mark_validated(plan.run_id, "normalize_job")
+    paths.fit_map_draft.write_text('{"cargo": "Operations Lead"}', encoding="utf-8")
+    write_json(
+        paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": "app-a",
+            "run_id": "tampered-run",
+            "node_id": "analyze_fit",
+            "attempt": 1,
+            "job_fingerprint": applications_v2.sha256_file(paths.job_description),
+            "draft_sha256": applications_v2.sha256_file(paths.fit_map_draft),
+        },
+    )
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
+    )
+
+    assert result.status == "blocked"
+    assert "draft_binding" in result.blocker
+    assert called == []
+    assert not paths.fit_map_draft.exists()
+    assert list(paths.requests_dir.rglob("*fit_map.draft.json"))
+    database.close()
+
+
+def test_reprocess_recovers_run_created_before_marker_update_without_duplicate(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
+    monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
+    monkeypatch.setattr(
+        applications_v2,
+        "_load_config",
+        lambda: {**applications_v2.DEFAULT_CONFIG, "max_per_run": 1},
+    )
+    monkeypatch.setattr(
+        applications_v2, "_run_maintenance_sync", lambda *_args: {"executed": False}
+    )
+    monkeypatch.setattr(
+        applications_v2.notion_service,
+        "notion_config",
+        lambda: ("unused", "unused"),
+    )
+    application = {
+        "record_id": 101,
+        "page_id": "page-a",
+        "company": "Acme",
+        "role": "Operations Lead",
+        "title": "Operations Lead",
+        "status": "Reprocessar",
+        "description": "Lead operations, planning, data and governance. " * 30,
+    }
+    monkeypatch.setattr(applications_v2, "_load_queue", lambda *_args: [application])
+    options = applications_v2.HeartbeatV2Options(
+        max_per_run=1,
+        run_agent=True,
+        dry_run=False,
+        skip_maintenance=True,
+        cellular=True,
+        workspace_owner="rpi5",
+        control_db_id=_control_db_id(v2_dir),
+    )
+    real_write_json = applications_v2.write_json
+    crashed = False
+
+    def crash_before_marker_link(path, payload):
+        nonlocal crashed
+        if (
+            not crashed
+            and isinstance(payload, dict)
+            and payload.get("kind") == "cellular_reprocess_request"
+            and payload.get("status") == "consumed"
+        ):
+            crashed = True
+            raise RuntimeError("simulated crash before reprocess marker link")
+        return real_write_json(path, payload)
+
+    monkeypatch.setattr(applications_v2, "write_json", crash_before_marker_link)
+    first = applications_v2.run_heartbeat(options)
+    assert first["results"][0]["status"] == "error"
+    monkeypatch.setattr(applications_v2, "write_json", real_write_json)
+
+    applications_v2.run_heartbeat(options)
+
+    database = Database(v2_dir.parent / "career.db")
+    try:
+        assert database.fetch_one(
+            "SELECT COUNT(*) AS count FROM application_runs WHERE application_id = ?",
+            ("101",),
+        ) == {"count": 1}
+    finally:
+        database.close()
+
+
 def test_cellular_heartbeat_processes_distinct_applications_concurrently(
     tmp_path, monkeypatch
 ):
@@ -963,6 +1355,72 @@ def test_cellular_harness_detects_global_and_cross_application_writes(tmp_path):
     }
 
 
+def test_cellular_harness_detects_request_control_and_authoritative_db_writes(
+    tmp_path,
+):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "cellular" / "run-a" / "request.json"
+    request_md = request.with_suffix(".md")
+    allowed = application_dir / "fit_map.draft.json"
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(allowed)],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    database = Database(tmp_path / ".career-state" / "career.db")
+    database.init_schema()
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    request.write_text('{"tampered": true}', encoding="utf-8")
+    now = applications_v2.utc_now_iso()
+    database.execute(
+        """INSERT INTO application_runs
+           (run_id, application_id, graph_json, status, created_at, updated_at)
+           VALUES (?, ?, '{}', 'planned', ?, ?)""",
+        ("rogue-run", "other-app", now, now),
+    )
+    isolation = run.inspect()
+
+    assert isolation["status"] == "blocked"
+    assert any("requests/cellular/run-a/request.json" in item for item in isolation["unauthorized_changes"])
+    assert any("career.db::application_runs" in item for item in isolation["unauthorized_workspace_changes"])
+    database.close()
+
+
+def test_cellular_harness_reports_authoritative_database_corruption_as_violation(
+    tmp_path,
+):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "request.json"
+    request_md = request.with_suffix(".md")
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(application_dir / "fit_map.draft.json")],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    database_path = tmp_path / ".career-state" / "career.db"
+    database = Database(database_path)
+    database.init_schema()
+    database.close()
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    database_path.write_bytes(b"corrupted by specialist")
+    isolation = run.inspect()
+
+    assert isolation["status"] == "blocked"
+    assert any("career.db::integrity" in item for item in isolation["unauthorized_workspace_changes"])
+
+
 def test_cellular_request_rules_never_direct_the_agent_to_global_state(tmp_path):
     context = {
         "cellular": True,
@@ -1023,7 +1481,10 @@ def test_canonical_operational_docs_lock_down_cellular_handover_and_no_fallback(
         assert "`_approval_meta`" in document
         assert "draft sem vínculo" in document
         assert "cellular_reprocess_request.json" in document
-        assert "estado global, `outputs/` e outras candidaturas" in document
+        assert "estado global, `outputs/`, outras candidaturas" in document
+        assert "applications:authorize-handoff" in document
+        assert "requests de controle" in document
+        assert "arquivo truncado" in document
         assert "`sync_notion_initial`" in document
         assert "`CellContract.resources`" in document
 

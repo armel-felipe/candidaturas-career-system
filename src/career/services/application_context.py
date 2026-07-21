@@ -21,10 +21,10 @@ ALIAS_INDEX = CAREER_STATE / "application_alias_index.json"
 
 
 def workspace_owner_from_env(env: dict[str, str] | None = None) -> str:
-    """Return the stable owner shared by processes in one authoritative copy."""
+    """Return an explicit pool owner or a process-distinct default owner."""
     values = env or os.environ
     explicit = str(values.get("CAREER_WORKSPACE_OWNER") or "").strip()
-    return explicit or socket.gethostname()
+    return explicit or f"{socket.gethostname()}:{os.getpid()}"
 
 
 class WorkspaceLease:
@@ -67,6 +67,8 @@ class WorkspaceLease:
                 f"this database: expected={self.expected_control_db_id} "
                 f"actual={self.control_db_id}"
             )
+        if require_authority:
+            database.assert_authoritative_storage()
 
     def acquire(self, owner: str, ttl_seconds: int = 300) -> bool:
         owner = self._owner(owner)

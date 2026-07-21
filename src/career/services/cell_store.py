@@ -271,6 +271,7 @@ class CellStore:
         *,
         worker_id: str,
         receipt: Mapping[str, Any],
+        workspace_owner: str = "",
         resource_leases: Iterable[Mapping[str, Any]] = (),
         published_artifacts: Iterable[Mapping[str, Any]] = (),
     ) -> dict[str, Any]:
@@ -285,6 +286,15 @@ class CellStore:
 
         with self.database.transaction(immediate=True) as conn:
             now = self._now()
+            if workspace_owner:
+                workspace_owned = conn.execute(
+                    """SELECT 1 FROM workspace_leases
+                       WHERE lease_name = 'authoritative-workspace'
+                         AND worker_id = ? AND expires_at > ?""",
+                    (workspace_owner, now),
+                ).fetchone()
+                if workspace_owned is None:
+                    raise RuntimeError("stale authoritative workspace lease")
             for lease in leases:
                 resource_name = str(lease.get("resource_name", ""))
                 lease_id = str(lease.get("lease_id", ""))

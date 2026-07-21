@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import platform
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -211,7 +213,17 @@ class Database:
             CREATE TABLE IF NOT EXISTS workspace_authority (
                 singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
                 control_db_id TEXT NOT NULL UNIQUE,
+                storage_identity TEXT,
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS workspace_authority_handoffs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                control_db_id TEXT NOT NULL,
+                prior_storage_identity TEXT NOT NULL,
+                new_storage_identity TEXT NOT NULL,
+                new_owner TEXT NOT NULL,
+                authorized_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS artifact_dependencies (
@@ -231,10 +243,27 @@ class Database:
         }
         if "lease_id" not in resource_lock_columns:
             conn.execute("ALTER TABLE resource_locks ADD COLUMN lease_id TEXT")
+        authority_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(workspace_authority)")
+        }
+        if "storage_identity" not in authority_columns:
+            conn.execute("ALTER TABLE workspace_authority ADD COLUMN storage_identity TEXT")
+        storage_identity = self.physical_storage_identity()
         conn.execute(
             """INSERT OR IGNORE INTO workspace_authority
-               (singleton_id, control_db_id, created_at) VALUES (1, ?, ?)""",
-            (f"control_{uuid4().hex}", datetime.now(UTC).isoformat()),
+               (singleton_id, control_db_id, storage_identity, created_at)
+               VALUES (1, ?, ?, ?)""",
+            (
+                f"control_{uuid4().hex}",
+                storage_identity,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        conn.execute(
+            """UPDATE workspace_authority SET storage_identity = ?
+               WHERE singleton_id = 1
+                 AND (storage_identity IS NULL OR storage_identity = '')""",
+            (storage_identity,),
         )
         conn.commit()
 
@@ -245,6 +274,77 @@ class Database:
         if row is None or not row.get("control_db_id"):
             raise RuntimeError("authoritative control database identity is missing")
         return str(row["control_db_id"])
+
+    def physical_storage_identity(self) -> str:
+        """Bind authority to this physical DB copy, not only copied bytes."""
+        if str(self.db_path) == ":memory:":
+            return hashlib.sha256(f"memory:{id(self)}".encode("utf-8")).hexdigest()
+        path = self.db_path.resolve()
+        stat = path.stat()
+        machine = platform.node() or "unknown-host"
+        machine_id = Path("/etc/machine-id")
+        if machine_id.is_file():
+            try:
+                machine = machine_id.read_text(encoding="utf-8").strip() or machine
+            except OSError:
+                pass
+        raw = f"{machine}\0{path}\0{stat.st_dev}\0{stat.st_ino}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def assert_authoritative_storage(self) -> str:
+        row = self.fetch_one(
+            """SELECT control_db_id, storage_identity FROM workspace_authority
+               WHERE singleton_id = 1"""
+        )
+        if row is None or not row.get("storage_identity"):
+            raise ValueError("authoritative control database storage identity is missing")
+        actual = self.physical_storage_identity()
+        if str(row["storage_identity"]) != actual:
+            raise ValueError(
+                "physical control database copy is not authoritative; "
+                "an explicit storage handoff is required"
+            )
+        return actual
+
+    def authorize_storage_handoff(
+        self, *, expected_control_db_id: str, new_owner: str
+    ) -> str:
+        """Explicitly bind a stopped/expired copied DB to its new storage."""
+        expected = str(expected_control_db_id or "").strip()
+        owner = str(new_owner or "").strip()
+        if not expected or not owner:
+            raise ValueError("control database identity and new owner are required")
+        actual = self.physical_storage_identity()
+        now = datetime.now(UTC).isoformat()
+        with self.transaction(immediate=True) as conn:
+            authority = conn.execute(
+                """SELECT control_db_id, storage_identity FROM workspace_authority
+                   WHERE singleton_id = 1"""
+            ).fetchone()
+            if authority is None or str(authority["control_db_id"]) != expected:
+                raise ValueError("authoritative control database identity does not match")
+            active = conn.execute(
+                """SELECT worker_id, expires_at FROM workspace_leases
+                   WHERE lease_name = 'authoritative-workspace'"""
+            ).fetchone()
+            if active is not None and str(active["expires_at"]) > now:
+                raise RuntimeError(
+                    "cannot authorize storage handoff while workspace lease is active"
+                )
+            prior = str(authority["storage_identity"] or "")
+            if prior != actual:
+                conn.execute(
+                    """INSERT INTO workspace_authority_handoffs
+                       (control_db_id, prior_storage_identity, new_storage_identity,
+                        new_owner, authorized_at) VALUES (?, ?, ?, ?, ?)""",
+                    (expected, prior, actual, owner, now),
+                )
+                conn.execute(
+                    """UPDATE workspace_authority SET storage_identity = ?
+                       WHERE singleton_id = 1""",
+                    (actual,),
+                )
+        return actual
 
     @contextmanager
     def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:

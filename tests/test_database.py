@@ -30,6 +30,7 @@ def test_database_creates_schema():
             "session_memory",
                 "workflow_events",
                 "workspace_authority",
+                "workspace_authority_handoffs",
                 "workspace_lease_takeovers",
                 "workspace_leases",
         ]
@@ -68,7 +69,7 @@ def test_database_idempotent_schema():
         tables = db.fetch_all(
             "SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence' ORDER BY name"
         )
-        assert len(tables) == 14
+        assert len(tables) == 15
 
         db.close()
 

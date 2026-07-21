@@ -270,6 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
     applications_release_lock.add_argument("application_id")
     applications_release_lock.add_argument("--dry-run", action="store_true")
     applications_sub.add_parser("doctor-concurrency")
+    applications_handoff = applications_sub.add_parser("authorize-handoff")
+    applications_handoff.add_argument("--control-db-id", required=True)
+    applications_handoff.add_argument("--owner", required=True)
     applications_migrate = applications_sub.add_parser("migrate-global-state")
     applications_migrate.add_argument("--application-id")
     applications_migrate.add_argument("--dry-run", action="store_true")
@@ -1113,6 +1116,28 @@ def main(argv: list[str] | None = None) -> int:
                 "session_registry": str(application_context_service.SESSION_REGISTRY),
                 "alias_index": str(application_context_service.ALIAS_INDEX),
             })
+            return 0
+        if args.action == "authorize-handoff":
+            control_database = Database()
+            control_database.init_schema()
+            try:
+                storage_identity = control_database.authorize_storage_handoff(
+                    expected_control_db_id=args.control_db_id,
+                    new_owner=args.owner,
+                )
+            except (RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            finally:
+                control_database.close()
+            _dump(
+                {
+                    "status": "authorized",
+                    "control_db_id": args.control_db_id,
+                    "storage_identity": storage_identity,
+                    "owner": args.owner,
+                }
+            )
             return 0
         if args.action == "migrate-global-state":
             _dump(
