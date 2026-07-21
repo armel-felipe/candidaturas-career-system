@@ -480,11 +480,24 @@ def _validate_cv_provenance(
 def _validate_rendered_cv(
     context: CellExecutionContext, output: CellOutput
 ) -> ValidatorResult:
+    report_path = context.paths.reviews_dir / (
+        f"{context.node_id}-{context.attempt}-validate-docx.json"
+    )
+    context.capabilities.assert_writable(report_path)
     reason = ""
+    artifact_path = ""
+    artifact_sha256 = ""
     try:
         artifact = context.staging_dir / "cv.docx"
         if not artifact.is_file():
             raise ValueError("staged DOCX is missing")
+        artifact_sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        artifact_path = str(
+            context.paths.artifacts_dir
+            / "cv.docx"
+            / artifact_sha256[:12]
+            / "cv.docx"
+        )
         result = subprocess.run(
             [sys.executable, "scripts/docx/validate_docx.py", str(artifact)],
             cwd=Path(__file__).resolve().parents[3],
@@ -497,7 +510,23 @@ def _validate_rendered_cv(
             raise ValueError(f"DOCX validation failed: {result.stdout}{result.stderr}")
     except Exception as exc:
         reason = f"{type(exc).__name__}:{exc}"
-    return _persist_validator_result(context, reason)
+    write_json(
+        report_path,
+        {
+            "command": context.validator_command,
+            "result": "failed" if reason else "passed",
+            "reason": reason,
+            "application_id": context.application_id,
+            "run_id": context.run_id,
+            "node_id": context.node_id,
+            "attempt": context.attempt,
+            "artifact_path": artifact_path,
+            "artifact_sha256": artifact_sha256,
+        },
+    )
+    if reason:
+        return ValidatorResult.failed(context.validator_command, report_path, reason)
+    return ValidatorResult.passed(context.validator_command, report_path)
 
 
 def _validate_cv_review(

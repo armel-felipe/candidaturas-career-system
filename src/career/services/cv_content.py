@@ -12,6 +12,7 @@ from career.paths import CAREER_STATE, ROOT
 from career.services import applications_v2 as applications_v2_service
 from career.services import derived_context as derived_context_service
 from career.services import fit_map as fit_map_service
+from career.services import provenance as provenance_service
 from career.services.application_context import ApplicationPaths
 from career.utils import (
     ValidationFailure,
@@ -827,10 +828,11 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
         name: {"path": str(path), "sha256": sha256_file(path)}
         for name, path in sources.items()
     }
-    source_text = {
-        name: _normalize(path.read_text(encoding="utf-8"))
+    source_bytes = {
+        name: path.read_bytes()
         for name, path in sources.items()
     }
+    source_text = {name: _normalize(raw.decode("utf-8")) for name, raw in source_bytes.items()}
 
     def value_hash(value: Any) -> str:
         return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
@@ -849,10 +851,15 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
         if _normalize(locator.split("::", 1)[0]) not in source_text[source]:
             raise ValidationFailure(f"canonical evidence locator is absent: {source}/{kind}")
         item_id = evidence_id(source, kind, locator, value)
+        excerpt = _source_excerpt(source_bytes[source].decode("utf-8"), locator)
         evidence[item_id] = {
             "source": source,
             "kind": kind,
             "locator": locator,
+            "source_excerpt": excerpt,
+            "source_excerpt_sha256": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
+            "source_value": excerpt,
+            "source_value_sha256": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
             "value_sha256": value_hash(value),
         }
         return item_id
@@ -924,16 +931,28 @@ def validate_canonical_provenance(payload: dict[str, Any]) -> None:
     """Resolve every submitted evidence ID against canonical source bytes."""
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     facts = metadata.get("candidate_facts") if isinstance(metadata.get("candidate_facts"), dict) else {}
-    if facts.get("revision") != metadata.get("candidate_facts_revision"):
+    expected_revision = provenance_service.candidate_facts_revision()
+    if (
+        facts.get("revision") != expected_revision
+        or metadata.get("candidate_facts_revision") != expected_revision
+    ):
         raise ValidationFailure("CV candidate facts revision mismatch")
     sources = facts.get("sources") if isinstance(facts.get("sources"), dict) else {}
     evidence = facts.get("evidence") if isinstance(facts.get("evidence"), dict) else {}
     if not sources or not evidence:
         raise ValidationFailure("CV canonical evidence catalog is missing")
-    for source in sources.values():
+    expected_sources = {"profile": PROFILE_FACTS_PATH, "self_knowledge": SELF_KNOWLEDGE_PATH}
+    if set(sources) != set(expected_sources):
+        raise ValidationFailure("CV canonical evidence sources are invalid")
+    source_bytes: dict[str, bytes] = {}
+    for source_name, expected_path in expected_sources.items():
+        source = sources.get(source_name)
+        if not isinstance(source, dict):
+            raise ValidationFailure("CV canonical evidence source is missing")
         path = Path(str(source.get("path") or ""))
-        if not path.is_file() or sha256_file(path) != source.get("sha256"):
+        if path.resolve() != expected_path.resolve() or not path.is_file() or sha256_file(path) != source.get("sha256"):
             raise ValidationFailure("CV canonical evidence source changed")
+        source_bytes[source_name] = expected_path.read_bytes()
     for item in evidence.values():
         source_name = str(item.get("source") or "")
         locator = str(item.get("locator") or "")
@@ -941,13 +960,21 @@ def validate_canonical_provenance(payload: dict[str, Any]) -> None:
         if not isinstance(path_record, dict):
             raise ValidationFailure("CV evidence references an unknown canonical source")
         source_path = Path(str(path_record.get("path") or ""))
+        source_value = source_bytes[source_name].decode("utf-8")
+        expected_excerpt = _source_excerpt(source_value, locator)
         if (
             not locator
             or not str(item.get("kind") or "")
             or not str(item.get("value_sha256") or "")
+            or item.get("source_excerpt") != expected_excerpt
+            or item.get("source_excerpt_sha256") != hashlib.sha256(expected_excerpt.encode("utf-8")).hexdigest()
+            or item.get("source_value") != expected_excerpt
+            or item.get("source_value_sha256") != hashlib.sha256(expected_excerpt.encode("utf-8")).hexdigest()
             or _normalize(locator.split("::", 1)[0]) not in _normalize(source_path.read_text(encoding="utf-8"))
         ):
             raise ValidationFailure("CV evidence locator cannot be resolved")
+
+    _validate_trusted_renderer_values(payload)
     required: list[str] = []
     def require(item_id: Any, kind: str, value: Any) -> None:
         item_id = str(item_id or "")
@@ -991,6 +1018,75 @@ def validate_canonical_provenance(payload: dict[str, Any]) -> None:
         require((claims.get("candidate") or {}).get(key), f"candidate_{key}", value)
     if not required or any(item not in evidence for item in required):
         raise ValidationFailure("CV evidence ID cannot be resolved against canonical facts")
+
+
+def _source_excerpt(source_text: str, locator: str) -> str:
+    token = _normalize(locator.split("::", 1)[0])
+    for line in source_text.splitlines():
+        if token and token in _normalize(line):
+            return line.strip()
+    raise ValidationFailure("canonical source excerpt is missing")
+
+
+def _validate_trusted_renderer_values(payload: dict[str, Any]) -> None:
+    """Recompute renderer inputs from canonical sources and trusted transforms.
+
+    The evidence catalog is intentionally ignored here: it is an audit trail,
+    not an authority for the rendered text.
+    """
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    language = metadata.get("language")
+    if language not in {"pt-BR", "en"}:
+        raise ValidationFailure("CV canonical evidence language is invalid")
+    raw_experiences = payload.get("experiences") if isinstance(payload.get("experiences"), list) else []
+    ids = [str(item.get("experience_id") or "") for item in raw_experiences if isinstance(item, dict)]
+    catalog = {str(item["id"]): item for item in EXPERIENCE_CATALOG}
+    if not ids or len(ids) != len(set(ids)) or any(item_id not in catalog for item_id in ids):
+        raise ValidationFailure("CV canonical evidence experience selection is invalid")
+    selected = [catalog[item_id] for item_id in ids]
+    family = str(metadata.get("job_family") or "operations")
+    materialized = [_materialize_experience(item, family, language=language) for item in selected]
+    expected_candidate = _candidate_contact_facts()
+    expected_summary, _support = _build_summary(
+        materialized, {"cargo": metadata.get("cargo")}, language=language
+    )
+    if payload.get("candidate") != expected_candidate or payload.get("stack") != DEFAULT_STACK:
+        raise ValidationFailure("CV canonical evidence does not authorize rendered contact or stack")
+    if language == "en":
+        expected_experiences = [
+            {"experience_id": item["id"], "role": item["role"], "company": item["company"], "period": item["period"], "bullets": item["bullets"]}
+            for item in materialized
+        ]
+        actual_experiences = [
+            {
+                "experience_id": item.get("experience_id"), "role": item.get("role"), "company": item.get("company"),
+                "period": item.get("period"), "bullets": [bullet.get("text") for bullet in item.get("bullets", [])],
+            }
+            for item in raw_experiences
+        ]
+        if (
+            actual_experiences != expected_experiences
+            or payload.get("education") != DEFAULT_EDUCATION_EN
+            or payload.get("languages") != DEFAULT_LANGUAGES_EN
+            or payload.get("summary") != expected_summary
+        ):
+            raise ValidationFailure("CV canonical evidence does not authorize rendered English values")
+        return
+    expected_experiences = [
+        {"experience_id": item["id"], "cargo": item["role"], "empresa": item["company"], "periodo": item["period"], "bullets": item["bullets"]}
+        for item in materialized
+    ]
+    actual_pt = [
+        {"experience_id": item.get("experience_id"), "cargo": item.get("cargo"), "empresa": item.get("empresa"), "periodo": item.get("periodo"), "bullets": item.get("bullets")}
+        for item in payload.get("experiencias", []) if isinstance(item, dict)
+    ]
+    if (
+        actual_pt != expected_experiences
+        or payload.get("formacao") != DEFAULT_EDUCATION_PT
+        or payload.get("idiomas") != DEFAULT_LANGUAGES
+        or payload.get("resumo") != expected_summary
+    ):
+        raise ValidationFailure("CV canonical evidence does not authorize rendered Portuguese values")
 
 
 def _english_period(period: str) -> str:

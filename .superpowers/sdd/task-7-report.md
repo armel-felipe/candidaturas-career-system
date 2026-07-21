@@ -35,6 +35,28 @@ Validation executed after remediation:
 - `pytest -q` — 175 passed
 - `git diff --check` — passed
 
+### Third review remediation
+
+`validate_canonical_provenance` now recomputes the candidate-facts revision from
+the canonical source set, pins the permitted source paths and bytes, and verifies
+each evidence record's locator, source excerpt/source value and their hashes.
+The evidence catalog is audit data only: the validator independently rebuilds the
+renderer-consumed PT-BR and English values through the trusted transformations and
+rejects forged values even when the payload's evidence IDs and hashes are rebuilt.
+
+Cellular review acceptance now validates the full render chain: revision layout,
+artifact manifest, matching render attempt output, and a parsed passing DOCX
+validator report that is bound to application, run, node, attempt, path and hash.
+Regression coverage includes a structurally complete forged manifest/report and
+PT renderer aliases (`experiencias`, `formacao`, `idiomas`, `resumo`). The renderer
+also no longer contains candidate-location defaults.
+
+Validation executed after third remediation:
+
+- `pytest tests/test_custom_cv_generation.py tests/test_cell_cv_pipeline.py tests/test_review_output_cellular_artifact.py -q --maxfail=1` — 11 passed
+- `pytest -q` — 178 passed
+- `git diff --check` — passed
+
 ### Second review remediation
 
 Canonical CV provenance now binds each rendered claim to a revision-pinned source

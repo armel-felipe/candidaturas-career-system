@@ -98,7 +98,6 @@ function hyperlink(text, url) {
 
 const L10N = {
   "pt-BR": {
-    location: "São Paulo, SP",
     summary: "Resumo",
     experience: "Experiência",
     education: "Formação",
@@ -106,7 +105,6 @@ const L10N = {
     languages: "Idiomas",
   },
   "en": {
-    location: "São Paulo, Brazil",
     summary: "Summary",
     experience: "Experience",
     education: "Education",

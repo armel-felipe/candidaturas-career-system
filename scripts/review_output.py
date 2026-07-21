@@ -252,14 +252,61 @@ def is_validated_cellular_artifact(artifact: Path) -> bool:
         return False
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     validators = manifest.get("validators")
-    validator_passed = isinstance(validators, list) and any(
-        isinstance(item, dict)
-        and item.get("command") == "validate:docx"
-        and item.get("result") == "passed"
-        and normalized_path_string(item.get("report_path"))
-        and Path(str(item["report_path"])).is_file()
-        for item in validators
+    validator_passed = False
+    if isinstance(validators, list):
+        for item in validators:
+            if not (
+                isinstance(item, dict)
+                and item.get("command") == "validate:docx"
+                and item.get("result") == "passed"
+                and normalized_path_string(item.get("report_path"))
+            ):
+                continue
+            report_path = Path(str(item["report_path"])).resolve()
+            if not report_path.is_file():
+                continue
+            try:
+                report = read_json(report_path)
+            except Exception:
+                continue
+            if (
+                report.get("command") == "validate:docx"
+                and report.get("result") == "passed"
+                and report.get("application_id") == application_id
+                and report.get("run_id") == run_id
+                and report.get("node_id") == "render_cv"
+                and report.get("attempt") == manifest.get("attempt")
+                and normalized_path_string(report.get("artifact_path")) == str(artifact)
+                and report.get("artifact_sha256") == digest
+            ):
+                validator_passed = True
+                break
+    attempt_manifest_path = (
+        artifact.parents[4] / "cells" / run_id / "render_cv" / str(manifest.get("attempt")) / "manifest.json"
     )
+    attempt_output_matches = False
+    if attempt_manifest_path.is_file():
+        try:
+            attempt_manifest = read_json(attempt_manifest_path)
+            attempt_output_matches = (
+                attempt_manifest.get("kind") == "cell_attempt_manifest"
+                and attempt_manifest.get("status") == "validated"
+                and attempt_manifest.get("application_id") == application_id
+                and attempt_manifest.get("run_id") == run_id
+                and attempt_manifest.get("node_id") == "render_cv"
+                and attempt_manifest.get("attempt") == manifest.get("attempt")
+                and any(
+                    isinstance(item, dict)
+                    and item.get("artifact_name") == "cv.docx"
+                    and normalized_path_string(item.get("path")) == str(artifact)
+                    and item.get("sha256") == digest
+                    and item.get("revision") == revision
+                    and normalized_path_string(item.get("manifest_path")) == str(manifest_path)
+                    for item in attempt_manifest.get("outputs", [])
+                )
+            )
+        except Exception:
+            attempt_output_matches = False
     return (
         manifest.get("kind") == "artifact_manifest"
         and manifest.get("status") == "validated"
@@ -273,6 +320,7 @@ def is_validated_cellular_artifact(artifact: Path) -> bool:
         and normalized_path_string(manifest.get("manifest_path")) == str(manifest_path)
         and manifest.get("sha256") == digest
         and validator_passed
+        and attempt_output_matches
     )
 
 

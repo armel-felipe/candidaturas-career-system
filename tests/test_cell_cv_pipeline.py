@@ -259,19 +259,36 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
             evidence = payload["metadata"]["candidate_facts"]["evidence"]
             assert len(evidence) == len(set(evidence))
         tampering = {
-            "role": lambda item: item["experiences"][0].__setitem__("role", "Tampered role"),
-            "period": lambda item: item["experiences"][0].__setitem__("period", "Tampered period"),
-            "bullet": lambda item: item["experiences"][0]["bullets"][0].__setitem__("text", "Tampered bullet"),
-            "education": lambda item: item["education"].__setitem__(0, "Tampered education"),
-            "language": lambda item: item["languages"].__setitem__(0, "Tampered language"),
+            "role": lambda item: item["experiencias"][0].__setitem__("cargo", "Tampered role"),
+            "period": lambda item: item["experiencias"][0].__setitem__("periodo", "Tampered period"),
+            "bullet": lambda item: item["experiencias"][0]["bullets"].__setitem__(0, "Tampered bullet"),
+            "education": lambda item: item["formacao"].__setitem__(0, "Tampered education"),
+            "language": lambda item: item["idiomas"].__setitem__(0, "Tampered language"),
             "stack": lambda item: item.__setitem__("stack", "Tampered stack"),
             "contact": lambda item: item["candidate"].__setitem__("email", "tampered@example.test"),
+            "summary": lambda item: item.__setitem__("resumo", "Tampered summary"),
         }
         for field, mutate in tampering.items():
             tampered = deepcopy(first_content)
             mutate(tampered)
             with pytest.raises(ValidationFailure, match="evidence"):
                 cv_content.validate_canonical_provenance(tampered)
+        adversarial = deepcopy(first_content)
+        provenance = adversarial["experiencias"][0]["provenance"]
+        old_id = provenance["cargo"]
+        old_record = adversarial["metadata"]["candidate_facts"]["evidence"].pop(old_id)
+        forged_value = "Invented Operations Role"
+        forged_hash = hashlib.sha256(forged_value.encode("utf-8")).hexdigest()
+        revision = adversarial["metadata"]["candidate_facts_revision"]
+        forged_id = hashlib.sha256(
+            f"{revision}\0{old_record['source']}\0{old_record['kind']}\0{old_record['locator']}\0{forged_hash}".encode("utf-8")
+        ).hexdigest()
+        old_record["value_sha256"] = forged_hash
+        adversarial["metadata"]["candidate_facts"]["evidence"][forged_id] = old_record
+        adversarial["experiencias"][0]["cargo"] = forged_value
+        provenance["cargo"] = forged_id
+        with pytest.raises(ValidationFailure):
+            cv_content.validate_canonical_provenance(adversarial)
         assert first_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"] != second_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"]
         assert not (first.reviews_dir / first_plan.run_id / "cv_review.json").exists()
         assert not (second.reviews_dir / second_plan.run_id / "cv_review.json").exists()
