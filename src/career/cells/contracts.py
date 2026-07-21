@@ -136,6 +136,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "sync_notion_final": _contract(
         "sync_notion_final",
+        requires=("analyze_fit", "sync_notion_initial"),
         produces=("artifacts/notion_final_receipt.json",),
         validators=("validate-notion-receipt",),
         resources=("notion-write",),
@@ -157,7 +158,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "review_feras": _contract(
         "review_feras",
-        requires=("generate_feras",),
+        requires=("generate_feras", "analyze_fit", "normalize_job"),
         produces=("reviews/feras_review.json",),
         validators=("review-output:feras",),
         invalidates=("sync_notion_final",),
@@ -177,7 +178,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "review_cover_letter": _contract(
         "review_cover_letter",
-        requires=("generate_cover_letter",),
+        requires=("generate_cover_letter", "analyze_fit", "normalize_job"),
         produces=("reviews/cover_letter_review.json",),
         validators=("review-output:cover-letter",),
         invalidates=("sync_notion_final",),
@@ -197,7 +198,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "review_habilidades": _contract(
         "review_habilidades",
-        requires=("generate_habilidades",),
+        requires=("generate_habilidades", "analyze_fit", "normalize_job"),
         produces=("reviews/habilidades_review.json",),
         validators=("review-output:habilidades",),
         invalidates=("sync_notion_final",),

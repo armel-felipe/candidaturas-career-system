@@ -5,26 +5,45 @@ from typing import Any
 
 from career.paths import OUTPUTS
 from career.services import derived_context as derived_context_service
-from career.utils import ensure, read_json, utc_now_iso, write_text
+from career.utils import ValidationFailure, ensure, read_json, utc_now_iso, write_text
 
 
-def build_from_fit_map(fit_map: dict[str, Any]) -> str:
+def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, Any] | None = None) -> str:
     """Build a cellular cover letter without consulting mutable active state."""
     cargo = str(fit_map.get("cargo") or "Cargo")
     empresa = str(fit_map.get("empresa") or "Empresa")
     stories = fit_map.get("historias_selecionadas") if isinstance(fit_map.get("historias_selecionadas"), dict) else {}
     principal = stories.get("principal") if isinstance(stories.get("principal"), dict) else {}
     result = str(principal.get("resultado") or "resultados relevantes de crescimento e execução")
+    normalized_context = [str(item).strip() for item in (normalized_pack or {}).get("context_lines", []) if str(item).strip()]
+    context_phrase = normalized_context[0] if normalized_context else "estratégia, dados e execução"
     return "\n".join(
         [
             "# Carta de Apresentação — Felipe Armel Dias da Silva", "",
             f"Prezada equipe da {empresa},", "",
             f"Tenho interesse na posição de {cargo}. Minha trajetória em operações, planejamento comercial e inteligência de negócios inclui {result}.", "",
-            f"A combinação entre estratégia, dados e execução na {empresa} é onde posso contribuir de forma mais direta, com escopo defensável e colaboração transversal.", "",
+            f"A combinação entre {context_phrase} na {empresa} é onde posso contribuir de forma mais direta, com escopo defensável e colaboração transversal.", "",
             "Fico à disposição para conversar. Segue meu currículo em anexo.", "",
             "Atenciosamente,", "", "Felipe Armel Dias da Silva", "",
         ]
     )
+
+
+def validate_cellular_artifact(content: str, fit_map: dict[str, Any], evidence: dict[str, Any]) -> None:
+    validate_cover_letter_text(content)
+    cargo = str(fit_map.get("cargo") or "").strip()
+    empresa = str(fit_map.get("empresa") or "").strip()
+    principal = ((fit_map.get("historias_selecionadas") or {}).get("principal") or {})
+    result = str(principal.get("resultado") or "").strip()
+    lowered = content.casefold()
+    if len(content.strip()) < 240 or "prezada equipe" not in lowered or "atenciosamente" not in lowered:
+        raise ValidationFailure("cover_letter_cellular_structure_is_incomplete")
+    if not cargo or cargo.casefold() not in lowered or not empresa or empresa.casefold() not in lowered:
+        raise ValidationFailure("cover_letter_cellular_missing_job_identity")
+    if result and result.casefold() not in lowered:
+        raise ValidationFailure("cover_letter_cellular_missing_defensible_evidence")
+    if not isinstance(evidence, dict) or evidence.get("application_id") not in {None, fit_map.get("application_id")}:
+        raise ValidationFailure("cover_letter_cellular_evidence_is_invalid")
 
 
 def build_current_cover_letter(output_path: Path | None = None) -> dict[str, Any]:

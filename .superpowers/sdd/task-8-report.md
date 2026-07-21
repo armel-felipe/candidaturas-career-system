@@ -84,3 +84,40 @@ pytest tests/test_cell_notion_delivery.py tests/test_cell_deliverable_branches.p
 pytest -q
 194 passed
 ```
+
+## Second Slice D remediation
+
+This remediation added a fresh RED/GREEN test cycle for the remaining
+cellular-boundary gaps.
+
+- The final Notion plan now directly requires `analyze_fit` and
+  `sync_notion_initial`, as well as only the selected approved output reviews.
+  Final sync resolves an existing record from
+  `identity.aliases.notion_record_id`, otherwise from the initial-sync receipt;
+  it never issues a final-create operation.
+- The production Notion adapter is exercised with a fake service for both an
+  existing-record update and a new initial record creation. No remote client
+  is used by the tests.
+- Cover-letter and habilidades reviews now apply substantive, FIT_MAP/evidence
+  scoped validation rather than accepting structural shells.
+- Branch review receipts bind application/run/node, review kind, generator
+  artifact path/name/hash, handover and evidence hashes, validator, result and
+  approval. Their validator independently recomputes those bindings; a forged
+  artifact hash is rejected.
+- FERAS, cover-letter and habilidades generators consume normalized job packs,
+  and their evidence indexes publish selected normalized source entries.
+- External receipt persistence uses a flushed, fsynced temporary file and
+  `os.replace`, while safely reusing a matching pre-existing receipt.
+
+Final verification:
+
+```text
+pytest tests/test_cell_slice_d_second_remediation.py tests/test_cell_notion_delivery.py tests/test_cell_deliverable_branches.py tests/test_cell_planner.py -q
+33 passed
+
+pytest -q
+199 passed
+```
+
+No real Notion, rclone, or OneDrive write was performed. `.inbox/` remained
+untouched.

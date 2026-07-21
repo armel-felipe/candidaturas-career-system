@@ -8,7 +8,7 @@ from career.services import derived_context as derived_context_service
 from career.utils import ensure, read_json, utc_now_iso, write_text
 
 
-def build_from_fit_map(fit_map: dict[str, Any]) -> str:
+def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, Any] | None = None) -> str:
     """Build the cellular FERAS artifact from an explicit FIT_MAP payload."""
     cargo = str(fit_map.get("cargo") or "Cargo")
     empresa = str(fit_map.get("empresa") or "Empresa")
@@ -17,6 +17,8 @@ def build_from_fit_map(fit_map: dict[str, Any]) -> str:
     keywords = [str(item).strip() for item in fit_map.get("keywords_para_ats", []) if str(item).strip()]
     omitted = keywords[5:8] or ["nenhuma relevante omitida no recorte atual"]
     result = str(principal.get("resultado") or "resultados defensáveis de crescimento e eficiência")
+    normalized_keywords = [str(item).strip() for item in (normalized_pack or {}).get("keywords", []) if str(item).strip()]
+    context_line = f"Contexto da vaga: {', '.join(normalized_keywords[:3])}." if normalized_keywords else ""
     return "\n".join(
         [
             f"# FERAS — {cargo} — {empresa}", "", "## FERAS estruturado",
@@ -26,7 +28,7 @@ def build_from_fit_map(fit_map: dict[str, Any]) -> str:
             f"- A: Contribuir para a agenda prioritária da {empresa}.",
             "- S: Ampliar impacto com execução consistente e evidência defensável.", "",
             "## Pitch fluido para fala/leitura",
-            f"Minha trajetória conecta operações, dados e execução; em especial, {result}. Busco a posição de {cargo} para ampliar esse impacto na {empresa}.", "",
+            f"Minha trajetória conecta operações, dados e execução; em especial, {result}. {context_line} Busco a posição de {cargo} para ampliar esse impacto na {empresa}.", "",
             "## Keywords incorporadas naturalmente", *[f"- {item}" for item in keywords[:5]], "",
             "## Keywords relevantes não usadas", *[f"- {item}" for item in omitted], "",
         ]

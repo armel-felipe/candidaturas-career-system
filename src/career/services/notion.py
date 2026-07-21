@@ -486,10 +486,20 @@ def perform_cell_sync(client, request: dict) -> dict:
 class NotionCellAdapter:
     """Lazy bridge from a cell receipt request to the established Notion sync."""
 
-    def __init__(self, *, env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        service=None,
+        credentials: tuple[str, str] | None = None,
+    ) -> None:
         self._env = env
+        self._service = service
+        self._credentials = credentials
 
     def preflight(self) -> tuple[str, str]:
+        if self._credentials is not None:
+            return self._credentials
         if self._env is not None:
             token = str(self._env.get("NOTION_TOKEN") or "").strip()
             database_id = str(self._env.get("NOTION_APPLICATIONS_DATABASE_ID") or "").strip()
@@ -508,8 +518,21 @@ class NotionCellAdapter:
         if not fit_map_path.is_file() or not job_description_path.is_file():
             raise RuntimeError("Notion cell preflight requires FIT_MAP and job description artifacts")
         record_id = str(request.get("record_id") or "").strip()
+        operation = str(request.get("operation") or "")
+        if operation == "notion_final_sync" and not record_id:
+            raise RuntimeError("Notion final sync requires an existing record")
         try:
-            if record_id:
+            if self._service is not None and record_id:
+                result = self._service.update(
+                    token, database_id, int(record_id), fit_map_path, job_description_path,
+                    status=str(request["status"]), dry_run=False,
+                )
+            elif self._service is not None:
+                result = self._service.create(
+                    token, database_id, fit_map_path, job_description_path,
+                    status=str(request["status"]), dry_run=False,
+                )
+            elif record_id:
                 result = update_from_fit_map_record(
                     token, database_id, int(record_id), fit_map_path, job_description_path,
                     status=str(request["status"]), dry_run=False,

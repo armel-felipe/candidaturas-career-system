@@ -8,7 +8,7 @@ from career.paths import CAREER_STATE, ROOT
 from career.utils import ValidationFailure, read_json
 
 
-def build_from_fit_map(fit_map: dict[str, Any]) -> str:
+def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, Any] | None = None) -> str:
     """Build a compact, application-cellular skills handover from FIT_MAP."""
     cargo = str(fit_map.get("cargo") or "Cargo")
     empresa = str(fit_map.get("empresa") or "Empresa")
@@ -23,14 +23,16 @@ def build_from_fit_map(fit_map: dict[str, Any]) -> str:
             skills.append(value)
     if not skills:
         skills = ["Operações", "Planejamento", "Dados"]
+    normalized_keywords = [str(item).strip() for item in (normalized_pack or {}).get("keywords", []) if str(item).strip()]
+    evidence_line = ", ".join(normalized_keywords[:3]) or "contexto normalizado da vaga"
     return "\n".join(
         [f"# Habilidades-chave — {cargo} — {empresa}", "", "## Habilidades priorizadas"]
         + [f"- {skill}" for skill in skills[:15]]
-        + ["", "## Evidência", "- Seleção derivada do FIT_MAP aprovado e das histórias defensáveis.", ""]
+        + ["", "## Evidência", f"- Seleção derivada do FIT_MAP aprovado e do contexto: {evidence_line}.", ""]
     )
 
 
-def validate_cellular_artifact(content: str) -> None:
+def validate_cellular_artifact(content: str, fit_map: dict[str, Any] | None = None, evidence: dict[str, Any] | None = None) -> None:
     """Apply the local skills policy to the compact cellular output."""
     if not isinstance(content, str) or not content.strip():
         raise ValidationFailure("habilidades cellular artifact is empty")
@@ -38,6 +40,29 @@ def validate_cellular_artifact(content: str) -> None:
         raise ValidationFailure("habilidades cellular artifact misses required sections")
     if "[" in content or "]" in content:
         raise ValidationFailure("habilidades cellular artifact contains placeholders")
+    skills = []
+    in_prioritized = False
+    for line in content.splitlines():
+        if line.strip() == "## Habilidades priorizadas":
+            in_prioritized = True
+            continue
+        if line.startswith("## "):
+            in_prioritized = False
+        if in_prioritized and line.startswith("- "):
+            skills.append(line[2:].strip())
+    prioritized = skills[:15]
+    if len(prioritized) < 2 or len(set(prioritized)) != len(prioritized):
+        raise ValidationFailure("habilidades cellular artifact lacks distinct prioritized skills")
+    if fit_map is not None:
+        entries = fit_map.get("keywords_habilidade_ats") or fit_map.get("keywords_para_ats") or []
+        allowed = {
+            str(item.get("keyword") if isinstance(item, dict) else item).strip().casefold()
+            for item in entries
+        }
+        if allowed and any(skill.casefold() not in allowed for skill in prioritized):
+            raise ValidationFailure("habilidades cellular artifact contains unsupported skill")
+    if evidence is not None and not isinstance(evidence, dict):
+        raise ValidationFailure("habilidades cellular evidence is invalid")
 
 
 GUPY_CATALOG = ROOT / ".agents" / "skills" / "career-system" / "references" / "habilidades_gupy.json"

@@ -69,7 +69,11 @@ def test_repeated_notion_final_sync_reuses_matching_receipt_without_second_mutat
     context = _context(
         tmp_path,
         "sync_notion_final",
-        {"review_feras:feras_review.json": b'{"approved": true}'},
+        {
+            "application_identity": b'{"application_id":"app-1","aliases":{"notion_record_id":"77"}}',
+            "sync_notion_initial:notion_initial_receipt.json": b'{"record_id":"page-123","page_id":"page-123"}',
+            "review_feras:feras_review.json": b'{"approved": true}',
+        },
     )
     handler = production_handler_registry(notion_client=fake_notion)["sync_notion_final"]
 
@@ -80,6 +84,7 @@ def test_repeated_notion_final_sync_reuses_matching_receipt_without_second_mutat
 
     assert first_receipt["request_hash"] == second_receipt["request_hash"]
     assert fake_notion.mutation_count == 1
+    assert fake_notion.requests[0]["record_id"] == "77"
     assert first_receipt["operation"] == "notion_final_sync"
     assert first_receipt["page_id"] == "page-123"
     assert first_receipt["url"] == "https://notion.so/page-123"
@@ -96,6 +101,7 @@ def test_notion_final_never_passes_docx_to_text_only_extra_artifacts(tmp_path):
         "sync_notion_final",
         {
             "review_cv:approved_cv_manifest.json": b'{"application_id": "app-1"}',
+            "sync_notion_initial:notion_initial_receipt.json": b'{"record_id":"page-123","page_id":"page-123"}',
             "render_cv:cv.docx": b"PK\x03\x04not-text",
             "review_feras:feras_review.json": b'{"approved": true}',
         },

@@ -158,7 +158,7 @@ def compile_run_plan(
         if node_id == "normalize_job" and not include_capture:
             requires = tuple(required for required in requires if required != "capture_source")
         elif node_id == "sync_notion_final":
-            requires = notion_dependencies
+            requires = tuple(dict.fromkeys((*contract.requires, *notion_dependencies)))
         missing_dependencies = set(requires) - selected
         if missing_dependencies:
             missing = ", ".join(sorted(missing_dependencies))

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -376,6 +378,35 @@ def _normalized_packs_for_application(context: CellExecutionContext) -> tuple[di
     return normalized, handover, evidence, normalized_hash
 
 
+def _selected_evidence(evidence: Mapping[str, Any]) -> list[dict[str, str]]:
+    items = evidence.get("evidence_items") if isinstance(evidence.get("evidence_items"), list) else []
+    selected: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        evidence_id = str(item.get("id") or item.get("evidence_id") or "").strip()
+        source = str(item.get("source") or item.get("source_id") or "").strip()
+        if evidence_id and source:
+            selected.append({"id": evidence_id, "source": source})
+        if len(selected) == 8:
+            break
+    return selected
+
+
+def _notion_record_id_for_sync(
+    context: CellExecutionContext, phase: str, aliases: Mapping[str, Any]
+) -> str:
+    record_id = str(aliases.get("notion_record_id") or "").strip()
+    if record_id or phase == "initial":
+        return record_id
+    receipt_raw, _receipt_path, _receipt_hash = _read_input(context, "notion_initial_receipt.json")
+    receipt = json.loads(receipt_raw.decode("utf-8"))
+    record_id = str(receipt.get("record_id") or receipt.get("page_id") or "").strip()
+    if not record_id:
+        raise ValueError("Notion final sync requires the initial receipt record/page ID")
+    return record_id
+
+
 def _branch_output(
     context: CellExecutionContext,
     *, artifact_name: str,
@@ -384,6 +415,7 @@ def _branch_output(
     fit_map_hash: str,
     normalized_hash: str,
     normalized_handover: Mapping[str, Any],
+    normalized_evidence: Mapping[str, Any],
 ) -> CellOutput:
     if not content.strip():
         raise ValueError(f"{kind} output is empty")
@@ -406,6 +438,7 @@ def _branch_output(
         "artifact_sha256": artifact_hash,
         "fit_map_sha256": fit_map_hash,
         "normalized_pack_sha256": normalized_hash,
+        "selected_evidence": _selected_evidence(normalized_evidence),
     }
     return CellOutput(
         artifacts={
@@ -420,19 +453,19 @@ def _branch_output(
 
 def _generate_feras(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
-    _normalized, normalized_handover, _evidence, normalized_hash = _normalized_packs_for_application(context)
-    content = feras_service.build_from_fit_map(fit_map)
+    normalized, normalized_handover, evidence, normalized_hash = _normalized_packs_for_application(context)
+    content = feras_service.build_from_fit_map(fit_map, normalized_pack=normalized)
     feras_service.validate_feras_text(content)
     return _branch_output(
         context, artifact_name="feras.md", content=content, kind="feras", fit_map_hash=fit_map_hash,
-        normalized_hash=normalized_hash, normalized_handover=normalized_handover,
+        normalized_hash=normalized_hash, normalized_handover=normalized_handover, normalized_evidence=evidence,
     )
 
 
 def _generate_cover_letter(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
-    _normalized, normalized_handover, _evidence, normalized_hash = _normalized_packs_for_application(context)
-    content = cover_letter_service.build_from_fit_map(fit_map)
+    normalized, normalized_handover, evidence, normalized_hash = _normalized_packs_for_application(context)
+    content = cover_letter_service.build_from_fit_map(fit_map, normalized_pack=normalized)
     cover_letter_service.validate_cover_letter_text(content)
     return _branch_output(
         context,
@@ -442,13 +475,14 @@ def _generate_cover_letter(context: CellExecutionContext) -> CellOutput:
         fit_map_hash=fit_map_hash,
         normalized_hash=normalized_hash,
         normalized_handover=normalized_handover,
+        normalized_evidence=evidence,
     )
 
 
 def _generate_habilidades(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
-    _normalized, normalized_handover, _evidence, normalized_hash = _normalized_packs_for_application(context)
-    content = habilidades_service.build_from_fit_map(fit_map)
+    normalized, normalized_handover, evidence, normalized_hash = _normalized_packs_for_application(context)
+    content = habilidades_service.build_from_fit_map(fit_map, normalized_pack=normalized)
     return _branch_output(
         context,
         artifact_name="habilidades.md",
@@ -457,25 +491,31 @@ def _generate_habilidades(context: CellExecutionContext) -> CellOutput:
         fit_map_hash=fit_map_hash,
         normalized_hash=normalized_hash,
         normalized_handover=normalized_handover,
+        normalized_evidence=evidence,
     )
 
 
 def _review_branch(
     context: CellExecutionContext, *, artifact_name: str, review_name: str, kind: str
 ) -> CellOutput:
-    raw, _path, artifact_hash = _read_input(context, artifact_name)
+    generator = f"generate_{kind}"
+    raw, _path, artifact_hash = _read_named_input(context, f"{generator}:{artifact_name}")
     content = raw.decode("utf-8")
     if kind == "feras":
         feras_service.validate_feras_text(content)
         validator = "validate-feras"
     elif kind == "cover_letter":
-        cover_letter_service.validate_cover_letter_text(content)
+        fit_map, _fit_hash = _fit_map_for_application(context)
+        _normalized, _normalized_handover, normalized_evidence, _normalized_hash = _normalized_packs_for_application(context)
+        cover_letter_service.validate_cellular_artifact(content, fit_map, normalized_evidence)
         validator = "validate-cover-letter"
     else:
-        habilidades_service.validate_cellular_artifact(content)
+        fit_map, _fit_hash = _fit_map_for_application(context)
+        _normalized, _normalized_handover, normalized_evidence, _normalized_hash = _normalized_packs_for_application(context)
+        habilidades_service.validate_cellular_artifact(content, fit_map, normalized_evidence)
         validator = "validate-habilidades"
-    _handover_raw, _handover_path, handover_hash = _read_input(context, "handover_summary.json")
-    _evidence_raw, _evidence_path, evidence_hash = _read_input(context, "evidence_index.json")
+    _handover_raw, _handover_path, handover_hash = _read_named_input(context, f"{generator}:handover_summary.json")
+    _evidence_raw, _evidence_path, evidence_hash = _read_named_input(context, f"{generator}:evidence_index.json")
     review = {
         "kind": f"{kind}_review",
         "application_id": context.application_id,
@@ -557,15 +597,24 @@ def _persist_external_receipt(context: CellExecutionContext, receipt: dict[str, 
     path = _receipt_cache_path(context, str(receipt["request_hash"]))
     context.capabilities.assert_writable(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = ""
     try:
-        with path.open("x", encoding="utf-8") as handle:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+            temp_name = handle.name
             json.dump(receipt, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             handle.write("\n")
-    except FileExistsError:
-        existing = _load_matching_receipt(context, str(receipt["request_hash"]))
-        if existing is None:
-            raise
-        return existing
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.exists():
+            existing = _load_matching_receipt(context, str(receipt["request_hash"]))
+            if existing is None:
+                raise ValueError("existing external receipt is invalid")
+            return existing
+        os.replace(temp_name, path)
+        temp_name = ""
+    finally:
+        if temp_name:
+            Path(temp_name).unlink(missing_ok=True)
     return receipt
 
 
@@ -573,6 +622,7 @@ def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> C
     operation = f"notion_{phase}_sync"
     target = "notion:application"
     identity = _optional_json_input(context, "application_identity")
+    aliases = identity.get("aliases") if isinstance(identity.get("aliases"), Mapping) else {}
     target_status = str(identity.get("target_status") or "Aplicação andamento")
     request_hash = _request_hash(context, operation=operation, target=target, target_status=target_status)
     receipt = _load_matching_receipt(context, request_hash)
@@ -585,7 +635,7 @@ def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> C
             "run_id": context.run_id,
             "node_id": context.node_id,
             "status": target_status,
-            "record_id": str(identity.get("notion_record_id") or ""),
+            "record_id": _notion_record_id_for_sync(context, phase, aliases),
             "fit_map_path": str(_input_path(context, "fit_map.json") or ""),
             "job_description_path": str(_input_path(context, "job_description") or ""),
             # Only text artifacts can be consumed by the legacy extra-artifact reader.
@@ -767,8 +817,38 @@ def _validate_branch_review(context: CellExecutionContext, output: CellOutput) -
         if review_name is None:
             raise ValueError("unknown branch review")
         review = _artifact_json(output, review_name)
+        kind = {
+            "review_feras": "feras",
+            "review_cover_letter": "cover_letter",
+            "review_habilidades": "habilidades",
+        }[context.node_id]
+        generator = f"generate_{kind}"
+        artifact_name = {"feras": "feras.md", "cover_letter": "cover_letter.md", "habilidades": "habilidades.md"}[kind]
+        raw, path, artifact_hash = _read_named_input(context, f"{generator}:{artifact_name}")
+        _handover_raw, _handover_path, handover_hash = _read_named_input(context, f"{generator}:handover_summary.json")
+        _evidence_raw, _evidence_path, evidence_hash = _read_named_input(context, f"{generator}:evidence_index.json")
         if review.get("application_id") != context.application_id or review.get("run_id") != context.run_id:
             raise ValueError("branch review belongs to another application or run")
+        expected = {
+            "node_id": context.node_id,
+            "review_kind": kind,
+            "artifact_name": artifact_name,
+            "artifact_path": str(path),
+            "artifact_sha256": artifact_hash,
+            "handover_sha256": handover_hash,
+            "evidence_index_sha256": evidence_hash,
+            "validator": {
+                "feras": "validate-feras",
+                "cover_letter": "validate-cover-letter",
+                "habilidades": "validate-habilidades",
+            }[kind],
+            "result": "passed",
+            "approved": True,
+        }
+        if any(review.get(field) != value for field, value in expected.items()):
+            raise ValueError("branch review receipt does not bind the generated artifacts")
+        if hashlib.sha256(raw).hexdigest() != artifact_hash:
+            raise ValueError("branch review artifact hash changed")
         if review.get("approved") is not True:
             raise ValueError("branch review is not approved")
     except Exception as exc:
@@ -1055,6 +1135,21 @@ def _read_input(
     digest = hashlib.sha256(content).hexdigest()
     if digest != input_record.get("sha256"):
         raise ValueError(f"cell input hash mismatch: {input_name}")
+    return content, path, digest
+
+
+def _read_named_input(
+    context: CellExecutionContext, input_key: str
+) -> tuple[bytes, Path, str]:
+    record = context.inputs.get(input_key)
+    if not isinstance(record, Mapping):
+        raise ValueError(f"missing required cell input: {input_key}")
+    _assert_input_application_identity(context, record)
+    path = context.capabilities.assert_readable(Path(str(record.get("path", ""))))
+    content = path.read_bytes()
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != record.get("sha256"):
+        raise ValueError(f"cell input hash mismatch: {input_key}")
     return content, path, digest
 
 
