@@ -225,5 +225,107 @@
         "I reduced daily reporting time from four hours to 14 minutes and increased annual revenue from R$80M to R$120M through a margin- and revenue-based inventory-allocation algorithm."
       ]
     }
+  },
+  "filename_slug": "felipe_armel_cv",
+  "summary_profiles": {
+    "pt-BR": {
+      "default_opening": "Executivo com mais de 20 anos em operações, planejamento comercial e inteligência de negócios.",
+      "engineering_opening": "Executivo com formação em Engenharia Química e MBA Corporate Strategy, com mais de 20 anos em operações, planejamento comercial e inteligência de negócios.",
+      "engineering_signals": [
+        "engenharia",
+        "engineer",
+        "industrial",
+        "industria",
+        "manufatura",
+        "manufacturing",
+        "producao",
+        "produção",
+        "qualidade",
+        "quality",
+        "regulatorio",
+        "regulatório",
+        "farmaceut",
+        "pharma",
+        "plant",
+        "lean",
+        "six sigma"
+      ],
+      "template": "{opening} Na trajetória recente, entreguei {first}. Também liderei frentes que geraram {second}. Busco posição de {cargo} conectando canais, pricing, dados e execução."
+    },
+    "en": {
+      "opening": "Operations executive with 20+ years of experience in operations, commercial planning, and business intelligence.",
+      "template": "{opening} I have delivered {first}. I also led initiatives that generated {second}. I am pursuing a {cargo} role connecting channels, pricing, data, and execution."
+    }
+  },
+  "summary_fragments": {
+    "pt-BR": {
+      "wehandle_head_operacoes": [
+        "redução de 13% no custo por atendimento e impacto de 15% na margem bruta",
+        2
+      ],
+      "ifood_diretor_operacoes": [
+        "400 para 800 cidades e budget logístico de R$300MM/ano",
+        2
+      ],
+      "ifood_head_operacoes": [
+        "R$70MM/ano em economia e redução de 60% dos cancelamentos no México",
+        2
+      ],
+      "trifil_sop": [
+        "40K SKUs sob governança de S&OP e R$8MM de redução de GGF",
+        2
+      ],
+      "vivareal_planejamento_operacoes": [
+        "conversão de SDR inbound de 18% para 50% e redução de 40% no custo de vendas",
+        2
+      ],
+      "trifil_inteligencia_comercial": [
+        "faturamento anual de R$80M para R$120M com algoritmo de alocação de estoque",
+        2
+      ],
+      "renault_cs": [
+        "conversão de leads de 24% para 46% com operação internalizada",
+        2
+      ]
+    },
+    "en": {
+      "wehandle_head_operacoes": [
+        "a 13% reduction in cost per contact and a 15% gross-margin impact",
+        2
+      ],
+      "ifood_diretor_operacoes": [
+        "expansion from 400 to 800 cities and management of an annual R$300M budget",
+        2
+      ],
+      "ifood_head_operacoes": [
+        "R$70M in annual savings and a 60% reduction in cancellations in Mexico",
+        2
+      ],
+      "trifil_sop": [
+        "40K SKUs under S&OP governance and an R$8M overhead reduction",
+        2
+      ],
+      "vivareal_planejamento_operacoes": [
+        "inbound SDR conversion from 18% to 50% and a 40% sales-cost reduction",
+        2
+      ],
+      "trifil_inteligencia_comercial": [
+        "annual revenue growth from R$80M to R$120M through an inventory-allocation algorithm",
+        2
+      ],
+      "renault_cs": [
+        "lead conversion growth from 24% to 46% through an in-house operation",
+        2
+      ]
+    }
+  },
+  "experience_locators": {
+    "wehandle_head_operacoes": "wehandle",
+    "ifood_diretor_operacoes": "iFood",
+    "ifood_head_operacoes": "iFood",
+    "renault_cs": "Renault do Brasil",
+    "vivareal_planejamento_operacoes": "VivaReal",
+    "trifil_sop": "Coordenador de S&OP",
+    "trifil_inteligencia_comercial": "Coordenador de Inteligência Comercial"
   }
 }

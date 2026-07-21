@@ -255,10 +255,7 @@ def _build_cv_payload(
     selected_with_bullets = [_materialize_experience(entry, job_family, language="en" if is_en else "pt-BR") for entry in selected]
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
-    summary_inputs = {
-        key: fit_map.get(key)
-        for key in ("cargo", "empresa", "dor_central", "keywords_habilidade_ats", "idioma")
-    }
+    summary_inputs = bounded_summary_inputs(fit_map)
     summary_text, summary_support = _build_summary(selected_with_bullets, summary_inputs, language="en" if is_en else "pt-BR")
     education_list = _facts_education("en" if is_en else "pt-BR")
     candidate = _candidate_contact_facts()
@@ -541,16 +538,13 @@ def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any], *, l
         }
         for fragment, exp_index, bullet_index in support_pairs
     ]
-    if language == "en":
-        opening = "Operations executive with 20+ years of experience in operations, commercial planning, and business intelligence."
-        summary = f"{opening} I have delivered {supports[0]['summary_fragment']}. I also led initiatives that generated {supports[1]['summary_fragment']}. I am pursuing a {cargo} role connecting channels, pricing, data, and execution."
-        return summary, supports
-    opening = _summary_opening(fit_map)
-    summary = (
-        f"{opening} "
-        f"Na trajetória recente, entreguei {supports[0]['summary_fragment']}. "
-        f"Também liderei frentes que geraram {supports[1]['summary_fragment']}. "
-        f"Busco posição de {cargo} conectando canais, pricing, dados e execução."
+    profile = load_canonical_cv_facts()["summary_profiles"][language]
+    opening = profile.get("opening") or _summary_opening(fit_map)
+    summary = str(profile["template"]).format(
+        opening=opening,
+        first=supports[0]["summary_fragment"],
+        second=supports[1]["summary_fragment"],
+        cargo=cargo,
     )
     return summary, supports
 
@@ -566,31 +560,11 @@ def _summary_opening(fit_map: dict[str, Any]) -> str:
         if isinstance(values, list):
             text_parts.extend(str(item) for item in values)
     normalized = _normalize(" ".join(part for part in text_parts if part))
-    engineering_signals = {
-        "engenharia",
-        "engineer",
-        "industrial",
-        "industria",
-        "manufatura",
-        "manufacturing",
-        "producao",
-        "produção",
-        "qualidade",
-        "quality",
-        "regulatorio",
-        "regulatório",
-        "farmaceut",
-        "pharma",
-        "plant",
-        "lean",
-        "six sigma",
-    }
+    profile = load_canonical_cv_facts()["summary_profiles"]["pt-BR"]
+    engineering_signals = profile["engineering_signals"]
     if any(_normalize(signal) in normalized for signal in engineering_signals):
-        return (
-            "Executivo com formação em Engenharia Química e MBA Corporate Strategy, "
-            "com mais de 20 anos em operações, planejamento comercial e inteligência de negócios."
-        )
-    return "Executivo com mais de 20 anos em operações, planejamento comercial e inteligência de negócios."
+        return str(profile["engineering_opening"])
+    return str(profile["default_opening"])
 
 
 def _summary_support_pairs(selected: list[dict[str, Any]], *, language: str = "pt-BR") -> list[tuple[str, int, int]]:
@@ -603,25 +577,7 @@ def _summary_support_pairs(selected: list[dict[str, Any]], *, language: str = "p
         "trifil_inteligencia_comercial",
         "renault_cs",
     ]
-    summary_fragments = {
-        "wehandle_head_operacoes": ("redução de 13% no custo por atendimento e impacto de 15% na margem bruta", 2),
-        "ifood_diretor_operacoes": ("400 para 800 cidades e budget logístico de R$300MM/ano", 2),
-        "ifood_head_operacoes": ("R$70MM/ano em economia e redução de 60% dos cancelamentos no México", 2),
-        "trifil_sop": ("40K SKUs sob governança de S&OP e R$8MM de redução de GGF", 2),
-        "vivareal_planejamento_operacoes": ("conversão de SDR inbound de 18% para 50% e redução de 40% no custo de vendas", 2),
-        "trifil_inteligencia_comercial": ("faturamento anual de R$80M para R$120M com algoritmo de alocação de estoque", 2),
-        "renault_cs": ("conversão de leads de 24% para 46% com operação internalizada", 2),
-    }
-    if language == "en":
-        summary_fragments = {
-            "wehandle_head_operacoes": ("a 13% reduction in cost per contact and a 15% gross-margin impact", 2),
-            "ifood_diretor_operacoes": ("expansion from 400 to 800 cities and management of an annual R$300M budget", 2),
-            "ifood_head_operacoes": ("R$70M in annual savings and a 60% reduction in cancellations in Mexico", 2),
-            "trifil_sop": ("40K SKUs under S&OP governance and an R$8M overhead reduction", 2),
-            "vivareal_planejamento_operacoes": ("inbound SDR conversion from 18% to 50% and a 40% sales-cost reduction", 2),
-            "trifil_inteligencia_comercial": ("annual revenue growth from R$80M to R$120M through an inventory-allocation algorithm", 2),
-            "renault_cs": ("lead conversion growth from 24% to 46% through an in-house operation", 2),
-        }
+    summary_fragments = load_canonical_cv_facts()["summary_fragments"][language]
     by_id = {entry["id"]: index for index, entry in enumerate(selected)}
     pairs: list[tuple[str, int, int]] = []
     for experience_id in desired:
@@ -652,7 +608,7 @@ def _output_name(
     cargo = _slug(cargo_source)
     empresa = _slug(empresa_source)
     suffix = "_en" if (language or _cv_language(fit_map)) == "en" else ""
-    return f"felipe_armel_cv_{cargo}_{empresa}{suffix}.docx"
+    return f"{load_canonical_cv_facts()['filename_slug']}_{cargo}_{empresa}{suffix}.docx"
 
 
 def _cv_language(fit_map: dict[str, Any]) -> str:
@@ -809,7 +765,17 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
     }
 
 
-def validate_canonical_provenance(payload: dict[str, Any]) -> None:
+def bounded_summary_inputs(fit_map: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: fit_map.get(key)
+        for key in ("cargo", "empresa", "dor_central", "keywords_vaga", "competencias_vaga", "keywords_habilidade_ats", "idioma")
+    }
+
+
+def validate_canonical_provenance(
+    payload: dict[str, Any], *, fit_map: dict[str, Any] | None = None,
+    fit_map_path: Path | None = None, fit_map_sha256: str | None = None,
+) -> None:
     """Resolve every submitted evidence ID against canonical source bytes."""
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     facts = metadata.get("candidate_facts") if isinstance(metadata.get("candidate_facts"), dict) else {}
@@ -860,7 +826,7 @@ def validate_canonical_provenance(payload: dict[str, Any]) -> None:
         ):
             raise ValidationFailure("CV evidence locator cannot be resolved")
 
-    _validate_trusted_renderer_values(payload)
+    _validate_trusted_renderer_values(payload, fit_map=fit_map, fit_map_path=fit_map_path, fit_map_sha256=fit_map_sha256)
     required: list[str] = []
     def require(item_id: Any, kind: str, value: Any) -> None:
         item_id = str(item_id or "")
@@ -914,7 +880,10 @@ def _source_excerpt(source_text: str, locator: str) -> str:
     raise ValidationFailure("canonical source excerpt is missing")
 
 
-def _validate_trusted_renderer_values(payload: dict[str, Any]) -> None:
+def _validate_trusted_renderer_values(
+    payload: dict[str, Any], *, fit_map: dict[str, Any] | None,
+    fit_map_path: Path | None, fit_map_sha256: str | None,
+) -> None:
     """Recompute renderer inputs from canonical sources and trusted transforms.
 
     The evidence catalog is intentionally ignored here: it is an audit trail,
@@ -933,15 +902,23 @@ def _validate_trusted_renderer_values(payload: dict[str, Any]) -> None:
     family = str(metadata.get("job_family") or "operations")
     materialized = [_materialize_experience(item, family, language=language) for item in selected]
     expected_candidate = _candidate_contact_facts()
+    if fit_map is None or fit_map_path is None or not fit_map_sha256:
+        raise ValidationFailure("CV canonical evidence requires immutable FIT_MAP input")
     summary_inputs = metadata.get("summary_inputs") if isinstance(metadata.get("summary_inputs"), dict) else {}
+    expected_summary_inputs = bounded_summary_inputs(fit_map)
     if (
         metadata.get("summary_inputs_sha256")
         != hashlib.sha256(json.dumps(summary_inputs, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        or summary_inputs != expected_summary_inputs
         or summary_inputs.get("cargo") != metadata.get("cargo")
     ):
         raise ValidationFailure("CV canonical evidence summary inputs are invalid")
     source_fit_map = Path(str(metadata.get("source_fit_map") or ""))
-    if source_fit_map.is_file() and metadata.get("source_fit_map_sha256") != sha256_file(source_fit_map):
+    if (
+        source_fit_map.resolve() != fit_map_path.resolve()
+        or metadata.get("source_fit_map_sha256") != fit_map_sha256
+        or (source_fit_map.is_file() and sha256_file(source_fit_map) != fit_map_sha256)
+    ):
         raise ValidationFailure("CV canonical evidence FIT_MAP binding changed")
     expected_summary, _support = _build_summary(materialized, summary_inputs, language=language)
     if payload.get("candidate") != expected_candidate or payload.get("stack") != _facts_stack():
@@ -999,16 +976,7 @@ def _english_period(period: str) -> str:
 
 
 def _experience_source_locator(experience_id: str) -> str:
-    locators = {
-        "wehandle_head_operacoes": "wehandle",
-        "ifood_diretor_operacoes": "Ifood",
-        "ifood_head_operacoes": "Ifood",
-        "renault_cs": "Renault do Brasil",
-        "vivareal_planejamento_operacoes": "VivaReal",
-        "trifil_sop": "Coordenador de S&OP",
-        "trifil_inteligencia_comercial": "Coordenador de Inteligência Comercial",
-    }
-    return locators[experience_id]
+    return str(load_canonical_cv_facts()["experience_locators"][experience_id])
 
 
 def _education_source_locator(index: int) -> tuple[str, str]:

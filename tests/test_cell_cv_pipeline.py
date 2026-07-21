@@ -262,7 +262,13 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
             assert payload["metadata"]["candidate_facts_revision"]
             assert all("experience_id" in item and "evidence_id" in item for item in payload["experiences"])
             assert all("experience_id" in item and "evidence_id" in item for item in payload["ats_keyword_coverage"])
-            cv_content.validate_canonical_provenance(payload)
+            payload_fit_path = Path(payload["metadata"]["source_fit_map"])
+            cv_content.validate_canonical_provenance(
+                payload,
+                fit_map=read_json(payload_fit_path),
+                fit_map_path=payload_fit_path,
+                fit_map_sha256=hashlib.sha256(payload_fit_path.read_bytes()).hexdigest(),
+            )
             evidence = payload["metadata"]["candidate_facts"]["evidence"]
             bullet_claim_ids = [
                 bullet["evidence_id"]
@@ -285,7 +291,12 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
             tampered = deepcopy(first_content)
             mutate(tampered)
             with pytest.raises(ValidationFailure, match="evidence"):
-                cv_content.validate_canonical_provenance(tampered)
+                cv_content.validate_canonical_provenance(
+                    tampered,
+                    fit_map=read_json(Path(first_content["metadata"]["source_fit_map"])),
+                    fit_map_path=Path(first_content["metadata"]["source_fit_map"]),
+                    fit_map_sha256=first_content["metadata"]["source_fit_map_sha256"],
+                )
         adversarial = deepcopy(first_content)
         provenance = adversarial["experiencias"][0]["provenance"]
         old_id = provenance["cargo"]
@@ -301,7 +312,26 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
         adversarial["experiencias"][0]["cargo"] = forged_value
         provenance["cargo"] = forged_id
         with pytest.raises(ValidationFailure):
-            cv_content.validate_canonical_provenance(adversarial)
+            cv_content.validate_canonical_provenance(
+                adversarial,
+                fit_map=read_json(Path(first_content["metadata"]["source_fit_map"])),
+                fit_map_path=Path(first_content["metadata"]["source_fit_map"]),
+                fit_map_sha256=first_content["metadata"]["source_fit_map_sha256"],
+            )
+        forged_summary = deepcopy(first_content)
+        forged_summary["metadata"]["cargo"] = "Invented Cargo"
+        forged_summary["metadata"]["summary_inputs"]["cargo"] = "Invented Cargo"
+        forged_summary["metadata"]["summary_inputs_sha256"] = hashlib.sha256(
+            json.dumps(forged_summary["metadata"]["summary_inputs"], ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        forged_summary["resumo"] = "Invented summary"
+        with pytest.raises(ValidationFailure):
+            cv_content.validate_canonical_provenance(
+                forged_summary,
+                fit_map=read_json(Path(first_content["metadata"]["source_fit_map"])),
+                fit_map_path=Path(first_content["metadata"]["source_fit_map"]),
+                fit_map_sha256=first_content["metadata"]["source_fit_map_sha256"],
+            )
         assert first_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"] != second_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"]
         assert not (first.reviews_dir / first_plan.run_id / "cv_review.json").exists()
         assert not (second.reviews_dir / second_plan.run_id / "cv_review.json").exists()

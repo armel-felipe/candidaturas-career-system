@@ -35,6 +35,26 @@ Validation executed after remediation:
 - `pytest -q` — 175 passed
 - `git diff --check` — passed
 
+### Bounded final remediation
+
+Moved the remaining candidate-specific summary openings, achievement fragments,
+localized templates, experience locators and filename prefix into the revisioned
+`candidate_cv_facts.json`; Python and the DOCX renderer now retain generic
+formatting/selection logic only. The facts mutation regression proves that
+canonical JSON changes alter the revision and loaded filename/summary values.
+
+Summary provenance now stores normalized bounded inputs from the actual FIT_MAP,
+their hash, and the FIT_MAP artifact hash. The cell provenance validator passes
+the exact input payload, path and SHA into canonical validation; it recomputes
+the bounded inputs and summary from that immutable input. A forged cargo,
+summary-input hash and summary cannot pass while the FIT_MAP is unchanged.
+
+Validation executed after bounded remediation:
+
+- `pytest tests/test_custom_cv_generation.py tests/test_cell_cv_pipeline.py tests/test_candidate_cv_facts.py -q --maxfail=1` — 10 passed
+- `pytest -q` — 179 passed
+- `git diff --check` — passed
+
 ### Final architecture remediation
 
 Added the canonical structured source

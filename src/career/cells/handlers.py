@@ -473,7 +473,12 @@ def _validate_cv_provenance(
             raise ValueError("cv content FIT_MAP path mismatch")
         if not fit_hash:
             raise ValueError("cv content FIT_MAP hash is missing")
-        cv_content_service.validate_canonical_provenance(payload)
+        cv_content_service.validate_canonical_provenance(
+            payload,
+            fit_map=fit_map,
+            fit_map_path=_fit_path,
+            fit_map_sha256=fit_hash,
+        )
     except Exception as exc:
         reason = f"{type(exc).__name__}:{exc}"
     return _persist_validator_result(context, reason)

@@ -20,9 +20,13 @@ def test_canonical_cv_facts_json_is_revisioned_and_drives_values(tmp_path, monke
     original = cv_content.load_canonical_cv_facts()
     changed = deepcopy(facts)
     changed["candidate"]["location"] = "Canonical Test Location"
+    changed["filename_slug"] = "canonical_test_cv"
+    changed["summary_profiles"]["en"]["opening"] = "Canonical Test Summary"
     facts_path.write_text(json.dumps(changed), encoding="utf-8")
 
     assert provenance.candidate_facts_revision() != original_revision
     assert cv_content.load_canonical_cv_facts()["candidate"]["location"] == "Canonical Test Location"
+    assert cv_content.load_canonical_cv_facts()["filename_slug"] == "canonical_test_cv"
+    assert cv_content.load_canonical_cv_facts()["summary_profiles"]["en"]["opening"] == "Canonical Test Summary"
     with pytest.raises(ValidationFailure):
         cv_content.validate_canonical_provenance({"metadata": {"candidate_facts_revision": original_revision}})
