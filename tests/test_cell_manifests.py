@@ -319,7 +319,7 @@ def test_publish_records_normalized_validators(tmp_path):
                 "report_path": report,
             },
             {
-                "command": "validate-provenance",
+                    "command": "validate-cv-provenance",
                 "result": "passed",
                 "report_path": report,
             },

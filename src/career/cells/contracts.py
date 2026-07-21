@@ -89,7 +89,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
         "compose_cv",
         requires=("analyze_fit",),
         produces=("artifacts/cv_content.json",),
-        validators=("cv:validate-content", "validate-provenance"),
+        validators=("cv:validate-content", "validate-cv-provenance"),
         invalidates=("render_cv", "review_cv", "deliver_cv", "sync_notion_final"),
         repair_scope="cv_content_only",
     ),
@@ -103,7 +103,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "review_cv": _contract(
         "review_cv",
-        requires=("render_cv",),
+        requires=("render_cv", "analyze_fit"),
         produces=("reviews/cv_review.json",),
         validators=("cv:approve",),
         invalidates=("deliver_cv", "sync_notion_final"),

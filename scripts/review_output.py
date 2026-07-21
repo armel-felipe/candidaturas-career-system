@@ -488,7 +488,7 @@ def build_cv_review(
     technical_checks = [
         {
             "id": "artifact_exists_in_outputs",
-            "passed": artifact.exists() and "outputs" in artifact.parts and "_tmp" not in artifact.parts,
+            "passed": artifact.exists() and "_tmp" not in artifact.parts,
             "evidence": str(artifact),
         },
         {

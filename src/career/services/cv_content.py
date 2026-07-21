@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import unicodedata
 import warnings
 from pathlib import Path
 from typing import Any
 
-from career.paths import CAREER_STATE
+from career.paths import CAREER_STATE, ROOT
 from career.services import applications_v2 as applications_v2_service
 from career.services import derived_context as derived_context_service
 from career.services import fit_map as fit_map_service
@@ -292,6 +293,8 @@ def build_cv_content(
         fit_map,
         source_fit_map=str(resolved_fit_map),
         candidate_facts_revision=candidate_facts_revision,
+        application_id=application_paths.application_id,
+        language=_job_description_language(application_paths.job_description),
     )
     write_json(application_paths.cv_content, payload)
     applications_v2_service._validate_cv_content_contract(
@@ -300,17 +303,63 @@ def build_cv_content(
     return payload
 
 
+def render_cv(content_path: Path, output_dir: Path, application_id: str) -> Path:
+    """Render one immutable application CV without consulting global state."""
+    content_path = Path(content_path).resolve()
+    output_dir = Path(output_dir).resolve()
+    if not content_path.is_file():
+        raise ValueError("cv_content_missing")
+    payload = read_json(content_path)
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    if metadata.get("application_id") != application_id:
+        raise ValueError("cv_content_application_id_mismatch")
+    output_name = str(payload.get("output_name") or "").strip()
+    if not output_name or Path(output_name).name != output_name:
+        raise ValueError("cv_content_output_name_invalid")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        "node",
+        "scripts/docx/generate_custom_cv.js",
+        "--content",
+        str(content_path),
+        "--output-dir",
+        str(output_dir),
+        "--application-id",
+        application_id,
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "cv_renderer_failed:\n"
+            f"stdout={result.stdout}\n"
+            f"stderr={result.stderr}"
+        )
+    artifact = output_dir / output_name
+    if not artifact.is_file():
+        raise RuntimeError("cv_renderer_did_not_create_artifact")
+    return artifact
+
+
 def _build_cv_payload(
     active: derived_context_service.ActiveJobContext,
     fit_map: dict[str, Any],
     *,
     source_fit_map: str,
     candidate_facts_revision: str | None = None,
+    application_id: str | None = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     job_family = _infer_job_family(fit_map)
     selected = _select_experiences(fit_map)
     ensure(4 <= len(selected) <= 8, "cv_content_requires_between_4_and_8_experiences")
-    is_en = _cv_language(fit_map) == "en"
+    is_en = (language or _cv_language(fit_map)) == "en"
     selected_with_bullets = [_materialize_experience(entry, job_family, language="en" if is_en else "pt-BR") for entry in selected]
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
@@ -323,28 +372,40 @@ def _build_cv_payload(
             "job_fingerprint": active.fingerprint,
             "job_description_path": derived_context_service._relative(active.job_description_path),
             "candidate_facts_revision": candidate_facts_revision,
+            "application_id": application_id,
             "cargo": fit_map.get("cargo"),
             "empresa": fit_map.get("empresa"),
             "source_fit_map": source_fit_map,
             "job_family": job_family,
             "language": "en" if is_en else "pt-BR",
         },
-        "output_name": _output_name(fit_map, active=active),
+        "output_name": _output_name(fit_map, active=active, language="en" if is_en else "pt-BR"),
         "mode": "concise",
         "persona": _persona_name(fit_map),
         "summary": summary_text,
         "resumo": summary_text,
         "experiences": [
             {
+                "experience_id": exp["id"],
+                "evidence_id": _evidence_id(exp["id"], "experience"),
                 "role": exp["role"],
                 "company": exp["company"],
                 "period": exp["period"],
-                "bullets": [{"text": bullet} for bullet in exp["bullets"]],
+                "bullets": [
+                    {
+                        "text": bullet,
+                        "experience_id": exp["id"],
+                        "evidence_id": _evidence_id(exp["id"], f"bullet:{index}"),
+                    }
+                    for index, bullet in enumerate(exp["bullets"])
+                ],
             }
             for exp in selected_with_bullets
         ],
         "experiencias": [
             {
+                "experience_id": exp["id"],
+                "evidence_id": _evidence_id(exp["id"], "experience"),
                 "cargo": exp["role"],
                 "empresa": exp["company"],
                 "periodo": exp["period"],
@@ -491,6 +552,10 @@ def _build_ats_coverage(selected: list[dict[str, Any]], top8: list[dict[str, Any
             {
                 "keyword": keyword,
                 "experience_index": match_index,
+                "experience_id": selected[match_index]["id"],
+                "evidence_id": _evidence_id(
+                    selected[match_index]["id"], f"bullet:{bullet_index}"
+                ),
                 "experience_role": selected[match_index]["role"],
                 "bullet_index": bullet_index,
                 "coverage_mode": "exact",
@@ -553,6 +618,10 @@ def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any], *, l
         {
             "summary_fragment": fragment,
             "experience_index": exp_index,
+            "experience_id": selected[exp_index]["id"],
+            "evidence_id": _evidence_id(
+                selected[exp_index]["id"], f"bullet:{bullet_index}"
+            ),
             "experience_role": selected[exp_index]["role"],
             "experience_company": selected[exp_index]["company"],
             "bullet_index": bullet_index,
@@ -661,19 +730,31 @@ def _persona_name(fit_map: dict[str, Any]) -> str:
     return "operacoes_planejamento"
 
 
-def _output_name(fit_map: dict[str, Any], *, active: Any | None = None) -> str:
+def _output_name(
+    fit_map: dict[str, Any], *, active: Any | None = None, language: str | None = None
+) -> str:
     # Keep the artifact name stable across reruns by preferring the original
     # intake identity instead of translated/adapted labels inside the FIT_MAP.
     cargo_source = str(getattr(active, "role", "") or fit_map.get("cargo") or "vaga")
     empresa_source = str(getattr(active, "company", "") or fit_map.get("empresa") or "empresa")
     cargo = _slug(cargo_source)
     empresa = _slug(empresa_source)
-    suffix = "_en" if str(fit_map.get("idioma") or "").strip().lower().startswith("en") else ""
+    suffix = "_en" if (language or _cv_language(fit_map)) == "en" else ""
     return f"felipe_armel_cv_{cargo}_{empresa}{suffix}.docx"
 
 
 def _cv_language(fit_map: dict[str, Any]) -> str:
     return "en" if str(fit_map.get("idioma") or "").strip().casefold().startswith("en") else "pt-BR"
+
+
+def _job_description_language(path: Path) -> str:
+    """Use the persisted application description, not FIT_MAP wording, for locale."""
+    text = path.read_text(encoding="utf-8", errors="replace").casefold()
+    english_markers = ("company:", "responsibilities", "requirements", "lead ", "operations")
+    portuguese_markers = ("empresa:", "responsabilidades", "requisitos", "liderar ", "operações")
+    english_score = sum(marker in text for marker in english_markers)
+    portuguese_score = sum(marker in text for marker in portuguese_markers)
+    return "en" if english_score > portuguese_score else "pt-BR"
 
 
 def _normalize(text: str) -> str:
@@ -685,3 +766,8 @@ def _slug(text: str) -> str:
     slug = _normalize(text)
     slug = re.sub(r"[^a-z0-9]+", "_", slug)
     return slug.strip("_") or "arquivo"
+
+
+def _evidence_id(experience_id: str, claim: str) -> str:
+    """Stable candidate-facts pointer for a selected CV claim."""
+    return f"candidate_facts:{experience_id}:{claim}"

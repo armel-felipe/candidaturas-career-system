@@ -16,10 +16,16 @@ const {
 
 const pt = n => n * 2;
 
+function cliOption(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
 const workspace = process.env.CAREER_WORKSPACE || process.cwd();
-const outputDir = process.env.CAREER_OUTPUTS || path.join(workspace, "outputs");
-const cvContentPath = process.env.CAREER_CV_CONTENT || path.join(workspace, ".career-state", "cv_content.json");
-const fitMapPath = process.env.CAREER_FIT_MAP || path.join(workspace, ".career-state", "fit_map.json");
+const outputDir = cliOption("--output-dir") || process.env.CAREER_OUTPUTS || path.join(workspace, "outputs");
+const cvContentPath = cliOption("--content") || process.env.CAREER_CV_CONTENT || path.join(workspace, ".career-state", "cv_content.json");
+const outputNameOverride = cliOption("--output-name") || process.env.CAREER_OUTPUT_NAME;
+const applicationId = cliOption("--application-id") || process.env.CAREER_APPLICATION_ID || "";
 
 function secao(text) {
   return new Paragraph({
@@ -145,7 +151,13 @@ async function main() {
     throw new Error("cv_content.metadata.language must be 'pt-BR' or 'en'");
   }
   const l10n = L10N[lang];
-  const outputName = cv.output_name || process.argv[2] || "felipe_armel_cv.docx";
+  if (applicationId && cv?.metadata?.application_id && cv.metadata.application_id !== applicationId) {
+    throw new Error("cv_content.metadata.application_id does not match the requested application");
+  }
+  const outputName = outputNameOverride || cv.output_name || "felipe_armel_cv.docx";
+  if (path.basename(outputName) !== outputName) {
+    throw new Error("output name must be a single filename");
+  }
   fs.mkdirSync(outputDir, { recursive: true });
 
   const summaryField = lang === "en" ? "summary" : "resumo";

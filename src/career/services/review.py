@@ -119,6 +119,7 @@ def polish_cv(
 
 
 def review_cv(artifact: Path, fit_map_path: Path, registry_path: Path, report_path: Path) -> dict:
+    """Run the objective review against the exact rendered DOCX revision."""
     fit_map = legacy_review_output.read_json(fit_map_path)
     registry = legacy_review_output.read_json(registry_path)
     report = legacy_review_output.build_cv_review(artifact, fit_map, registry, DEFAULT_TRANSLATION_REGISTRY)
@@ -127,7 +128,13 @@ def review_cv(artifact: Path, fit_map_path: Path, registry_path: Path, report_pa
     return report
 
 
-def approve_cv(artifact: Path, fit_map_path: Path, registry_path: Path, report_path: Path, polish_report_path: Path | None = None) -> dict:
+def approve_cv(
+    artifact: Path,
+    fit_map_path: Path,
+    registry_path: Path,
+    report_path: Path,
+    polish_report_path: Path | None = None,
+) -> dict:
     command = [
         sys.executable,
         "scripts/register_keywords.py",
@@ -135,6 +142,10 @@ def approve_cv(artifact: Path, fit_map_path: Path, registry_path: Path, report_p
         str(fit_map_path),
         "--cv",
         str(artifact),
+        "--registry",
+        str(registry_path),
+        "--translation-candidates",
+        str(registry_path.with_name("keyword_translation_candidates.json")),
     ]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
