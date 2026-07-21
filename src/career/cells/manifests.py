@@ -477,6 +477,9 @@ class ManifestStore:
                     "revision": value.get("revision"),
                     "source_kind": str(value.get("source_kind", "artifact")),
                 }
+                for field in ("application_id", "run_id", "node_id", "artifact_manifest_path"):
+                    if value.get(field) is not None:
+                        item[field] = str(value[field])
                 if not item["sha256"]:
                     raise ValueError(f"input {key} requires sha256")
             else:

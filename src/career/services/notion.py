@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import hashlib
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -480,3 +481,50 @@ def perform_cell_sync(client, request: dict) -> dict:
         "page_id": page_id,
         "url": url,
     }
+
+
+class NotionCellAdapter:
+    """Lazy bridge from a cell receipt request to the established Notion sync."""
+
+    def __init__(self, *, env: dict[str, str] | None = None) -> None:
+        self._env = env
+
+    def preflight(self) -> tuple[str, str]:
+        if self._env is not None:
+            token = str(self._env.get("NOTION_TOKEN") or "").strip()
+            database_id = str(self._env.get("NOTION_APPLICATIONS_DATABASE_ID") or "").strip()
+            if not token or not database_id:
+                raise RuntimeError("Notion cell preflight failed: NOTION_TOKEN and NOTION_APPLICATIONS_DATABASE_ID are required")
+            return token, database_id
+        try:
+            return notion_config()
+        except (SystemExit, ValueError) as exc:
+            raise RuntimeError(f"Notion cell preflight failed: {exc}") from exc
+
+    def sync_cell(self, request: dict) -> dict:
+        token, database_id = self.preflight()
+        fit_map_path = Path(str(request.get("fit_map_path") or ""))
+        job_description_path = Path(str(request.get("job_description_path") or ""))
+        if not fit_map_path.is_file() or not job_description_path.is_file():
+            raise RuntimeError("Notion cell preflight requires FIT_MAP and job description artifacts")
+        record_id = str(request.get("record_id") or "").strip()
+        try:
+            if record_id:
+                result = update_from_fit_map_record(
+                    token, database_id, int(record_id), fit_map_path, job_description_path,
+                    status=str(request["status"]), dry_run=False,
+                )
+            else:
+                result = legacy_notion.create_from_fit_map(
+                    token, database_id, fit_map_path, job_description_path,
+                    status=str(request["status"]), dry_run=False,
+                    extra_artifacts=[Path(item) for item in request.get("extra_artifacts", ())],
+                )
+        except (SystemExit, ValueError) as exc:
+            raise RuntimeError(f"Notion cell sync failed: {exc}") from exc
+        page = result.get("page") if isinstance(result.get("page"), dict) else {}
+        page_id = str(result.get("resolved_page_id") or page.get("id") or "")
+        url = str(page.get("url") or "")
+        if not page_id or not url:
+            raise RuntimeError("Notion cell sync did not return a page ID and URL")
+        return {"page_id": page_id, "record_id": str(result.get("resolved_record_id") or record_id or page_id), "url": url}

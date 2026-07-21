@@ -30,6 +30,16 @@ def build_from_fit_map(fit_map: dict[str, Any]) -> str:
     )
 
 
+def validate_cellular_artifact(content: str) -> None:
+    """Apply the local skills policy to the compact cellular output."""
+    if not isinstance(content, str) or not content.strip():
+        raise ValidationFailure("habilidades cellular artifact is empty")
+    if "# Habilidades-chave" not in content or "## Habilidades priorizadas" not in content:
+        raise ValidationFailure("habilidades cellular artifact misses required sections")
+    if "[" in content or "]" in content:
+        raise ValidationFailure("habilidades cellular artifact contains placeholders")
+
+
 GUPY_CATALOG = ROOT / ".agents" / "skills" / "career-system" / "references" / "habilidades_gupy.json"
 MERCADO_LIVRE_CATALOG = ROOT / ".agents" / "skills" / "habilidades-chave" / "references" / "habilidades_mercado_livre.json"
 REQUIRED_REFERENCES = [

@@ -116,7 +116,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "deliver_cv": _contract(
         "deliver_cv",
-        requires=("review_cv",),
+        requires=("render_cv", "review_cv"),
         produces=("artifacts/cv_delivery_receipt.json",),
         validators=("validate-delivery-receipt",),
         resources=("delivery:onedrive-cv",),
@@ -145,8 +145,12 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "generate_feras": _contract(
         "generate_feras",
-        requires=("analyze_fit",),
-        produces=("artifacts/feras.md",),
+        requires=("normalize_job", "analyze_fit"),
+        produces=(
+            "artifacts/feras.md",
+            "artifacts/feras/handover_summary.json",
+            "artifacts/feras/evidence_index.json",
+        ),
         validators=("validate-feras", "validate-provenance"),
         invalidates=("review_feras", "sync_notion_final"),
         repair_scope="feras_content_only",
@@ -161,8 +165,12 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "generate_cover_letter": _contract(
         "generate_cover_letter",
-        requires=("analyze_fit",),
-        produces=("artifacts/cover_letter.md",),
+        requires=("normalize_job", "analyze_fit"),
+        produces=(
+            "artifacts/cover_letter.md",
+            "artifacts/cover_letter/handover_summary.json",
+            "artifacts/cover_letter/evidence_index.json",
+        ),
         validators=("validate-cover-letter", "validate-provenance"),
         invalidates=("review_cover_letter", "sync_notion_final"),
         repair_scope="cover_letter_content_only",
@@ -177,8 +185,12 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     ),
     "generate_habilidades": _contract(
         "generate_habilidades",
-        requires=("analyze_fit",),
-        produces=("artifacts/habilidades.md",),
+        requires=("normalize_job", "analyze_fit"),
+        produces=(
+            "artifacts/habilidades.md",
+            "artifacts/habilidades/handover_summary.json",
+            "artifacts/habilidades/evidence_index.json",
+        ),
         validators=("validate-habilidades", "validate-provenance"),
         invalidates=("review_habilidades", "sync_notion_final"),
         repair_scope="habilidades_content_only",

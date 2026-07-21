@@ -12,6 +12,7 @@ from typing import Any, Callable, TypeAlias
 
 from career.cells.capabilities import CapabilitySet
 from career.services import derived_context as derived_context_service
+from career.services.delivery import CanonicalDeliveryCellAdapter
 from career.services import cv_content as cv_content_service
 from career.services import cover_letter as cover_letter_service
 from career.services import feras as feras_service
@@ -86,6 +87,8 @@ def production_handler_registry(
     *, notion_client: Any = None, delivery_client: Any = None
 ) -> dict[str, CellHandler]:
     """Return the production handlers already migrated to application cells."""
+    notion_client = notion_client or notion_service.NotionCellAdapter()
+    delivery_client = delivery_client or CanonicalDeliveryCellAdapter()
     return {
         "capture_source": _capture_source,
         "normalize_job": _normalize_job,
@@ -358,41 +361,77 @@ def _fit_map_for_application(context: CellExecutionContext) -> tuple[dict[str, A
     return payload, digest
 
 
+def _normalized_packs_for_application(context: CellExecutionContext) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
+    normalized_raw, _normalized_path, normalized_hash = _read_input(context, "job_normalized.json")
+    handover_raw, _handover_path, _handover_hash = _read_input(context, "handover_summary.json")
+    evidence_raw, _evidence_path, _evidence_hash = _read_input(context, "evidence_index.json")
+    normalized = json.loads(normalized_raw.decode("utf-8"))
+    handover = json.loads(handover_raw.decode("utf-8"))
+    evidence = json.loads(evidence_raw.decode("utf-8"))
+    if not all(isinstance(item, dict) for item in (normalized, handover, evidence)):
+        raise ValueError("normalized packs must be JSON objects")
+    for pack in (normalized, handover, evidence):
+        if pack.get("application_id") not in {None, context.application_id}:
+            raise ValueError("normalized pack belongs to another application")
+    return normalized, handover, evidence, normalized_hash
+
+
 def _branch_output(
     context: CellExecutionContext,
     *, artifact_name: str,
     content: str,
     kind: str,
     fit_map_hash: str,
+    normalized_hash: str,
+    normalized_handover: Mapping[str, Any],
 ) -> CellOutput:
     if not content.strip():
         raise ValueError(f"{kind} output is empty")
     content_bytes = content.encode("utf-8")
     artifact_hash = hashlib.sha256(content_bytes).hexdigest()
-    return CellOutput(
-        artifacts={artifact_name: content_bytes},
-        handover={
+    handover = {
             "kind": f"{kind}_handover",
             "application_id": context.application_id,
             "run_id": context.run_id,
             "fit_map_sha256": fit_map_hash,
+            "normalized_pack_sha256": normalized_hash,
             "artifact_sha256": artifact_hash,
+            "job_fingerprint": str(normalized_handover.get("job_fingerprint") or ""),
+    }
+    evidence = {
+        "kind": f"{kind}_evidence_index",
+        "application_id": context.application_id,
+        "run_id": context.run_id,
+        "artifact_name": artifact_name,
+        "artifact_sha256": artifact_hash,
+        "fit_map_sha256": fit_map_hash,
+        "normalized_pack_sha256": normalized_hash,
+    }
+    return CellOutput(
+        artifacts={
+            artifact_name: content_bytes,
+            "handover_summary.json": _json_bytes(handover),
+            "evidence_index.json": _json_bytes(evidence),
         },
+        handover=handover,
         metadata={"fit_map_sha256": fit_map_hash, "artifact_sha256": artifact_hash},
     )
 
 
 def _generate_feras(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
+    _normalized, normalized_handover, _evidence, normalized_hash = _normalized_packs_for_application(context)
     content = feras_service.build_from_fit_map(fit_map)
     feras_service.validate_feras_text(content)
     return _branch_output(
-        context, artifact_name="feras.md", content=content, kind="feras", fit_map_hash=fit_map_hash
+        context, artifact_name="feras.md", content=content, kind="feras", fit_map_hash=fit_map_hash,
+        normalized_hash=normalized_hash, normalized_handover=normalized_handover,
     )
 
 
 def _generate_cover_letter(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
+    _normalized, normalized_handover, _evidence, normalized_hash = _normalized_packs_for_application(context)
     content = cover_letter_service.build_from_fit_map(fit_map)
     cover_letter_service.validate_cover_letter_text(content)
     return _branch_output(
@@ -401,11 +440,14 @@ def _generate_cover_letter(context: CellExecutionContext) -> CellOutput:
         content=content,
         kind="cover_letter",
         fit_map_hash=fit_map_hash,
+        normalized_hash=normalized_hash,
+        normalized_handover=normalized_handover,
     )
 
 
 def _generate_habilidades(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
+    _normalized, normalized_handover, _evidence, normalized_hash = _normalized_packs_for_application(context)
     content = habilidades_service.build_from_fit_map(fit_map)
     return _branch_output(
         context,
@@ -413,6 +455,8 @@ def _generate_habilidades(context: CellExecutionContext) -> CellOutput:
         content=content,
         kind="habilidades",
         fit_map_hash=fit_map_hash,
+        normalized_hash=normalized_hash,
+        normalized_handover=normalized_handover,
     )
 
 
@@ -420,14 +464,31 @@ def _review_branch(
     context: CellExecutionContext, *, artifact_name: str, review_name: str, kind: str
 ) -> CellOutput:
     raw, _path, artifact_hash = _read_input(context, artifact_name)
-    if not raw.strip():
-        raise ValueError(f"{kind} artifact is empty")
+    content = raw.decode("utf-8")
+    if kind == "feras":
+        feras_service.validate_feras_text(content)
+        validator = "validate-feras"
+    elif kind == "cover_letter":
+        cover_letter_service.validate_cover_letter_text(content)
+        validator = "validate-cover-letter"
+    else:
+        habilidades_service.validate_cellular_artifact(content)
+        validator = "validate-habilidades"
+    _handover_raw, _handover_path, handover_hash = _read_input(context, "handover_summary.json")
+    _evidence_raw, _evidence_path, evidence_hash = _read_input(context, "evidence_index.json")
     review = {
         "kind": f"{kind}_review",
         "application_id": context.application_id,
         "run_id": context.run_id,
         "node_id": context.node_id,
+        "review_kind": kind,
+        "artifact_name": artifact_name,
+        "artifact_path": str(_path),
         "artifact_sha256": artifact_hash,
+        "handover_sha256": handover_hash,
+        "evidence_index_sha256": evidence_hash,
+        "validator": validator,
+        "result": "passed",
         "approved": True,
     }
     return CellOutput(
@@ -449,7 +510,7 @@ def _review_habilidades(context: CellExecutionContext) -> CellOutput:
     return _review_branch(context, artifact_name="habilidades.md", review_name="habilidades_review.json", kind="habilidades")
 
 
-def _request_hash(context: CellExecutionContext, *, operation: str, target: str) -> str:
+def _request_hash(context: CellExecutionContext, *, operation: str, target: str, target_status: str = "") -> str:
     inputs = {
         name: str(record.get("sha256") or "")
         for name, record in sorted(context.inputs.items())
@@ -460,6 +521,7 @@ def _request_hash(context: CellExecutionContext, *, operation: str, target: str)
         "node_id": context.node_id,
         "operation": operation,
         "target": target,
+        "target_status": target_status,
         "input_hashes": inputs,
     }
     return hashlib.sha256(_json_bytes(payload)).hexdigest()
@@ -510,7 +572,9 @@ def _persist_external_receipt(context: CellExecutionContext, receipt: dict[str, 
 def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> CellOutput:
     operation = f"notion_{phase}_sync"
     target = "notion:application"
-    request_hash = _request_hash(context, operation=operation, target=target)
+    identity = _optional_json_input(context, "application_identity")
+    target_status = str(identity.get("target_status") or "Aplicação andamento")
+    request_hash = _request_hash(context, operation=operation, target=target, target_status=target_status)
     receipt = _load_matching_receipt(context, request_hash)
     if receipt is None:
         request = {
@@ -520,7 +584,10 @@ def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> C
             "application_id": context.application_id,
             "run_id": context.run_id,
             "node_id": context.node_id,
-            "status": "Aplicação andamento",
+            "status": target_status,
+            "record_id": str(identity.get("notion_record_id") or ""),
+            "fit_map_path": str(_input_path(context, "fit_map.json") or ""),
+            "job_description_path": str(_input_path(context, "job_description") or ""),
             # Only text artifacts can be consumed by the legacy extra-artifact reader.
             "extra_artifacts": [
                 str(record["path"])
@@ -548,13 +615,15 @@ def _sync_notion_final(context: CellExecutionContext, client: Any) -> CellOutput
 
 
 def _deliver_cv(context: CellExecutionContext, client: Any) -> CellOutput:
-    raw, _path, artifact_hash = _read_input(context, "cv.docx")
+    raw, artifact_path, artifact_hash = _read_input(context, "cv.docx")
     approval_raw, _approval_path, _approval_hash = _read_input(context, "approved_cv_manifest.json")
     approval = json.loads(approval_raw.decode("utf-8"))
     if approval.get("application_id") != context.application_id:
         raise ValueError("approved CV manifest belongs to another application")
     if approval.get("approved_for_delivery") is not True:
         raise ValueError("approved CV manifest does not authorize delivery")
+    if approval.get("artifact_path") != str(artifact_path) or approval.get("artifact_sha256") != artifact_hash:
+        raise ValueError("approved CV manifest does not reference the exact DOCX")
     operation = "cv_delivery"
     request_hash = _request_hash(context, operation=operation, target=_CANONICAL_DELIVERY_TARGET)
     receipt = _load_matching_receipt(context, request_hash)
@@ -569,6 +638,7 @@ def _deliver_cv(context: CellExecutionContext, client: Any) -> CellOutput:
             "run_id": context.run_id,
             "node_id": context.node_id,
             "artifact_hash": artifact_hash,
+            "artifact_path": str(artifact_path),
         }
         if hasattr(client, "deliver_cell"):
             response = client.deliver_cell(dict(request), raw)
@@ -608,6 +678,13 @@ def _validate_receipt_payload(receipt: Mapping[str, Any], context: CellExecution
         raise ValueError("external receipt belongs to another application")
     if receipt.get("run_id") != context.run_id or receipt.get("node_id") != context.node_id:
         raise ValueError("external receipt belongs to another run or node")
+    expected_operation = {
+        "deliver_cv": "cv_delivery",
+        "sync_notion_initial": "notion_initial_sync",
+        "sync_notion_final": "notion_final_sync",
+    }.get(context.node_id)
+    if receipt.get("operation") != expected_operation:
+        raise ValueError("external receipt operation does not match its cell node")
     for field in ("request_hash", "response_hash"):
         value = str(receipt.get(field) or "")
         if not re.fullmatch(r"[0-9a-f]{64}", value):
@@ -970,6 +1047,7 @@ def _read_input(
         input_record = matching[0] if len(matching) == 1 else None
     if not isinstance(input_record, Mapping):
         raise ValueError(f"missing required cell input: {input_name}")
+    _assert_input_application_identity(context, input_record)
     path = context.capabilities.assert_readable(Path(str(input_record.get("path", ""))))
     if not path.is_file():
         raise ValueError(f"cell input is not a file: {input_name}")
@@ -978,6 +1056,57 @@ def _read_input(
     if digest != input_record.get("sha256"):
         raise ValueError(f"cell input hash mismatch: {input_name}")
     return content, path, digest
+
+
+def _input_record(context: CellExecutionContext, input_name: str) -> Mapping[str, Any] | None:
+    record = context.inputs.get(input_name)
+    if isinstance(record, Mapping):
+        return record
+    matches = [
+        value for key, value in context.inputs.items()
+        if isinstance(value, Mapping) and (key.endswith(f":{input_name}") or key.endswith(f":{input_name}.json"))
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _input_path(context: CellExecutionContext, input_name: str) -> Path | None:
+    record = _input_record(context, input_name)
+    if record is None:
+        return None
+    _assert_input_application_identity(context, record)
+    return context.capabilities.assert_readable(Path(str(record.get("path", ""))))
+
+
+def _optional_json_input(context: CellExecutionContext, input_name: str) -> dict[str, Any]:
+    record = _input_record(context, input_name)
+    if record is None:
+        return {}
+    _assert_input_application_identity(context, record)
+    path = context.capabilities.assert_readable(Path(str(record.get("path", ""))))
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != record.get("sha256"):
+        raise ValueError(f"cell input hash mismatch: {input_name}")
+    payload = json.loads(content.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"cell input is not a JSON object: {input_name}")
+    if payload.get("application_id") not in {None, context.application_id}:
+        raise ValueError("application identity belongs to another application")
+    return payload
+
+
+def _assert_input_application_identity(context: CellExecutionContext, record: Mapping[str, Any]) -> None:
+    declared = record.get("application_id")
+    if declared is not None and str(declared) != context.application_id:
+        raise ValueError("cell input artifact belongs to another application")
+    manifest_path = record.get("artifact_manifest_path")
+    if not manifest_path:
+        return
+    manifest_file = context.capabilities.assert_readable(Path(str(manifest_path)))
+    manifest = read_json(manifest_file)
+    if manifest.get("application_id") != context.application_id:
+        raise ValueError("cell input artifact manifest belongs to another application")
+    if manifest.get("path") != record.get("path") or manifest.get("sha256") != record.get("sha256"):
+        raise ValueError("cell input artifact manifest does not match its pointer")
 
 
 def _json_bytes(payload: Mapping[str, Any]) -> bytes:

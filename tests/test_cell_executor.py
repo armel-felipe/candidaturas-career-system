@@ -227,6 +227,7 @@ def test_resource_lock_is_requested_only_by_contract(tmp_path, monkeypatch):
 
     monkeypatch.setattr(executor.store, "acquire_resource_lock", recording_acquire)
     executor.mark_validated(plan.run_id, "review_cv")
+    executor.mark_validated(plan.run_id, "render_cv")
     executor.register_handler(
         "deliver_cv", lambda context: CellOutput(artifacts={"receipt.json": b"{}"})
     )
@@ -380,6 +381,7 @@ def test_executor_does_not_publish_when_resource_lease_expires_during_handler(tm
     )
     plan = executor.plan("app-1", {"cv"})
     executor.mark_validated(plan.run_id, "review_cv")
+    executor.mark_validated(plan.run_id, "render_cv")
 
     result = next(
         item for item in executor.run_ready(plan.run_id) if item.node_id == "deliver_cv"
@@ -509,6 +511,7 @@ def test_finish_atomically_rejects_resource_lease_lost_after_publication(
     )
     plan = executor.plan("app-1", {"cv"})
     executor.mark_validated(plan.run_id, "review_cv")
+    executor.mark_validated(plan.run_id, "render_cv")
     real_finish = executor.store.finish_attempt
 
     def expire_resource_then_finish(*args, **kwargs):

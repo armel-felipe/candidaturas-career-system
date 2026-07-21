@@ -53,3 +53,34 @@ habilidades, Notion initial/final synchronization, and CV delivery.
 
 Tests use injected fakes only. No Notion API or rclone/OneDrive write was
 performed. `.inbox/` was not touched.
+
+## Review remediation
+
+Follow-up review findings were remediated with a second RED/GREEN cycle.
+
+- `deliver_cv` now directly requires both `render_cv` and `review_cv`; its
+  approval manifest must bind the exact rendered DOCX path and SHA-256 before
+  the adapter can be called. An executor-level test executes that complete
+  dependency chain with a fake delivery client.
+- Default production wiring now creates lazy `NotionCellAdapter` and
+  `CanonicalDeliveryCellAdapter` instances. They perform no configuration read
+  or external operation during construction and fail with explicit preflight
+  errors only when the external node runs without configuration.
+- Each non-CV output branch requires both normalized job packs and FIT_MAP,
+  publishes its text plus branch handover/evidence artifacts, and reviews with
+  the applicable FERAS, cover-letter, or habilidades validation policy.
+- Input records now retain application/run/node and immutable artifact-manifest
+  pointers. Handlers validate those pointers before reading artifacts.
+- Notion request hashing includes target status; initial and final receipt
+  idempotence are both covered. Receipt write scope is exactly
+  `receipts/<run_id>`.
+
+Final verification after remediation:
+
+```text
+pytest tests/test_cell_notion_delivery.py tests/test_cell_deliverable_branches.py tests/test_cell_executor.py tests/test_cell_planner.py -q
+48 passed
+
+pytest -q
+194 passed
+```

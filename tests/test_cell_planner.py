@@ -19,7 +19,7 @@ def test_cv_and_notion_plan_has_ordered_nodes(tmp_path):
 
 def test_independent_output_branches_are_ready_after_fit(tmp_path):
     plan = compile_run_plan("app-1", {"cv", "feras"}, paths_for("app-1", root=tmp_path))
-    assert {"compose_cv", "generate_feras"} <= set(plan.ready_after({"analyze_fit"}))
+    assert {"compose_cv", "generate_feras"} <= set(plan.ready_after({"normalize_job", "analyze_fit"}))
 
 
 def test_plan_is_frozen_and_persisted_after_validation(tmp_path):

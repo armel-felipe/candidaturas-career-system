@@ -845,7 +845,7 @@ class CellExecutor:
             node,
             allow_unvalidated=allow_unvalidated_inputs,
         )
-        write_paths = self._write_paths_for_node(paths, node, attempt)
+        write_paths = self._write_paths_for_node(paths, node, attempt, run_id)
         return ManifestStore(paths).begin_attempt(
             node.node_id,
             attempt,
@@ -887,7 +887,7 @@ class CellExecutor:
                 "read_paths": [str(store._target(path)) for path in read_paths],
                 "write_paths": [
                     str(store._target(path))
-                    for path in self._write_paths_for_node(paths, node, attempt)
+                    for path in self._write_paths_for_node(paths, node, attempt, run_id)
                 ],
             }
             manifest["inputs_materialized_at"] = utc_now_iso()
@@ -900,7 +900,7 @@ class CellExecutor:
             contract_version=node.contract_version,
             inputs=inputs,
             read_paths=read_paths,
-            write_paths=self._write_paths_for_node(paths, node, attempt),
+            write_paths=self._write_paths_for_node(paths, node, attempt, run_id),
             context={"repair_scope": node.repair_scope},
             status="reserved",
         )
@@ -923,7 +923,7 @@ class CellExecutor:
             contract_version=node.contract_version,
             inputs={},
             read_paths=(),
-            write_paths=self._write_paths_for_node(paths, node, attempt),
+            write_paths=self._write_paths_for_node(paths, node, attempt, run_id),
             context={"repair_scope": node.repair_scope},
             status="reserved",
         )
@@ -1041,8 +1041,13 @@ class CellExecutor:
                     "sha256": persisted_artifact["sha256"],
                     "revision": persisted_artifact.get("revision"),
                     "source_kind": "validated_artifact",
+                    "application_id": persisted_artifact["application_id"],
+                    "run_id": persisted_artifact["run_id"],
+                    "node_id": persisted_artifact["node_id"],
+                    "artifact_manifest_path": persisted_artifact["manifest_path"],
                 }
                 read_paths.append(Path(str(persisted_artifact["path"])))
+                read_paths.append(Path(str(persisted_artifact["manifest_path"])))
         if node.node_id == "normalize_job" and paths.job_description.is_file():
             inputs["job_description"] = paths.job_description
             read_paths.append(paths.job_description)
@@ -1059,11 +1064,17 @@ class CellExecutor:
                 read_paths.append(paths.identity)
         if node.node_id in {"deliver_cv", "sync_notion_initial", "sync_notion_final"}:
             read_paths.append(paths.cells_dir / node.node_id / "receipts" / run_id)
+            if paths.identity.is_file():
+                inputs["application_identity"] = paths.identity
+                read_paths.append(paths.identity)
+            if paths.job_description.is_file():
+                inputs["job_description"] = paths.job_description
+                read_paths.append(paths.job_description)
         return inputs, tuple(read_paths)
 
     @staticmethod
     def _write_paths_for_node(
-        paths: ApplicationPaths, node: NodePlan, attempt: int
+        paths: ApplicationPaths, node: NodePlan, attempt: int, run_id: str = ""
     ) -> tuple[Path, ...]:
         write_paths = [
             paths.cells_dir / node.node_id / str(attempt) / "staging",
@@ -1074,7 +1085,7 @@ class CellExecutor:
         elif node.node_id == "normalize_job":
             write_paths.append(paths.derived_dir)
         elif node.node_id in {"deliver_cv", "sync_notion_initial", "sync_notion_final"}:
-            write_paths.append(paths.cells_dir / node.node_id / "receipts")
+            write_paths.append(paths.cells_dir / node.node_id / "receipts" / run_id)
         return tuple(write_paths)
 
     def _cancel_expired_execution(
