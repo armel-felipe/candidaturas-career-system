@@ -42,6 +42,60 @@ def test_executor_never_runs_child_before_parent(orchestrator):
     assert "render_cv" not in orchestrator.ready_nodes(run_id)
 
 
+def test_two_runs_for_same_application_use_distinct_attempt_data(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    application_paths = paths_for("app-1", root=applications_root)
+    application_paths.app_dir.mkdir(parents=True)
+    application_paths.job_description.write_text("Job description", encoding="utf-8")
+
+    def handler(context):
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    def validator(context, output):
+        report = context.paths.reviews_dir / f"{context.node_id}-{context.attempt}.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("{}", encoding="utf-8")
+        return ValidatorResult.passed(context.validator_command, report)
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"normalize_job": handler},
+        validators={"context:validate": validator},
+    )
+    first = executor.plan("app-1", {"cv"})
+    second = executor.plan("app-1", {"cv"})
+
+    first_result = executor.run_ready(first.run_id)[0]
+    second_result = executor.run_ready(second.run_id)[0]
+
+    assert first_result.status == second_result.status == "validated"
+    assert first_result.manifest_path != second_result.manifest_path
+    assert first.run_id in first_result.manifest_path.parts
+    assert second.run_id in second_result.manifest_path.parts
+    assert json.loads(first_result.manifest_path.read_text(encoding="utf-8"))["run_id"] == first.run_id
+    assert json.loads(second_result.manifest_path.read_text(encoding="utf-8"))["run_id"] == second.run_id
+    first_artifact = database.fetch_one(
+        "SELECT path, content_hash FROM artifacts WHERE run_id = ? AND artifact_name = ?",
+        (first.run_id, "job_normalized.json"),
+    )
+    second_artifact = database.fetch_one(
+        "SELECT path, content_hash FROM artifacts WHERE run_id = ? AND artifact_name = ?",
+        (second.run_id, "job_normalized.json"),
+    )
+    assert first_artifact["content_hash"] == second_artifact["content_hash"]
+    assert first_artifact["path"] != second_artifact["path"]
+    database.close()
+
+
 def test_run_ready_invokes_one_handler_and_all_contract_validators(tmp_path):
     database = Database(tmp_path / "career.db")
     database.init_schema()

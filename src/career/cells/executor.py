@@ -1282,7 +1282,34 @@ class CellExecutor:
         )
         if plan.run_id != run_id or plan.application_id != row["application_id"]:
             raise ValueError("persisted run plan identity mismatch")
-        return plan, paths
+        return plan, self._run_scoped_paths(paths, run_id)
+
+    @staticmethod
+    def _run_scoped_paths(paths: ApplicationPaths, run_id: str) -> ApplicationPaths:
+        if (
+            not run_id
+            or run_id in {".", ".."}
+            or Path(run_id).name != run_id
+            or "\\" in run_id
+        ):
+            raise ValueError("run_id must be a non-empty relative path segment")
+        scoped = replace(
+            paths,
+            cells_dir=paths.cells_dir / run_id,
+            artifacts_dir=paths.artifacts_dir / run_id,
+            reviews_dir=paths.reviews_dir / run_id,
+            run_completion_manifest=(
+                paths.app_dir / "runs" / run_id / "run_completion_manifest.json"
+            ),
+        )
+        for directory in (
+            scoped.cells_dir,
+            scoped.artifacts_dir,
+            scoped.reviews_dir,
+            scoped.run_completion_manifest.parent,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+        return scoped
 
     def _paths(self, application_id: str) -> ApplicationPaths:
         paths = paths_for(application_id, root=self.applications_root)

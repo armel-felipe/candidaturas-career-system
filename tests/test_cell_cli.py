@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from career import cli
+from career.cells import executor as executor_module
 from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services.application_context import paths_for
@@ -66,6 +67,54 @@ def test_cellular_run_rejects_missing_application_id(capsys):
 
     assert exc_info.value.code == 2
     assert "--application-id" in capsys.readouterr().err
+
+
+def test_fresh_cli_run_executes_registered_production_handler_and_validator(
+    tmp_path, monkeypatch, capsys
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    application_paths = paths_for("app-1", root=applications_root)
+    application_paths.app_dir.mkdir(parents=True)
+    application_paths.job_description.write_text(
+        "# Operations Manager\n\nLead planning and logistics operations.",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "Database", lambda: database)
+    monkeypatch.setattr(executor_module, "APPLICATIONS_DIR", applications_root)
+    try:
+        assert cli.main(
+            ["applications", "plan", "--application-id", "app-1", "--deliverable", "cv"]
+        ) == 0
+        run_id = json.loads(capsys.readouterr().out)["run_id"]
+
+        assert cli.main(
+            [
+                "applications",
+                "run",
+                "--application-id",
+                "app-1",
+                "--run-id",
+                run_id,
+            ]
+        ) == 0
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["blocked_nodes"] == []
+        assert payload["ready_nodes"] == ["analyze_fit"]
+        assert database.fetch_one(
+            "SELECT status FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+            (run_id, "normalize_job"),
+        ) == {"status": "validated"}
+        assert {
+            row["artifact_name"]
+            for row in database.fetch_all(
+                "SELECT artifact_name FROM artifacts WHERE run_id = ?", (run_id,)
+            )
+        } == {"job_normalized.json", "handover_summary.json", "evidence_index.json"}
+    finally:
+        database.close()
 
 
 def test_run_repair_and_inspect_are_scoped_to_the_application(capsys, seeded_application):
@@ -266,7 +315,12 @@ def test_run_finalizes_a_terminal_run_and_reports_published_artifacts(
         assert database.fetch_one(
             "SELECT status FROM application_runs WHERE run_id = ?", (plan.run_id,)
         ) == {"status": "completed"}
-        assert application_paths.run_completion_manifest.is_file()
+        assert (
+            application_paths.app_dir
+            / "runs"
+            / plan.run_id
+            / "run_completion_manifest.json"
+        ).is_file()
     finally:
         database.close()
 
