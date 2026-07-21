@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+import threading
 from pathlib import Path
 
 import pytest
 
 from career.cells.executor import CellExecutor
+from career.cells.capabilities import recorded_capability_violations
 from career.cells.handlers import (
     CellOutput,
     ValidatorResult,
@@ -82,6 +87,176 @@ def test_executor_rolls_back_handler_write_into_another_application(tmp_path):
     assert "capability" in result.blocker
     assert not victim.exists()
     assert executor.node_status(plan.run_id, "normalize_job") != "validated"
+    database.close()
+
+
+def test_executor_cancels_handler_that_reads_another_application_secret(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    app_a = paths_for("app-a", root=root)
+    app_b = paths_for("app-b", root=root)
+    app_a.app_dir.mkdir(parents=True)
+    app_b.app_dir.mkdir(parents=True)
+    app_a.job_description.write_text("Operations leadership " * 30, encoding="utf-8")
+    secret = app_b.app_dir / "secret.txt"
+    secret.write_text("foreign-secret", encoding="utf-8")
+
+    def malicious_handler(_context):
+        secret.read_text(encoding="utf-8")
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"normalize_job": malicious_handler},
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    assert result.status == "cancelled"
+    assert "capability" in result.blocker
+    assert secret.read_text(encoding="utf-8") == "foreign-secret"
+    assert any(item["target"] == str(secret.resolve()) for item in recorded_capability_violations())
+    assert executor.node_status(plan.run_id, "normalize_job") != "validated"
+    database.close()
+
+
+def test_executor_cancels_subprocess_and_child_thread_foreign_writes(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    app_a = paths_for("app-a", root=root)
+    app_b = paths_for("app-b", root=root)
+    app_a.app_dir.mkdir(parents=True)
+    app_b.app_dir.mkdir(parents=True)
+    app_a.job_description.write_text("Operations leadership " * 30, encoding="utf-8")
+    subprocess_victim = app_b.app_dir / "subprocess-breach.txt"
+    thread_victim = app_b.app_dir / "thread-breach.txt"
+
+    def malicious_handler(_context):
+        thread = threading.Thread(
+            target=lambda: thread_victim.write_text("breach", encoding="utf-8")
+        )
+        thread.start()
+        thread.join()
+        subprocess.run(["touch", str(subprocess_victim)], check=False)
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"normalize_job": malicious_handler},
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    assert result.status == "cancelled"
+    assert "capability" in result.blocker
+    assert not subprocess_victim.exists()
+    assert not thread_victim.exists()
+    recorded_targets = {item["target"] for item in recorded_capability_violations()}
+    assert str(subprocess_victim.resolve()) in recorded_targets
+    assert str(thread_victim.resolve()) in recorded_targets
+    assert executor.node_status(plan.run_id, "normalize_job") != "validated"
+    database.close()
+
+
+def test_executor_rejects_relative_foreign_path_through_approved_subprocess(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    app_a = paths_for("app-a", root=root)
+    app_b = paths_for("app-b", root=root)
+    app_a.app_dir.mkdir(parents=True)
+    app_b.app_dir.mkdir(parents=True)
+    app_a.job_description.write_text("Operations leadership " * 30, encoding="utf-8")
+    secret = app_b.app_dir / "fit-map-secret.json"
+    secret.write_text('{"secret": true}', encoding="utf-8")
+    relative_secret = os.path.relpath(secret, Path.cwd())
+
+    def malicious_handler(_context):
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/register_keywords.py",
+                "--fit-map",
+                relative_secret,
+            ],
+            check=False,
+        )
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"normalize_job": malicious_handler},
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    assert result.status == "cancelled"
+    assert str(secret.resolve()) in result.blocker
+    assert secret.is_file()
+    database.close()
+
+
+def test_canonical_journal_rejects_foreign_restore_target(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    paths = paths_for("app-a", root=root)
+    paths.app_dir.mkdir(parents=True)
+    foreign = tmp_path / "foreign.txt"
+    foreign.write_text("preserve", encoding="utf-8")
+    journal = paths.app_dir / "cells" / "run-x" / "capture_source" / "1" / "canonical_commit_journal.json"
+    applications_v2.write_json(
+        journal,
+        {
+            "kind": "canonical_commit_journal",
+            "application_id": "app-a",
+            "run_id": "run-x",
+            "node_id": "capture_source",
+            "attempt": 1,
+            "entries": [{"path": str(foreign), "kind": "missing"}],
+        },
+    )
+    executor = CellExecutor(database, applications_root=root)
+
+    with pytest.raises(ValueError, match="canonical journal"):
+        executor._restore_canonical_journal(journal)
+
+    assert foreign.read_text(encoding="utf-8") == "preserve"
     database.close()
 
 
@@ -300,6 +475,232 @@ def test_completed_source_has_durable_cross_run_receipt_and_is_not_redelivered(
     )
     assert receipt["job_fingerprint"] == fingerprint
     assert receipt["delivery"]["artifact_sha256"] == "cv-sha"
+
+
+def test_pending_reprocess_request_overrides_same_source_completion_receipt(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    app = {
+        "record_id": 101,
+        "page_id": "page-a",
+        "status": "Reprocessar",
+        "description": "Operations leadership and planning. " * 30,
+    }
+    paths = applications_v2._ensure_cellular_application(app, applications_root=v2_dir)
+    fingerprint = applications_v2.sha256_file(paths.job_description)
+    delivery_calls: list[str] = []
+
+    def deliver():
+        delivery_calls.append("delivery")
+        return {"status": "delivered", "artifact_sha256": f"sha-{len(delivery_calls)}"}
+
+    first = applications_v2._complete_cellular_application_once(
+        app,
+        paths=paths,
+        run_id="run-old",
+        job_fingerprint=fingerprint,
+        delivery=deliver,
+        update_tracker=lambda _status: None,
+        success_status="Aplicação andamento",
+    )
+    applications_v2.write_json(
+        applications_v2._reprocess_request_path(paths),
+        {
+            "kind": "cellular_reprocess_request",
+            "application_id": paths.application_id,
+            "request_fingerprint": "request-2",
+            "status": "pending",
+            "run_id": "",
+        },
+    )
+
+    second = applications_v2._complete_cellular_application_once(
+        app,
+        paths=paths,
+        run_id="run-new",
+        job_fingerprint=fingerprint,
+        delivery=deliver,
+        update_tracker=lambda _status: None,
+        success_status="Aplicação andamento",
+    )
+
+    assert first["status"] == "completed"
+    assert second["status"] == "completed"
+    assert second["run_id"] == "run-new"
+    assert delivery_calls == ["delivery", "delivery"]
+
+
+def test_failed_canonical_source_commit_has_no_validated_db_or_artifacts_and_retries(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    paths = paths_for("app-a", root=root)
+    paths.app_dir.mkdir(parents=True)
+    (paths.app_dir / "source_input.md").write_text(
+        "Lead operations, planning, indicators, governance, and data analysis. " * 30,
+        encoding="utf-8",
+    )
+    paths.identity.write_text(
+        json.dumps(
+            {
+                "kind": "application_identity",
+                "application_id": "app-a",
+                "source_type": "test",
+                "source_id": "source-a",
+            }
+        ),
+        encoding="utf-8",
+    )
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"capture_source": production_handler_registry()["capture_source"]},
+        validators={"validate-job-description": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+    original_commit = executor._commit_captured_source
+    calls = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("simulated canonical persistence failure")
+        return original_commit(*args, **kwargs)
+
+    monkeypatch.setattr(executor, "_commit_captured_source", fail_once)
+    first = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "capture_source"
+    )
+
+    assert first.status == "blocked", first.blocker
+    assert "canonical" in first.blocker or "publication_commit_error" in first.blocker
+    assert executor.node_status(plan.run_id, "capture_source") == "blocked"
+    assert database.fetch_one(
+        "SELECT COUNT(*) AS count FROM artifacts WHERE run_id = ? AND node_id = ?",
+        (plan.run_id, "capture_source"),
+    ) == {"count": 0}
+    assert list(paths.artifacts_dir.rglob("manifest.json")) == []
+    assert not paths.job_description.exists()
+    assert not paths.source_metadata.exists()
+
+    executor.repair(plan.run_id, "capture_source", "retry canonical persistence")
+    second = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "capture_source"
+    )
+
+    assert second.status == "validated"
+    assert paths.job_description.is_file()
+    assert paths.source_metadata.is_file()
+    database.close()
+
+
+def test_canonical_commit_journal_recovers_process_death_before_db_commit(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    paths = paths_for("app-a", root=root)
+    paths.app_dir.mkdir(parents=True)
+    (paths.app_dir / "source_input.md").write_text(
+        "Lead operations, planning, indicators, governance, and data analysis. " * 30,
+        encoding="utf-8",
+    )
+    paths.identity.write_text(
+        json.dumps(
+            {
+                "kind": "application_identity",
+                "application_id": "app-a",
+                "source_type": "test",
+                "source_id": "source-a",
+            }
+        ),
+        encoding="utf-8",
+    )
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"capture_source": production_handler_registry()["capture_source"]},
+        validators={"validate-job-description": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+    original_finish = executor.store.finish_attempt
+    calls = 0
+
+    def die_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise SystemExit("simulated death after canonical persistence")
+        return original_finish(*args, **kwargs)
+
+    monkeypatch.setattr(executor.store, "finish_attempt", die_once)
+    with pytest.raises(SystemExit, match="simulated death"):
+        executor.run_ready(plan.run_id)
+
+    assert paths.job_description.is_file()
+    assert database.fetch_one(
+        "SELECT status FROM cell_attempts WHERE run_id = ? AND node_id = ? AND attempt = 1",
+        (plan.run_id, "capture_source"),
+    )["status"] != "validated"
+
+    results = executor.run_ready(plan.run_id)
+    retried = next(item for item in results if item.node_id == "capture_source")
+
+    assert retried.status == "validated", retried.blocker
+    assert not list(paths.cells_dir.rglob("canonical_commit_journal.json"))
+    assert database.fetch_one(
+        "SELECT COUNT(*) AS count FROM artifacts WHERE run_id = ? AND node_id = ?",
+        (plan.run_id, "capture_source"),
+    ) == {"count": 1}
+    database.close()
+
+
+def test_finalize_is_idempotent_and_preserves_completed_manifest(tmp_path, monkeypatch):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    from career.cells.manifests import RunCompletion
+    from career.utils import write_json
+
+    executor = CellExecutor(database, applications_root=root)
+    plan = executor.plan("app-a", {"cv"})
+
+    def finish_run(store, run_id, **_kwargs):
+        path = paths_for("app-a", root=root).app_dir / "runs" / run_id / "run_completion_manifest.json"
+        manifest = {
+            "kind": "run_completion_manifest",
+            "application_id": "app-a",
+            "run_id": run_id,
+            "status": "completed",
+            "validated_artifacts": [],
+            "blocked_nodes": [],
+        }
+        write_json(path, manifest)
+        return RunCompletion(path=path, manifest=manifest)
+
+    monkeypatch.setattr(ManifestStore, "finish_run", finish_run)
+
+    first = executor.finalize(plan.run_id)
+    original = first.path.read_bytes()
+    second = executor.finalize(plan.run_id)
+
+    assert second.manifest["status"] == "completed"
+    assert second.path == first.path
+    assert second.path.read_bytes() == original
+    assert database.fetch_one(
+        "SELECT status FROM application_runs WHERE run_id = ?", (plan.run_id,)
+    ) == {"status": "completed"}
+    second.path.write_text("{truncated", encoding="utf-8")
+    recovered = executor.finalize(plan.run_id)
+    assert recovered.manifest["status"] == "completed"
+    assert recovered.path.is_file()
+    database.close()
 
 
 def test_completed_manifest_recovers_cross_run_receipt_before_new_plan(

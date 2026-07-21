@@ -103,6 +103,13 @@ class ManifestStore:
         handover_path = self._target(
             attempt_dir / "handover_summary.json", strict_child=True
         )
+        if handover_path.is_file():
+            existing = read_json(handover_path)
+            if existing != dict(handover):
+                raise RuntimeError(
+                    f"attempt handover already exists with different content: {handover_path}"
+                )
+            return handover_path
         self._write_json_once(handover_path, dict(handover), "attempt handover")
         return handover_path
 

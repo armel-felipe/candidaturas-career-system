@@ -2113,11 +2113,23 @@ def _complete_cellular_application_once(
 ) -> dict[str, Any]:
     """Persist a source-keyed completion receipt so later runs cannot redeliver."""
     receipt_path = _completion_receipt_path(paths)
+    reprocess_request = _read_reprocess_request(paths)
+    reprocess_for_run = bool(
+        reprocess_request
+        and (
+            reprocess_request.get("status") == "pending"
+            or (
+                reprocess_request.get("status") == "consumed"
+                and reprocess_request.get("run_id") == run_id
+            )
+        )
+    )
     if receipt_path.is_file():
         existing = read_json(receipt_path)
         if (
             existing.get("status") == "completed"
             and existing.get("job_fingerprint") == job_fingerprint
+            and not reprocess_for_run
         ):
             return {**existing, "status": "already_completed"}
     delivery_receipt = dict(delivery())
@@ -2136,6 +2148,16 @@ def _complete_cellular_application_once(
         "completed_at": utc_now_iso(),
     }
     write_json(receipt_path, receipt)
+    if reprocess_for_run:
+        write_json(
+            _reprocess_request_path(paths),
+            {
+                **reprocess_request,
+                "status": "completed",
+                "run_id": run_id,
+                "completed_at": receipt["completed_at"],
+            },
+        )
     return receipt
 
 
@@ -2508,7 +2530,12 @@ def _process_cellular_application(
     try:
         job_fingerprint = sha256_file(paths.job_description)
         completion_path = _completion_receipt_path(paths)
-        if not completion_path.is_file():
+        reprocess_request = _read_reprocess_request(paths)
+        reprocess_pending = bool(
+            _is_reprocess_requested(application, config)
+            and reprocess_request.get("status") in {"pending", "consumed"}
+        )
+        if not completion_path.is_file() and not reprocess_pending:
             _recover_completed_cellular_receipt(
                 application,
                 paths=paths,
@@ -2518,7 +2545,7 @@ def _process_cellular_application(
                     application, status, dry_run=False
                 ),
             )
-        if completion_path.is_file():
+        if completion_path.is_file() and not reprocess_pending:
             completion = read_json(completion_path)
             if (
                 completion.get("status") == "completed"

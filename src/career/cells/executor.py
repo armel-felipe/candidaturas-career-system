@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import threading
@@ -19,7 +20,7 @@ from career.cells.handlers import (
     CellValidator,
     ValidatorResult,
 )
-from career.cells.manifests import ManifestStore, RunCompletion
+from career.cells.manifests import ManifestStore, PublishedArtifact, RunCompletion
 from career.cells.planner import NodePlan, RunPlan, compile_run_plan
 from career.services.application_context import (
     APPLICATIONS_DIR,
@@ -155,6 +156,7 @@ class CellExecutor:
     def run_ready(self, run_id: str) -> tuple[CellExecutionResult, ...]:
         self._renew_workspace_lease()
         plan, paths = self._load_run(run_id)
+        self._recover_canonical_journals(paths, run_id)
         results: list[CellExecutionResult] = []
 
         for reservation in self._owned_ready_reservations(run_id):
@@ -429,6 +431,37 @@ class CellExecutor:
                 ).fetchone()
                 if owned is None:
                     raise RuntimeError("stale authoritative workspace lease")
+                run_row = conn.execute(
+                    "SELECT status FROM application_runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if run_row is None:
+                    raise KeyError(f"unknown application run: {run_id}")
+                if run_row["status"] == "completed":
+                    completion_path = (
+                        paths.app_dir
+                        / "runs"
+                        / run_id
+                        / "run_completion_manifest.json"
+                    )
+                    if completion_path.is_file():
+                        try:
+                            persisted = read_json(completion_path)
+                        except Exception:
+                            persisted = {}
+                        if (
+                            persisted.get("kind") == "run_completion_manifest"
+                            and persisted.get("application_id") == paths.application_id
+                            and persisted.get("run_id") == run_id
+                            and persisted.get("status") == "completed"
+                        ):
+                            return RunCompletion(
+                                path=completion_path, manifest=dict(persisted)
+                            )
+                    return ManifestStore(paths).finish_run(
+                        run_id,
+                        validated_artifacts=(),
+                        blocked_nodes=(),
+                    )
                 completion = ManifestStore(paths).finish_run(
                     run_id,
                     validated_artifacts=(),
@@ -807,7 +840,16 @@ class CellExecutor:
                     validator_results,
                     attempt_record=manifest_store._load_attempt(node.node_id, attempt),
                 )
+            canonical_journal: Path | None = None
             try:
+                if node.node_id in {"capture_source", "normalize_job"}:
+                    canonical_journal = self._begin_canonical_journal(
+                        paths, plan.run_id, node.node_id, attempt
+                    )
+                    if node.node_id == "capture_source":
+                        self._commit_captured_source(paths, output, published)
+                    elif output.handover:
+                        self._commit_normalized_derived(paths)
                 self.store.finish_attempt(
                     plan.run_id,
                     node.node_id,
@@ -856,11 +898,11 @@ class CellExecutor:
                             node.node_id,
                             {item.node_id for item in plan.nodes},
                         )
-                if node.node_id == "capture_source":
-                    self._commit_captured_source(paths, output, published)
-                elif node.node_id == "normalize_job" and output.handover:
-                    self._commit_normalized_derived(paths)
+                if canonical_journal is not None:
+                    canonical_journal.unlink(missing_ok=True)
             except Exception as exc:
+                if canonical_journal is not None and canonical_journal.is_file():
+                    self._restore_canonical_journal(canonical_journal)
                 manifest_store.rollback_publications(
                     node.node_id, attempt, published
                 )
@@ -947,6 +989,186 @@ class CellExecutor:
             job_description_path=paths.job_description,
             persist=True,
         )
+
+    @staticmethod
+    def _canonical_targets(paths: ApplicationPaths, node_id: str) -> tuple[Path, ...]:
+        if node_id == "capture_source":
+            return (paths.job_description, paths.source_metadata)
+        if node_id == "normalize_job":
+            return (paths.derived_dir,)
+        return ()
+
+    def _begin_canonical_journal(
+        self,
+        paths: ApplicationPaths,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+    ) -> Path:
+        entries: list[dict[str, Any]] = []
+        for target in self._canonical_targets(paths, node_id):
+            resolved = target.resolve()
+            if resolved.is_dir():
+                files = sorted(path for path in resolved.rglob("*") if path.is_file())
+                entries.append(
+                    {
+                        "path": str(resolved),
+                        "kind": "directory",
+                        "files": {
+                            str(path.relative_to(resolved)): base64.b64encode(
+                                path.read_bytes()
+                            ).decode("ascii")
+                            for path in files
+                        },
+                    }
+                )
+            elif resolved.is_file():
+                entries.append(
+                    {
+                        "path": str(resolved),
+                        "kind": "file",
+                        "content": base64.b64encode(resolved.read_bytes()).decode("ascii"),
+                    }
+                )
+            else:
+                entries.append({"path": str(resolved), "kind": "missing"})
+        journal = (
+            paths.cells_dir
+            / node_id
+            / str(attempt)
+            / "canonical_commit_journal.json"
+        )
+        write_json(
+            journal,
+            {
+                "kind": "canonical_commit_journal",
+                "application_id": paths.application_id,
+                "run_id": run_id,
+                "node_id": node_id,
+                "attempt": attempt,
+                "state": "prepared",
+                "entries": entries,
+                "created_at": utc_now_iso(),
+            },
+        )
+        return journal
+
+    @staticmethod
+    def _restore_canonical_journal(journal: Path) -> None:
+        payload = CellExecutor._validate_canonical_journal(journal)
+        for entry in payload.get("entries", []):
+            target = Path(str(entry["path"])).resolve()
+            kind = entry.get("kind")
+            if kind == "directory":
+                target.mkdir(parents=True, exist_ok=True)
+                expected = set((entry.get("files") or {}).keys())
+                for current in sorted(
+                    (path for path in target.rglob("*") if path.is_file()), reverse=True
+                ):
+                    if str(current.relative_to(target)) not in expected:
+                        current.unlink(missing_ok=True)
+                for relative, encoded in (entry.get("files") or {}).items():
+                    restored = (target / relative).resolve()
+                    if not restored.is_relative_to(target):
+                        raise ValueError(
+                            "canonical journal directory entry escapes its target"
+                        )
+                    restored.parent.mkdir(parents=True, exist_ok=True)
+                    restored.write_bytes(base64.b64decode(encoded))
+            elif kind == "file":
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(base64.b64decode(entry["content"]))
+            elif kind == "missing":
+                if target.is_file() or target.is_symlink():
+                    target.unlink(missing_ok=True)
+                elif target.is_dir():
+                    for current in sorted(target.rglob("*"), reverse=True):
+                        if current.is_file() or current.is_symlink():
+                            current.unlink(missing_ok=True)
+                        elif current.is_dir():
+                            current.rmdir()
+                    target.rmdir()
+        journal.unlink(missing_ok=True)
+
+    @staticmethod
+    def _validate_canonical_journal(journal: Path) -> dict[str, Any]:
+        journal = Path(journal).resolve()
+        payload = read_json(journal)
+        if payload.get("kind") != "canonical_commit_journal":
+            raise ValueError("canonical journal has invalid kind")
+        try:
+            attempt = int(journal.parent.name)
+            node_id = journal.parent.parent.name
+            run_id = journal.parent.parent.parent.name
+            cells_dir = journal.parent.parent.parent.parent
+            app_root = cells_dir.parent
+        except (IndexError, ValueError) as exc:
+            raise ValueError("canonical journal path is invalid") from exc
+        if cells_dir.name != "cells" or journal.name != "canonical_commit_journal.json":
+            raise ValueError("canonical journal path is invalid")
+        application_id = str(payload.get("application_id") or "")
+        expected_paths = paths_for(application_id, root=app_root.parent)
+        if expected_paths.app_dir.resolve() != app_root.resolve():
+            raise ValueError("canonical journal application path mismatch")
+        if (
+            payload.get("run_id") != run_id
+            or payload.get("node_id") != node_id
+            or payload.get("attempt") != attempt
+        ):
+            raise ValueError("canonical journal identity mismatch")
+        expected_targets = {
+            str(path.resolve())
+            for path in CellExecutor._canonical_targets(expected_paths, node_id)
+        }
+        entries = payload.get("entries")
+        if not isinstance(entries, list) or {
+            str(Path(str(entry.get("path") or "")).resolve())
+            for entry in entries
+            if isinstance(entry, Mapping)
+        } != expected_targets:
+            raise ValueError("canonical journal targets do not match the cell contract")
+        if len(entries) != len(expected_targets):
+            raise ValueError("canonical journal has duplicate or missing targets")
+        return dict(payload)
+
+    def _recover_canonical_journals(
+        self, paths: ApplicationPaths, run_id: str
+    ) -> None:
+        for journal in paths.cells_dir.glob("*/[0-9]*/canonical_commit_journal.json"):
+            try:
+                payload = self._validate_canonical_journal(journal)
+                if payload.get("run_id") != run_id:
+                    continue
+                row = self.database.fetch_one(
+                    "SELECT status FROM cell_attempts WHERE run_id = ? AND node_id = ? AND attempt = ?",
+                    (run_id, payload.get("node_id"), payload.get("attempt")),
+                )
+                if row and row.get("status") == "validated":
+                    journal.unlink(missing_ok=True)
+                    continue
+                record = ManifestStore(paths)._load_attempt(
+                    str(payload["node_id"]), int(payload["attempt"])
+                )
+                publications = []
+                for output in record.manifest.get("outputs", ()):
+                    manifest_path = Path(str(output["manifest_path"])).resolve()
+                    persisted = read_json(manifest_path)
+                    publications.append(
+                        PublishedArtifact(
+                            path=Path(str(persisted["path"])).resolve(),
+                            manifest_path=manifest_path,
+                            manifest=dict(persisted),
+                        )
+                    )
+                if publications:
+                    ManifestStore(paths).rollback_publications(
+                        str(payload["node_id"]), int(payload["attempt"]), publications
+                    )
+                self._restore_canonical_journal(journal)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"canonical commit recovery failed for {journal}: {exc}"
+                ) from exc
 
     def _run_validators(
         self,
@@ -1230,13 +1452,14 @@ class CellExecutor:
             validate_draft_binding=validate_draft_binding,
         )
         write_paths = self._write_paths_for_node(paths, node, attempt, run_id)
+        manifest_path = paths.cells_dir / node.node_id / str(attempt) / "manifest.json"
         return ManifestStore(paths).begin_attempt(
             node.node_id,
             attempt,
             run_id=run_id,
             contract_version=node.contract_version,
             inputs=inputs,
-            read_paths=read_paths,
+            read_paths=(*read_paths, manifest_path),
             write_paths=write_paths,
             context={
                 "repair_scope": node.repair_scope,
@@ -1263,6 +1486,7 @@ class CellExecutor:
             validate_draft_binding=validate_draft_binding,
         )
         manifest_path = paths.cells_dir / node.node_id / str(attempt) / "manifest.json"
+        read_paths = (*read_paths, manifest_path)
         if manifest_path.is_file():
             record = store._load_attempt(node.node_id, attempt)
             if record.manifest.get("run_id") != run_id:
@@ -1384,6 +1608,7 @@ class CellExecutor:
                 raise ValueError(f"dependency attempt manifest is not validated: {dependency}")
             if manifest.get("context", {}).get("synthetic") is True:
                 continue
+            read_paths.append(manifest_path)
             outputs = manifest.get("outputs", ())
             if not isinstance(outputs, list):
                 raise ValueError(f"dependency outputs are invalid: {dependency}")
@@ -1445,8 +1670,15 @@ class CellExecutor:
         if node.node_id == "normalize_job" and paths.job_description.is_file():
             inputs["job_description"] = paths.job_description
             read_paths.append(paths.job_description)
+            if paths.identity.is_file():
+                read_paths.append(paths.identity)
         if node.node_id == "analyze_fit":
             read_paths.append(paths.fit_map_draft)
+            read_paths.extend(
+                path
+                for path in (paths.job_description, paths.identity, paths.derived_dir)
+                if path.exists()
+            )
             if validate_draft_binding:
                 self._validate_fit_map_draft_binding(
                     paths,
@@ -1455,6 +1687,17 @@ class CellExecutor:
                 )
             if paths.fit_map_draft.is_file():
                 inputs["fit_map_draft"] = paths.fit_map_draft
+        if node.node_id == "compose_cv":
+            read_paths.extend(
+                path
+                for path in (
+                    paths.job_description,
+                    paths.identity,
+                    paths.derived_dir,
+                    paths.fit_map_draft,
+                )
+                if path.exists()
+            )
         if node.node_id == "capture_source":
             source_input = paths.app_dir / "source_input.md"
             if source_input.is_file():
