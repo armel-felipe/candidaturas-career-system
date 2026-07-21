@@ -87,6 +87,18 @@ class CellExecutor:
             raise ValueError("validator command is required")
         self.validators[command] = validator
 
+    @staticmethod
+    def _receipt_metadata(metadata: Mapping[str, Any]) -> dict[str, str]:
+        """Retain only a deterministic metadata digest in SQLite receipts."""
+        if not metadata:
+            return {}
+        serialized = json.dumps(
+            dict(metadata), sort_keys=True, separators=(",", ":"), default=str
+        )
+        return {
+            "metadata_sha256": hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        }
+
     def plan(self, application_id: str, deliverables: Iterable[str]) -> RunPlan:
         paths = self._paths(application_id)
         plan = compile_run_plan(application_id, deliverables, paths)
@@ -511,7 +523,7 @@ class CellExecutor:
                         "status": "validated",
                         "paths": [],
                         "hashes": {},
-                        "metadata": dict(output.metadata),
+                        "metadata": self._receipt_metadata(output.metadata),
                     },
                 )
                 contents = {
@@ -573,7 +585,7 @@ class CellExecutor:
                         "hashes": {
                             str(item.path): item.manifest["sha256"] for item in published
                         },
-                        "metadata": dict(output.metadata),
+                        "metadata": self._receipt_metadata(output.metadata),
                     },
                     resource_leases=acquired_resources,
                     published_artifacts=tuple(
