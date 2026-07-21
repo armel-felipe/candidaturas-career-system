@@ -1,6 +1,6 @@
 # Status — Orquestração Celular
 
-Atualizado em: 2026-07-21 — Fatia E aprovada; revisão ampla final pendente
+Atualizado em: 2026-07-21 — Fatia E em revalidação; achados da revisão ampla em correção
 
 | Campo | Estado |
 |---|---|
