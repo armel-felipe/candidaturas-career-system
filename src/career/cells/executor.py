@@ -42,6 +42,7 @@ class CellExecutionResult:
     manifest_path: Path
     artifact_manifest_paths: tuple[Path, ...] = ()
     blocker: str = ""
+    workspace_owner: str = ""
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ class CellExecutor:
             expected_control_db_id=workspace_control_db_id,
             require_authority=require_authoritative_workspace,
         )
+        self.workspace_fence_token: int | None = None
 
     def register_handler(self, node_id: str, handler: CellHandler) -> None:
         self._contract(node_id)
@@ -366,6 +368,7 @@ class CellExecutor:
             status="repairing",
             repair_reason=reason,
             allow_unvalidated_inputs=True,
+            validate_draft_binding=False,
         )
         return RepairResult(
             run_id=run_id,
@@ -434,14 +437,16 @@ class CellExecutor:
         self._set_manual_terminal(run_id, paths, node_id, "blocked", reason)
 
     def _renew_workspace_lease(self) -> None:
-        if not self.workspace_lease.acquire(
-            self.workspace_owner, ttl_seconds=self.lease_seconds
-        ):
-            current = self.workspace_lease.inspect() or {}
-            raise RuntimeError(
-                "workspace lease is owned by another authoritative copy: "
-                f"{current.get('owner') or 'unknown'}"
-            )
+        if self.workspace_fence_token is None:
+            if not self.workspace_lease.acquire(
+                self.workspace_owner, ttl_seconds=self.lease_seconds
+            ):
+                current = self.workspace_lease.inspect() or {}
+                raise RuntimeError(
+                    "workspace lease is owned by another authoritative copy: "
+                    f"{current.get('owner') or 'unknown'}"
+                )
+            self.workspace_fence_token = self.workspace_lease.fence_token
         if not self.workspace_lease.heartbeat(
             self.workspace_owner, ttl_seconds=self.lease_seconds
         ):
@@ -486,6 +491,7 @@ class CellExecutor:
         context = self._context_from_manifest(paths, node, attempt_record.path)
         acquired_resources: list[Mapping[str, Any]] = []
         keepalive_context = None
+        authority_fence_context = None
         try:
             for resource in node.resources:
                 lock = self.store.acquire_resource_lock(
@@ -551,6 +557,10 @@ class CellExecutor:
                         return self._cancel_expired_execution(
                             paths, node, reservation, attempt_record.path
                         )
+                    if failure == "workspace_lease_expired":
+                        return self._cancel_stale_workspace_execution(
+                            reservation, node, attempt_record.path
+                        )
                     return self._block_reserved(
                         paths,
                         node,
@@ -575,6 +585,10 @@ class CellExecutor:
             if lease_failure == "node_lease_expired":
                 return self._cancel_expired_execution(
                     paths, node, reservation, attempt_record.path
+                )
+            if lease_failure == "workspace_lease_expired":
+                return self._cancel_stale_workspace_execution(
+                    reservation, node, attempt_record.path
                 )
             if lease_failure is not None:
                 return self._block_reserved(
@@ -621,6 +635,10 @@ class CellExecutor:
                 )
             validator_results = self._run_validators(context, output, node.validators)
             if keepalive["failure"]:
+                if keepalive["failure"] == "workspace_lease_expired":
+                    return self._cancel_stale_workspace_execution(
+                        reservation, node, attempt_record.path
+                    )
                 return self._block_reserved(
                     paths,
                     node,
@@ -636,6 +654,10 @@ class CellExecutor:
             if lease_failure == "node_lease_expired":
                 return self._cancel_expired_execution(
                     paths, node, reservation, attempt_record.path
+                )
+            if lease_failure == "workspace_lease_expired":
+                return self._cancel_stale_workspace_execution(
+                    reservation, node, attempt_record.path
                 )
             if lease_failure is not None:
                 return self._block_reserved(
@@ -653,6 +675,15 @@ class CellExecutor:
                 return self._block_reserved(
                     paths, node, reservation, reason, staged_paths, validator_results
                 )
+            authority_fence_context = self.database.authority_ledger_lock()
+            authority_fence_context.__enter__()
+            if self.database.authority_ledger_path is not None:
+                try:
+                    self.database.assert_authoritative_storage()
+                except ValueError:
+                    return self._cancel_stale_workspace_execution(
+                        reservation, node, attempt_record.path
+                    )
             if output.handover:
                 try:
                     manifest_store.write_handover(
@@ -707,6 +738,10 @@ class CellExecutor:
                 manifest_store.rollback_publications(
                     node.node_id, attempt, published
                 )
+                if keepalive["failure"] == "workspace_lease_expired":
+                    return self._cancel_stale_workspace_execution(
+                        reservation, node, attempt_record.path
+                    )
                 return self._block_reserved(
                     paths,
                     node,
@@ -726,6 +761,10 @@ class CellExecutor:
                 if lease_failure == "node_lease_expired":
                     return self._cancel_expired_execution(
                         paths, node, reservation, attempt_record.path
+                    )
+                if lease_failure == "workspace_lease_expired":
+                    return self._cancel_stale_workspace_execution(
+                        reservation, node, attempt_record.path
                     )
                 return self._block_reserved(
                     paths,
@@ -752,6 +791,7 @@ class CellExecutor:
                         "metadata": self._receipt_metadata(output.metadata),
                     },
                     workspace_owner=self.workspace_owner,
+                    workspace_fence_token=self.workspace_fence_token,
                     resource_leases=acquired_resources,
                     published_artifacts=tuple(
                         {
@@ -795,6 +835,10 @@ class CellExecutor:
                     return self._cancel_expired_execution(
                         paths, node, reservation, attempt_record.path
                     )
+                if lease_failure == "workspace_lease_expired":
+                    return self._cancel_stale_workspace_execution(
+                        reservation, node, attempt_record.path
+                    )
                 return self._block_reserved(
                     paths,
                     node,
@@ -814,8 +858,11 @@ class CellExecutor:
                 artifact_manifest_paths=tuple(
                     item.manifest_path for item in published
                 ),
+                workspace_owner=self.workspace_owner,
             )
         finally:
+            if authority_fence_context is not None:
+                authority_fence_context.__exit__(None, None, None)
             if keepalive_context is not None:
                 keepalive_context.__exit__(None, None, None)
             for lock in reversed(acquired_resources):
@@ -904,13 +951,17 @@ class CellExecutor:
         interval = max(min(self.lease_seconds / 3, 30.0), 0.1)
 
         def heartbeat() -> None:
-            database = Database(self.database.db_path)
+            database = Database(
+                self.database.db_path,
+                authority_ledger_path=self.database.authority_ledger_path,
+            )
             try:
                 database.init_schema()
                 store = CellStore(database)
                 workspace = WorkspaceLease(
                     database, default_ttl_seconds=self.lease_seconds
                 )
+                workspace._fence_token = self.workspace_fence_token
                 while not stop.wait(interval):
                     if not workspace.heartbeat(
                         self.workspace_owner, ttl_seconds=self.lease_seconds
@@ -1003,8 +1054,13 @@ class CellExecutor:
                 "status": "blocked",
                 "paths": [str(path) for path in staged],
                 "hashes": hashes,
-                "metadata": {"reason": str(reason)[:256]},
+                "metadata": {
+                    "reason": str(reason)[:256],
+                    "workspace_owner": self.workspace_owner,
+                },
             },
+            workspace_owner=self.workspace_owner,
+            workspace_fence_token=self.workspace_fence_token,
         )
         manifest = dict(read_json(record.path))
         manifest["validators"] = [self._validator_mapping(item) for item in validators]
@@ -1014,6 +1070,7 @@ class CellExecutor:
             "repair_scope": node.repair_scope,
         }
         manifest["finished_at"] = utc_now_iso()
+        manifest["workspace_owner"] = self.workspace_owner
         write_json(record.path, manifest)
         return CellExecutionResult(
             run_id=str(reservation["run_id"]),
@@ -1022,6 +1079,7 @@ class CellExecutor:
             status="blocked",
             manifest_path=record.path,
             blocker=str(reason),
+            workspace_owner=self.workspace_owner,
         )
 
     def _defer_reserved(
@@ -1052,6 +1110,7 @@ class CellExecutor:
             "repair_scope": node.repair_scope,
         }
         manifest["finished_at"] = utc_now_iso()
+        manifest["workspace_owner"] = self.workspace_owner
         write_json(attempt_record.path, manifest)
         return CellExecutionResult(
             run_id=run_id,
@@ -1060,6 +1119,7 @@ class CellExecutor:
             status="deferred",
             manifest_path=attempt_record.path,
             blocker=str(reason),
+            workspace_owner=self.workspace_owner,
         )
 
     def _begin_attempt(
@@ -1072,6 +1132,7 @@ class CellExecutor:
         status: str,
         repair_reason: str | None = None,
         allow_unvalidated_inputs: bool = False,
+        validate_draft_binding: bool = True,
     ):
         inputs, read_paths = self._inputs_for_node(
             run_id,
@@ -1079,6 +1140,7 @@ class CellExecutor:
             node,
             attempt=attempt,
             allow_unvalidated=allow_unvalidated_inputs,
+            validate_draft_binding=validate_draft_binding,
         )
         write_paths = self._write_paths_for_node(paths, node, attempt, run_id)
         return ManifestStore(paths).begin_attempt(
@@ -1329,14 +1391,16 @@ class CellExecutor:
         paths: ApplicationPaths, *, run_id: str, attempt: int
     ) -> None:
         binding_path = paths.app_dir / "fit_map.draft.binding.json"
-        if not binding_path.is_file():
-            return
         reasons: list[str] = []
-        try:
-            binding = read_json(binding_path)
-        except Exception as exc:
+        if not binding_path.is_file():
             binding = {}
-            reasons.append(f"invalid_json:{type(exc).__name__}")
+            reasons.append("binding_missing")
+        else:
+            try:
+                binding = read_json(binding_path)
+            except Exception as exc:
+                binding = {}
+                reasons.append(f"invalid_json:{type(exc).__name__}")
         draft_hash = hashlib.sha256(paths.fit_map_draft.read_bytes()).hexdigest()
         job_hash = (
             hashlib.sha256(paths.job_description.read_bytes()).hexdigest()
@@ -1414,6 +1478,7 @@ class CellExecutor:
                 "repair_scope": node.repair_scope,
             }
             manifest["finished_at"] = utc_now_iso()
+            manifest["workspace_owner"] = self.workspace_owner
             write_json(manifest_path, manifest)
         return CellExecutionResult(
             run_id=str(reservation["run_id"]),
@@ -1422,6 +1487,24 @@ class CellExecutor:
             status="cancelled",
             manifest_path=manifest_path,
             blocker="node_lease_expired",
+            workspace_owner=self.workspace_owner,
+        )
+
+    def _cancel_stale_workspace_execution(
+        self,
+        reservation: Mapping[str, Any],
+        node: NodePlan,
+        manifest_path: Path,
+    ) -> CellExecutionResult:
+        """Return a fenced result without mutating DB/manifests after authority loss."""
+        return CellExecutionResult(
+            run_id=str(reservation["run_id"]),
+            node_id=node.node_id,
+            attempt=int(reservation["attempt"]),
+            status="cancelled",
+            manifest_path=manifest_path,
+            blocker="workspace_lease_expired",
+            workspace_owner=self.workspace_owner,
         )
 
     def _set_manual_terminal(

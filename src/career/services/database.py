@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import hashlib
+import json
 import platform
 import sqlite3
+import tempfile
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,8 +16,21 @@ from career.paths import CAREER_STATE
 
 
 class Database:
-    def __init__(self, db_path: str | Path | None = None):
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        *,
+        authority_ledger_path: str | Path | None = None,
+    ):
         self.db_path = Path(db_path or os.path.join(CAREER_STATE, "career.db"))
+        configured_ledger = authority_ledger_path or os.environ.get(
+            "CAREER_AUTHORITY_LEDGER_PATH"
+        )
+        self.authority_ledger_path = (
+            Path(configured_ledger).expanduser().resolve()
+            if configured_ledger
+            else None
+        )
         self._conn: sqlite3.Connection | None = None
 
     def get_connection(self) -> sqlite3.Connection:
@@ -191,6 +206,7 @@ class Database:
                 lease_name TEXT PRIMARY KEY,
                 worker_id TEXT NOT NULL,
                 run_id TEXT REFERENCES application_runs(run_id),
+                lease_epoch INTEGER NOT NULL DEFAULT 1,
                 acquired_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL
             );
@@ -214,6 +230,8 @@ class Database:
                 singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
                 control_db_id TEXT NOT NULL UNIQUE,
                 storage_identity TEXT,
+                authority_epoch INTEGER NOT NULL DEFAULT 1,
+                lease_epoch_counter INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
 
@@ -223,6 +241,8 @@ class Database:
                 prior_storage_identity TEXT NOT NULL,
                 new_storage_identity TEXT NOT NULL,
                 new_owner TEXT NOT NULL,
+                prior_authority_epoch INTEGER NOT NULL DEFAULT 1,
+                new_authority_epoch INTEGER NOT NULL DEFAULT 1,
                 authorized_at TEXT NOT NULL
             );
 
@@ -243,11 +263,43 @@ class Database:
         }
         if "lease_id" not in resource_lock_columns:
             conn.execute("ALTER TABLE resource_locks ADD COLUMN lease_id TEXT")
+        workspace_lease_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(workspace_leases)")
+        }
+        if "lease_epoch" not in workspace_lease_columns:
+            conn.execute(
+                "ALTER TABLE workspace_leases "
+                "ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 1"
+            )
         authority_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(workspace_authority)")
         }
         if "storage_identity" not in authority_columns:
             conn.execute("ALTER TABLE workspace_authority ADD COLUMN storage_identity TEXT")
+        if "authority_epoch" not in authority_columns:
+            conn.execute(
+                "ALTER TABLE workspace_authority "
+                "ADD COLUMN authority_epoch INTEGER NOT NULL DEFAULT 1"
+            )
+        if "lease_epoch_counter" not in authority_columns:
+            conn.execute(
+                "ALTER TABLE workspace_authority "
+                "ADD COLUMN lease_epoch_counter INTEGER NOT NULL DEFAULT 0"
+            )
+        handoff_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(workspace_authority_handoffs)")
+        }
+        if "prior_authority_epoch" not in handoff_columns:
+            conn.execute(
+                "ALTER TABLE workspace_authority_handoffs "
+                "ADD COLUMN prior_authority_epoch INTEGER NOT NULL DEFAULT 1"
+            )
+        if "new_authority_epoch" not in handoff_columns:
+            conn.execute(
+                "ALTER TABLE workspace_authority_handoffs "
+                "ADD COLUMN new_authority_epoch INTEGER NOT NULL DEFAULT 1"
+            )
         storage_identity = self.physical_storage_identity()
         conn.execute(
             """INSERT OR IGNORE INTO workspace_authority
@@ -266,6 +318,7 @@ class Database:
             (storage_identity,),
         )
         conn.commit()
+        self._initialize_authority_ledger()
 
     def control_db_identity(self) -> str:
         row = self.fetch_one(
@@ -293,7 +346,8 @@ class Database:
 
     def assert_authoritative_storage(self) -> str:
         row = self.fetch_one(
-            """SELECT control_db_id, storage_identity FROM workspace_authority
+            """SELECT control_db_id, storage_identity, authority_epoch
+               FROM workspace_authority
                WHERE singleton_id = 1"""
         )
         if row is None or not row.get("storage_identity"):
@@ -304,6 +358,20 @@ class Database:
                 "physical control database copy is not authoritative; "
                 "an explicit storage handoff is required"
             )
+        if self.authority_ledger_path is not None:
+            ledger = self._read_authority_ledger()
+            if str(ledger.get("control_db_id") or "") != str(row["control_db_id"]):
+                raise ValueError("shared authority ledger control database mismatch")
+            local_epoch = int(row.get("authority_epoch") or 0)
+            ledger_epoch = int(ledger.get("authority_epoch") or 0)
+            if local_epoch != ledger_epoch:
+                raise ValueError(
+                    "authority epoch revoked for this physical control database copy"
+                )
+            if str(ledger.get("storage_identity") or "") != actual:
+                raise ValueError(
+                    "shared authority ledger designates another physical control database copy"
+                )
         return actual
 
     def authorize_storage_handoff(
@@ -314,37 +382,155 @@ class Database:
         owner = str(new_owner or "").strip()
         if not expected or not owner:
             raise ValueError("control database identity and new owner are required")
+        if self.authority_ledger_path is None:
+            raise ValueError(
+                "CAREER_AUTHORITY_LEDGER_PATH is required for cross-storage handoff"
+            )
         actual = self.physical_storage_identity()
         now = datetime.now(UTC).isoformat()
-        with self.transaction(immediate=True) as conn:
-            authority = conn.execute(
-                """SELECT control_db_id, storage_identity FROM workspace_authority
-                   WHERE singleton_id = 1"""
-            ).fetchone()
-            if authority is None or str(authority["control_db_id"]) != expected:
-                raise ValueError("authoritative control database identity does not match")
-            active = conn.execute(
-                """SELECT worker_id, expires_at FROM workspace_leases
-                   WHERE lease_name = 'authoritative-workspace'"""
-            ).fetchone()
-            if active is not None and str(active["expires_at"]) > now:
-                raise RuntimeError(
-                    "cannot authorize storage handoff while workspace lease is active"
-                )
-            prior = str(authority["storage_identity"] or "")
-            if prior != actual:
-                conn.execute(
-                    """INSERT INTO workspace_authority_handoffs
-                       (control_db_id, prior_storage_identity, new_storage_identity,
-                        new_owner, authorized_at) VALUES (?, ?, ?, ?, ?)""",
-                    (expected, prior, actual, owner, now),
-                )
-                conn.execute(
-                    """UPDATE workspace_authority SET storage_identity = ?
-                       WHERE singleton_id = 1""",
-                    (actual,),
-                )
+        with self.authority_ledger_lock():
+            ledger = self._read_authority_ledger()
+            with self.transaction(immediate=True) as conn:
+                authority = conn.execute(
+                    """SELECT control_db_id, storage_identity, authority_epoch
+                       FROM workspace_authority WHERE singleton_id = 1"""
+                ).fetchone()
+                if authority is None or str(authority["control_db_id"]) != expected:
+                    raise ValueError(
+                        "authoritative control database identity does not match"
+                    )
+                if str(ledger.get("control_db_id") or "") != expected:
+                    raise ValueError("shared authority ledger identity does not match")
+                local_epoch = int(authority["authority_epoch"] or 0)
+                ledger_epoch = int(ledger.get("authority_epoch") or 0)
+                if local_epoch != ledger_epoch:
+                    raise ValueError("handoff source authority epoch is stale")
+                prior = str(authority["storage_identity"] or "")
+                if str(ledger.get("storage_identity") or "") != prior:
+                    raise ValueError("handoff source storage authority is stale")
+                active = conn.execute(
+                    """SELECT worker_id, expires_at FROM workspace_leases
+                       WHERE lease_name = 'authoritative-workspace'"""
+                ).fetchone()
+                if active is not None and str(active["expires_at"]) > now:
+                    raise RuntimeError(
+                        "cannot authorize storage handoff while workspace lease is active"
+                    )
+                new_epoch = local_epoch + 1
+                if prior != actual:
+                    conn.execute(
+                        """INSERT INTO workspace_authority_handoffs
+                           (control_db_id, prior_storage_identity,
+                            new_storage_identity, new_owner,
+                            prior_authority_epoch, new_authority_epoch,
+                            authorized_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            expected,
+                            prior,
+                            actual,
+                            owner,
+                            local_epoch,
+                            new_epoch,
+                            now,
+                        ),
+                    )
+                    conn.execute(
+                        """UPDATE workspace_authority
+                           SET storage_identity = ?, authority_epoch = ?
+                           WHERE singleton_id = 1""",
+                        (actual, new_epoch),
+                    )
+                else:
+                    new_epoch = local_epoch
+            self._write_authority_ledger(
+                {
+                    "control_db_id": expected,
+                    "authority_epoch": new_epoch,
+                    "storage_identity": actual,
+                    "owner": owner,
+                    "updated_at": now,
+                }
+            )
         return actual
+
+    def _initialize_authority_ledger(self) -> None:
+        if self.authority_ledger_path is None:
+            return
+        with self.authority_ledger_lock():
+            if self.authority_ledger_path.is_file():
+                self._read_authority_ledger()
+                return
+            row = self.fetch_one(
+                """SELECT control_db_id, storage_identity, authority_epoch
+                   FROM workspace_authority WHERE singleton_id = 1"""
+            )
+            if row is None:
+                raise RuntimeError("workspace authority row is missing")
+            self._write_authority_ledger(
+                {
+                    "control_db_id": row["control_db_id"],
+                    "authority_epoch": int(row.get("authority_epoch") or 1),
+                    "storage_identity": row["storage_identity"],
+                    "owner": "bootstrap",
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            )
+
+    @contextmanager
+    def authority_ledger_lock(self) -> Iterator[None]:
+        """Serialize shared-ledger handoff/finalization across workspace copies."""
+        if self.authority_ledger_path is None:
+            yield
+            return
+        import fcntl
+
+        lock_path = self.authority_ledger_path.with_suffix(
+            self.authority_ledger_path.suffix + ".lock"
+        )
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def _read_authority_ledger(self) -> dict:
+        if self.authority_ledger_path is None:
+            raise ValueError("shared authority ledger is not configured")
+        try:
+            payload = json.loads(
+                self.authority_ledger_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("shared authority ledger is missing or invalid") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("shared authority ledger is invalid")
+        return payload
+
+    def _write_authority_ledger(self, payload: dict) -> None:
+        if self.authority_ledger_path is None:
+            raise ValueError("shared authority ledger is not configured")
+        self.authority_ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, raw_temp = tempfile.mkstemp(
+            prefix=f".{self.authority_ledger_path.name}.",
+            dir=self.authority_ledger_path.parent,
+        )
+        temp_path = Path(raw_temp)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, self.authority_ledger_path)
+            directory_fd = os.open(self.authority_ledger_path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     @contextmanager
     def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:

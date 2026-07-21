@@ -158,6 +158,30 @@ def _run_through(executor: CellExecutor, run_id: str, target: str):
     for _ in range(12):
         if executor.node_status(run_id, target) in {"validated", "blocked"}:
             break
+        if (
+            executor.node_status(run_id, "normalize_job") == "validated"
+            and executor.node_status(run_id, "analyze_fit") == "planned"
+        ):
+            prepared = executor.prepare_ready_node(run_id, "analyze_fit")
+            application_id = executor.resume(run_id).application_id
+            paths = paths_for(application_id, root=executor.applications_root)
+            write_json(
+                paths.app_dir / "fit_map.draft.binding.json",
+                {
+                    "kind": "cellular_fit_map_draft_binding",
+                    "application_id": application_id,
+                    "run_id": run_id,
+                    "node_id": "analyze_fit",
+                    "attempt": prepared.attempt,
+                    "job_fingerprint": hashlib.sha256(
+                        paths.job_description.read_bytes()
+                    ).hexdigest(),
+                    "draft_sha256": hashlib.sha256(
+                        paths.fit_map_draft.read_bytes()
+                    ).hexdigest(),
+                    "manifest_path": str(prepared.manifest_path.resolve()),
+                },
+            )
         batch = executor.run_ready(run_id)
         results.extend(batch)
         if not batch:

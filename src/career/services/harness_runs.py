@@ -180,34 +180,50 @@ def _protected_database_snapshot(root: Path) -> dict[str, str]:
     database_path = root.resolve() / ".career-state" / "career.db"
     if not database_path.is_file():
         return {}
-    protected_queries = {
-        "workspace_authority": "SELECT * FROM workspace_authority",
-        "workspace_authority_handoffs": "SELECT * FROM workspace_authority_handoffs",
-        "applications": "SELECT * FROM applications",
-        "workflow_events": "SELECT * FROM workflow_events",
-        "application_runs": "SELECT * FROM application_runs",
-        "cell_nodes": (
-            "SELECT run_id, node_id, status, requires_json, reserved_by, "
-            "latest_attempt, created_at FROM cell_nodes"
-        ),
-        "cell_attempts": "SELECT * FROM cell_attempts",
-        "artifacts": "SELECT * FROM artifacts",
-        "artifact_dependencies": "SELECT * FROM artifact_dependencies",
-    }
     snapshot: dict[str, str] = {}
     connection = sqlite3.connect(
         f"file:{database_path}?mode=ro", uri=True, timeout=2.0
     )
     try:
-        existing = {
+        schema_rows = sorted(
+            (
+                tuple(row)
+                for row in connection.execute(
+                    """SELECT type, name, tbl_name, sql FROM sqlite_master
+                       WHERE name NOT LIKE 'sqlite_%'
+                       ORDER BY type, name"""
+                ).fetchall()
+            ),
+            key=repr,
+        )
+        snapshot[".career-state/career.db::schema"] = hashlib.sha256(
+            json.dumps(schema_rows, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        tables = sorted(
             str(row[0])
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
+                """SELECT name FROM sqlite_master
+                   WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"""
             )
+        )
+        normalized_queries = {
+            # Only renewal timestamps may move while the specialist is alive.
+            "workspace_leases": (
+                "SELECT lease_name, worker_id, run_id, lease_epoch, acquired_at "
+                "FROM workspace_leases"
+            ),
+            "resource_locks": (
+                "SELECT resource_name, worker_id, lease_id, acquired_at "
+                "FROM resource_locks"
+            ),
+            "cell_nodes": (
+                "SELECT run_id, node_id, status, requires_json, reserved_by, "
+                "latest_attempt, created_at FROM cell_nodes"
+            ),
         }
-        for table, query in protected_queries.items():
-            if table not in existing:
-                continue
+        for table in tables:
+            quoted = table.replace('"', '""')
+            query = normalized_queries.get(table, f'SELECT * FROM "{quoted}"')
             rows = sorted(
                 (tuple(row) for row in connection.execute(query).fetchall()),
                 key=repr,

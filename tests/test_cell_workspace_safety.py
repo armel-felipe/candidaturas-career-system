@@ -18,7 +18,7 @@ from career.services.application_context import WorkspaceLease, workspace_owner_
 from career.services.database import Database
 from career.services.harness_runs import HarnessRunStore, allowed_outputs_from_request
 from career.services.harness_supervisor import HarnessSupervisor
-from career.utils import ValidationFailure, write_json
+from career.utils import ValidationFailure, utc_now_iso, write_json
 
 
 @pytest.fixture
@@ -168,7 +168,8 @@ def test_authoritative_workspace_rejects_a_byte_copied_control_database(tmp_path
 def test_explicit_storage_handoff_rebinds_a_released_byte_copy(tmp_path):
     source_path = tmp_path / "source" / "career.db"
     target_path = tmp_path / "target" / "career.db"
-    source = Database(source_path)
+    authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+    source = Database(source_path, authority_ledger_path=authority_ledger)
     source.init_schema()
     control_db_id = source.control_db_identity()
     lease = WorkspaceLease(source)
@@ -178,7 +179,7 @@ def test_explicit_storage_handoff_rebinds_a_released_byte_copy(tmp_path):
     target_path.parent.mkdir(parents=True)
     shutil.copy2(source_path, target_path)
 
-    target = Database(target_path)
+    target = Database(target_path, authority_ledger_path=authority_ledger)
     target.init_schema()
     rebound = target.authorize_storage_handoff(
         expected_control_db_id=control_db_id,
@@ -199,16 +200,72 @@ def test_explicit_storage_handoff_rebinds_a_released_byte_copy(tmp_path):
     target.close()
 
 
+def test_handoff_shared_authority_ledger_revokes_the_origin_copy_on_restart(
+    tmp_path,
+):
+    """A copied SQLite DB is not authority; one shared handoff ledger is."""
+    source_path = tmp_path / "source" / "career.db"
+    target_path = tmp_path / "target" / "career.db"
+    authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+    source = Database(source_path, authority_ledger_path=authority_ledger)
+    source.init_schema()
+    control_db_id = source.control_db_identity()
+    source_lease = WorkspaceLease(
+        source,
+        expected_control_db_id=control_db_id,
+        require_authority=True,
+    )
+    assert source_lease.acquire("macbook", ttl_seconds=60)
+    assert source_lease.release("macbook")
+    source.close()
+    target_path.parent.mkdir(parents=True)
+    shutil.copy2(source_path, target_path)
+
+    target = Database(target_path, authority_ledger_path=authority_ledger)
+    target.init_schema()
+    target.authorize_storage_handoff(
+        expected_control_db_id=control_db_id,
+        new_owner="rpi5",
+    )
+    assert WorkspaceLease(
+        target,
+        expected_control_db_id=control_db_id,
+        require_authority=True,
+    ).acquire("rpi5", ttl_seconds=60)
+
+    restarted_origin = Database(
+        source_path, authority_ledger_path=authority_ledger
+    )
+    try:
+        with pytest.raises(ValueError, match="authority epoch|revoked"):
+            WorkspaceLease(
+                restarted_origin,
+                expected_control_db_id=control_db_id,
+                require_authority=True,
+            )
+    finally:
+        restarted_origin.close()
+        target.close()
+
+
 def test_authorize_handoff_cli_rebinds_control_database(tmp_path, monkeypatch, capsys):
     source_path = tmp_path / "source" / "career.db"
     target_path = tmp_path / "target" / "career.db"
-    source = Database(source_path)
+    authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+    source = Database(source_path, authority_ledger_path=authority_ledger)
     source.init_schema()
     control_db_id = source.control_db_identity()
     source.close()
     target_path.parent.mkdir(parents=True)
     shutil.copy2(source_path, target_path)
-    monkeypatch.setattr(cli, "Database", lambda: Database(target_path))
+    monkeypatch.setattr(
+        cli,
+        "Database",
+        lambda *args, **kwargs: Database(
+            target_path,
+            authority_ledger_path=authority_ledger,
+        ),
+    )
 
     exit_code = cli.main(
         [
@@ -522,7 +579,8 @@ def test_cell_executor_fences_publication_when_workspace_keepalive_fails_in_vali
 
     result = executor.run_ready(plan.run_id)[0]
 
-    assert result.status == "blocked"
+    assert result.status == "cancelled"
+    assert result.workspace_owner == "rpi5"
     assert result.blocker == "workspace_lease_expired"
     assert result.artifact_manifest_paths == ()
     assert not list(paths.artifacts_dir.rglob("manifest.json"))
@@ -577,7 +635,8 @@ def test_cell_executor_rolls_back_publication_if_workspace_fence_is_lost_at_comm
 
     result = executor.run_ready(plan.run_id)[0]
 
-    assert result.status == "blocked"
+    assert result.status == "cancelled"
+    assert result.workspace_owner == "rpi5"
     assert "workspace" in result.blocker
     assert not list(paths.artifacts_dir.rglob("manifest.json"))
     database.close()
@@ -1059,6 +1118,144 @@ def test_executor_rejects_and_quarantines_a_tampered_fit_map_draft_binding(
     database.close()
 
 
+def test_executor_rejects_and_quarantines_an_unbound_fit_map_draft(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text(
+        "Lead operations and planning.\n", encoding="utf-8"
+    )
+    called: list[str] = []
+
+    def analyze(_context):
+        called.append("analyze_fit")
+        return CellOutput(artifacts={"fit_map.json": b'{"score": 8}'})
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"analyze_fit": analyze},
+        workspace_owner="rpi5",
+    )
+    plan = executor.plan("app-a", {"cv"})
+    executor.mark_validated(plan.run_id, "normalize_job")
+    prepared = executor.prepare_ready_node(plan.run_id, "analyze_fit")
+    paths.fit_map_draft.write_text(
+        '{"cargo": "Operations Lead"}', encoding="utf-8"
+    )
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
+    )
+
+    assert result.status == "blocked"
+    assert "draft_binding" in result.blocker
+    assert called == []
+    assert not paths.fit_map_draft.exists()
+    assert list(paths.requests_dir.rglob("*fit_map.draft.json"))
+    database.close()
+
+
+def test_lease_epoch_transfer_during_finalization_cannot_commit_or_publish(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text(
+        "Lead operations and planning.\n", encoding="utf-8"
+    )
+
+    def analyze(_context):
+        return CellOutput(artifacts={"fit_map.json": b'{"score": 8}'})
+
+    def pass_validator(context, _output):
+        report = context.paths.reviews_dir / f"{context.validator_command}.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("{}", encoding="utf-8")
+        return ValidatorResult.passed(context.validator_command, report)
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"analyze_fit": analyze},
+        validators={
+            "validate:fit-map": pass_validator,
+            "validate:fit-map:quality": pass_validator,
+            "validate-provenance": pass_validator,
+        },
+        workspace_owner="shared-owner",
+    )
+    plan = executor.plan("app-a", {"cv"})
+    executor.mark_validated(plan.run_id, "normalize_job")
+    prepared = executor.prepare_ready_node(plan.run_id, "analyze_fit")
+    paths.fit_map_draft.write_text(
+        '{"cargo": "Operations Lead"}', encoding="utf-8"
+    )
+    write_json(
+        paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": "app-a",
+            "run_id": plan.run_id,
+            "node_id": "analyze_fit",
+            "attempt": prepared.attempt,
+            "job_fingerprint": applications_v2.sha256_file(
+                paths.job_description
+            ),
+            "draft_sha256": applications_v2.sha256_file(paths.fit_map_draft),
+            "manifest_path": str(prepared.manifest_path.resolve()),
+        },
+    )
+    original_finish = executor.store.finish_attempt
+    transferred = False
+
+    def transfer_then_finish(*args, **kwargs):
+        nonlocal transferred
+        if not transferred and kwargs.get("workspace_owner"):
+            transferred = True
+            database.execute(
+                "UPDATE workspace_leases "
+                "SET lease_epoch = lease_epoch + 1, expires_at = ? "
+                "WHERE lease_name = ?",
+                (
+                    (datetime.now(UTC) + timedelta(seconds=60)).isoformat(),
+                    WorkspaceLease.LEASE_NAME,
+                ),
+            )
+        return original_finish(*args, **kwargs)
+
+    monkeypatch.setattr(executor.store, "finish_attempt", transfer_then_finish)
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
+    )
+
+    assert transferred is True, result
+    assert result.status == "cancelled"
+    assert result.workspace_owner == "shared-owner"
+    assert database.fetch_one(
+        "SELECT status FROM cell_nodes WHERE run_id = ? AND node_id = 'analyze_fit'",
+        (plan.run_id,),
+    ) == {"status": "reserved"}
+    assert database.fetch_one(
+        "SELECT COUNT(*) AS count FROM artifacts WHERE run_id = ? AND node_id = 'analyze_fit'",
+        (plan.run_id,),
+    ) == {"count": 0}
+    if result.manifest_path.exists():
+        attempt_manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+        assert attempt_manifest["status"] == "reserved"
+        assert attempt_manifest.get("outputs") in (None, [])
+    assert not [
+        path for path in applications_root.rglob("fit_map.json") if path.is_file()
+    ]
+    database.close()
+
+
 def test_reprocess_recovers_run_created_before_marker_update_without_duplicate(
     tmp_path, monkeypatch
 ):
@@ -1421,6 +1618,57 @@ def test_cellular_harness_reports_authoritative_database_corruption_as_violation
     assert any("career.db::integrity" in item for item in isolation["unauthorized_workspace_changes"])
 
 
+def test_cellular_harness_detects_notion_cache_and_schema_changes(tmp_path):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    allowed = application_dir / "fit_map.draft.json"
+    request = application_dir / "requests" / "request.json"
+    request_md = application_dir / "requests" / "request.md"
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(allowed)],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    database_path = tmp_path / ".career-state" / "career.db"
+    database = Database(database_path)
+    database.init_schema()
+    database.close()
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    database = Database(database_path)
+    database.execute(
+        "INSERT INTO notion_cache "
+        "(id, raw_json, company, role, funil_stage, canal_aplicacao, "
+        "tipo_empresa, status, url, last_synced) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "rogue",
+            "{}",
+            "Rogue",
+            "Role",
+            "Fila Agente",
+            "",
+            "",
+            "active",
+            "",
+            utc_now_iso(),
+        ),
+    )
+    database.execute("CREATE TABLE rogue_schema_change (id TEXT PRIMARY KEY)")
+    database.close()
+
+    isolation = run.inspect()
+
+    assert isolation["status"] == "blocked"
+    changes = isolation["unauthorized_workspace_changes"]
+    assert ".career-state/career.db::notion_cache" in changes
+    assert ".career-state/career.db::schema" in changes
+
+
 def test_cellular_request_rules_never_direct_the_agent_to_global_state(tmp_path):
     context = {
         "cellular": True,
@@ -1487,6 +1735,10 @@ def test_canonical_operational_docs_lock_down_cellular_handover_and_no_fallback(
         assert "arquivo truncado" in document
         assert "`sync_notion_initial`" in document
         assert "`CellContract.resources`" in document
+        assert "CAREER_AUTHORITY_LEDGER_PATH" in document
+        assert "lease_epoch" in document
+        assert "origem reiniciada" in document
+        assert "schema e todas as tabelas" in document
 
     assert "Fatia E em revalidação" in panel
     assert "gate final aprovado" not in panel

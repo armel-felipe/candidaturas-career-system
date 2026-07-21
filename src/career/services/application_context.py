@@ -69,82 +69,127 @@ class WorkspaceLease:
             )
         if require_authority:
             database.assert_authoritative_storage()
+        self._fence_token: int | None = None
 
     def acquire(self, owner: str, ttl_seconds: int = 300) -> bool:
         owner = self._owner(owner)
         ttl_seconds = self._ttl(ttl_seconds)
         now = datetime.now(UTC).isoformat()
         expires_at = (datetime.now(UTC) + timedelta(seconds=ttl_seconds)).isoformat()
-        with self.database.transaction(immediate=True) as conn:
-            current = conn.execute(
-                "SELECT worker_id, expires_at FROM workspace_leases WHERE lease_name = ?",
-                (self.lease_name,),
-            ).fetchone()
-            if current is None:
+        with self.database.authority_ledger_lock():
+            if self.database.authority_ledger_path is not None:
+                self.database.assert_authoritative_storage()
+            with self.database.transaction(immediate=True) as conn:
+                current = conn.execute(
+                    """SELECT worker_id, expires_at, lease_epoch
+                       FROM workspace_leases WHERE lease_name = ?""",
+                    (self.lease_name,),
+                ).fetchone()
+                if current is None:
+                    epoch = self._next_epoch(conn)
+                    conn.execute(
+                        """INSERT INTO workspace_leases
+                           (lease_name, worker_id, run_id, lease_epoch,
+                            acquired_at, expires_at)
+                           VALUES (?, ?, NULL, ?, ?, ?)""",
+                        (self.lease_name, owner, epoch, now, expires_at),
+                    )
+                    self._fence_token = epoch
+                    return True
+                current_owner = str(current["worker_id"])
+                current_expiry = str(current["expires_at"])
+                current_epoch = int(current["lease_epoch"])
+                if current_owner == owner and current_expiry > now:
+                    conn.execute(
+                        "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
+                        (expires_at, self.lease_name),
+                    )
+                    self._fence_token = current_epoch
+                    return True
+                if current_expiry > now:
+                    return False
+                if current_owner != owner and not self.expected_control_db_id:
+                    return False
+                epoch = self._next_epoch(conn)
                 conn.execute(
-                    """INSERT INTO workspace_leases
-                       (lease_name, worker_id, run_id, acquired_at, expires_at)
-                       VALUES (?, ?, NULL, ?, ?)""",
-                    (self.lease_name, owner, now, expires_at),
+                    """INSERT INTO workspace_lease_takeovers
+                       (lease_name, prior_owner, prior_expires_at, new_owner, taken_over_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        self.lease_name,
+                        current_owner,
+                        current_expiry,
+                        owner,
+                        now,
+                    ),
                 )
-                return True
-            current_owner = str(current["worker_id"])
-            current_expiry = str(current["expires_at"])
-            if current_owner == owner and current_expiry > now:
                 conn.execute(
-                    "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
-                    (expires_at, self.lease_name),
+                    """UPDATE workspace_leases
+                       SET worker_id = ?, run_id = NULL, lease_epoch = ?,
+                           acquired_at = ?, expires_at = ?
+                       WHERE lease_name = ?""",
+                    (owner, epoch, now, expires_at, self.lease_name),
                 )
+                self._fence_token = epoch
                 return True
-            if current_expiry > now:
-                return False
-            if current_owner != owner and not self.expected_control_db_id:
-                return False
-            conn.execute(
-                """INSERT INTO workspace_lease_takeovers
-                   (lease_name, prior_owner, prior_expires_at, new_owner, taken_over_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (
-                    self.lease_name,
-                    current_owner,
-                    current_expiry,
-                    owner,
-                    now,
-                ),
-            )
-            conn.execute(
-                """UPDATE workspace_leases
-                   SET worker_id = ?, run_id = NULL, acquired_at = ?, expires_at = ?
-                   WHERE lease_name = ?""",
-                (owner, now, expires_at, self.lease_name),
-            )
-            return True
 
-    def heartbeat(self, owner: str, ttl_seconds: int | None = None) -> bool:
+    def heartbeat(
+        self,
+        owner: str,
+        ttl_seconds: int | None = None,
+        *,
+        fence_token: int | None = None,
+    ) -> bool:
         owner = self._owner(owner)
         ttl = self._ttl(ttl_seconds or self.default_ttl_seconds)
         now = datetime.now(UTC).isoformat()
         expires_at = (datetime.now(UTC) + timedelta(seconds=ttl)).isoformat()
-        with self.database.transaction(immediate=True) as conn:
-            renewed = conn.execute(
-                """UPDATE workspace_leases SET expires_at = ?
-                   WHERE lease_name = ? AND worker_id = ? AND expires_at > ?""",
-                (expires_at, self.lease_name, owner, now),
-            ).rowcount == 1
+        with self.database.authority_ledger_lock():
+            if self.database.authority_ledger_path is not None:
+                self.database.assert_authoritative_storage()
+            with self.database.transaction(immediate=True) as conn:
+                params: list[Any] = [expires_at, self.lease_name, owner, now]
+                epoch_clause = ""
+                expected_token = (
+                    int(fence_token)
+                    if fence_token is not None
+                    else self._fence_token
+                )
+                if expected_token is not None:
+                    epoch_clause = " AND lease_epoch = ?"
+                    params.append(expected_token)
+                renewed = conn.execute(
+                    """UPDATE workspace_leases SET expires_at = ?
+                       WHERE lease_name = ? AND worker_id = ? AND expires_at > ?"""
+                    + epoch_clause,
+                    tuple(params),
+                ).rowcount == 1
         return renewed
 
     def release(self, owner: str) -> bool:
         owner = self._owner(owner)
-        with self.database.transaction(immediate=True) as conn:
-            released = conn.execute(
-                "DELETE FROM workspace_leases WHERE lease_name = ? AND worker_id = ?",
-                (self.lease_name, owner),
-            ).rowcount == 1
+        with self.database.authority_ledger_lock():
+            if self.database.authority_ledger_path is not None:
+                self.database.assert_authoritative_storage()
+            with self.database.transaction(immediate=True) as conn:
+                params: list[Any] = [self.lease_name, owner]
+                epoch_clause = ""
+                if self._fence_token is not None:
+                    epoch_clause = " AND lease_epoch = ?"
+                    params.append(self._fence_token)
+                released = conn.execute(
+                    "DELETE FROM workspace_leases "
+                    "WHERE lease_name = ? AND worker_id = ?" + epoch_clause,
+                    tuple(params),
+                ).rowcount == 1
+        if released:
+            self._fence_token = None
         return released
 
     def inspect(self) -> dict[str, Any] | None:
         current = self.database.fetch_one(
-            """SELECT lease_name, worker_id AS owner, acquired_at, expires_at
+            """SELECT lease_name, worker_id AS owner, lease_epoch,
+                      acquired_at, expires_at
                FROM workspace_leases WHERE lease_name = ?""",
             (self.lease_name,),
         )
@@ -152,6 +197,24 @@ class WorkspaceLease:
             current["control_db_id"] = self.control_db_id
             current["handoff_authorized"] = bool(self.expected_control_db_id)
         return current
+
+    @property
+    def fence_token(self) -> int | None:
+        return self._fence_token
+
+    @staticmethod
+    def _next_epoch(conn) -> int:
+        conn.execute(
+            """UPDATE workspace_authority
+               SET lease_epoch_counter = lease_epoch_counter + 1
+               WHERE singleton_id = 1"""
+        )
+        row = conn.execute(
+            "SELECT lease_epoch_counter FROM workspace_authority WHERE singleton_id = 1"
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("workspace authority epoch counter is missing")
+        return int(row["lease_epoch_counter"])
 
     @staticmethod
     def _owner(owner: str) -> str:

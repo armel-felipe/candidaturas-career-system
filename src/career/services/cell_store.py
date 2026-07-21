@@ -272,6 +272,7 @@ class CellStore:
         worker_id: str,
         receipt: Mapping[str, Any],
         workspace_owner: str = "",
+        workspace_fence_token: int | None = None,
         resource_leases: Iterable[Mapping[str, Any]] = (),
         published_artifacts: Iterable[Mapping[str, Any]] = (),
     ) -> dict[str, Any]:
@@ -287,11 +288,16 @@ class CellStore:
         with self.database.transaction(immediate=True) as conn:
             now = self._now()
             if workspace_owner:
+                if workspace_fence_token is None:
+                    raise ValueError(
+                        "workspace fence token is required for terminal commit"
+                    )
                 workspace_owned = conn.execute(
                     """SELECT 1 FROM workspace_leases
                        WHERE lease_name = 'authoritative-workspace'
-                         AND worker_id = ? AND expires_at > ?""",
-                    (workspace_owner, now),
+                         AND worker_id = ? AND lease_epoch = ?
+                         AND expires_at > ?""",
+                    (workspace_owner, int(workspace_fence_token), now),
                 ).fetchone()
                 if workspace_owned is None:
                     raise RuntimeError("stale authoritative workspace lease")

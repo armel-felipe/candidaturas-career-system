@@ -7,7 +7,7 @@ Re-review independente não aprovada; correções adicionais estão em implement
 ## Implemented
 
 - Added a SQLite-backed `WorkspaceLease` with acquire, heartbeat, owner-checked release, expiry takeover, and immutable takeover history recording prior owner/expiry.
-- Added a persistent random `control_db_id` bound to the current physical DB storage; every production cellular entrypoint requires a matching `CAREER_CONTROL_DB_ID`, a byte-copied DB is rejected before maintenance/queue work, and an explicit audited `applications:authorize-handoff` is required after release/expiry to bind a destination copy.
+- Added a persistent random `control_db_id` bound to the current physical DB storage; every production cellular entrypoint requires a matching `CAREER_CONTROL_DB_ID`, a byte-copied DB is rejected before maintenance/queue work, and an explicit audited `applications:authorize-handoff` is required after release/expiry to bind a destination copy. Cross-host handoff now additionally requires one `CAREER_AUTHORITY_LEDGER_PATH` shared by both hosts: the destination advances the durable authority epoch under a file lock and a restarted origin fails closed against the newer epoch/storage identity. Independent SQLite files alone are still explicitly not a coordination mechanism.
 - Fenced cellular `CellExecutor`, CLI migration, harness execution, and agent heartbeat work by workspace owner while allowing multiple applications under one shared effective owner; keepalive now spans validators, publication, and terminal commit.
 - Made `applications:agent-heartbeat` cellular by default and concurrent through a bounded per-application worker pool; retained legacy non-cellular compatibility only through explicit `--legacy-non-cellular`.
 - Added cellular `analyze_fit` preparation: the executor reserves an immutable attempt, the harness receives exact manifest allowlists and selected model/variant, stale/failed drafts are quarantined, successful drafts are bound to the current application/run/attempt/job hash, and transient runner failures return `awaiting_agent`.
@@ -16,8 +16,8 @@ Re-review independente não aprovada; correções adicionais estão em implement
 - Added real two-subprocess verification on one temporary SQLite/workspace, including distinct fingerprints/runs/manifests/artifacts, expanded crossed-path/write detection, and serialized `notion-write` acquired by the real `sync_notion_initial` node from `CellContract.resources`.
 - Added `applications:migrate-cellular`, `applications:authorize-handoff`, and `applications:verify-parallel` CLI/npm aliases.
 - Enforced complete cellular request identity/capability envelopes across multiagent and harness paths; request allowlists must be exact subsets of immutable manifest capabilities, and cellular harness outputs never union legacy/global output fields.
-- Made the executor consume the FIT_MAP draft binding before the handler and quarantine mismatched application/run/node/attempt/job/draft/manifest data; workspace fence ownership is rechecked through validators, publication rollback, and the terminal SQLite transaction.
-- Expanded harness isolation to immutable request-control files and semantic snapshots of authoritative SQLite tables, including fail-closed reporting when the DB is corrupted.
+- Made the executor require and consume the FIT_MAP draft binding before the handler, quarantining missing or mismatched application/run/node/attempt/job/draft/manifest data. Workspace leases now carry a monotonic `lease_epoch`; owner + epoch are compared in the terminal SQLite transaction, the shared authority lock spans final publication/commit, and a stale executor returns a fenced cancellation without writing terminal DB/manifest state.
+- Expanded harness isolation to immutable request-control files and a complete SQLite user-schema/table inventory. All user tables, including `notion_cache`, are hashed; only declared renewal timestamp fields are normalized, and schema changes or corruption fail closed.
 - Updated only canonical operational instruction files (`AGENTS.md` and `.agents/skills/career-system/SKILL.md`) after structural pressure tests demonstrated the missing rules.
 
 ## TDD evidence
@@ -33,7 +33,9 @@ Re-review independente não aprovada; correções adicionais estão em implement
 - Additional reprocess RED: a persistent `Reprocessar` status created a fresh run on every heartbeat; the consumed marker now makes the second heartbeat resume the first new run.
 - Final independent-review RED: `9 failed, 31 passed`, covering copied-DB fencing, pre-maintenance authority, distinct production owners, validator/commit lease loss, draft binding, reprocess crash recovery, DB/request-control writes, real review schema and truncated migration receipts.
 - Additional REDs covered the explicit handoff CLI/npm alias, process-distinct default owner, terminal workspace-fence validation, and corrupted SQLite isolation reporting.
-- Final focused GREEN: `52 passed`.
+- Last-gap RED: four expected failures proved that the origin was not revoked by destination handoff, unbound drafts reached the handler, terminal completion lacked an epoch fence, and `notion_cache`/schema mutations escaped harness isolation.
+- Compatibility RED after enforcing mandatory binding: four legacy test fixtures still injected drafts directly; the fixtures were migrated to prepare an immutable attempt and persist the complete binding rather than weakening production validation.
+- Final focused GREEN for workspace/migration/parallel/CLI/store/executor/manifests/database: `134 passed`; final full suite: `255 passed`.
 
 ## Validation evidence
 
@@ -42,6 +44,7 @@ Re-review independente não aprovada; correções adicionais estão em implement
 - `./scripts/python.sh scripts/career_cli.py project validate-structure` → `Project structure validation passed.`
 - `applications verify-parallel --fixture-dir /tmp/cellular-final-review.VtW8Zg` → `status=validated`, 2 subprocesses, distinct fingerprints/manifests, no crossed paths or unexpected writes, contention observed (`8` deferred acquisitions), and executor-managed `notion-write` intervals serialized.
 - `npm run runtime:diagnose` → exit 0 and report at `outputs/_tmp/runtime_diagnosis.json`; no cellular blocker. Environment inventory still reports LibreOffice unavailable and two pre-existing large reference files.
+- Last-gap rerun: `pytest -q` → `255 passed`; `project validate-structure` passed; `runtime:diagnose` exited 0; real `verify-parallel` returned `status=validated`, two subprocesses, distinct fingerprints/manifests, no crossed paths, serialized `notion-write`, and observed contention; `git diff --check` passed.
 - No real Notion, Gmail, LinkedIn, OneDrive, or other external writes were executed. `.inbox/` was not changed.
 
 ## Files and compatibility

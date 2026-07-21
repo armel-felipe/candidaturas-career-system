@@ -153,10 +153,34 @@ def _run_through_fit(executor: CellExecutor, run_id: str) -> None:
     assert [(item.node_id, item.status) for item in first] == [
         ("normalize_job", "validated")
     ]
+    prepared = executor.prepare_ready_node(run_id, "analyze_fit")
+    application_id = executor.resume(run_id).application_id
+    paths = paths_for(application_id, root=executor.applications_root)
+    _bind_draft(paths, run_id, prepared.attempt, prepared.manifest_path)
     second = executor.run_ready(run_id)
-    assert [(item.node_id, item.status) for item in second] == [
-        ("analyze_fit", "validated")
-    ]
+    assert next(
+        item for item in second if item.node_id == "analyze_fit"
+    ).status == "validated"
+
+
+def _bind_draft(paths, run_id: str, attempt: int, manifest_path: Path) -> None:
+    write_json(
+        paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": paths.application_id,
+            "run_id": run_id,
+            "node_id": "analyze_fit",
+            "attempt": attempt,
+            "job_fingerprint": hashlib.sha256(
+                paths.job_description.read_bytes()
+            ).hexdigest(),
+            "draft_sha256": hashlib.sha256(
+                paths.fit_map_draft.read_bytes()
+            ).hexdigest(),
+            "manifest_path": str(manifest_path.resolve()),
+        },
+    )
 
 
 def _published_artifact(database: Database, run_id: str, name: str) -> dict:
@@ -353,7 +377,15 @@ def test_changed_fit_map_revision_invalidates_only_that_app_contract_descendants
         changed = read_json(first.fit_map_draft)
         changed["dor_central"] = "Escalar alpha com uma nova governanca regional"
         write_json(first.fit_map_draft, changed)
-        executor.repair(first_plan.run_id, "analyze_fit", "new fit evidence")
+        repair = executor.repair(
+            first_plan.run_id, "analyze_fit", "new fit evidence"
+        )
+        _bind_draft(
+            first,
+            first_plan.run_id,
+            repair.attempt,
+            repair.manifest_path,
+        )
 
         # Reserving a repair cannot invalidate descendants before a new FIT_MAP exists.
         assert executor.node_status(first_plan.run_id, "compose_cv") == "validated"
@@ -404,7 +436,10 @@ def test_unchanged_fit_map_repair_preserves_declared_descendants(tmp_path):
         executor.mark_validated(plan.run_id, "compose_cv")
         executor.mark_validated(plan.run_id, "generate_feras")
 
-        executor.repair(plan.run_id, "analyze_fit", "verify unchanged fit")
+        repair = executor.repair(
+            plan.run_id, "analyze_fit", "verify unchanged fit"
+        )
+        _bind_draft(paths, plan.run_id, repair.attempt, repair.manifest_path)
         assert executor.node_status(plan.run_id, "compose_cv") == "validated"
         assert executor.node_status(plan.run_id, "generate_feras") == "validated"
 
