@@ -1851,6 +1851,14 @@ def _reprocess_request_path(paths: Any) -> Path:
     return paths.requests_dir / "cellular_reprocess_request.json"
 
 
+def _source_revision_path(paths: Any) -> Path:
+    return paths.app_dir / "cellular_source_revision.json"
+
+
+def _completion_receipt_path(paths: Any) -> Path:
+    return paths.app_dir / "cellular_completion_receipt.json"
+
+
 def _reprocess_request_fingerprint(
     application: dict[str, Any], canonical_description: str
 ) -> str:
@@ -1943,6 +1951,22 @@ def _ensure_cellular_application(
     if previous_description != canonical_description or new_reprocess_request:
         _quarantine_cellular_draft(paths, reason="stale")
         write_text(paths.job_description, canonical_description)
+        previous_fingerprint = (
+            hashlib.sha256(previous_description.encode("utf-8")).hexdigest()
+            if previous_description is not None
+            else ""
+        )
+        write_json(
+            _source_revision_path(paths),
+            {
+                "kind": "cellular_source_revision",
+                "application_id": application_id,
+                "previous_fingerprint": previous_fingerprint,
+                "job_fingerprint": sha256_file(paths.job_description),
+                "changed_at": utc_now_iso(),
+                "applied_run_id": "",
+            },
+        )
     if new_reprocess_request:
         write_json(
             _reprocess_request_path(paths),
@@ -1975,6 +1999,144 @@ def _ensure_cellular_application(
     )
     write_json(paths.identity, identity)
     return paths
+
+
+def _cancel_run_for_changed_source(database: Database, run_id: str) -> None:
+    now = utc_now_iso()
+    with database.transaction(immediate=True) as conn:
+        conn.execute(
+            "UPDATE application_runs SET status = 'cancelled', updated_at = ? "
+            "WHERE run_id = ? AND status NOT IN ('completed', 'cancelled')",
+            (now, run_id),
+        )
+        conn.execute(
+            """UPDATE cell_nodes SET status = 'cancelled', reserved_by = NULL,
+                      reservation_expires_at = NULL, updated_at = ?
+               WHERE run_id = ? AND status NOT IN ('validated', 'blocked', 'cancelled')""",
+            (now, run_id),
+        )
+        conn.execute(
+            """UPDATE cell_attempts SET status = 'cancelled', finished_at = ?
+               WHERE run_id = ? AND status IN ('reserved', 'running')""",
+            (now, run_id),
+        )
+
+
+def _select_or_plan_cellular_run(
+    application: dict[str, Any], *, paths: Any, executor: Any, config: dict[str, Any]
+) -> str:
+    database = executor.database
+    latest = database.fetch_one(
+        """SELECT run_id, status, created_at FROM application_runs
+           WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
+        (paths.application_id,),
+    )
+    source_revision = (
+        read_json(_source_revision_path(paths))
+        if _source_revision_path(paths).is_file()
+        else {}
+    )
+    current_fingerprint = sha256_file(paths.job_description)
+    source_changed_for_latest = bool(
+        latest
+        and source_revision.get("job_fingerprint") == current_fingerprint
+        and source_revision.get("applied_run_id") != latest["run_id"]
+        and source_revision.get("previous_fingerprint")
+        and source_revision.get("previous_fingerprint") != current_fingerprint
+    )
+    if source_changed_for_latest and latest["status"] not in {"completed", "cancelled"}:
+        _cancel_run_for_changed_source(database, str(latest["run_id"]))
+        latest = None
+
+    reprocess_request = (
+        _read_reprocess_request(paths)
+        if _is_reprocess_requested(application, config)
+        else {}
+    )
+    reprocess_run_id = str(reprocess_request.get("run_id") or "")
+    reprocess_run = (
+        database.fetch_one(
+            "SELECT run_id, status FROM application_runs "
+            "WHERE run_id = ? AND application_id = ?",
+            (reprocess_run_id, paths.application_id),
+        )
+        if reprocess_run_id
+        else None
+    )
+    if (
+        reprocess_run is None
+        and reprocess_request
+        and reprocess_request.get("status") == "pending"
+        and latest is not None
+        and latest["status"] not in {"completed", "cancelled"}
+        and str(latest.get("created_at") or "")
+        >= str(reprocess_request.get("created_at") or "")
+    ):
+        reprocess_run = latest
+    if reprocess_run is not None:
+        run_id = str(reprocess_run["run_id"])
+    elif latest is None or latest["status"] in {"completed", "cancelled"} or reprocess_request:
+        run_id = executor.plan(paths.application_id, {"cv", "notion"}).run_id
+    else:
+        run_id = str(latest["run_id"])
+
+    if source_revision.get("job_fingerprint") == current_fingerprint:
+        write_json(
+            _source_revision_path(paths),
+            {**source_revision, "applied_run_id": run_id, "applied_at": utc_now_iso()},
+        )
+    if reprocess_request and (
+        reprocess_request.get("status") != "consumed"
+        or reprocess_request.get("run_id") != run_id
+    ):
+        write_json(
+            _reprocess_request_path(paths),
+            {
+                **reprocess_request,
+                "status": "consumed",
+                "run_id": run_id,
+                "consumed_at": utc_now_iso(),
+            },
+        )
+    return run_id
+
+
+def _complete_cellular_application_once(
+    application: dict[str, Any],
+    *,
+    paths: Any,
+    run_id: str,
+    job_fingerprint: str,
+    delivery,
+    update_tracker,
+    success_status: str,
+) -> dict[str, Any]:
+    """Persist a source-keyed completion receipt so later runs cannot redeliver."""
+    receipt_path = _completion_receipt_path(paths)
+    if receipt_path.is_file():
+        existing = read_json(receipt_path)
+        if (
+            existing.get("status") == "completed"
+            and existing.get("job_fingerprint") == job_fingerprint
+        ):
+            return {**existing, "status": "already_completed"}
+    delivery_receipt = dict(delivery())
+    if delivery_receipt.get("status") not in {"delivered", "validated"}:
+        raise ValidationFailure("cellular delivery did not complete")
+    update_tracker(success_status)
+    receipt = {
+        "kind": "cellular_completion_receipt",
+        "application_id": paths.application_id,
+        "notion_page_id": str(application.get("page_id") or ""),
+        "run_id": run_id,
+        "job_fingerprint": job_fingerprint,
+        "delivery": delivery_receipt,
+        "tracker_status": success_status,
+        "status": "completed",
+        "completed_at": utc_now_iso(),
+    }
+    write_json(receipt_path, receipt)
+    return receipt
 
 
 def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
@@ -2274,59 +2436,28 @@ def _process_cellular_application(
         require_authoritative_workspace=True,
     )
     try:
-        latest = database.fetch_one(
-            """SELECT run_id, status, created_at FROM application_runs
-               WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
-            (paths.application_id,),
+        job_fingerprint = sha256_file(paths.job_description)
+        completion_path = _completion_receipt_path(paths)
+        if completion_path.is_file():
+            completion = read_json(completion_path)
+            if (
+                completion.get("status") == "completed"
+                and completion.get("job_fingerprint") == job_fingerprint
+            ):
+                return [
+                    {
+                        "status": "already_completed",
+                        "application_id": paths.application_id,
+                        "run_id": completion.get("run_id"),
+                        "node_id": "sync_notion_final",
+                        "artifact_paths": [],
+                        "blocker": "",
+                    }
+                ]
+
+        run_id = _select_or_plan_cellular_run(
+            application, paths=paths, executor=executor, config=config
         )
-        reprocess_request = (
-            _read_reprocess_request(paths)
-            if _is_reprocess_requested(application, config)
-            else {}
-        )
-        reprocess_run_id = str(reprocess_request.get("run_id") or "")
-        reprocess_run = (
-            database.fetch_one(
-                "SELECT run_id, status FROM application_runs "
-                "WHERE run_id = ? AND application_id = ?",
-                (reprocess_run_id, paths.application_id),
-            )
-            if reprocess_run_id
-            else None
-        )
-        if (
-            reprocess_run is None
-            and reprocess_request
-            and reprocess_request.get("status") == "pending"
-            and latest is not None
-            and latest["status"] not in {"completed", "cancelled"}
-            and str(latest.get("created_at") or "")
-            >= str(reprocess_request.get("created_at") or "")
-        ):
-            reprocess_run = latest
-        if reprocess_run is not None:
-            run_id = str(reprocess_run["run_id"])
-        elif (
-            latest is None
-            or latest["status"] in {"completed", "cancelled"}
-            or bool(reprocess_request)
-        ):
-            run_id = executor.plan(paths.application_id, {"cv"}).run_id
-        else:
-            run_id = str(latest["run_id"])
-        if reprocess_request and (
-            reprocess_request.get("status") != "consumed"
-            or reprocess_request.get("run_id") != run_id
-        ):
-            write_json(
-                _reprocess_request_path(paths),
-                {
-                    **reprocess_request,
-                    "status": "consumed",
-                    "run_id": run_id,
-                    "consumed_at": utc_now_iso(),
-                },
-            )
 
         if "analyze_fit" in executor.ready_nodes(run_id):
             _quarantine_cellular_draft(paths, reason="stale")
@@ -2397,7 +2528,32 @@ def _process_cellular_application(
             for item in executed
         ]
         if executor.is_terminal(run_id):
-            executor.finalize(run_id)
+            completion = executor.finalize(run_id)
+            if completion.manifest.get("status") == "completed":
+                delivery_artifact = next(
+                    (
+                        item
+                        for item in completion.manifest.get("validated_artifacts", [])
+                        if item.get("artifact_name") == "cv_delivery_receipt.json"
+                    ),
+                    None,
+                )
+                if delivery_artifact is None:
+                    raise ValidationFailure(
+                        "completed cellular CV run is missing delivery receipt"
+                    )
+                persisted_delivery = read_json(Path(delivery_artifact["path"]))
+                _complete_cellular_application_once(
+                    application,
+                    paths=paths,
+                    run_id=run_id,
+                    job_fingerprint=job_fingerprint,
+                    delivery=lambda: persisted_delivery,
+                    update_tracker=lambda status: _update_notion_status(
+                        application, status, dry_run=False
+                    ),
+                    success_status=str(config["success_status"]),
+                )
         return results
     finally:
         database.close()
@@ -2682,6 +2838,7 @@ def _run_parallel_fixture_worker(
     result_path: Path,
 ) -> int:
     """Subprocess-only worker used by the real parallel acceptance harness."""
+    from career.cells.capabilities import recorded_capability_violations
     from career.cells.contracts import CELL_CONTRACTS
     from career.cells.executor import CellExecutor
     from career.cells.handlers import (
@@ -2801,6 +2958,9 @@ def _run_parallel_fixture_worker(
         "external_resource_declared_by_contract": (
             "notion-write" in CELL_CONTRACTS["sync_notion_initial"].resources
         ),
+        "capability_violations": [
+            item["target"] for item in recorded_capability_violations()
+        ],
     }
     write_json(result_path, payload)
     database.close()
@@ -2895,6 +3055,9 @@ def parallel_verification_report(fixture_dir: str | Path) -> dict[str, Any]:
     manifests = {str(item["manifest_path"]) for item in results}
     crossed_paths: list[str] = []
     for item in results:
+        crossed_paths.extend(
+            str(path) for path in item.get("capability_violations", [])
+        )
         own_root = (Path(fixture_dir) / "applications" / item["application_id"]).resolve()
         for path in [item["manifest_path"], *item["artifact_paths"]]:
             resolved = Path(path).resolve()

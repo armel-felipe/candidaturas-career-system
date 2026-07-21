@@ -188,7 +188,7 @@ def _node_records(
                 "status": status,
                 "source_paths": source_paths,
                 "validation_origin": origin,
-                "manifest_path": f"cells/{node_id}/1/manifest.json",
+                "manifest_path": "",
             }
         )
     blockers = [] if review_status == "validated" else [review_origin]
@@ -270,6 +270,17 @@ def _write_json_once(path: Path, payload: dict[str, Any]) -> None:
         os.close(directory_fd)
 
 
+def _write_bytes_once(path: Path, content: bytes) -> None:
+    if path.exists():
+        if path.read_bytes() != content:
+            raise RuntimeError(f"existing immutable imported artifact differs: {path}")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_bytes(content)
+    os.replace(temporary, path)
+
+
 def _persist_node_manifests(
     app_dir: Path,
     *,
@@ -281,33 +292,98 @@ def _persist_node_manifests(
     for node in nodes:
         node_id = str(node["node_id"])
         outputs: list[dict[str, Any]] = []
-        for source_name in node["source_paths"]:
+        canonical_names = {
+            "render_cv": ("cv.docx",),
+            "review_cv": tuple(
+                {
+                    "cv_review_report.json": "cv_review.json",
+                    "polish_review.json": "polish_review.json",
+                    "approved_cv_manifest.json": "approved_cv_manifest.json",
+                    "keyword_ats_registry.json": "keyword_ats_registry.json",
+                }.get(Path(name).name, Path(name).name)
+                for name in node["source_paths"]
+            ),
+        }
+        source_pairs = (
+            list(
+                zip(
+                    node["source_paths"],
+                    canonical_names.get(
+                        node_id,
+                        tuple(Path(name).name for name in node["source_paths"]),
+                    ),
+                    strict=True,
+                )
+            )
+            if node["status"] == "validated"
+            else []
+        )
+        validator_results: list[dict[str, Any]] = []
+        if node["status"] == "validated":
+            for index, command in enumerate(CELL_CONTRACTS[node_id].validators):
+                report_path = (
+                    app_dir
+                    / "reviews"
+                    / run_id
+                    / f"migration-{node_id}-{index}.json"
+                )
+                _write_json_once(
+                    report_path,
+                    {
+                        "kind": "legacy_migration_validator_receipt",
+                        "application_id": application_id,
+                        "run_id": run_id,
+                        "node_id": node_id,
+                        "command": command,
+                        "result": "passed",
+                        "validation_origin": node["validation_origin"],
+                    },
+                )
+                validator_results.append(
+                    {
+                        "command": command,
+                        "result": "passed",
+                        "report_path": str(report_path.resolve()),
+                        "executed_at": "1970-01-01T00:00:00+00:00",
+                    }
+                )
+        for source_name, artifact_name in source_pairs:
+            if node["status"] != "validated":
+                continue
             source = app_dir / source_name
             digest = _sha256(source)
             artifact_manifest_path = (
                 app_dir
-                / "legacy_imports"
                 / "artifacts"
-                / node_id
-                / f"{source.name}.manifest.json"
+                / run_id
+                / artifact_name
+                / digest[:12]
+                / "manifest.json"
             )
+            artifact_path = artifact_manifest_path.parent / artifact_name
+            _write_bytes_once(artifact_path, source.read_bytes())
             artifact_manifest = {
-                "kind": "legacy_import_artifact_manifest",
+                "kind": "artifact_manifest",
                 "application_id": application_id,
                 "run_id": run_id,
                 "node_id": node_id,
                 "attempt": 1,
-                "artifact_name": source.name,
-                "path": str(source.resolve()),
+                "artifact_name": artifact_name,
+                "path": str(artifact_path.resolve()),
                 "manifest_path": str(artifact_manifest_path.resolve()),
                 "sha256": digest,
                 "revision": digest[:12],
-                "status": node["status"],
+                "inputs": {},
+                "validators": validator_results,
+                "status": "validated",
+                "published_at": "1970-01-01T00:00:00+00:00",
                 "validation_origin": node["validation_origin"],
             }
             _write_json_once(artifact_manifest_path, artifact_manifest)
             outputs.append(artifact_manifest)
-        attempt_path = app_dir / str(node["manifest_path"])
+        attempt_path = (
+            app_dir / "cells" / run_id / node_id / "1" / "manifest.json"
+        )
         attempt_manifest = {
             "kind": "cell_attempt_manifest",
             "application_id": application_id,
@@ -322,7 +398,7 @@ def _persist_node_manifests(
                 "validation_origin": node["validation_origin"],
             },
             "outputs": outputs,
-            "validators": [],
+            "validators": validator_results,
             "status": node["status"],
             "created_at": "1970-01-01T00:00:00+00:00",
             "finished_at": "1970-01-01T00:00:00+00:00",
@@ -478,6 +554,10 @@ def migrate_application(
     nodes, blockers = _node_records(app_dir)
     imported_nodes = {item["node_id"]: item["status"] for item in nodes}
     run_id = _stable_run_id(application_id, sources)
+    for node in nodes:
+        node["manifest_path"] = (
+            f"cells/{run_id}/{node['node_id']}/1/manifest.json"
+        )
     result = {
         "status": "dry_run" if dry_run else "migrated",
         "application_id": application_id,

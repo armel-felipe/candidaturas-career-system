@@ -436,10 +436,31 @@ class Database:
                     raise ValueError("shared authority ledger provenance mismatch")
                 local_epoch = int(authority["authority_epoch"] or 0)
                 ledger_epoch = int(ledger.get("authority_epoch") or 0)
-                if local_epoch != ledger_epoch:
-                    raise ValueError("handoff source authority epoch is stale")
                 prior = str(authority["storage_identity"] or "")
-                if str(ledger.get("storage_identity") or "") != prior:
+                ledger_storage = str(ledger.get("storage_identity") or "")
+                recovered_handoff = None
+                if local_epoch == ledger_epoch + 1 and prior == actual:
+                    recovered_handoff = conn.execute(
+                        """SELECT prior_storage_identity, new_storage_identity,
+                                  new_owner, prior_authority_epoch,
+                                  new_authority_epoch, authorized_at
+                           FROM workspace_authority_handoffs
+                           WHERE control_db_id = ? AND new_storage_identity = ?
+                             AND new_authority_epoch = ?
+                           ORDER BY id DESC LIMIT 1""",
+                        (expected, actual, local_epoch),
+                    ).fetchone()
+                    if (
+                        recovered_handoff is None
+                        or str(recovered_handoff["prior_storage_identity"])
+                        != ledger_storage
+                        or int(recovered_handoff["prior_authority_epoch"])
+                        != ledger_epoch
+                    ):
+                        raise ValueError("handoff source authority epoch is stale")
+                elif local_epoch != ledger_epoch:
+                    raise ValueError("handoff source authority epoch is stale")
+                elif ledger_storage != prior:
                     raise ValueError("handoff source storage authority is stale")
                 active = conn.execute(
                     """SELECT worker_id, expires_at FROM workspace_leases
@@ -449,8 +470,8 @@ class Database:
                     raise RuntimeError(
                         "cannot authorize storage handoff while workspace lease is active"
                     )
-                new_epoch = local_epoch + 1
-                if prior != actual:
+                new_epoch = local_epoch if recovered_handoff is not None else local_epoch + 1
+                if recovered_handoff is None and prior != actual:
                     conn.execute(
                         """INSERT INTO workspace_authority_handoffs
                            (control_db_id, prior_storage_identity,
@@ -473,7 +494,7 @@ class Database:
                            WHERE singleton_id = 1""",
                         (actual, new_epoch),
                     )
-                else:
+                elif recovered_handoff is None:
                     new_epoch = local_epoch
             self._write_authority_ledger(
                 {
@@ -504,8 +525,6 @@ class Database:
         if not expected or not actor:
             raise ValueError("control database identity and provisioner are required")
         with self.authority_ledger_lock():
-            if self.authority_ledger_path.exists():
-                raise ValueError("shared authority ledger already exists")
             row = self.fetch_one(
                 """SELECT control_db_id, storage_identity, authority_ledger_id,
                           authority_epoch
@@ -513,28 +532,41 @@ class Database:
             )
             if row is None or str(row.get("control_db_id") or "") != expected:
                 raise ValueError("authoritative control database identity does not match")
-            if str(row.get("authority_ledger_id") or ""):
-                raise ValueError(
-                    "database is already bound to a pre-provisioned shared authority ledger"
-                )
             actual = self.physical_storage_identity()
             if str(row.get("storage_identity") or "") != actual:
                 raise ValueError("physical control database copy is not authoritative")
-            now = datetime.now(UTC).isoformat()
-            ledger_id = f"ledger_{uuid4().hex}"
-            payload = {
-                "kind": self.AUTHORITY_LEDGER_KIND,
-                "schema_version": self.AUTHORITY_LEDGER_VERSION,
-                "ledger_id": ledger_id,
-                "control_db_id": expected,
-                "authority_epoch": int(row.get("authority_epoch") or 1),
-                "storage_identity": actual,
-                "owner": actor,
-                "provisioned_by": actor,
-                "provisioned_at": now,
-                "updated_at": now,
-            }
-            self._write_authority_ledger(payload)
+            bound_ledger_id = str(row.get("authority_ledger_id") or "")
+            if self.authority_ledger_path.exists():
+                payload = self._read_authority_ledger()
+                if (
+                    str(payload.get("control_db_id") or "") != expected
+                    or str(payload.get("storage_identity") or "") != actual
+                    or int(payload.get("authority_epoch") or 0)
+                    != int(row.get("authority_epoch") or 1)
+                    or (bound_ledger_id and payload.get("ledger_id") != bound_ledger_id)
+                ):
+                    raise ValueError("shared authority ledger provenance mismatch")
+                ledger_id = str(payload["ledger_id"])
+            else:
+                if bound_ledger_id:
+                    raise ValueError(
+                        "database is already bound to a missing shared authority ledger"
+                    )
+                now = datetime.now(UTC).isoformat()
+                ledger_id = f"ledger_{uuid4().hex}"
+                payload = {
+                    "kind": self.AUTHORITY_LEDGER_KIND,
+                    "schema_version": self.AUTHORITY_LEDGER_VERSION,
+                    "ledger_id": ledger_id,
+                    "control_db_id": expected,
+                    "authority_epoch": int(row.get("authority_epoch") or 1),
+                    "storage_identity": actual,
+                    "owner": actor,
+                    "provisioned_by": actor,
+                    "provisioned_at": now,
+                    "updated_at": now,
+                }
+                self._write_authority_ledger(payload)
             with self.transaction(immediate=True) as conn:
                 updated = conn.execute(
                     """UPDATE workspace_authority SET authority_ledger_id = ?
@@ -543,7 +575,7 @@ class Database:
                          AND (authority_ledger_id IS NULL OR authority_ledger_id = '')""",
                     (ledger_id, expected),
                 ).rowcount
-                if updated != 1:
+                if updated != 1 and not bound_ledger_id == ledger_id:
                     raise RuntimeError("authority ledger binding raced with another provisioner")
             return dict(payload)
 

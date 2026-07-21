@@ -110,6 +110,7 @@ def normalize_job(
     *,
     job_description_path: Path | None = None,
     candidate_facts_revision: str | None = None,
+    persist: bool = True,
 ) -> dict[str, Any]:
     """Build pre-FIT packs with explicit application-local input and output paths."""
     app_root = application_paths.app_dir.resolve()
@@ -443,12 +444,13 @@ def normalize_job(
         "handover_summary": handover,
         "evidence_index": evidence_index,
     }
-    application_paths.derived_dir.mkdir(parents=True, exist_ok=True)
     output_paths: dict[str, Path] = {}
-    for name, payload in payloads.items():
-        output_path = application_paths.derived_dir / f"{name}.json"
-        write_json(output_path, payload)
-        output_paths[name] = output_path
+    if persist:
+        application_paths.derived_dir.mkdir(parents=True, exist_ok=True)
+        for name, payload in payloads.items():
+            output_path = application_paths.derived_dir / f"{name}.json"
+            write_json(output_path, payload)
+            output_paths[name] = output_path
     manifest = {
         "kind": "derived_manifest",
         "application_id": application_paths.application_id,
@@ -466,7 +468,8 @@ def normalize_job(
             for name, path in output_paths.items()
         },
     }
-    write_json(application_paths.derived_dir / "manifest.json", manifest)
+    if persist:
+        write_json(application_paths.derived_dir / "manifest.json", manifest)
     return {
         "status": "ok",
         "manifest": manifest,

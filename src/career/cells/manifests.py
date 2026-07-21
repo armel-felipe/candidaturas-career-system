@@ -191,10 +191,6 @@ class ManifestStore:
                 self.paths.artifacts_dir / safe_artifact_name / revision,
                 strict_child=True,
             )
-            if revision_dir.exists():
-                raise RuntimeError(
-                    f"artifact revision already exists: {safe_artifact_name}/{revision}"
-                )
             prepared.append(
                 {
                     "artifact_name": safe_artifact_name,
@@ -215,6 +211,13 @@ class ManifestStore:
                 }
             )
 
+        self._recover_abandoned_publication(attempt_record, prepared)
+        for item in prepared:
+            if item["revision_dir"].exists():
+                raise RuntimeError(
+                    "artifact revision already exists: "
+                    f"{item['artifact_name']}/{item['revision']}"
+                )
         self._claim_attempt_publication(attempt_record)
         created_revision_dirs: list[Path] = []
         published: list[PublishedArtifact] = []
@@ -269,11 +272,12 @@ class ManifestStore:
             attempt_manifest["status"] = "validated"
             attempt_manifest["finished_at"] = utc_now_iso()
             write_json(attempt_record.path, attempt_manifest)
-        except Exception:
+        except BaseException:
             for item in prepared:
                 item["staging_path"].unlink(missing_ok=True)
             for revision_dir in reversed(created_revision_dirs):
                 shutil.rmtree(revision_dir, ignore_errors=True)
+            (attempt_record.path.parent / "publication.claim").unlink(missing_ok=True)
             raise
         return tuple(published)
 
@@ -322,6 +326,7 @@ class ManifestStore:
         manifest["status"] = "reserved"
         manifest.pop("finished_at", None)
         write_json(record.path, manifest)
+        (record.path.parent / "publication.claim").unlink(missing_ok=True)
 
     def reconcile_expired_attempt(self, node_id: str, attempt: int) -> None:
         """Remove uncommitted publications before an expired attempt is reclaimed."""
@@ -785,9 +790,42 @@ class ManifestStore:
                 f"{attempt.manifest.get('node_id')}/{attempt.manifest.get('attempt')}"
             ) from exc
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(utc_now_iso() + "\n")
+            json.dump(
+                {"pid": os.getpid(), "claimed_at": utc_now_iso()},
+                handle,
+                sort_keys=True,
+            )
+            handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+
+    @staticmethod
+    def _recover_abandoned_publication(
+        attempt: AttemptManifest, prepared: Iterable[Mapping[str, Any]]
+    ) -> None:
+        claim_path = attempt.path.parent / "publication.claim"
+        if not claim_path.is_file():
+            return
+        try:
+            claim = read_json(claim_path)
+            pid = int(claim.get("pid") or 0)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("attempt cannot be reused for publication") from exc
+        if pid <= 0:
+            raise RuntimeError("attempt cannot be reused for publication")
+        if pid > 0:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                raise RuntimeError("attempt cannot be reused for publication")
+            else:
+                raise RuntimeError("attempt cannot be reused for publication")
+        for item in prepared:
+            Path(item["staging_path"]).unlink(missing_ok=True)
+            shutil.rmtree(Path(item["revision_dir"]), ignore_errors=True)
+        claim_path.unlink(missing_ok=True)
 
     @staticmethod
     def _write_json_once(path: Path, data: Any, label: str) -> None:

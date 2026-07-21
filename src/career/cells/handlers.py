@@ -20,7 +20,6 @@ from career.services import cover_letter as cover_letter_service
 from career.services import feras as feras_service
 from career.services import fit_map as fit_map_service
 from career.services import habilidades_chave as habilidades_service
-from career.services import intake as intake_service
 from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.application_context import ApplicationPaths
@@ -152,16 +151,16 @@ def _capture_source(context: CellExecutionContext) -> CellOutput:
     identity = json.loads(identity_raw.decode("utf-8"))
     if identity.get("application_id") != context.application_id:
         raise ValueError("application identity belongs to another application")
-    context.capabilities.assert_writable(context.paths.job_description)
-    context.capabilities.assert_writable(context.paths.source_metadata)
-    metadata = intake_service.capture_source(
-        context.paths,
-        source_text=source_text,
-        source_metadata={
-            "source_type": identity.get("source_type") or "cell_input",
-            "source_id": identity.get("source_id"),
-        },
-    )
+    # A cell handler is a pure producer.  Canonical application state is not
+    # mutated until the executor has validated and atomically published the
+    # returned artifact.
+    metadata = {
+        "application_id": context.application_id,
+        "job_description_path": str(context.paths.job_description),
+        "job_fingerprint": hashlib.sha256(source).hexdigest(),
+        "source_id": identity.get("source_id"),
+        "source_type": str(identity.get("source_type") or "cell_input"),
+    }
     handover = {
         "kind": "source_capture_handover",
         "application_id": context.application_id,
@@ -188,6 +187,7 @@ def _normalize_job(context: CellExecutionContext) -> CellOutput:
     result = derived_context_service.normalize_job(
         context.paths,
         job_description_path=canonical_source,
+        persist=False,
     )
     normalized = {
         **result["job_normalized"],
@@ -904,14 +904,7 @@ def _validate_captured_source(
         content = raw if isinstance(raw, bytes) else raw.encode("utf-8")
         if not content.strip():
             raise ValueError("captured job description is empty")
-        if not context.paths.job_description.is_file():
-            raise ValueError("application job description was not persisted")
-        if context.paths.job_description.read_bytes() != content:
-            raise ValueError("persisted job description differs from captured source")
-        metadata = read_json(context.paths.source_metadata)
-        if metadata.get("application_id") != context.application_id:
-            raise ValueError("captured source metadata belongs to another application")
-        if metadata.get("job_fingerprint") != hashlib.sha256(content).hexdigest():
+        if output.metadata.get("job_fingerprint") != hashlib.sha256(content).hexdigest():
             raise ValueError("captured source metadata fingerprint mismatch")
     except Exception as exc:
         reason = f"{type(exc).__name__}:{exc}"
@@ -953,14 +946,15 @@ def _validate_normalized_job(
         )
         if normalized.get("source", {}).get("sha256") != source_hash:
             raise ValueError("normalized job source hash mismatch")
-        manifest = read_json(context.paths.derived_dir / "manifest.json")
-        if (
-            manifest.get("application_id") != context.application_id
-            or manifest.get("fingerprint") != source_hash
-        ):
-            raise ValueError("application derived manifest identity mismatch")
-        if not str(manifest.get("candidate_facts_revision") or ""):
-            raise ValueError("application derived manifest lacks candidate facts revision")
+        handover = json.loads(
+            output.artifacts["handover_summary.json"].decode("utf-8")
+            if isinstance(output.artifacts["handover_summary.json"], bytes)
+            else output.artifacts["handover_summary.json"]
+        )
+        if handover.get("job_fingerprint") != source_hash:
+            raise ValueError("normalized handover source fingerprint mismatch")
+        if not str(handover.get("candidate_facts_revision") or ""):
+            raise ValueError("normalized handover lacks candidate facts revision")
     except Exception as exc:
         reason = f"{type(exc).__name__}:{exc}"
     return _persist_validator_result(context, reason, report_path=report_path)

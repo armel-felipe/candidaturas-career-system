@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from career.cells.capabilities import CapabilitySet
+from career.cells.capabilities import CapabilitySet, CapabilityViolation
 from career.cells.contracts import CELL_CONTRACTS, CellContract
 from career.cells.handlers import (
     CellExecutionContext,
@@ -412,16 +412,37 @@ class CellExecutor:
         with self.database.authority_ledger_lock():
             if self.database.authority_ledger_path is not None:
                 self.database.assert_authoritative_storage()
-            completion = ManifestStore(paths).finish_run(
-                run_id,
-                validated_artifacts=(),
-                blocked_nodes=(),
-            )
-            self.database.execute(
-                "UPDATE application_runs SET status = ?, updated_at = ? WHERE run_id = ?",
-                (completion.manifest["status"], utc_now_iso(), run_id),
-            )
-            return completion
+            if self.workspace_fence_token is None:
+                raise RuntimeError("stale authoritative workspace lease")
+            with self.database.transaction(immediate=True) as conn:
+                now = utc_now_iso()
+                owned = conn.execute(
+                    """SELECT 1 FROM workspace_leases
+                       WHERE lease_name = 'authoritative-workspace'
+                         AND worker_id = ? AND lease_epoch = ?
+                         AND expires_at > ?""",
+                    (
+                        self.workspace_owner,
+                        int(self.workspace_fence_token),
+                        now,
+                    ),
+                ).fetchone()
+                if owned is None:
+                    raise RuntimeError("stale authoritative workspace lease")
+                completion = ManifestStore(paths).finish_run(
+                    run_id,
+                    validated_artifacts=(),
+                    blocked_nodes=(),
+                )
+                updated = conn.execute(
+                    "UPDATE application_runs SET status = ?, updated_at = ? "
+                    "WHERE run_id = ? AND status NOT IN ('completed', 'cancelled')",
+                    (completion.manifest["status"], now, run_id),
+                ).rowcount
+                if updated != 1:
+                    completion.path.unlink(missing_ok=True)
+                    raise RuntimeError("run is no longer finalizable")
+                return completion
 
     def is_terminal(self, run_id: str) -> bool:
         statuses = self.resume(run_id).statuses.values()
@@ -553,7 +574,8 @@ class CellExecutor:
             )
             keepalive = keepalive_context.__enter__()
             try:
-                output = handler(context)
+                with context.capabilities.enforce_writes():
+                    output = handler(context)
                 if keepalive["failure"]:
                     failure = str(keepalive["failure"])
                     if failure == "node_lease_expired":
@@ -573,6 +595,13 @@ class CellExecutor:
                         (),
                         attempt_record=attempt_record,
                     )
+            except CapabilityViolation as exc:
+                return self._cancel_capability_violation(
+                    reservation,
+                    node,
+                    attempt_record.path,
+                    str(exc),
+                )
             except Exception as exc:
                 return self._block_reserved(
                     paths,
@@ -827,6 +856,10 @@ class CellExecutor:
                             node.node_id,
                             {item.node_id for item in plan.nodes},
                         )
+                if node.node_id == "capture_source":
+                    self._commit_captured_source(paths, output, published)
+                elif node.node_id == "normalize_job" and output.handover:
+                    self._commit_normalized_derived(paths)
             except Exception as exc:
                 manifest_store.rollback_publications(
                     node.node_id, attempt, published
@@ -875,6 +908,46 @@ class CellExecutor:
                     lease_id=str(lock["lease_id"]),
                 )
 
+    @staticmethod
+    def _commit_captured_source(
+        paths: ApplicationPaths,
+        output: CellOutput,
+        published: Iterable[Any],
+    ) -> None:
+        source = next(
+            (
+                item.path.read_bytes()
+                for item in published
+                if item.manifest.get("artifact_name") == "job_description.md"
+            ),
+            None,
+        )
+        if source is None:
+            raise RuntimeError("validated source publication is missing")
+        metadata = {
+            "application_id": paths.application_id,
+            "job_description_path": str(paths.job_description),
+            "job_fingerprint": hashlib.sha256(source).hexdigest(),
+            "source_id": output.handover.get("source_id"),
+            "source_type": str(output.handover.get("source_type") or "cell_input"),
+        }
+        paths.job_description.parent.mkdir(parents=True, exist_ok=True)
+        temporary_source = paths.job_description.with_suffix(".md.validated.tmp")
+        temporary_source.write_bytes(source)
+        temporary_source.replace(paths.job_description)
+        write_json(paths.source_metadata, metadata)
+
+    @staticmethod
+    def _commit_normalized_derived(paths: ApplicationPaths) -> None:
+        """Materialize canonical derived packs only after cell validation."""
+        from career.services import derived_context as derived_context_service
+
+        derived_context_service.normalize_job(
+            paths,
+            job_description_path=paths.job_description,
+            persist=True,
+        )
+
     def _run_validators(
         self,
         context: CellExecutionContext,
@@ -893,7 +966,8 @@ class CellExecutor:
                 )
                 continue
             try:
-                raw_result = validator(validator_context, output)
+                with context.capabilities.enforce_writes():
+                    raw_result = validator(validator_context, output)
                 result = self._coerce_validator_result(command, raw_result)
                 context.capabilities.assert_writable(result.report_path)
                 if not result.report_path.is_file():
@@ -1521,6 +1595,30 @@ class CellExecutor:
             status="cancelled",
             manifest_path=manifest_path,
             blocker="workspace_lease_expired",
+            workspace_owner=self.workspace_owner,
+        )
+
+    def _cancel_capability_violation(
+        self,
+        reservation: Mapping[str, Any],
+        node: NodePlan,
+        manifest_path: Path,
+        detail: str,
+    ) -> CellExecutionResult:
+        """Cancel an owned attempt that tried to escape its immutable manifest."""
+        run_id = str(reservation["run_id"])
+        attempt = int(reservation["attempt"])
+        reason = f"capability_violation:{detail}"
+        # Do not perform a terminal commit after an escape attempt: the
+        # handler may also have changed authority while it was running.  The
+        # reservation remains fenced and can only be reclaimed after expiry.
+        return CellExecutionResult(
+            run_id=run_id,
+            node_id=node.node_id,
+            attempt=attempt,
+            status="cancelled",
+            manifest_path=manifest_path,
+            blocker=reason,
             workspace_owner=self.workspace_owner,
         )
 
