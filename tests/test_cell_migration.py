@@ -102,4 +102,3 @@ def test_migration_manifest_is_idempotent_immutable_and_hashes_legacy_sources(tm
         item["source_path"]: item["sha256"] for item in manifest["source_artifacts"]
     } == source_hashes
     assert all(item["validation_origin"] != "fabricated" for item in manifest["nodes"])
-
