@@ -1,15 +1,15 @@
 # Status — Orquestração Celular
 
-Atualizado em: 2026-07-21 — gate final aprovado
+Atualizado em: 2026-07-21 — Fatia E em revalidação
 
 | Campo | Estado |
 |---|---|
 | Plano principal | `docs/superpowers/plans/2026-07-20-cellular-application-orchestration.md` |
 | Plano de recuperação | `docs/superpowers/plans/2026-07-20-cellular-orchestration-recovery-plan.md` |
-| Progresso | Fatias A–E aprovadas; orquestração celular concluída |
-| Tarefa ativa | Nenhuma — Task 9 / Fatia E concluída |
-| Último gate | Fatia E aprovada: autoridade do control DB, heartbeat celular concorrente, migração retomável e paralelo real |
-| Próximo gate | Integração do branch pelo controlador |
+| Progresso | Fatias A–D aprovadas; Fatia E em revalidação |
+| Tarefa ativa | Task 9 / Fatia E — correções da re-review |
+| Último gate | Re-review independente não aprovada; findings em correção |
+| Próximo gate | Nova revisão independente após testes e gates objetivos |
 
 ## Histórico aprovado
 
@@ -24,18 +24,18 @@ Atualizado em: 2026-07-21 — gate final aprovado
 - Fatia D — Notion, entrega e branches auxiliares com recibos: `7182ba5`, `bb085fb`, `fc5bcdd`, `f753099`.
 - Fatia E — lease do workspace, migração conservadora, dois subprocessos reais e regras operacionais: commit da Task 9.
 
-## Gate da Fatia E
+## Evidência objetiva atual da Fatia E (candidata à re-review)
 
-- `pytest -q tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py tests/test_database.py`: 29 testes focados aprovados.
-- `pytest -q`: 228 testes aprovados na suíte completa.
+- `pytest -q tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py tests/test_database.py`: 38 testes focados aprovados.
+- `pytest -q`: 237 testes aprovados na suíte completa.
 - `./scripts/python.sh scripts/career_cli.py project validate-structure`: estrutura canônica aprovada.
 - `npm run runtime:diagnose`: diagnóstico produzido em `outputs/_tmp/runtime_diagnosis.json`; sem finding celular bloqueante.
-- `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado, contenção observada e lock `notion-write` serializado.
-- Cobertura confirmada: control DB com identidade persistida e handoff MacBook/RPi5 fail-closed, renovação sob TTL curto, pool limitado de candidaturas, `analyze_fit` app-scoped com `awaiting_agent`, capabilities exatas, migração com cadeia objetiva e estado SQLite retomável, além da proibição de fallback global.
+- `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado/escrita inesperada, contenção observada e lock `notion-write` do nó real `sync_notion_initial` serializado.
+- Cobertura candidata: autoridade explícita da control DB em entrypoints de produção, handoff MacBook/RPi5 fail-closed, renovação até o commit terminal, pool limitado, draft vinculado/quarentenado, `Reprocessar` consumido uma vez, harness protegendo estado global/outputs/outras candidaturas, migração reconciliável com o schema legacy real e proibição de fallback global.
 
-## Encerramento das fatias
+## Estado da Fatia E
 
-1. Fatia E aprovada; não há fatia de implementação pendente neste plano.
+1. A aprovação final está suspensa até a nova revisão independente confirmar os findings corrigidos.
 
 ## Regra de avanço
 
