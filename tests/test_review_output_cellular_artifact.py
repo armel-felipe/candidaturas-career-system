@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from review_output import is_validated_cellular_artifact  # noqa: E402
+from career.services.database import Database  # noqa: E402
 
 
 def test_rejects_fabricated_adjacent_cellular_manifest(tmp_path):
@@ -24,7 +25,12 @@ def test_rejects_fabricated_adjacent_cellular_manifest(tmp_path):
     }
     (artifact.parent / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
-    assert not is_validated_cellular_artifact(artifact)
+    control_db = Database(tmp_path / "control.db")
+    control_db.init_schema()
+    try:
+        assert not is_validated_cellular_artifact(artifact, control_db_path=control_db.db_path)
+    finally:
+        control_db.close()
 
 
 def test_rejects_structurally_complete_forged_manifest_and_validator_report(tmp_path):
@@ -47,4 +53,9 @@ def test_rejects_structurally_complete_forged_manifest_and_validator_report(tmp_
     }
     (revision_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
-    assert not is_validated_cellular_artifact(artifact)
+    control_db = Database(tmp_path / "control.db")
+    control_db.init_schema()
+    try:
+        assert not is_validated_cellular_artifact(artifact, control_db_path=control_db.db_path)
+    finally:
+        control_db.close()

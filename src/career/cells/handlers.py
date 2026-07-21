@@ -36,6 +36,7 @@ class CellExecutionContext:
     repair_scope: str
     repair_reason: str | None = None
     validator_command: str = ""
+    control_db_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,7 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
             registry_path,
             report_path,
             polish_path,
+            control_db_path=context.control_db_path,
         )
     except SystemExit as exc:
         raise ValueError(f"objective CV review failed: {exc}") from exc

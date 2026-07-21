@@ -954,6 +954,7 @@ class CellExecutor:
             capabilities=capability_set,
             repair_scope=node.repair_scope,
             repair_reason=compact_context.get("repair_reason"),
+            control_db_path=self.database.db_path,
         )
 
     def _inputs_for_node(

@@ -35,6 +35,31 @@ Validation executed after remediation:
 - `pytest -q` — 175 passed
 - `git diff --check` — passed
 
+### Final architecture remediation
+
+Added the canonical structured source
+`.agents/skills/career-system/references/candidate_cv_facts.json`. It now owns
+renderer-facing candidate contact, experience, education, language, stack and
+localized PT/EN values; the former Python candidate catalogs were removed and
+generation/validation load the revisioned JSON. The JSON is included in the
+candidate-facts revision. The regression mutates a temporary canonical JSON
+with unchanged code and proves that the revision and loaded values change while
+old provenance is rejected.
+
+Summary inputs used during composition are persisted in bounded form, hashed,
+and bound to the source FIT_MAP artifact hash before summary validation is
+recomputed. Cellular artifact acceptance now receives the executor's SQLite
+control database and requires matching `artifacts`, `application_runs`, and
+validated `cell_attempts` records in addition to the file manifest/report chain.
+The integration test proves a real database-backed artifact is accepted; forged
+complete file chains with an initialized but unseeded database are rejected.
+
+Validation executed after final remediation:
+
+- `pytest tests/test_custom_cv_generation.py tests/test_cell_cv_pipeline.py tests/test_candidate_cv_facts.py tests/test_review_output_cellular_artifact.py -q --maxfail=1` — 12 passed
+- `pytest -q` — 179 passed
+- `git diff --check` — passed
+
 ### Third review remediation
 
 `validate_canonical_provenance` now recomputes the candidate-facts revision from

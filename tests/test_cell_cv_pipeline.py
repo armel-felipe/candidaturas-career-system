@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import zipfile
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +19,10 @@ from career.services.application_context import paths_for
 from career.services.database import Database
 from career.utils import read_json, write_json
 from career.utils import ValidationFailure
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from review_output import is_validated_cellular_artifact  # noqa: E402
 
 
 def _docx_text(path: Path) -> str:
@@ -219,6 +224,8 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
         first_artifact = Path(first_manifest["inputs"]["render_cv:cv.docx"]["path"])
         second_artifact = Path(second_manifest["inputs"]["render_cv:cv.docx"]["path"])
         assert first_artifact != second_artifact
+        assert is_validated_cellular_artifact(first_artifact, control_db_path=database.db_path)
+        assert is_validated_cellular_artifact(second_artifact, control_db_path=database.db_path)
         assert first_manifest["application_id"] != second_manifest["application_id"]
         assert first_manifest["inputs"]["render_cv:cv.docx"]["sha256"] != second_manifest["inputs"]["render_cv:cv.docx"]["sha256"]
         for manifest, artifact in ((first_manifest, first_artifact), (second_manifest, second_artifact)):
@@ -257,7 +264,13 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
             assert all("experience_id" in item and "evidence_id" in item for item in payload["ats_keyword_coverage"])
             cv_content.validate_canonical_provenance(payload)
             evidence = payload["metadata"]["candidate_facts"]["evidence"]
-            assert len(evidence) == len(set(evidence))
+            bullet_claim_ids = [
+                bullet["evidence_id"]
+                for experience in payload["experiences"]
+                for bullet in experience["bullets"]
+            ]
+            assert len(bullet_claim_ids) == len(set(bullet_claim_ids))
+            assert len(evidence) >= len(bullet_claim_ids) + len(payload["experiences"]) * 4
         tampering = {
             "role": lambda item: item["experiencias"][0].__setitem__("cargo", "Tampered role"),
             "period": lambda item: item["experiencias"][0].__setitem__("periodo", "Tampered period"),

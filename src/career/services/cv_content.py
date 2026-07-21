@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 import unicodedata
@@ -30,6 +31,34 @@ PROFILE_FACTS_PATH = (
 SELF_KNOWLEDGE_PATH = (
     ROOT / ".agents/skills/career-system/references/autoconhecimento.md"
 )
+CV_FACTS_PATH = (
+    ROOT / ".agents/skills/career-system/references/candidate_cv_facts.json"
+)
+
+
+def load_canonical_cv_facts() -> dict[str, Any]:
+    """Load the revisioned structured source for every renderer-facing fact."""
+    payload = read_json(CV_FACTS_PATH)
+    required = {"schema_version", "candidate", "experiences", "education", "languages", "stack", "localized_render_values"}
+    if not isinstance(payload, dict) or required - set(payload):
+        raise ValidationFailure("canonical CV facts schema is incomplete")
+    return payload
+
+
+def _facts_experiences() -> list[dict[str, Any]]:
+    return list(load_canonical_cv_facts()["experiences"])
+
+
+def _facts_education(language: str) -> list[str]:
+    return list(load_canonical_cv_facts()["education"][language])
+
+
+def _facts_languages(language: str) -> list[str]:
+    return list(load_canonical_cv_facts()["languages"][language])
+
+
+def _facts_stack() -> str:
+    return str(load_canonical_cv_facts()["stack"])
 
 
 CV_CONTENT_PATH = CAREER_STATE / "cv_content.json"
@@ -109,149 +138,6 @@ BULLET2_POLICY_BY_FAMILY: dict[str, dict[str, Any]] = {
         },
         "focus": "dados, priorização e performance de negócio",
     },
-}
-
-
-EXPERIENCE_CATALOG: list[dict[str, Any]] = [
-    {
-        "id": "wehandle_head_operacoes",
-        "company": "wehandle",
-        "role": "Head de Operações",
-        "period": "maio/2024 — fev/2026",
-        "order": 1,
-        "focus_terms": {"transformação digital", "inteligência artificial", "liderança", "dados", "cx"},
-        "scope_bullet": "Fui responsável pela operação de suporte, CX e backoffice, liderando um time de 30 pessoas e conectando atendimento, produto e dados para acelerar a transformação digital da companhia.",
-        "result_bullet": "Reduzi o custo por atendimento de R$4,14 para R$3,61 (-13%), elevei o CSAT de 85% para 92%, reduzi o TME de 20 para 8 minutos e gerei impacto de 15% na margem bruta.",
-        "leverage": {
-            "default": "Implantei duas migrações de plataforma, automação com inteligência artificial humanizada e integração de dados via API para dar escala operacional e melhorar a priorização com o time de produto.",
-            "project_management": "Coordenei duas migrações de plataforma, organizei dependências entre atendimento, produto e tecnologia e usei integrações via API para sustentar rollout operacional com governança e visibilidade em tempo real.",
-            "cx_saas_operations": "Estruturei migrações de plataforma, automação com inteligência artificial humanizada e integrações via API para redesenhar a jornada de atendimento e dar escala ao backoffice com melhor priorização.",
-        },
-    },
-    {
-        "id": "ifood_diretor_operacoes",
-        "company": "iFood",
-        "role": "Diretor de Operações",
-        "period": "abr/2022 — mar/2024",
-        "order": 2,
-        "focus_terms": {"growth", "liderança", "planejamento estratégico", "budget", "canais", "pipeline"},
-        "scope_bullet": "Fui responsável por FieldOps, Meios de Pagamento e Novos Negócios, liderando 240 pessoas entre diretos e indiretos e operando growth com expansão geográfica, frota dedicada e alocação de budget.",
-        "result_bullet": "Ampliei a cobertura logística de 400 para 800 cidades, reduzi a indisponibilidade da frota de 5% para 1%, aumentei viagens agrupadas de 12% para 25% e gerenciei budget de R$300MM/ano.",
-        "leverage": {
-            "default": "Conectei marketing, produto, supply e operação em um rito executivo mensal de S&OP, conduzindo cenários, trade-offs e governança para sustentar decisões de crescimento e eficiência.",
-            "project_management": "Coordenei marketing, produto, supply e operação em um rito executivo mensal de S&OP, desdobrando cenários, riscos e dependências para sustentar decisões transversais de crescimento com governança.",
-            "planning_sop_capacity": "Conduzi um rito executivo mensal de S&OP com marketing, produto, supply e operação, usando cenários, trade-offs e governança para balancear capacidade, custo e nível de serviço.",
-        },
-    },
-    {
-        "id": "ifood_head_operacoes",
-        "company": "iFood",
-        "role": "Head de Operações",
-        "period": "nov/2018 — mar/2022",
-        "order": 3,
-        "focus_terms": {"dashboards", "pricing", "data-driven growth", "growth", "dados"},
-        "scope_bullet": "Fui responsável por liveOps, regionalOps, pricing, modelagem de dados e planejamento de frota, liderando 28 pessoas em uma operação que exigia decisões rápidas e coordenação multifuncional.",
-        "result_bullet": "Gerei saving de R$70MM/ano com um simulador de nível de serviço, reduzi o custo de distribuição de MPOS em 80%, cortei o prazo de entrega de 14 para 2 dias e reduzi cancelamentos em 60% no México.",
-        "leverage": {
-            "default": "Estruturei dashboards em Grafana, modelei dados com SQL, Databricks e Tableau e conduzi testes controlados de pricing e incentivos para equilibrar oferta, demanda e nível de serviço.",
-            "project_management": "Estruturei dashboards em Grafana, modelei dados com SQL e conduzi testes controlados de pricing para alinhar produto, operação e planejamento em decisões rápidas com visibilidade executiva.",
-            "product_revenue_business_ops": "Modelei dados com SQL, Databricks e Tableau, criei dashboards em Grafana e conduzi testes controlados de pricing para equilibrar oferta, demanda e performance de negócio.",
-        },
-    },
-    {
-        "id": "renault_cs",
-        "company": "Renault do Brasil",
-        "role": "Gerente de Customer Success",
-        "period": "jan/2018 — out/2018",
-        "order": 4,
-        "focus_terms": {"pipeline", "taxa de conversão", "conversão", "leads"},
-        "scope_bullet": "Fui responsável pela transição de dois BPOs com 40 PAs para uma estrutura internalizada de 8 pessoas, redesenhando a operação de leads com mais controle de qualidade e SLA.",
-        "result_bullet": "Elevei a taxa de conversão de leads de 24% para 46% e aprovei o projeto de transformação em 2 reuniões com base em um ROI corretamente modelado.",
-        "leverage": {
-            "default": "Estruturei governança de funil com dados, discadores programados por mim e acompanhamento em tempo real para estabilizar a execução comercial.",
-            "project_management": "Estruturei a transição com governança de funil, acompanhamento em tempo real e cadência de decisão baseada em ROI para estabilizar a execução comercial sem perder SLA.",
-        },
-    },
-    {
-        "id": "vivareal_planejamento_operacoes",
-        "company": "VivaReal",
-        "role": "Gerente de Planejamento Comercial e Operações",
-        "period": "mai/2015 — dez/2017",
-        "order": 5,
-        "focus_terms": {"desenvolvimento de negócios", "canais de vendas", "política de preços", "pipeline", "taxa de conversão", "liderança"},
-        "scope_bullet": "Fui responsável por planejamento comercial, desenvolvimento de negócios, canais de vendas, política de preços e operações ligadas a SDR, qualidade e cadastro de imóveis, totalizando 33 pessoas e 5 lideranças diretas.",
-        "result_bullet": "Elevei a taxa de conversão de SDR inbound de 18% para 50%, reduzi o custo de vendas em 40%, recuperei R$1M em campanhas de inadimplência e escalei a área desenhada de CS para 91 pessoas.",
-        "leverage": {
-            "default": "Estruturei dashboards diários com SQL e Excel automatizado, organizei o pipeline de SDR, defini metas com o time comercial e priorizei roadmap de produto para sustentar expansão e execução.",
-            "project_management": "Coordenei SQL, Excel automatizado, pipeline de SDR e priorização de roadmap de produto para alinhar stakeholders, destravar dependências e sustentar a execução do plano comercial.",
-            "product_revenue_business_ops": "Estruturei dashboards diários com SQL, automatizei análises em Excel, organizei o pipeline de SDR e priorizei roadmap de produto para sustentar expansão e performance comercial.",
-        },
-    },
-    {
-        "id": "trifil_sop",
-        "company": "Scalina (Trifil)",
-        "role": "Coordenador de S&OP",
-        "period": "jan/2010 — set/2014",
-        "order": 6,
-        "focus_terms": {"s&op", "planejamento integrado", "trade-offs", "cenários", "custos", "otif"},
-        "scope_bullet": "Fui responsável por criar a área de S&OP do zero, gerenciando 40K SKUs de produto acabado em duas marcas e todos os canais de distribuição com responsabilidade sobre OTIF, fill rate e estoque de segurança.",
-        "result_bullet": "Reduzi R$8MM em Gastos Gerais de Fabricação (GGF) via otimização de energia, gás, manutenção e embalagens, mantendo a meta anual de R$154M com economia real de R$4,6M até agosto.",
-        "leverage": {
-            "default": "Desenvolvi um simulador para validação do MRP e avaliação de cenários no S&OP com Excel/VBA, coordenei o S&OE para recalibrar faltas e sobras e atuei como intermediador entre comercial e fabricação para resolver restrições de recursos.",
-            "planning_sop_capacity": "Conduzi um simulador para validação do MRP e cenários de S&OP com Excel/VBA, coordenei o S&OE e articulei trade-offs entre comercial e fabricação para balancear capacidade, estoque e nível de serviço.",
-            "operations": "Estruturei um simulador para validação do MRP, coordenei o S&OP e S&OE com governança de alinhamento entre comercial e fabricação para resolver restrições operacionais e sustentar OTIF, fill rate e estoque de segurança.",
-        },
-    },
-    {
-        "id": "trifil_inteligencia_comercial",
-        "company": "Scalina (Trifil)",
-        "role": "Coordenador de Inteligência Comercial",
-        "period": "jan/2009 — dez/2009",
-        "order": 7,
-        "focus_terms": {"data-driven growth", "dashboards", "insights", "pricing", "canais de vendas"},
-        "scope_bullet": "Fui responsável por criar a área de inteligência comercial, apoiando a diretoria com informações de mercado, canais de vendas, comissionamento, oportunidades comerciais e política de preços.",
-        "result_bullet": "Reduzi o tempo dos relatórios diários de 4 horas para 14 minutos e aumentei o faturamento anual de R$80M para R$120M com um algoritmo de alocação de estoque orientado por margem e receita.",
-        "leverage": {
-            "default": "Estruturei análises com dados, BI, dashboards e rotinas em Excel/VBA para sustentar decisões comerciais, normalizar dados do ERP e preparar a base para o sistema B2B.",
-            "project_management": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, organizei a base do ERP e dei previsibilidade à diretoria para priorizar decisões comerciais e implantação do sistema B2B.",
-            "product_revenue_business_ops": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, normalizei dados do ERP e preparei a base para decisões comerciais orientadas por margem, receita e canais.",
-        },
-    },
-]
-
-
-DEFAULT_EDUCATION_PT = [
-    "MBA Corporate Strategy — BSP Business School São Paulo (2017)",
-    "Engenheiro Químico — Faculdades Oswaldo Cruz (2014)",
-    "Six Sigma Green Belt — Setec Consulting (2020)",
-]
-
-DEFAULT_EDUCATION_EN = [
-    "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo (2017)",
-    "Bachelor's Degree in Chemical Engineering — Faculdades Oswaldo Cruz (2014)",
-    "Six Sigma Green Belt — Setec Consulting (2020)",
-]
-
-DEFAULT_LANGUAGES = [
-    "Português — Nativo",
-    "Inglês — Avançado",
-]
-
-DEFAULT_LANGUAGES_EN = [
-    "Portuguese — Native",
-    "English — Advanced",
-]
-
-DEFAULT_STACK = "Excel/VBA · SQL · Python · Databricks · Grafana · Tableau · Power BI · Metabase"
-
-EN_EXPERIENCE_TEXT = {
-    "wehandle_head_operacoes": ("Head of Operations", "I led Support, CX, and Back Office, managing a 30-person team and connecting service, product, and data to accelerate the company's digital transformation.", "I implemented two platform migrations, human-centered AI automation, and API data integrations to scale operations and improve product prioritization.", "I reduced cost per contact from R$4.14 to R$3.61 (-13%), raised CSAT from 85% to 92%, cut handling time from 20 to 8 minutes, and generated a 15% gross-margin impact."),
-    "ifood_diretor_operacoes": ("Operations Director", "I led FieldOps, Payments, and New Business, managing 240 direct and indirect people across geographic expansion, dedicated fleet, and budget allocation.", "I connected marketing, product, supply, and operations through a monthly executive S&OP cadence, using scenarios and trade-offs to support growth and efficiency decisions.", "I expanded logistics coverage from 400 to 800 cities, reduced fleet unavailability from 5% to 1%, increased bundled trips from 12% to 25%, and managed an annual R$300M budget."),
-    "ifood_head_operacoes": ("Head of Operations", "I led live operations, regional operations, pricing, data modeling, and fleet planning with a 28-person team in a fast-paced cross-functional environment.", "I built Grafana dashboards, modeled data with SQL, Databricks, and Tableau, and ran controlled pricing and incentive experiments to balance supply, demand, and service levels.", "I generated R$70M in annual savings with a service-level simulator, cut MPOS distribution cost by 80%, reduced delivery time from 14 to 2 days, and lowered cancellations in Mexico by 60%."),
-    "renault_cs": ("Customer Success Manager", "I transitioned two BPO operations with 40 workstations to an in-house eight-person team, redesigning lead operations for stronger quality control and SLA management.", "I established funnel governance with data, self-configured dialers, and real-time monitoring to stabilize commercial execution.", "I increased lead conversion from 24% to 46% and obtained approval for the transformation project in two meetings through a correctly modeled ROI."),
-    "vivareal_planejamento_operacoes": ("Commercial Planning and Operations Manager", "I led commercial planning, business development, sales channels, pricing policy, and SDR, quality, and real-estate listing operations, totaling 33 people and five direct leaders.", "I built daily SQL and automated Excel dashboards, organized the SDR pipeline, set sales goals, and prioritized the product roadmap to sustain execution and growth.", "I increased inbound SDR conversion from 18% to 50%, reduced sales cost by 40%, recovered R$1M from delinquency campaigns, and scaled the designed CS area to 91 people."),
-    "trifil_sop": ("S&OP Coordinator", "I created the S&OP function from scratch, managing 40K finished-goods SKUs across two brands and all distribution channels, with accountability for OTIF, fill rate, and safety stock.", "I developed an Excel/VBA simulator to validate MRP and evaluate S&OP scenarios, coordinated S&OE, and mediated constraints between commercial and manufacturing teams.", "I reduced R$8M in manufacturing overhead through energy, gas, maintenance, and packaging optimization while maintaining the R$154M annual target and delivering R$4.6M in realized savings by August."),
-    "trifil_inteligencia_comercial": ("Commercial Intelligence Coordinator", "I created the commercial intelligence function, supporting executive leadership with market information, sales channels, commissions, commercial opportunities, and pricing policy.", "I built data analyses, BI dashboards, and Excel/VBA routines to support commercial decisions, normalize ERP data, and prepare the foundation for the B2B system.", "I reduced daily reporting time from four hours to 14 minutes and increased annual revenue from R$80M to R$120M through a margin- and revenue-based inventory-allocation algorithm."),
 }
 
 
@@ -369,8 +255,12 @@ def _build_cv_payload(
     selected_with_bullets = [_materialize_experience(entry, job_family, language="en" if is_en else "pt-BR") for entry in selected]
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
-    summary_text, summary_support = _build_summary(selected_with_bullets, fit_map, language="en" if is_en else "pt-BR")
-    education_list = DEFAULT_EDUCATION_EN if is_en else DEFAULT_EDUCATION_PT
+    summary_inputs = {
+        key: fit_map.get(key)
+        for key in ("cargo", "empresa", "dor_central", "keywords_habilidade_ats", "idioma")
+    }
+    summary_text, summary_support = _build_summary(selected_with_bullets, summary_inputs, language="en" if is_en else "pt-BR")
+    education_list = _facts_education("en" if is_en else "pt-BR")
     candidate = _candidate_contact_facts()
     payload = {
         "metadata": {
@@ -385,6 +275,11 @@ def _build_cv_payload(
             "source_fit_map": source_fit_map,
             "job_family": job_family,
             "language": "en" if is_en else "pt-BR",
+            "summary_inputs": summary_inputs,
+            "summary_inputs_sha256": hashlib.sha256(
+                json.dumps(summary_inputs, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
+            "source_fit_map_sha256": sha256_file(Path(source_fit_map)) if Path(source_fit_map).is_file() else "",
         },
         "output_name": _output_name(fit_map, active=active, language="en" if is_en else "pt-BR"),
         "candidate": candidate,
@@ -422,10 +317,10 @@ def _build_cv_payload(
             for exp in selected_with_bullets
         ],
         "education": list(education_list),
-        "formacao": list(DEFAULT_EDUCATION_PT),
-        "languages": list(DEFAULT_LANGUAGES_EN if is_en else DEFAULT_LANGUAGES),
-        "idiomas": list(DEFAULT_LANGUAGES),
-        "stack": DEFAULT_STACK,
+        "formacao": _facts_education("pt-BR"),
+        "languages": _facts_languages("en" if is_en else "pt-BR"),
+        "idiomas": _facts_languages("pt-BR"),
+        "stack": _facts_stack(),
         "ats_keyword_coverage": coverage,
         "summary_support": summary_support,
     }
@@ -518,7 +413,7 @@ def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(story, dict):
             story_companies.append(str(story.get("empresa") or ""))
     targets = [str(item.get("experiencia_alvo") or "") for item in _top8_keywords(fit_map)]
-    for entry in EXPERIENCE_CATALOG:
+    for entry in _facts_experiences():
         company_norm = _normalize(entry["company"])
         role_norm = _normalize(entry["role"])
         if any(company_norm in _normalize(company) for company in story_companies if company):
@@ -540,7 +435,7 @@ def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
             selected_ids.append(item_id)
         if len(selected_ids) >= 5:
             break
-    deduped = [item for item in EXPERIENCE_CATALOG if item["id"] in selected_ids]
+    deduped = [item for item in _facts_experiences() if item["id"] in selected_ids]
     deduped.sort(key=lambda item: item["order"])
     return deduped[:8]
 
@@ -596,7 +491,7 @@ def _infer_job_family(fit_map: dict[str, Any]) -> str:
 
 def _materialize_experience(entry: dict[str, Any], job_family: str, *, language: str = "pt-BR") -> dict[str, Any]:
     if language == "en":
-        role, scope, leverage, result = EN_EXPERIENCE_TEXT[entry["id"]]
+        role, scope, leverage, result = load_canonical_cv_facts()["localized_render_values"]["en"][entry["id"]]
         return {
             **entry,
             "role": role,
@@ -781,21 +676,7 @@ def _application_cv_language(application_paths: ApplicationPaths, fit_map: dict[
 
 def _candidate_contact_facts() -> dict[str, str]:
     """Extract immutable renderer-facing identity facts from the canonical profile."""
-    text = PROFILE_FACTS_PATH.read_text(encoding="utf-8")
-    patterns = {
-        "location": r"\*\*Localização:\*\*\s*(.+)",
-        "linkedin": r"\*\*LinkedIn:\*\*\s*\[([^]]+)\]",
-        "phone": r"\*\*(?:WhatsApp/Tel|Telefone):\*\*\s*\[([^]]+)\]",
-        "email": r"\*\*E-mail:\*\*\s*\[([^]]+)\]",
-    }
-    values = {
-        key: (match.group(1).strip() if (match := re.search(pattern, text)) else "")
-        for key, pattern in patterns.items()
-    }
-    name_match = re.search(r"##\s+PERFIL\s+—\s+(.+)", text, flags=re.IGNORECASE)
-    values["name"] = (
-        name_match.group(1).title().replace(" Da ", " da ") if name_match else ""
-    )
+    values = dict(load_canonical_cv_facts()["candidate"])
     if not all(values.values()):
         raise ValidationFailure("canonical candidate contact facts are incomplete")
     return values
@@ -821,6 +702,7 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
     """Bind every renderer-facing fact to immutable candidate source hashes."""
     revision = str(payload["metadata"].get("candidate_facts_revision") or "")
     sources = {
+        "cv_facts": CV_FACTS_PATH,
         "profile": PROFILE_FACTS_PATH,
         "self_knowledge": SELF_KNOWLEDGE_PATH,
     }
@@ -867,26 +749,26 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
     for experience in payload["experiences"]:
         experience_id = str(experience["experience_id"])
         locator = _experience_source_locator(experience_id)
-        experience["evidence_id"] = bind("self_knowledge", "experience", locator, experience_id)
+        experience["evidence_id"] = bind("cv_facts", "experience", locator, experience_id)
         experience["provenance"] = {
-            "role": bind("self_knowledge", "experience_role", locator, experience["role"]),
-            "company": bind("self_knowledge", "experience_company", locator, experience["company"]),
-            "period": bind("self_knowledge", "experience_period", locator, experience["period"]),
+            "role": bind("cv_facts", "experience_role", locator, experience["role"]),
+            "company": bind("cv_facts", "experience_company", locator, experience["company"]),
+            "period": bind("cv_facts", "experience_period", locator, experience["period"]),
         }
         for index, bullet in enumerate(experience["bullets"]):
             bullet["evidence_id"] = bind(
-                "self_knowledge", "experience_bullet", f"{locator}::{index}", bullet["text"]
+                "cv_facts", "experience_bullet", f"{locator}::{index}", bullet["text"]
             )
     for experience in payload["experiencias"]:
         experience_id = str(experience["experience_id"])
         locator = _experience_source_locator(experience_id)
-        experience["evidence_id"] = bind("self_knowledge", "experience_pt", locator, experience_id)
+        experience["evidence_id"] = bind("cv_facts", "experience_pt", locator, experience_id)
         experience["provenance"] = {
-            "cargo": bind("self_knowledge", "experience_role_pt", locator, experience["cargo"]),
-            "empresa": bind("self_knowledge", "experience_company_pt", locator, experience["empresa"]),
-            "periodo": bind("self_knowledge", "experience_period_pt", locator, experience["periodo"]),
+            "cargo": bind("cv_facts", "experience_role_pt", locator, experience["cargo"]),
+            "empresa": bind("cv_facts", "experience_company_pt", locator, experience["empresa"]),
+            "periodo": bind("cv_facts", "experience_period_pt", locator, experience["periodo"]),
             "bullets": [
-                bind("self_knowledge", "experience_bullet_pt", f"{locator}::{index}", bullet)
+                bind("cv_facts", "experience_bullet_pt", f"{locator}::{index}", bullet)
                 for index, bullet in enumerate(experience["bullets"])
             ],
         }
@@ -913,10 +795,10 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
     payload["claim_provenance"] = {
         "summary": [item["evidence_id"] for item in payload["summary_support"]],
         "education": education_evidence,
-        "languages": [bind("profile", "language", "Idiomas:", value) for value in payload["languages"]],
-        "stack": bind("profile", "technical_stack", "Stack técnica:", payload["stack"]),
+        "languages": [bind("cv_facts", "language", "languages", value) for value in payload["languages"]],
+        "stack": bind("cv_facts", "technical_stack", "stack", payload["stack"]),
         "candidate": {
-            key: bind("profile", f"candidate_{key}", value, value)
+            key: bind("cv_facts", f"candidate_{key}", value, value)
             for key, value in payload["candidate"].items()
         },
     }
@@ -941,7 +823,11 @@ def validate_canonical_provenance(payload: dict[str, Any]) -> None:
     evidence = facts.get("evidence") if isinstance(facts.get("evidence"), dict) else {}
     if not sources or not evidence:
         raise ValidationFailure("CV canonical evidence catalog is missing")
-    expected_sources = {"profile": PROFILE_FACTS_PATH, "self_knowledge": SELF_KNOWLEDGE_PATH}
+    expected_sources = {
+        "cv_facts": CV_FACTS_PATH,
+        "profile": PROFILE_FACTS_PATH,
+        "self_knowledge": SELF_KNOWLEDGE_PATH,
+    }
     if set(sources) != set(expected_sources):
         raise ValidationFailure("CV canonical evidence sources are invalid")
     source_bytes: dict[str, bytes] = {}
@@ -1040,17 +926,25 @@ def _validate_trusted_renderer_values(payload: dict[str, Any]) -> None:
         raise ValidationFailure("CV canonical evidence language is invalid")
     raw_experiences = payload.get("experiences") if isinstance(payload.get("experiences"), list) else []
     ids = [str(item.get("experience_id") or "") for item in raw_experiences if isinstance(item, dict)]
-    catalog = {str(item["id"]): item for item in EXPERIENCE_CATALOG}
+    catalog = {str(item["id"]): item for item in _facts_experiences()}
     if not ids or len(ids) != len(set(ids)) or any(item_id not in catalog for item_id in ids):
         raise ValidationFailure("CV canonical evidence experience selection is invalid")
     selected = [catalog[item_id] for item_id in ids]
     family = str(metadata.get("job_family") or "operations")
     materialized = [_materialize_experience(item, family, language=language) for item in selected]
     expected_candidate = _candidate_contact_facts()
-    expected_summary, _support = _build_summary(
-        materialized, {"cargo": metadata.get("cargo")}, language=language
-    )
-    if payload.get("candidate") != expected_candidate or payload.get("stack") != DEFAULT_STACK:
+    summary_inputs = metadata.get("summary_inputs") if isinstance(metadata.get("summary_inputs"), dict) else {}
+    if (
+        metadata.get("summary_inputs_sha256")
+        != hashlib.sha256(json.dumps(summary_inputs, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        or summary_inputs.get("cargo") != metadata.get("cargo")
+    ):
+        raise ValidationFailure("CV canonical evidence summary inputs are invalid")
+    source_fit_map = Path(str(metadata.get("source_fit_map") or ""))
+    if source_fit_map.is_file() and metadata.get("source_fit_map_sha256") != sha256_file(source_fit_map):
+        raise ValidationFailure("CV canonical evidence FIT_MAP binding changed")
+    expected_summary, _support = _build_summary(materialized, summary_inputs, language=language)
+    if payload.get("candidate") != expected_candidate or payload.get("stack") != _facts_stack():
         raise ValidationFailure("CV canonical evidence does not authorize rendered contact or stack")
     if language == "en":
         expected_experiences = [
@@ -1066,8 +960,8 @@ def _validate_trusted_renderer_values(payload: dict[str, Any]) -> None:
         ]
         if (
             actual_experiences != expected_experiences
-            or payload.get("education") != DEFAULT_EDUCATION_EN
-            or payload.get("languages") != DEFAULT_LANGUAGES_EN
+            or payload.get("education") != _facts_education("en")
+            or payload.get("languages") != _facts_languages("en")
             or payload.get("summary") != expected_summary
         ):
             raise ValidationFailure("CV canonical evidence does not authorize rendered English values")
@@ -1082,8 +976,8 @@ def _validate_trusted_renderer_values(payload: dict[str, Any]) -> None:
     ]
     if (
         actual_pt != expected_experiences
-        or payload.get("formacao") != DEFAULT_EDUCATION_PT
-        or payload.get("idiomas") != DEFAULT_LANGUAGES
+        or payload.get("formacao") != _facts_education("pt-BR")
+        or payload.get("idiomas") != _facts_languages("pt-BR")
         or payload.get("resumo") != expected_summary
     ):
         raise ValidationFailure("CV canonical evidence does not authorize rendered Portuguese values")
@@ -1119,8 +1013,8 @@ def _experience_source_locator(experience_id: str) -> str:
 
 def _education_source_locator(index: int) -> tuple[str, str]:
     locators = (
-        ("profile", "BSP Business School São Paulo"),
-        ("self_knowledge", "Engenheiro Químico — Faculdades Oswaldo Cruz"),
-        ("self_knowledge", "Six Sigma Green Belt - Setec Consulting"),
+        ("cv_facts", "BSP Business School São Paulo"),
+        ("cv_facts", "Engenheiro Químico — Faculdades Oswaldo Cruz"),
+        ("cv_facts", "Six Sigma Green Belt"),
     )
     return locators[index]

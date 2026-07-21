@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import re
+import sqlite3
 import subprocess
 import sys
 import zipfile
@@ -230,7 +231,7 @@ def normalized_path_string(path_text: str | None) -> str | None:
     return str(Path(path_text).resolve())
 
 
-def is_validated_cellular_artifact(artifact: Path) -> bool:
+def is_validated_cellular_artifact(artifact: Path, *, control_db_path: Path | None = None) -> bool:
     """Allow non-outputs DOCX files only through their immutable cell manifest."""
     artifact = artifact.resolve()
     if "artifacts" not in artifact.parts or artifact.name != "cv.docx":
@@ -307,6 +308,22 @@ def is_validated_cellular_artifact(artifact: Path) -> bool:
             )
         except Exception:
             attempt_output_matches = False
+    db_attested = False
+    if control_db_path is not None and Path(control_db_path).is_file():
+        try:
+            with sqlite3.connect(str(control_db_path)) as conn:
+                row = conn.execute(
+                    """SELECT 1 FROM artifacts a
+                       JOIN application_runs r ON r.run_id = a.run_id
+                       JOIN cell_attempts c ON c.run_id = a.run_id AND c.node_id = a.node_id
+                       WHERE a.run_id = ? AND r.application_id = ? AND a.node_id = 'render_cv'
+                         AND a.artifact_name = 'cv.docx' AND a.path = ? AND a.content_hash = ?
+                         AND c.attempt = ? AND c.status = 'validated'""",
+                    (run_id, application_id, str(artifact), digest, manifest.get("attempt")),
+                ).fetchone()
+                db_attested = row is not None
+        except sqlite3.Error:
+            db_attested = False
     return (
         manifest.get("kind") == "artifact_manifest"
         and manifest.get("status") == "validated"
@@ -321,6 +338,7 @@ def is_validated_cellular_artifact(artifact: Path) -> bool:
         and manifest.get("sha256") == digest
         and validator_passed
         and attempt_output_matches
+        and db_attested
     )
 
 
@@ -551,6 +569,7 @@ def build_cv_review(
     fit_map: dict,
     registry: dict,
     translation_registry_path: Path,
+    cellular_db_path: Path | None = None,
 ) -> dict:
     company = fit_map.get("empresa", "")
     role = fit_map.get("cargo", "")
@@ -585,7 +604,7 @@ def build_cv_review(
             "id": "artifact_exists_in_outputs",
             "passed": artifact.exists() and (
                 ("outputs" in artifact.parts and "_tmp" not in artifact.parts)
-                or is_validated_cellular_artifact(artifact)
+                or is_validated_cellular_artifact(artifact, control_db_path=cellular_db_path)
             ),
             "evidence": str(artifact),
         },

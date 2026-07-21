@@ -118,11 +118,11 @@ def polish_cv(
     return payload
 
 
-def review_cv(artifact: Path, fit_map_path: Path, registry_path: Path, report_path: Path) -> dict:
+def review_cv(artifact: Path, fit_map_path: Path, registry_path: Path, report_path: Path, *, control_db_path: Path | None = None) -> dict:
     """Run the objective review against the exact rendered DOCX revision."""
     fit_map = legacy_review_output.read_json(fit_map_path)
     registry = legacy_review_output.read_json(registry_path)
-    report = legacy_review_output.build_cv_review(artifact, fit_map, registry, DEFAULT_TRANSLATION_REGISTRY)
+    report = legacy_review_output.build_cv_review(artifact, fit_map, registry, DEFAULT_TRANSLATION_REGISTRY, cellular_db_path=control_db_path)
     CvReviewReportSchema(report).validate()
     write_json(report_path, report)
     return report
@@ -134,6 +134,7 @@ def approve_cv(
     registry_path: Path,
     report_path: Path,
     polish_report_path: Path | None = None,
+    control_db_path: Path | None = None,
 ) -> dict:
     command = [
         sys.executable,
@@ -153,7 +154,7 @@ def approve_cv(
             "Keyword registration failed before CV review.\n"
             f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
-    report = review_cv(artifact, fit_map_path, registry_path, report_path)
+    report = review_cv(artifact, fit_map_path, registry_path, report_path, control_db_path=control_db_path)
     polish_path = polish_report_path or report_path.with_name("polish_review.json")
     polish = polish_cv(artifact, polish_path, review_report=report)
     if polish.get("approval_blockers"):

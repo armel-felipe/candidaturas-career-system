@@ -9,20 +9,27 @@ from career.paths import ROOT
 from career.services.application_context import ApplicationPaths
 from career.utils import ValidationFailure, sha256_file
 
+CV_FACTS_PATH = ROOT / ".agents/skills/career-system/references/candidate_cv_facts.json"
 
 CANDIDATE_FACT_SOURCES: tuple[Path, ...] = (
     ROOT / ".agents/skills/career-system/references/dicionario_palavras_chave_mercado.md",
     ROOT / ".agents/skills/career-system/references/palavras_chave_carreira.md",
     ROOT / ".agents/skills/career-system/references/autoconhecimento.md",
     ROOT / ".agents/skills/career-system/references/perfil_restricoes.md",
+    CV_FACTS_PATH,
 )
 
 
-def candidate_facts_revision(
-    sources: Iterable[Path] = CANDIDATE_FACT_SOURCES,
-) -> str:
+def candidate_facts_revision(sources: Iterable[Path] | None = None) -> str:
     """Return a stable revision for the read-only candidate facts used by cells."""
     digest = hashlib.sha256()
+    sources = sources or (
+        ROOT / ".agents/skills/career-system/references/dicionario_palavras_chave_mercado.md",
+        ROOT / ".agents/skills/career-system/references/palavras_chave_carreira.md",
+        ROOT / ".agents/skills/career-system/references/autoconhecimento.md",
+        ROOT / ".agents/skills/career-system/references/perfil_restricoes.md",
+        CV_FACTS_PATH,
+    )
     resolved_sources = sorted((Path(path).resolve() for path in sources), key=str)
     if not resolved_sources:
         raise ValidationFailure("candidate facts sources are empty")
