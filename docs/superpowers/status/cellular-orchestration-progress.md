@@ -1,15 +1,15 @@
 # Status — Orquestração Celular
 
-Atualizado em: 2026-07-21 — Fatia E em revalidação
+Atualizado em: 2026-07-21 — Fatia E aprovada; revisão ampla final pendente
 
 | Campo | Estado |
 |---|---|
 | Plano principal | `docs/superpowers/plans/2026-07-20-cellular-application-orchestration.md` |
 | Plano de recuperação | `docs/superpowers/plans/2026-07-20-cellular-orchestration-recovery-plan.md` |
-| Progresso | Fatias A–D aprovadas; Fatia E em revalidação |
-| Tarefa ativa | Task 9 / Fatia E — correções da re-review |
-| Último gate | Re-review independente não aprovada; findings em correção |
-| Próximo gate | Nova revisão independente após testes e gates objetivos |
+| Progresso | Fatias A–E aprovadas |
+| Tarefa ativa | Revisão ampla final do branch |
+| Último gate | Fatia E aprovada por re-review independente |
+| Próximo gate | Verificação final integral e encerramento do plano |
 
 ## Histórico aprovado
 
@@ -22,20 +22,20 @@ Atualizado em: 2026-07-21 — Fatia E em revalidação
 - Fatia B — intake, contexto, FIT_MAP e proveniência por candidatura: `7a7b551`, `539217c`, `7d38d9e`.
 - Fatia C — composição, renderização e revisão de CV por célula: `e46e041`, `a676718`, `f54a742`, `629b355`, `0372bae`, `5eb78c9`, `63045fd`.
 - Fatia D — Notion, entrega e branches auxiliares com recibos: `7182ba5`, `bb085fb`, `fc5bcdd`, `f753099`.
-- Fatia E — lease do workspace, migração conservadora, dois subprocessos reais e regras operacionais: commit da Task 9.
+- Fatia E — lease do workspace, migração conservadora, dois subprocessos reais e regras operacionais: `80d4bce`, `ef18a97`, `e9eb7b0`, `283533f`, `9c801c1`, `f84db1c`, `141d18d`.
 
-## Evidência objetiva atual da Fatia E (candidata à re-review)
+## Evidência objetiva da Fatia E aprovada
 
-- `pytest -q tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py tests/test_database.py`: 52 testes focados aprovados.
-- `pytest -q`: 251 testes aprovados na suíte completa.
+- `pytest -q` focado nas células, migração, paralelismo, CLI, store, executor e manifestos: 92 testes aprovados.
+- `pytest -q`: 266 testes aprovados na suíte completa.
 - `./scripts/python.sh scripts/career_cli.py project validate-structure`: estrutura canônica aprovada.
 - `npm run runtime:diagnose`: diagnóstico produzido em `outputs/_tmp/runtime_diagnosis.json`; sem finding celular bloqueante.
 - `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado/escrita inesperada, contenção observada e lock `notion-write` do nó real `sync_notion_initial` serializado.
-- Cobertura candidata: autoridade explícita vinculada à cópia física da control DB antes de maintenance/fila, handoff MacBook/RPi5 auditado por comando explícito, owner distinto por invocação, renovação e validação do fence até o commit terminal, pool limitado, draft vinculado/quarentenado pelo executor, recuperação atômica do marker `Reprocessar`, harness protegendo estado global/outputs/outras candidaturas/requests/tabelas SQLite, migração atômica reconciliável com o schema real `artifact` + `_approval_meta` e proibição de fallback global.
+- Cobertura aprovada: ledger de autoridade provisionado explicitamente e fail-closed, handoff com epoch que revoga a origem, fence em todos os commits terminais, draft FIT_MAP obrigatório e vinculado à tentativa, recuperação de `Reprocessar`, harness que inventaria banco e controles de request, migração atômica do schema legacy e paralelismo com lock externo declarado.
 
 ## Estado da Fatia E
 
-1. A aprovação final está suspensa até a nova revisão independente confirmar os findings corrigidos.
+1. A Fatia E foi aprovada sem findings na re-review independente final.
 
 ## Regra de avanço
 

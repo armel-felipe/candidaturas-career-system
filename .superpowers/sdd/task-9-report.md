@@ -2,7 +2,7 @@
 
 ## Status
 
-Re-review independente não aprovada; correções adicionais estão em implementação e este relatório ainda não representa aprovação final.
+Concluída. A re-review independente final aprovou a Task 9 sem findings Critical, Important ou Minor.
 
 ## Implemented
 
@@ -36,11 +36,13 @@ Re-review independente não aprovada; correções adicionais estão em implement
 - Last-gap RED: four expected failures proved that the origin was not revoked by destination handoff, unbound drafts reached the handler, terminal completion lacked an epoch fence, and `notion_cache`/schema mutations escaped harness isolation.
 - Compatibility RED after enforcing mandatory binding: four legacy test fixtures still injected drafts directly; the fixtures were migrated to prepare an immutable attempt and persist the complete binding rather than weakening production validation.
 - Final focused GREEN for workspace/migration/parallel/CLI/store/executor/manifests/database: `134 passed`; final full suite: `255 passed`.
+- Final authority RED: quatro falhas provaram bootstrap de ledger por cópia, terminal manual stale e controles de request fora do snapshot; o ledger passou a exigir provisionamento explícito, todo terminal passou a carregar epoch/fence e os controles copiados passaram ao inventário.
+- Final approval RED: quatro falhas provaram que terminais manuais não verificavam epoch e que o provisionamento não migrava bancos antigos; a transação terminal passou a validar owner/epoch/expiração e o CLI migra o esquema antes de provisionar.
 
 ## Validation evidence
 
-- `pytest -q tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py tests/test_database.py` → `52 passed`.
-- `pytest -q` → `251 passed`.
+- Focused final cellular suite → `92 passed`.
+- `pytest -q` → `266 passed`.
 - `./scripts/python.sh scripts/career_cli.py project validate-structure` → `Project structure validation passed.`
 - `applications verify-parallel --fixture-dir /tmp/cellular-final-review.VtW8Zg` → `status=validated`, 2 subprocesses, distinct fingerprints/manifests, no crossed paths or unexpected writes, contention observed (`8` deferred acquisitions), and executor-managed `notion-write` intervals serialized.
 - `npm run runtime:diagnose` → exit 0 and report at `outputs/_tmp/runtime_diagnosis.json`; no cellular blocker. Environment inventory still reports LibreOffice unavailable and two pre-existing large reference files.
@@ -49,4 +51,4 @@ Re-review independente não aprovada; correções adicionais estão em implement
 
 ## Files and compatibility
 
-Legacy non-cellular paths remain available only when explicitly selected. These are candidate gates pending a new independent re-review, not approval. The untracked `.inbox/` directory pre-existed this slice and was left untouched/uncommitted.
+Legacy non-cellular paths remain available only when explicitly selected. A final independent re-review approved the slice with no findings. The untracked `.inbox/` directory pre-existed this slice and was left untouched/uncommitted.
