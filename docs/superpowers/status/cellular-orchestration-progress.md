@@ -6,7 +6,7 @@ Atualizado em: 2026-07-20 — execução ativa
 |---|---|
 | Plano principal | `docs/superpowers/plans/2026-07-20-cellular-application-orchestration.md` |
 | Plano de recuperação | `docs/superpowers/plans/2026-07-20-cellular-orchestration-recovery-plan.md` |
-| Progresso | Fatias A–D aprovadas; Fatia E iniciando |
+| Progresso | Fatias A–D aprovadas; Fatia E em execução |
 | Tarefa ativa | Task 9 / Fatia E — migração, lease, paralelo real e documentação |
 | Último gate | Fatia D aprovada após correções, commit `f753099` |
 | Próximo gate | Revisão independente da Fatia E e revisão ampla do branch |
