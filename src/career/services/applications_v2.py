@@ -2139,6 +2139,76 @@ def _complete_cellular_application_once(
     return receipt
 
 
+def _recover_completed_cellular_receipt(
+    application: dict[str, Any],
+    *,
+    paths: Any,
+    job_fingerprint: str,
+    success_status: str,
+    update_tracker,
+) -> dict[str, Any] | None:
+    """Recover the cross-run receipt from a completed, source-bound run."""
+    run_root = paths.app_dir / "runs"
+    manifests = sorted(
+        run_root.glob("*/run_completion_manifest.json"),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    for manifest_path in manifests:
+        try:
+            completion = read_json(manifest_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if (
+            completion.get("kind") != "run_completion_manifest"
+            or completion.get("application_id") != paths.application_id
+            or completion.get("status") != "completed"
+        ):
+            continue
+        artifacts = completion.get("validated_artifacts")
+        if not isinstance(artifacts, list):
+            continue
+        normalized_handover = next(
+            (
+                item
+                for item in artifacts
+                if isinstance(item, dict)
+                and item.get("node_id") == "normalize_job"
+                and item.get("artifact_name") == "handover_summary.json"
+            ),
+            None,
+        )
+        delivery_artifact = next(
+            (
+                item
+                for item in artifacts
+                if isinstance(item, dict)
+                and item.get("node_id") == "deliver_cv"
+                and item.get("artifact_name") == "cv_delivery_receipt.json"
+            ),
+            None,
+        )
+        if normalized_handover is None or delivery_artifact is None:
+            continue
+        try:
+            handover = read_json(Path(str(normalized_handover["path"])))
+            delivery = read_json(Path(str(delivery_artifact["path"])))
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            continue
+        if handover.get("job_fingerprint") != job_fingerprint:
+            continue
+        return _complete_cellular_application_once(
+            application,
+            paths=paths,
+            run_id=str(completion.get("run_id") or manifest_path.parent.name),
+            job_fingerprint=job_fingerprint,
+            delivery=lambda: {"status": "delivered", **delivery},
+            update_tracker=update_tracker,
+            success_status=success_status,
+        )
+    return None
+
+
 def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
     """Schedule application-scoped cells without mutable global path adapters."""
     if not options.run_agent or options.dry_run:
@@ -2438,6 +2508,16 @@ def _process_cellular_application(
     try:
         job_fingerprint = sha256_file(paths.job_description)
         completion_path = _completion_receipt_path(paths)
+        if not completion_path.is_file():
+            _recover_completed_cellular_receipt(
+                application,
+                paths=paths,
+                job_fingerprint=job_fingerprint,
+                success_status=str(config["success_status"]),
+                update_tracker=lambda status: _update_notion_status(
+                    application, status, dry_run=False
+                ),
+            )
         if completion_path.is_file():
             completion = read_json(completion_path)
             if (
@@ -2548,7 +2628,7 @@ def _process_cellular_application(
                     paths=paths,
                     run_id=run_id,
                     job_fingerprint=job_fingerprint,
-                    delivery=lambda: persisted_delivery,
+                    delivery=lambda: {"status": "delivered", **persisted_delivery},
                     update_tracker=lambda status: _update_notion_status(
                         application, status, dry_run=False
                     ),
