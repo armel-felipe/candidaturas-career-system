@@ -39,6 +39,7 @@ class WorkspaceLease:
         lease_name: str = LEASE_NAME,
         default_ttl_seconds: int = 300,
         expected_control_db_id: str | None = None,
+        require_authority: bool = False,
     ) -> None:
         if not lease_name:
             raise ValueError("lease_name is required")
@@ -53,6 +54,10 @@ class WorkspaceLease:
             or os.environ.get("CAREER_CONTROL_DB_ID")
             or ""
         ).strip()
+        if require_authority and not self.expected_control_db_id:
+            raise ValueError(
+                "CAREER_CONTROL_DB_ID is required for an authoritative workspace entry point"
+            )
         if (
             self.expected_control_db_id
             and self.expected_control_db_id != self.control_db_id

@@ -609,6 +609,8 @@ Contrato de leitura para agentes:
 
 Deve haver **uma única cópia autoritativa do workspace** em execução. O `WorkspaceLease` SQLite pertence ao dono da cópia, não a uma vaga: o mesmo dono executa candidaturas distintas por um **pool limitado**, enquanto uma segunda cópia no MacBook ou RPi5 permanece bloqueada até handoff autorizado. O plano de controle é a mesma `.career-state/career.db`; **bancos SQLite fisicamente separados não se coordenam** e não oferecem fence cross-machine.
 
+Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. Uma cópia física diferente do banco falha antes de planejar, reservar ou executar célula. O heartbeat repassa o mesmo owner efetivo a todos os workers; leases do workspace, nó e recursos seguem renovados durante handler, validação, publicação e commit terminal.
+
 Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Rodar `npm run applications:doctor-concurrency`, sincronizar a mesma `career.db` e manifests, e configurar `CAREER_CONTROL_DB_ID=<control_db_id>` no destino. Se a origem caiu, aguardar a expiração; takeover cross-owner sem ID autoritativo compatível falha fechado, e o autorizado registra dono/expiração anteriores antes de renovar. Nunca apagar `career.db`, lock ou manifesto para contornar o fence.
 
 Operação e recuperação:
@@ -629,8 +631,10 @@ Contrato obrigatório:
 - contexto e retomada usam manifesto imutável, artefatos versionados e `handover_summary.json`, nunca memória de conversa ou sessão anterior
 - correção usa `applications:repair` no nó bloqueado, preserva tentativas antigas e invalida apenas descendentes declarados
 - o heartbeat usa pool limitado por candidatura; `analyze_fit` chama o harness app-scoped com modelo/variant selecionados e retorna `awaiting_agent`, sem bloquear por draft ausente, quando o runner estiver temporariamente indisponível
-- migração não reescreve fontes e não fabrica validação; exige DOCX válido e cadeia de hashes de reviewer, polish executado sem blockers, approval manifest e registry, persistindo run/nós/tentativas/artefatos/manifests retomáveis; evidência incompleta fica `blocked`
-- a aceitação paralela exige dois subprocessos reais, fingerprints/manifests/artefatos distintos, nenhum path cruzado e locks externos declarados serializados
+- todo draft sem vínculo com `application_id`, `run_id`, `node_id`, tentativa, fingerprint da vaga e hash do draft vai para quarentena; descrição alterada, `Reprocessar` ou agente que falhou depois de escrever parcialmente também invalidam o draft antes da retomada. `Reprocessar` é consumido uma única vez em `requests/cellular_reprocess_request.json`, e os heartbeats seguintes retomam o mesmo `run_id` até o status externo mudar
+- o harness bloqueia escrita não autorizada no estado global, `outputs/` e outras candidaturas, além das violações dentro da candidatura corrente
+- migração não reescreve fontes nem fabrica validação; exige DOCX válido e a cadeia real de hashes do reviewer `_approval_meta`, polish executado sem blockers e registry. Approval manifest adicional é aceito quando existir, mas não é inventado nem obrigatório. Receipt sem SQLite completo deve reconciliar manifests e banco idempotentemente, inclusive após crash; evidência incompleta fica `blocked`
+- a aceitação paralela exige dois subprocessos reais, fingerprints/manifests/artefatos distintos, nenhuma escrita inesperada e exclusão do nó real `sync_notion_initial` pelo `notion-write` declarado em `CellContract.resources`
 
 Há dois tipos de interação com o Notion:
 

@@ -41,6 +41,11 @@ def test_two_processes_complete_separate_normalization_cells(tmp_path):
     ]
     assert {item["external_resource"] for item in results} == {"notion-write"}
     assert sum(item["external_lock_contention_count"] for item in results) >= 1
+    assert {item["external_lock_node_id"] for item in results} == {
+        "sync_notion_initial"
+    }
+    assert all(item["external_resource_declared_by_contract"] for item in results)
+    assert all(item["unexpected_writes"] == [] for item in results)
 
 
 def test_verify_parallel_cli_uses_fixture_directory_and_returns_proof(

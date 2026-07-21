@@ -22,6 +22,7 @@ def test_two_application_runs_share_sqlite_but_publish_and_inspect_only_scoped_v
     """Slice A gate: two independent applications complete in one SQLite workspace."""
     database = Database(tmp_path / "career.db")
     database.init_schema()
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", database.control_db_identity())
     applications_root = tmp_path / "applications"
     application_ids = ("slice-a-app-a", "slice-a-app-b")
     application_paths = {

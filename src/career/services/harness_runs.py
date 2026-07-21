@@ -55,6 +55,7 @@ class HarnessRun:
     stage: str
     allowed_outputs: list[Path]
     before_files: dict[str, str]
+    before_workspace_files: dict[str, str]
 
     def inspect(self) -> dict[str, Any]:
         after_files = self._snapshot_application_files()
@@ -74,14 +75,23 @@ class HarnessRun:
             )
             and not path.startswith("requests/")
         ]
+        after_workspace = _protected_workspace_snapshot(
+            self.root, self.application_dir
+        )
+        unauthorized_workspace = sorted(
+            path
+            for path in set(self.before_workspace_files) | set(after_workspace)
+            if self.before_workspace_files.get(path) != after_workspace.get(path)
+        )
         return {
-            "status": "blocked" if unauthorized else "ok",
+            "status": "blocked" if unauthorized or unauthorized_workspace else "ok",
             "changed_files": changed,
             "allowed_outputs": sorted(
                 str(path.relative_to(self.root)) if path.is_relative_to(self.root) else str(path)
                 for path in self.allowed_outputs
             ),
             "unauthorized_changes": unauthorized,
+            "unauthorized_workspace_changes": unauthorized_workspace,
         }
 
     def finish(self, result: dict[str, Any], validation: dict[str, Any]) -> None:
@@ -121,8 +131,12 @@ class HarnessRunStore:
             stage=stage,
             allowed_outputs=allowed_outputs,
             before_files={},
+            before_workspace_files={},
         )
         run.before_files = run._snapshot_application_files()
+        run.before_workspace_files = _protected_workspace_snapshot(
+            self.root, self.application_dir
+        )
         write_json(
             run_dir / "manifest.json",
             {
@@ -138,6 +152,27 @@ class HarnessRunStore:
             },
         )
         return run
+
+
+def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    root = root.resolve()
+    application_dir = application_dir.resolve()
+    ignored_names = {"career.db", "career.db-wal", "career.db-shm"}
+    for relative_root in (".career-state", "outputs"):
+        base = root / relative_root
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            resolved = path.resolve()
+            if (
+                not resolved.is_file()
+                or resolved.name in ignored_names
+                or resolved.is_relative_to(application_dir)
+            ):
+                continue
+            snapshot[str(resolved.relative_to(root))] = _file_hash(resolved)
+    return snapshot
 
 
 def _workspace_snapshot(root: Path, excluded: Path) -> dict[str, str]:

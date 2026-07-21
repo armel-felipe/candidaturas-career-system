@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import uuid
 from pathlib import Path
 import sys
@@ -1030,6 +1031,8 @@ def main(argv: list[str] | None = None) -> int:
                 handlers=production_handler_registry(),
                 validators=production_validator_registry(),
                 worker_id="career-applications-cli",
+                workspace_control_db_id=os.environ.get("CAREER_CONTROL_DB_ID"),
+                require_authoritative_workspace=True,
             )
             try:
                 if args.action == "plan":
@@ -1142,7 +1145,11 @@ def main(argv: list[str] | None = None) -> int:
             lease_database = Database()
             lease_database.init_schema()
             try:
-                lease = application_context_service.WorkspaceLease(lease_database)
+                lease = application_context_service.WorkspaceLease(
+                    lease_database,
+                    expected_control_db_id=os.environ.get("CAREER_CONTROL_DB_ID"),
+                    require_authority=True,
+                )
                 owner = application_context_service.workspace_owner_from_env()
                 if not lease.acquire(owner, ttl_seconds=300) or not lease.heartbeat(owner):
                     current = lease.inspect() or {}
@@ -1200,6 +1207,7 @@ def main(argv: list[str] | None = None) -> int:
                         skip_maintenance=args.skip_maintenance,
                         maintenance_refresh=args.maintenance_refresh,
                         cellular=cellular,
+                        control_db_id=os.environ.get("CAREER_CONTROL_DB_ID"),
                     )
                 )
             else:

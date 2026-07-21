@@ -21,6 +21,7 @@ from career.services.database import Database
 def seeded_application(tmp_path, monkeypatch):
     database = Database(tmp_path / "career.db")
     database.init_schema()
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", database.control_db_identity())
     applications_root = tmp_path / "applications"
 
     monkeypatch.setattr(cli, "Database", lambda: database, raising=False)
@@ -74,6 +75,7 @@ def test_fresh_cli_run_executes_registered_production_handler_and_validator(
 ):
     database = Database(tmp_path / "career.db")
     database.init_schema()
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", database.control_db_identity())
     applications_root = tmp_path / "applications"
     application_paths = paths_for("app-1", root=applications_root)
     application_paths.app_dir.mkdir(parents=True)
@@ -207,6 +209,7 @@ def test_run_rejects_a_run_owned_by_a_different_application(capsys, seeded_appli
 def test_inspect_run_never_reports_completed_while_a_node_is_reserved(tmp_path, monkeypatch, capsys):
     database = Database(tmp_path / "career.db")
     database.init_schema()
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", database.control_db_identity())
     applications_root = tmp_path / "applications"
     monkeypatch.setattr(cli, "Database", lambda: database)
     monkeypatch.setattr(
@@ -246,6 +249,7 @@ def test_run_finalizes_a_terminal_run_and_reports_published_artifacts(
 ):
     database = Database(tmp_path / "career.db")
     database.init_schema()
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", database.control_db_identity())
     applications_root = tmp_path / "applications"
     application_paths = paths_for("app-1", root=applications_root)
     application_paths.app_dir.mkdir(parents=True)

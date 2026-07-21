@@ -423,6 +423,8 @@ Regra operacional do heartbeat:
 
 Regra de autoridade: deve existir **uma única cópia autoritativa do workspace** executando células. O lease SQLite diferencia o dono do workspace, não a candidatura: um mesmo dono pode processar várias candidaturas em paralelo por um **pool limitado**, mas uma segunda cópia no MacBook ou no RPi5 fica bloqueada até um handoff autorizado. O banco `.career-state/career.db` é o plano de controle compartilhado: **bancos SQLite fisicamente separados não se coordenam** e nunca devem ser apresentados como proteção cross-machine.
 
+Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. Uma cópia física diferente do banco deve falhar antes de planejar, reservar ou executar célula. O owner efetivo do heartbeat é compartilhado com todos os workers do pool; leases do workspace, do nó e dos recursos permanecem renovados durante handler, validação, publicação e commit terminal.
+
 Handoff MacBook ↔ RPi5:
 - interromper heartbeat, workers e launchd na máquina atual antes de iniciar a outra
 - preferir release pelo `WorkspaceLease.release(owner)` no desligamento controlado; se o processo morreu, aguardar a expiração do lease
@@ -449,8 +451,10 @@ Regras duras:
 - o contexto entre células passa por manifesto imutável, artefatos versionados e `handover_summary.json`; conversa, sessão anterior e path global não são fonte de verdade
 - reparo é local ao nó com `applications:repair`; preserve manifests/artefatos anteriores, invalide apenas descendentes declarados e retome pelo `run_id`
 - o heartbeat celular agenda candidaturas distintas no pool limitado; ao chegar em `analyze_fit`, reserva a tentativa, chama o harness app-scoped respeitando `--model/--variant` e, se o agente estiver indisponível, devolve `awaiting_agent` sem bloquear por draft ausente
-- migração apenas inventaria e hasheia fontes legadas; só valida CV quando DOCX, reviewer, polish executado sem blockers, approval manifest e registry formam uma cadeia de hashes; também cria run/nós/tentativas/artefatos/manifests retomáveis. Estado desconhecido entra como `blocked`, nunca como validado
-- `applications:verify-parallel` deve usar dois subprocessos reais, um SQLite compartilhado e duas candidaturas distintas, comprovando fingerprints/manifests/artefatos separados e locks externos serializados
+- todo draft sem vínculo com `application_id`, `run_id`, `node_id`, tentativa, fingerprint da vaga e hash do próprio draft é colocado em quarentena; mudança de descrição, `Reprocessar` e falha parcial do agente também invalidam/quarentenam o draft antes de nova tentativa. A solicitação `Reprocessar` é consumida uma única vez por `requests/cellular_reprocess_request.json`; heartbeats seguintes retomam o mesmo `run_id` até o status externo mudar, sem criar runs infinitos
+- o harness compara o workspace protegido antes/depois e bloqueia escrita não autorizada no estado global, `outputs/` e outras candidaturas, além das violações dentro da candidatura atual
+- migração apenas inventaria e hasheia fontes legadas; só valida CV quando DOCX, reviewer com `_approval_meta`, polish executado sem blockers e registry formam a cadeia real de hashes. Um approval manifest legado adicional é aceito quando existir, mas não é inventado nem obrigatório. Receipts existentes devem reconciliar idempotentemente o SQLite e manifests ausentes após crash; estado desconhecido entra como `blocked`, nunca como validado
+- `applications:verify-parallel` deve usar dois subprocessos reais, um SQLite compartilhado e duas candidaturas distintas, comprovando fingerprints/manifests/artefatos separados, zero escrita inesperada e exclusão do nó real `sync_notion_initial` pelo recurso `notion-write` declarado em `CellContract.resources`
 
 Entrega e persistência por candidatura:
 - a memória permanente da candidatura fica em `.career-state/applications_v2/<ID>/` até remoção manual ou rotina explícita de limpeza

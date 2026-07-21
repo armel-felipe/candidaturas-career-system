@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -9,7 +10,7 @@ import sys
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +22,17 @@ from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.harness_supervisor import HarnessSupervisor
 from career.services.harness_runs import ExclusiveRunLock
-from career.services.application_context import paths_for
+from career.services.application_context import WorkspaceLease, paths_for
 from career.services.cell_store import CellStore
 from career.services.database import Database
-from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, write_text
+from career.utils import (
+    ValidationFailure,
+    read_json,
+    sha256_file,
+    utc_now_iso,
+    write_json,
+    write_text,
+)
 
 
 V2_DIR = CAREER_STATE / "applications_v2"
@@ -109,6 +117,7 @@ class HeartbeatV2Options:
     maintenance_refresh: str | None = None
     cellular: bool = False
     workspace_owner: str | None = None
+    control_db_id: str | None = None
 
 
 def _emit(message: str) -> None:
@@ -1829,6 +1838,67 @@ def run_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         return _run_heartbeat_unlocked(options)
 
 
+def _draft_binding_path(paths: Any) -> Path:
+    return paths.app_dir / "fit_map.draft.binding.json"
+
+
+def _reprocess_request_path(paths: Any) -> Path:
+    return paths.requests_dir / "cellular_reprocess_request.json"
+
+
+def _reprocess_request_fingerprint(
+    application: dict[str, Any], canonical_description: str
+) -> str:
+    payload = {
+        "application_id": _record_key(application),
+        "page_id": str(application.get("page_id") or ""),
+        "description": canonical_description,
+        "source_updated_at": str(
+            application.get("last_edited_time")
+            or application.get("updated_at")
+            or ""
+        ),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _read_reprocess_request(paths: Any) -> dict[str, Any]:
+    marker = _reprocess_request_path(paths)
+    if not marker.is_file():
+        return {}
+    try:
+        payload = read_json(marker)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _quarantine_cellular_draft(
+    paths: Any,
+    *,
+    reason: str,
+    target_dir: Path | None = None,
+) -> Path | None:
+    binding = _draft_binding_path(paths)
+    if not paths.fit_map_draft.exists() and not binding.exists():
+        return None
+    quarantine_dir = target_dir or (
+        paths.requests_dir
+        / "quarantine"
+        / f"{utc_now_iso().replace(':', '').replace('+', '_')}_{reason}"
+    )
+    quarantine_dir.mkdir(parents=True, exist_ok=True)
+    quarantined: Path | None = None
+    if paths.fit_map_draft.exists():
+        quarantined = quarantine_dir / f"{reason}_fit_map.draft.json"
+        os.replace(paths.fit_map_draft, quarantined)
+    if binding.exists():
+        os.replace(binding, quarantine_dir / f"{reason}_fit_map.draft.binding.json")
+    return quarantined
+
+
 def _ensure_cellular_application(
     application: dict[str, Any], *, applications_root: Path
 ) -> Any:
@@ -1851,8 +1921,37 @@ def _ensure_cellular_application(
         raise ValidationFailure(
             f"cellular heartbeat requires a job description: {application_id}"
         )
-    if not paths.job_description.exists():
-        write_text(paths.job_description, description + "\n")
+    canonical_description = description + "\n"
+    previous_description = (
+        paths.job_description.read_text(encoding="utf-8")
+        if paths.job_description.exists()
+        else None
+    )
+    reprocess = _normalize_status(str(application.get("status") or "")) == "reprocessar"
+    reprocess_marker = _read_reprocess_request(paths)
+    reprocess_fingerprint = _reprocess_request_fingerprint(
+        application, canonical_description
+    )
+    new_reprocess_request = reprocess and (
+        reprocess_marker.get("request_fingerprint") != reprocess_fingerprint
+    )
+    if previous_description != canonical_description or new_reprocess_request:
+        _quarantine_cellular_draft(paths, reason="stale")
+        write_text(paths.job_description, canonical_description)
+    if new_reprocess_request:
+        write_json(
+            _reprocess_request_path(paths),
+            {
+                "kind": "cellular_reprocess_request",
+                "application_id": application_id,
+                "request_fingerprint": reprocess_fingerprint,
+                "status": "pending",
+                "run_id": "",
+                "created_at": utc_now_iso(),
+            },
+        )
+    elif not reprocess and _reprocess_request_path(paths).exists():
+        _reprocess_request_path(paths).unlink()
     identity = read_json(paths.identity) if paths.identity.exists() else {}
     identity.update(
         {
@@ -1895,7 +1994,31 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
     database_path = V2_DIR.parent / "career.db"
     database = Database(database_path)
     database.init_schema()
-    database.close()
+    try:
+        control_db_id = str(
+            options.control_db_id
+            or os.environ.get("CAREER_CONTROL_DB_ID")
+            or ""
+        ).strip()
+        owner = (
+            options.workspace_owner
+            or os.environ.get("CAREER_WORKSPACE_OWNER")
+            or "applications-cellular"
+        )
+        authority = WorkspaceLease(
+            database,
+            expected_control_db_id=control_db_id,
+            require_authority=True,
+        )
+        if not authority.acquire(owner, ttl_seconds=300):
+            raise ValidationFailure("authoritative workspace lease is unavailable")
+    finally:
+        database.close()
+    worker_options = replace(
+        options,
+        workspace_owner=owner,
+        control_db_id=control_db_id,
+    )
     results: list[dict[str, Any]] = []
     worker_count = min(
         len(selected),
@@ -1912,7 +2035,7 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
                 pool.submit(
                     _process_cellular_application,
                     application,
-                    options=options,
+                    options=worker_options,
                     config=config,
                     database_path=database_path,
                 ): index
@@ -1992,6 +2115,7 @@ def _write_cellular_analyze_request(
     prepared: Any,
     *,
     workspace_owner: str,
+    control_db_id: str,
 ) -> tuple[Path, Path]:
     manifest = read_json(prepared.manifest_path)
     capabilities = manifest.get("capabilities")
@@ -2019,6 +2143,7 @@ def _write_cellular_analyze_request(
         "read_allowlist": read_allowlist,
         "write_allowlist": write_allowlist,
         "workspace_owner": workspace_owner,
+        "control_db_id": control_db_id,
         "objective": (
             "Produce only the application-scoped FIT_MAP draft required by "
             "this analyze_fit attempt."
@@ -2056,7 +2181,14 @@ def _run_cellular_analyze_agent(
         "CAREER_WORKSPACE_OWNER"
     ) or ""
     request_json, request_md = _write_cellular_analyze_request(
-        paths, prepared, workspace_owner=workspace_owner
+        paths,
+        prepared,
+        workspace_owner=workspace_owner,
+        control_db_id=str(
+            options.control_db_id
+            or os.environ.get("CAREER_CONTROL_DB_ID")
+            or ""
+        ),
     )
     supervisor = HarnessSupervisor(_cellular_workspace_root())
     return supervisor.run_application_stage(
@@ -2069,6 +2201,11 @@ def _run_cellular_analyze_agent(
         model=str(options.model or config.get("active_model") or ""),
         variant=str(options.variant or config.get("active_variant") or ""),
         workspace_owner=workspace_owner,
+        control_db_id=str(
+            options.control_db_id
+            or os.environ.get("CAREER_CONTROL_DB_ID")
+            or ""
+        ),
     )
 
 
@@ -2096,6 +2233,8 @@ def _process_cellular_application(
         validators=production_validator_registry(),
         worker_id=f"applications-cellular-{paths.application_id}-{os.getpid()}-{id(database)}",
         workspace_owner=options.workspace_owner,
+        workspace_control_db_id=options.control_db_id,
+        require_authoritative_workspace=True,
     )
     try:
         latest = database.fetch_one(
@@ -2103,16 +2242,44 @@ def _process_cellular_application(
                WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
             (paths.application_id,),
         )
-        if (
+        reprocess_request = (
+            _read_reprocess_request(paths)
+            if _is_reprocess_requested(application, config)
+            else {}
+        )
+        reprocess_run_id = str(reprocess_request.get("run_id") or "")
+        reprocess_run = (
+            database.fetch_one(
+                "SELECT run_id, status FROM application_runs "
+                "WHERE run_id = ? AND application_id = ?",
+                (reprocess_run_id, paths.application_id),
+            )
+            if reprocess_run_id
+            else None
+        )
+        if reprocess_run is not None:
+            run_id = str(reprocess_run["run_id"])
+        elif (
             latest is None
             or latest["status"] in {"completed", "cancelled"}
-            or _is_reprocess_requested(application, config)
+            or bool(reprocess_request)
         ):
             run_id = executor.plan(paths.application_id, {"cv"}).run_id
+            if reprocess_request:
+                write_json(
+                    _reprocess_request_path(paths),
+                    {
+                        **reprocess_request,
+                        "status": "consumed",
+                        "run_id": run_id,
+                        "consumed_at": utc_now_iso(),
+                    },
+                )
         else:
             run_id = str(latest["run_id"])
 
-        if "analyze_fit" in executor.ready_nodes(run_id) and not paths.fit_map_draft.is_file():
+        if "analyze_fit" in executor.ready_nodes(run_id):
+            _quarantine_cellular_draft(paths, reason="stale")
             prepared = executor.prepare_ready_node(run_id, "analyze_fit")
             with executor.keep_prepared_attempt_alive(prepared) as keepalive:
                 agent_result = _run_cellular_analyze_agent(
@@ -2134,6 +2301,16 @@ def _process_cellular_application(
                         else "agent_output_not_available"
                     )
                 )
+                failed_dir = (
+                    paths.requests_dir
+                    / "cellular"
+                    / prepared.run_id
+                    / prepared.node_id
+                    / str(prepared.attempt)
+                )
+                _quarantine_cellular_draft(
+                    paths, reason="failed", target_dir=failed_dir
+                )
                 executor.defer_prepared_attempt(prepared, reason=reason)
                 manifest = read_json(prepared.manifest_path)
                 capabilities = manifest.get("capabilities") or {}
@@ -2150,6 +2327,19 @@ def _process_cellular_application(
                         "blocker": reason,
                     }
                 ]
+            write_json(
+                _draft_binding_path(paths),
+                {
+                    "kind": "cellular_fit_map_draft_binding",
+                    "application_id": paths.application_id,
+                    "run_id": prepared.run_id,
+                    "node_id": prepared.node_id,
+                    "attempt": prepared.attempt,
+                    "job_fingerprint": sha256_file(paths.job_description),
+                    "draft_sha256": sha256_file(paths.fit_map_draft),
+                    "manifest_path": str(prepared.manifest_path),
+                },
+            )
 
         executed = executor.run_ready(run_id)
         results = [
@@ -2442,8 +2632,11 @@ def _run_parallel_fixture_worker(
     result_path: Path,
 ) -> int:
     """Subprocess-only worker used by the real parallel acceptance harness."""
+    from career.cells.contracts import CELL_CONTRACTS
     from career.cells.executor import CellExecutor
     from career.cells.handlers import (
+        CellOutput,
+        ValidatorResult,
         production_handler_registry,
         production_validator_registry,
     )
@@ -2467,7 +2660,51 @@ def _run_parallel_fixture_worker(
     )
     write_text(paths.job_description, _parallel_fixture_job(application_id))
     worker_id = f"parallel-{application_id}-{os.getpid()}"
-    store = CellStore(database)
+    interval: dict[str, int] = {}
+
+    def notion_handler(_context):
+        interval["entered_at"] = time.time_ns()
+        time.sleep(0.2)
+        interval["released_at"] = time.time_ns()
+        return CellOutput(
+            artifacts={
+                "notion_initial_receipt.json": json.dumps(
+                    {"status": "ok", "application_id": application_id}
+                ).encode("utf-8")
+            }
+        )
+
+    def notion_validator(context, _output):
+        report = context.paths.reviews_dir / (
+            f"{context.node_id}-{context.attempt}-parallel-lock.json"
+        )
+        write_json(report, {"result": "passed"})
+        return ValidatorResult.passed(context.validator_command, report)
+
+    handlers = production_handler_registry()
+    validators = production_validator_registry()
+    handlers["sync_notion_initial"] = notion_handler
+    validators["validate-notion-receipt"] = notion_validator
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers=handlers,
+        validators=validators,
+        worker_id=worker_id,
+        workspace_owner=os.environ.get("CAREER_WORKSPACE_OWNER") or "parallel-fixture",
+        workspace_control_db_id=os.environ.get("CAREER_CONTROL_DB_ID"),
+        require_authoritative_workspace=True,
+        lease_seconds=30,
+    )
+    plan = executor.plan(application_id, {"notion"})
+    results = executor.run_ready(plan.run_id)
+    normalized = next(
+        (item for item in results if item.node_id == "normalize_job"), None
+    )
+    if normalized is None or normalized.status != "validated":
+        database.close()
+        raise RuntimeError("parallel fixture normalization did not validate")
+    executor.mark_validated(plan.run_id, "analyze_fit")
     ready_marker = fixture_dir / f"{application_id}-ready"
     ready_marker.write_text(str(os.getpid()), encoding="utf-8")
     ready_deadline = time.monotonic() + 10
@@ -2478,48 +2715,23 @@ def _run_parallel_fixture_worker(
     else:
         database.close()
         raise RuntimeError("parallel fixture workers did not reach the contention barrier")
-    deadline = time.monotonic() + 15
-    lock: dict[str, Any] | None = None
     contention_count = 0
+    external = None
+    deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        candidate = store.acquire_resource_lock(
-            "notion-write", worker_id, lease_seconds=5
+        batch = executor.run_ready(plan.run_id)
+        external = next(
+            (item for item in batch if item.node_id == "sync_notion_initial"),
+            None,
         )
-        if candidate["acquired"]:
-            lock = candidate
+        if external is not None and external.status == "validated":
             break
-        contention_count += 1
+        if external is not None and external.status == "deferred":
+            contention_count += 1
         time.sleep(0.02)
-    if lock is None:
+    if external is None or external.status != "validated":
         database.close()
-        raise RuntimeError("parallel fixture could not acquire declared external lock")
-    entered_at = time.time_ns()
-    time.sleep(0.2)
-    released_at = time.time_ns()
-    released = store.release_resource_lock(
-        "notion-write", worker_id, lease_id=str(lock["lease_id"])
-    )
-    if not released["released"]:
-        database.close()
-        raise RuntimeError("parallel fixture lost declared external lock")
-
-    executor = CellExecutor(
-        database,
-        applications_root=applications_root,
-        handlers=production_handler_registry(),
-        validators=production_validator_registry(),
-        worker_id=worker_id,
-        workspace_owner=os.environ.get("CAREER_WORKSPACE_OWNER") or "parallel-fixture",
-        lease_seconds=30,
-    )
-    plan = executor.plan(application_id, {"cv"})
-    results = executor.run_ready(plan.run_id)
-    normalized = next(
-        (item for item in results if item.node_id == "normalize_job"), None
-    )
-    if normalized is None or normalized.status != "validated":
-        database.close()
-        raise RuntimeError("parallel fixture normalization did not validate")
+        raise RuntimeError("executor-managed declared resource did not validate")
     handover = read_json(normalized.manifest_path.parent / "handover_summary.json")
     manifest = read_json(normalized.manifest_path)
     payload = {
@@ -2532,9 +2744,13 @@ def _run_parallel_fixture_worker(
         "artifact_paths": [str(item["path"]) for item in manifest["outputs"]],
         "job_fingerprint": handover["job_fingerprint"],
         "external_resource": "notion-write",
-        "external_lock_entered_at": entered_at,
-        "external_lock_released_at": released_at,
+        "external_lock_entered_at": interval["entered_at"],
+        "external_lock_released_at": interval["released_at"],
         "external_lock_contention_count": contention_count,
+        "external_lock_node_id": "sync_notion_initial",
+        "external_resource_declared_by_contract": (
+            "notion-write" in CELL_CONTRACTS["sync_notion_initial"].resources
+        ),
     }
     write_json(result_path, payload)
     database.close()
@@ -2553,9 +2769,11 @@ def run_parallel_fixture_workers(
     fixture.mkdir(parents=True, exist_ok=True)
     database = Database(fixture / "career.db")
     database.init_schema()
+    control_db_id = database.control_db_identity()
     database.close()
     env = os.environ.copy()
     env["CAREER_WORKSPACE_OWNER"] = "parallel-fixture"
+    env["CAREER_CONTROL_DB_ID"] = control_db_id
     src_path = str(ROOT / "src")
     env["PYTHONPATH"] = src_path + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
@@ -2602,6 +2820,22 @@ def run_parallel_fixture_workers(
     if errors:
         raise RuntimeError("parallel fixture worker failed: " + " | ".join(errors))
     results.sort(key=lambda item: str(item["application_id"]))
+    allowed_top_level = {
+        "career.db",
+        "career.db-wal",
+        "career.db-shm",
+        *(f"{application_id}-ready" for application_id in applications),
+        *(f"{application_id}-result.json" for application_id in applications),
+    }
+    unexpected = sorted(
+        str(path.relative_to(fixture))
+        for path in fixture.rglob("*")
+        if path.is_file()
+        and not path.is_relative_to(fixture / "applications")
+        and path.name not in allowed_top_level
+    )
+    for item in results:
+        item["unexpected_writes"] = unexpected
     return results
 
 
@@ -2616,6 +2850,23 @@ def parallel_verification_report(fixture_dir: str | Path) -> dict[str, Any]:
             resolved = Path(path).resolve()
             if not resolved.is_relative_to(own_root):
                 crossed_paths.append(str(resolved))
+        other_roots = [
+            (Path(fixture_dir) / "applications" / other["application_id"]).resolve()
+            for other in results
+            if other["application_id"] != item["application_id"]
+        ]
+        for file_path in own_root.rglob("*"):
+            if not file_path.is_file():
+                continue
+            resolved_file = file_path.resolve()
+            if not resolved_file.is_relative_to(own_root):
+                crossed_paths.append(str(resolved_file))
+                continue
+            if file_path.stat().st_size > 1_000_000:
+                continue
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+            if any(str(other_root) in content for other_root in other_roots):
+                crossed_paths.append(str(file_path))
     ordered = sorted(results, key=lambda item: item["external_lock_entered_at"])
     serialized = bool(
         len(ordered) == 2
@@ -2633,6 +2884,12 @@ def parallel_verification_report(fixture_dir: str | Path) -> dict[str, Any]:
         and not crossed_paths
         and serialized
         and contention_observed
+        and all(
+            item.get("external_lock_node_id") == "sync_notion_initial"
+            and item.get("external_resource_declared_by_contract") is True
+            and not item.get("unexpected_writes")
+            for item in results
+        )
     )
     return {
         "status": "validated" if valid else "blocked",

@@ -86,6 +86,8 @@ class CellExecutor:
         worker_id: str | None = None,
         lease_seconds: int = 300,
         workspace_owner: str | None = None,
+        workspace_control_db_id: str | None = None,
+        require_authoritative_workspace: bool = False,
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
@@ -98,7 +100,10 @@ class CellExecutor:
         self.lease_seconds = lease_seconds
         self.workspace_owner = workspace_owner or workspace_owner_from_env()
         self.workspace_lease = WorkspaceLease(
-            database, default_ttl_seconds=lease_seconds
+            database,
+            default_ttl_seconds=lease_seconds,
+            expected_control_db_id=workspace_control_db_id,
+            require_authority=require_authoritative_workspace,
         )
 
     def register_handler(self, node_id: str, handler: CellHandler) -> None:
@@ -475,6 +480,7 @@ class CellExecutor:
             )
         context = self._context_from_manifest(paths, node, attempt_record.path)
         acquired_resources: list[Mapping[str, Any]] = []
+        keepalive_context = None
         try:
             for resource in node.resources:
                 lock = self.store.acquire_resource_lock(
@@ -525,14 +531,15 @@ class CellExecutor:
                         (),
                         attempt_record=attempt_record,
                     )
+            keepalive_context = self._execution_keepalive(
+                plan.run_id,
+                node.node_id,
+                attempt,
+                acquired_resources,
+            )
+            keepalive = keepalive_context.__enter__()
             try:
-                with self._execution_keepalive(
-                    plan.run_id,
-                    node.node_id,
-                    attempt,
-                    acquired_resources,
-                ) as keepalive:
-                    output = handler(context)
+                output = handler(context)
                 if keepalive["failure"]:
                     failure = str(keepalive["failure"])
                     if failure == "node_lease_expired":
@@ -780,6 +787,8 @@ class CellExecutor:
                 ),
             )
         finally:
+            if keepalive_context is not None:
+                keepalive_context.__exit__(None, None, None)
             for lock in reversed(acquired_resources):
                 self.store.release_resource_lock(
                     str(lock["resource_name"]),
