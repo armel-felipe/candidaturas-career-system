@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +20,9 @@ from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.harness_supervisor import HarnessSupervisor
 from career.services.harness_runs import ExclusiveRunLock
+from career.services.application_context import paths_for
+from career.services.cell_store import CellStore
+from career.services.database import Database
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, write_text
 
 
@@ -101,6 +106,8 @@ class HeartbeatV2Options:
     variant: str | None = None
     skip_maintenance: bool = False
     maintenance_refresh: str | None = None
+    cellular: bool = False
+    workspace_owner: str | None = None
 
 
 def _emit(message: str) -> None:
@@ -1816,7 +1823,153 @@ def _run_repair_cycle(
 
 def run_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
     with ExclusiveRunLock(V2_DIR / ".heartbeat.lock", "applications heartbeat"):
+        if options.cellular:
+            return _run_cellular_heartbeat(options)
         return _run_heartbeat_unlocked(options)
+
+
+def _ensure_cellular_application(
+    application: dict[str, Any], *, applications_root: Path
+) -> Any:
+    application_id = _record_key(application)
+    if not application_id:
+        raise ValidationFailure("cellular heartbeat requires an application ID")
+    paths = paths_for(application_id, root=applications_root)
+    paths.app_dir.mkdir(parents=True, exist_ok=True)
+    for directory in (
+        paths.plans_dir,
+        paths.cells_dir,
+        paths.artifacts_dir,
+        paths.reviews_dir,
+        paths.derived_dir,
+        paths.requests_dir,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    description = str(application.get("description") or "").strip()
+    if not description:
+        raise ValidationFailure(
+            f"cellular heartbeat requires a job description: {application_id}"
+        )
+    if not paths.job_description.exists():
+        write_text(paths.job_description, description + "\n")
+    identity = read_json(paths.identity) if paths.identity.exists() else {}
+    identity.update(
+        {
+            "kind": "application_identity",
+            "application_id": application_id,
+            "source_type": "notion_queue",
+            "source_id": str(application.get("page_id") or application_id),
+            "company": str(application.get("company") or ""),
+            "role": str(application.get("role") or application.get("title") or ""),
+            "aliases": {
+                "notion_record_id": str(application.get("record_id") or ""),
+                "notion_page_id": str(application.get("page_id") or ""),
+            },
+            "updated_at": utc_now_iso(),
+        }
+    )
+    write_json(paths.identity, identity)
+    return paths
+
+
+def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
+    """Schedule application-scoped cells without mutable global path adapters."""
+    if not options.run_agent or options.dry_run:
+        raise ValidationFailure(
+            "cellular heartbeat requires --run-agent and does not downgrade to dry-run globals"
+        )
+    from career.cells.executor import CellExecutor
+    from career.cells.handlers import (
+        production_handler_registry,
+        production_validator_registry,
+    )
+
+    V2_DIR.mkdir(parents=True, exist_ok=True)
+    V2_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    started_at = utc_now_iso()
+    config = _load_config()
+    maintenance_report = _run_maintenance_sync(config, options)
+    token, database_id = notion_service.notion_config()
+    queue = _load_queue(token, database_id)
+    effective_max = (
+        options.max_per_run
+        if options.max_per_run is not None
+        else int(config["max_per_run"])
+    )
+    selected = _eligible(queue, config, effective_max)
+    database = Database(V2_DIR.parent / "career.db")
+    database.init_schema()
+    executor = CellExecutor(
+        database,
+        applications_root=V2_DIR,
+        handlers=production_handler_registry(),
+        validators=production_validator_registry(),
+        worker_id=f"applications-cellular-{os.getpid()}",
+        workspace_owner=options.workspace_owner,
+    )
+    results: list[dict[str, Any]] = []
+    try:
+        for application in selected:
+            paths = _ensure_cellular_application(application, applications_root=V2_DIR)
+            latest = database.fetch_one(
+                """SELECT run_id, status FROM application_runs
+                   WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
+                (paths.application_id,),
+            )
+            if (
+                latest is None
+                or latest["status"] in {"completed", "cancelled"}
+                or _is_reprocess_requested(application, config)
+            ):
+                run_id = executor.plan(paths.application_id, {"cv"}).run_id
+            else:
+                run_id = str(latest["run_id"])
+            executed = executor.run_ready(run_id)
+            for execution in executed:
+                manifest = read_json(execution.manifest_path)
+                capabilities = (
+                    manifest.get("capabilities")
+                    if isinstance(manifest.get("capabilities"), dict)
+                    else {}
+                )
+                results.append(
+                    {
+                        "status": execution.status,
+                        "application_id": paths.application_id,
+                        "run_id": execution.run_id,
+                        "node_id": execution.node_id,
+                        "manifest_path": str(execution.manifest_path),
+                        "read_allowlist": list(capabilities.get("read_paths") or []),
+                        "write_allowlist": list(capabilities.get("write_paths") or []),
+                        "artifact_paths": [
+                            str(item.get("path"))
+                            for item in manifest.get("outputs", [])
+                            if isinstance(item, dict) and item.get("path")
+                        ],
+                    }
+                )
+            if executor.is_terminal(run_id):
+                executor.finalize(run_id)
+    finally:
+        database.close()
+    summary = {
+        "status": "ok",
+        "mode": "cellular",
+        "started_at": started_at,
+        "finished_at": utc_now_iso(),
+        "run_agent": True,
+        "maintenance": maintenance_report,
+        "max_per_run": effective_max,
+        "selected": len(selected),
+        "results": results,
+        "global_fallback": False,
+    }
+    log_path = V2_LOG_DIR / (
+        started_at.replace(":", "").replace("+", "Z") + "-cellular.json"
+    )
+    write_json(log_path, summary)
+    summary["log"] = str(log_path)
+    return summary
 
 
 def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
@@ -2079,3 +2232,226 @@ def heartbeat_status() -> dict[str, Any]:
         },
     }
     return payload
+
+
+def _parallel_fixture_job(application_id: str) -> str:
+    focus = "regional capacity planning" if application_id.endswith("a") else "national logistics governance"
+    return (
+        f"# Operations Lead {application_id}\n\n"
+        f"Company: Fixture {application_id}\n"
+        f"Responsibilities: lead {focus}, indicators, and continuous improvement.\n"
+        "Requirements: operations leadership, planning, and data analysis.\n"
+        + (f"Distinct context for {application_id}. " * 24)
+    )
+
+
+def _run_parallel_fixture_worker(
+    fixture_dir: Path,
+    application_id: str,
+    result_path: Path,
+) -> int:
+    """Subprocess-only worker used by the real parallel acceptance harness."""
+    from career.cells.executor import CellExecutor
+    from career.cells.handlers import (
+        production_handler_registry,
+        production_validator_registry,
+    )
+
+    fixture_dir = fixture_dir.resolve()
+    applications_root = fixture_dir / "applications"
+    database = Database(fixture_dir / "career.db")
+    database.init_schema()
+    paths = paths_for(application_id, root=applications_root)
+    paths.app_dir.mkdir(parents=True, exist_ok=True)
+    write_json(
+        paths.identity,
+        {
+            "kind": "application_identity",
+            "application_id": application_id,
+            "source_type": "parallel_fixture",
+            "source_id": application_id,
+            "company": f"Fixture {application_id}",
+            "role": "Operations Lead",
+        },
+    )
+    write_text(paths.job_description, _parallel_fixture_job(application_id))
+    worker_id = f"parallel-{application_id}-{os.getpid()}"
+    store = CellStore(database)
+    deadline = time.monotonic() + 15
+    lock: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        candidate = store.acquire_resource_lock(
+            "notion-write", worker_id, lease_seconds=5
+        )
+        if candidate["acquired"]:
+            lock = candidate
+            break
+        time.sleep(0.02)
+    if lock is None:
+        database.close()
+        raise RuntimeError("parallel fixture could not acquire declared external lock")
+    entered_at = time.time_ns()
+    time.sleep(0.12)
+    released_at = time.time_ns()
+    released = store.release_resource_lock(
+        "notion-write", worker_id, lease_id=str(lock["lease_id"])
+    )
+    if not released["released"]:
+        database.close()
+        raise RuntimeError("parallel fixture lost declared external lock")
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers=production_handler_registry(),
+        validators=production_validator_registry(),
+        worker_id=worker_id,
+        workspace_owner=os.environ.get("CAREER_WORKSPACE_OWNER") or "parallel-fixture",
+        lease_seconds=30,
+    )
+    plan = executor.plan(application_id, {"cv"})
+    results = executor.run_ready(plan.run_id)
+    normalized = next(
+        (item for item in results if item.node_id == "normalize_job"), None
+    )
+    if normalized is None or normalized.status != "validated":
+        database.close()
+        raise RuntimeError("parallel fixture normalization did not validate")
+    handover = read_json(normalized.manifest_path.parent / "handover_summary.json")
+    manifest = read_json(normalized.manifest_path)
+    payload = {
+        "status": normalized.status,
+        "pid": os.getpid(),
+        "application_id": application_id,
+        "run_id": plan.run_id,
+        "node_id": normalized.node_id,
+        "manifest_path": str(normalized.manifest_path),
+        "artifact_paths": [str(item["path"]) for item in manifest["outputs"]],
+        "job_fingerprint": handover["job_fingerprint"],
+        "external_resource": "notion-write",
+        "external_lock_entered_at": entered_at,
+        "external_lock_released_at": released_at,
+    }
+    write_json(result_path, payload)
+    database.close()
+    return 0
+
+
+def run_parallel_fixture_workers(
+    fixture_dir: str | Path,
+    *,
+    applications: tuple[str, str] = ("app-a", "app-b"),
+) -> list[dict[str, Any]]:
+    """Run two real processes on one workspace/database and assert isolation."""
+    if len(applications) != 2 or len(set(applications)) != 2:
+        raise ValueError("parallel verification requires two distinct applications")
+    fixture = Path(fixture_dir).resolve()
+    fixture.mkdir(parents=True, exist_ok=True)
+    database = Database(fixture / "career.db")
+    database.init_schema()
+    database.close()
+    env = os.environ.copy()
+    env["CAREER_WORKSPACE_OWNER"] = "parallel-fixture"
+    src_path = str(ROOT / "src")
+    env["PYTHONPATH"] = src_path + (
+        os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+    )
+    processes: list[tuple[str, Path, subprocess.Popen[str]]] = []
+    for application_id in applications:
+        result_path = fixture / f"{application_id}-result.json"
+        command = [
+            sys.executable,
+            "-m",
+            "career.services.applications_v2",
+            "--parallel-fixture-worker",
+            "--fixture-dir",
+            str(fixture),
+            "--application-id",
+            application_id,
+            "--result-path",
+            str(result_path),
+        ]
+        processes.append(
+            (
+                application_id,
+                result_path,
+                subprocess.Popen(
+                    command,
+                    cwd=ROOT,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                ),
+            )
+        )
+    results: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for application_id, result_path, process in processes:
+        stdout, stderr = process.communicate(timeout=30)
+        if process.returncode != 0 or not result_path.is_file():
+            errors.append(
+                f"{application_id}:returncode={process.returncode};stdout={stdout[-1000:]};stderr={stderr[-2000:]}"
+            )
+            continue
+        results.append(read_json(result_path))
+    if errors:
+        raise RuntimeError("parallel fixture worker failed: " + " | ".join(errors))
+    results.sort(key=lambda item: str(item["application_id"]))
+    return results
+
+
+def parallel_verification_report(fixture_dir: str | Path) -> dict[str, Any]:
+    results = run_parallel_fixture_workers(fixture_dir)
+    fingerprints = {str(item["job_fingerprint"]) for item in results}
+    manifests = {str(item["manifest_path"]) for item in results}
+    crossed_paths: list[str] = []
+    for item in results:
+        own_root = (Path(fixture_dir) / "applications" / item["application_id"]).resolve()
+        for path in [item["manifest_path"], *item["artifact_paths"]]:
+            resolved = Path(path).resolve()
+            if not resolved.is_relative_to(own_root):
+                crossed_paths.append(str(resolved))
+    ordered = sorted(results, key=lambda item: item["external_lock_entered_at"])
+    serialized = bool(
+        len(ordered) == 2
+        and ordered[0]["external_lock_released_at"]
+        <= ordered[1]["external_lock_entered_at"]
+    )
+    valid = (
+        len(results) == 2
+        and {item["status"] for item in results} == {"validated"}
+        and len(fingerprints) == 2
+        and len(manifests) == 2
+        and not crossed_paths
+        and serialized
+    )
+    return {
+        "status": "validated" if valid else "blocked",
+        "subprocess_count": len(results),
+        "distinct_fingerprints": len(fingerprints) == 2,
+        "distinct_manifests": len(manifests) == 2,
+        "crossed_paths": crossed_paths,
+        "external_locks_serialized": serialized,
+        "results": results,
+    }
+
+
+def _parallel_worker_main(argv: list[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--parallel-fixture-worker", action="store_true")
+    parser.add_argument("--fixture-dir", required=True)
+    parser.add_argument("--application-id", required=True)
+    parser.add_argument("--result-path", required=True)
+    args = parser.parse_args(argv)
+    if not args.parallel_fixture_worker:
+        parser.error("--parallel-fixture-worker is required")
+    return _run_parallel_fixture_worker(
+        Path(args.fixture_dir), args.application_id, Path(args.result_path)
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(_parallel_worker_main(sys.argv[1:]))

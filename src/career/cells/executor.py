@@ -19,7 +19,13 @@ from career.cells.handlers import (
 )
 from career.cells.manifests import ManifestStore, RunCompletion
 from career.cells.planner import NodePlan, RunPlan, compile_run_plan
-from career.services.application_context import APPLICATIONS_DIR, ApplicationPaths, paths_for
+from career.services.application_context import (
+    APPLICATIONS_DIR,
+    ApplicationPaths,
+    WorkspaceLease,
+    paths_for,
+    workspace_owner_from_env,
+)
 from career.services.cell_store import CellStore
 from career.services.database import Database
 from career.utils import read_json, utc_now_iso, write_json
@@ -67,6 +73,7 @@ class CellExecutor:
         validators: Mapping[str, CellValidator] | None = None,
         worker_id: str | None = None,
         lease_seconds: int = 300,
+        workspace_owner: str | None = None,
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
@@ -77,6 +84,10 @@ class CellExecutor:
         self.validators = dict(validators or {})
         self.worker_id = worker_id or f"cell-executor-{uuid4().hex}"
         self.lease_seconds = lease_seconds
+        self.workspace_owner = workspace_owner or workspace_owner_from_env()
+        self.workspace_lease = WorkspaceLease(
+            database, default_ttl_seconds=lease_seconds
+        )
 
     def register_handler(self, node_id: str, handler: CellHandler) -> None:
         self._contract(node_id)
@@ -100,6 +111,7 @@ class CellExecutor:
         }
 
     def plan(self, application_id: str, deliverables: Iterable[str]) -> RunPlan:
+        self._renew_workspace_lease()
         paths = self._paths(application_id)
         plan = compile_run_plan(application_id, deliverables, paths)
         self.store.create_run(application_id, plan.run_id, graph=plan.as_dict())
@@ -122,15 +134,18 @@ class CellExecutor:
         return str(row["status"])
 
     def run_ready(self, run_id: str) -> tuple[CellExecutionResult, ...]:
+        self._renew_workspace_lease()
         plan, paths = self._load_run(run_id)
         results: list[CellExecutionResult] = []
 
         for reservation in self._owned_ready_reservations(run_id):
+            self._renew_workspace_lease()
             node = self._node(plan, reservation["node_id"])
             results.append(self._execute_reserved(plan, paths, node, reservation))
 
         self._reactivate_ready_superseded(run_id)
         for ready in self.store.list_ready_nodes(run_id):
+            self._renew_workspace_lease()
             node_id = str(ready["node_id"])
             if not self._dependencies_validated(run_id, node_id):
                 continue
@@ -168,6 +183,7 @@ class CellExecutor:
         return tuple(results)
 
     def repair(self, run_id: str, node_id: str, reason: str) -> RepairResult:
+        self._renew_workspace_lease()
         plan, paths = self._load_run(run_id)
         node = self._node(plan, node_id)
         contract = self._contract(node_id)
@@ -309,6 +325,7 @@ class CellExecutor:
         )
 
     def finalize(self, run_id: str) -> RunCompletion:
+        self._renew_workspace_lease()
         _plan, paths = self._load_run(run_id)
         completion = ManifestStore(paths).finish_run(
             run_id,
@@ -327,13 +344,29 @@ class CellExecutor:
 
     def mark_validated(self, run_id: str, node_id: str) -> None:
         """Persist a synthetic validated attempt for orchestration tests and imports."""
+        self._renew_workspace_lease()
         _plan, paths = self._load_run(run_id)
         self._set_manual_terminal(run_id, paths, node_id, "validated", "")
 
     def fail(self, run_id: str, node_id: str, reason: str) -> None:
         """Persist a synthetic blocked attempt for orchestration tests and imports."""
+        self._renew_workspace_lease()
         _plan, paths = self._load_run(run_id)
         self._set_manual_terminal(run_id, paths, node_id, "blocked", reason)
+
+    def _renew_workspace_lease(self) -> None:
+        if not self.workspace_lease.acquire(
+            self.workspace_owner, ttl_seconds=self.lease_seconds
+        ):
+            current = self.workspace_lease.inspect() or {}
+            raise RuntimeError(
+                "workspace lease is owned by another authoritative copy: "
+                f"{current.get('owner') or 'unknown'}"
+            )
+        if not self.workspace_lease.heartbeat(
+            self.workspace_owner, ttl_seconds=self.lease_seconds
+        ):
+            raise RuntimeError("workspace lease heartbeat failed")
 
     def _execute_reserved(
         self,

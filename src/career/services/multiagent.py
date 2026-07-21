@@ -19,6 +19,7 @@ __all__ = [
     "BASE_FORBIDDEN_ACTIONS",
     "LOCAL_MODEL_TRIGGER_MAP",
     "write_request",
+    "validate_cellular_request_context",
     "validate_request",
     "write_runbook",
     "write_local_model_map",
@@ -207,6 +208,77 @@ def _fit_map_summary(
     }
 
 
+def validate_cellular_request_context(
+    extras: dict[str, Any], *, root: Path = ROOT
+) -> dict[str, Any]:
+    """Validate the complete cell identity/capability envelope or fail closed."""
+    if extras.get("cellular") is not True:
+        raise ValidationFailure("cellular request must declare cellular=true")
+    required = (
+        "application_id",
+        "run_id",
+        "node_id",
+        "manifest_path",
+        "read_allowlist",
+        "write_allowlist",
+    )
+    missing = [name for name in required if not extras.get(name)]
+    if missing:
+        raise ValidationFailure(
+            "cellular request missing required field(s): " + ", ".join(missing)
+        )
+    application_id = application_context_service.validate_application_id(
+        str(extras["application_id"])
+    )
+    run_id = str(extras["run_id"]).strip()
+    node_id = str(extras["node_id"]).strip()
+    if not run_id or not node_id:
+        raise ValidationFailure("cellular request requires non-empty run_id and node_id")
+    app_dir = (
+        Path(root) / ".career-state" / "applications_v2" / application_id
+    ).resolve()
+    manifest_path = Path(str(extras["manifest_path"])).resolve()
+    try:
+        manifest_path.relative_to(app_dir)
+    except ValueError as exc:
+        raise ValidationFailure(
+            "cellular manifest_path must remain inside its application"
+        ) from exc
+    if not manifest_path.is_file():
+        raise ValidationFailure("cellular manifest_path does not exist")
+    manifest = read_json(manifest_path)
+    expected_identity = {
+        "application_id": application_id,
+        "run_id": run_id,
+        "node_id": node_id,
+    }
+    if any(manifest.get(key) != value for key, value in expected_identity.items()):
+        raise ValidationFailure("cellular manifest identity does not match request")
+
+    normalized_lists: dict[str, list[str]] = {}
+    for field in ("read_allowlist", "write_allowlist"):
+        values = extras.get(field)
+        if not isinstance(values, list) or not values:
+            raise ValidationFailure(f"cellular {field} must be a non-empty list")
+        normalized: list[str] = []
+        for value in values:
+            candidate = Path(str(value)).resolve()
+            try:
+                candidate.relative_to(app_dir)
+            except ValueError as exc:
+                raise ValidationFailure(
+                    f"cellular {field} path escapes its application: {candidate}"
+                ) from exc
+            normalized.append(str(candidate))
+        normalized_lists[field] = normalized
+    return {
+        "cellular": True,
+        **expected_identity,
+        "manifest_path": str(manifest_path),
+        **normalized_lists,
+    }
+
+
 def write_request(step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None) -> dict[str, Any]:
     contract = CONTRACTS.get(step)
     if not contract:
@@ -223,13 +295,21 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
             validation_commands=tuple(contract.get("rules", ())),
         )
     request_extras = dict(extras or {})
+    cellular_context = (
+        validate_cellular_request_context(request_extras)
+        if request_extras.get("cellular") is True
+        else None
+    )
+    if cellular_context:
+        request_extras.update(cellular_context)
     application_id = str(request_extras.get("application_id") or "").strip()
     app_paths = application_context_service.paths_for(application_id) if application_id else None
-    if app_paths:
+    if app_paths and not cellular_context:
         derived_context_service.configure_derived_dir(app_paths.derived_dir)
         derived_context_service.configure_state_store_path(app_paths.workflow_state)
     active = _active_intake(app_paths.workflow_state if app_paths else None)
-    _prepare_compact_inputs_for_step(step, active)
+    if not cellular_context:
+        _prepare_compact_inputs_for_step(step, active)
     request_id = uuid.uuid4().hex
     if step in {"notion-update", "email-draft"}:
         request_extras["pending_action_path"] = (
@@ -249,11 +329,25 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
             fit_map_path=app_paths.fit_map if app_paths else None,
             state_store=WorkflowStateStore.for_application(application_id) if application_id else None,
         ),
-        "allowed_files": _allowed_files_for(contract, active),
-        "fallback_reference_files": _fallback_reference_files_for(contract),
-        "derived_context": _derived_context_payload(contract),
+        "cellular": bool(cellular_context),
+        "application_id": application_id or None,
+        "run_id": cellular_context.get("run_id") if cellular_context else None,
+        "node_id": cellular_context.get("node_id") if cellular_context else None,
+        "manifest_path": cellular_context.get("manifest_path") if cellular_context else None,
+        "read_allowlist": cellular_context.get("read_allowlist", []) if cellular_context else [],
+        "write_allowlist": cellular_context.get("write_allowlist", []) if cellular_context else [],
+        "allowed_files": cellular_context["read_allowlist"] if cellular_context else _allowed_files_for(contract, active),
+        "fallback_reference_files": [] if cellular_context else _fallback_reference_files_for(contract),
+        "derived_context": (
+            {
+                "status": "cellular",
+                "manifest_path": cellular_context["manifest_path"],
+            }
+            if cellular_context
+            else _derived_context_payload(contract)
+        ),
         "allowed_commands": list(contract.allowed_commands),
-        "expected_outputs": list(contract.expected_outputs),
+        "expected_outputs": cellular_context["write_allowlist"] if cellular_context else list(contract.expected_outputs),
         "forbidden_actions": list(contract.forbidden_actions),
         "validation_commands": list(contract.validation_commands),
         "operational_rules": _operational_rules(contract),

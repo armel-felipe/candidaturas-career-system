@@ -141,6 +141,8 @@
     "applications:release-lock": "./scripts/python.sh scripts/career_cli.py applications release-lock",
     "applications:doctor-concurrency": "./scripts/python.sh scripts/career_cli.py applications doctor-concurrency",
     "applications:migrate-global-state": "./scripts/python.sh scripts/career_cli.py applications migrate-global-state",
+    "applications:migrate-cellular": "./scripts/python.sh scripts/career_cli.py applications migrate-cellular",
+    "applications:verify-parallel": "./scripts/python.sh scripts/career_cli.py applications verify-parallel",
     "applications:heartbeat": "./scripts/python.sh scripts/career_cli.py applications heartbeat",
     "applications:agent-heartbeat": "./scripts/python.sh scripts/career_cli.py applications heartbeat --run-agent",
     "applications:heartbeat:install-task": "sh scripts/install_applications_heartbeat_launchd.sh",

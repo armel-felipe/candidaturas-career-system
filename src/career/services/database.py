@@ -194,6 +194,18 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_workspace_leases_expires
                 ON workspace_leases(expires_at);
 
+            CREATE TABLE IF NOT EXISTS workspace_lease_takeovers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lease_name TEXT NOT NULL,
+                prior_owner TEXT NOT NULL,
+                prior_expires_at TEXT NOT NULL,
+                new_owner TEXT NOT NULL,
+                taken_over_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_workspace_lease_takeovers_name_time
+                ON workspace_lease_takeovers(lease_name, taken_over_at);
+
             CREATE TABLE IF NOT EXISTS artifact_dependencies (
                 artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id),
                 input_hash TEXT NOT NULL,

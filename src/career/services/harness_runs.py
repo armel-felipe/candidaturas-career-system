@@ -35,6 +35,11 @@ def allowed_outputs_from_request(request_json: Path, root: Path) -> list[Path]:
     allowed = payload.get("allowed_outputs")
     if isinstance(allowed, list):
         raw.extend(str(item) for item in allowed)
+    if payload.get("cellular") is True:
+        write_allowlist = payload.get("write_allowlist")
+        if not isinstance(write_allowlist, list) or not write_allowlist:
+            raise ValidationFailure("cellular harness request requires write_allowlist")
+        raw.extend(str(item) for item in write_allowlist)
     return [(root / item).resolve() for item in raw if item and "<" not in item]
 
 
@@ -54,11 +59,15 @@ class HarnessRun:
             for path in set(self.before_files) | set(after_files)
             if self.before_files.get(path) != after_files.get(path)
         )
-        allowed = {str(path.resolve()) for path in self.allowed_outputs}
+        allowed = [path.resolve() for path in self.allowed_outputs]
         unauthorized = [
             path
             for path in changed
-            if str((self.application_dir / path).resolve()) not in allowed
+            if not any(
+                (self.application_dir / path).resolve() == allowed_path
+                or (self.application_dir / path).resolve().is_relative_to(allowed_path)
+                for allowed_path in allowed
+            )
             and not path.startswith("requests/")
         ]
         return {

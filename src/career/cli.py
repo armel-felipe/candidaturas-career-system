@@ -255,6 +255,7 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat.add_argument("--variant", default=None)
     heartbeat.add_argument("--skip-maintenance", action="store_true")
     heartbeat.add_argument("--maintenance-refresh", choices=["missing", "full"], default=None)
+    heartbeat.add_argument("--legacy-non-cellular", action="store_true")
     heartbeat.add_argument("--format", choices=["json", "human", "both"], default="both")
     status = applications_sub.add_parser("status")
     status.add_argument("--format", choices=["json", "human", "both"], default="both")
@@ -271,6 +272,12 @@ def build_parser() -> argparse.ArgumentParser:
     applications_migrate = applications_sub.add_parser("migrate-global-state")
     applications_migrate.add_argument("--application-id")
     applications_migrate.add_argument("--dry-run", action="store_true")
+    applications_migrate_cellular = applications_sub.add_parser("migrate-cellular")
+    applications_migrate_cellular.add_argument("--application-id", required=True)
+    applications_migrate_cellular.add_argument("--application-dir")
+    applications_migrate_cellular.add_argument("--dry-run", action="store_true")
+    applications_verify_parallel = applications_sub.add_parser("verify-parallel")
+    applications_verify_parallel.add_argument("--fixture-dir", required=True)
     applications_plan = applications_sub.add_parser("plan")
     applications_plan.add_argument("--application-id", required=True)
     applications_plan.add_argument(
@@ -1103,6 +1110,47 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.action == "migrate-cellular":
+            from scripts.migrate_cellular_runs import migrate_application
+
+            application_dir = (
+                Path(args.application_dir)
+                if args.application_dir
+                else application_context_service.paths_for(args.application_id).app_dir
+            )
+            lease_database = Database()
+            lease_database.init_schema()
+            try:
+                lease = application_context_service.WorkspaceLease(lease_database)
+                owner = application_context_service.workspace_owner_from_env()
+                if not lease.acquire(owner, ttl_seconds=300) or not lease.heartbeat(owner):
+                    current = lease.inspect() or {}
+                    raise RuntimeError(
+                        "workspace lease is owned by another authoritative copy: "
+                        f"{current.get('owner') or 'unknown'}"
+                    )
+                result = migrate_application(
+                    application_dir,
+                    application_id=args.application_id,
+                    dry_run=args.dry_run,
+                )
+            except (FileNotFoundError, RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            finally:
+                lease_database.close()
+            _dump(result)
+            return 0
+        if args.action == "verify-parallel":
+            try:
+                result = applications_v2_service.parallel_verification_report(
+                    Path(args.fixture_dir)
+                )
+            except (RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            _dump(result)
+            return 0 if result.get("status") == "validated" else 1
         if args.action == "status":
             envelope = HarnessSupervisor(Path.cwd()).handle_message(
                 "status das candidaturas",
@@ -1118,7 +1166,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "heartbeat":
             if args.max_per_run is not None and args.max_per_run < 1:
                 raise SystemExit("--max-per-run must be a positive integer.")
-            if args.dry_run or not args.run_agent or args.skip_maintenance or args.maintenance_refresh:
+            cellular = bool(args.run_agent and not args.legacy_non_cellular)
+            if cellular or args.dry_run or not args.run_agent or args.skip_maintenance or args.maintenance_refresh:
                 result = applications_v2_service.run_heartbeat(
                     applications_v2_service.HeartbeatV2Options(
                         max_per_run=args.max_per_run,
@@ -1128,6 +1177,7 @@ def main(argv: list[str] | None = None) -> int:
                         variant=args.variant,
                         skip_maintenance=args.skip_maintenance,
                         maintenance_refresh=args.maintenance_refresh,
+                        cellular=cellular,
                     )
                 )
             else:

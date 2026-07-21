@@ -559,6 +559,8 @@ npm run applications:heartbeat -- --dry-run --max-per-run 1
 npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium
+npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
 ./scripts/python.sh scripts/career_cli.py applications status --format human
 ./scripts/python.sh scripts/career_cli.py applications heartbeat --dry-run --max-per-run 1 --format json
@@ -566,11 +568,11 @@ npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-r
 ```
 
 Regras:
-- o heartbeat lê a fila a partir do cache/sweep do Notion e processa candidaturas sequencialmente;
+- o heartbeat lê a fila a partir do cache/sweep do Notion; `applications:agent-heartbeat` agenda células por candidatura e o modo legado não celular exige `--legacy-non-cellular` explícito;
 - antes de ler a fila, o heartbeat roda a manutenção local equivalente a `notion:memory:sync -- --refresh missing`, salvo override explícito;
 - cadência padrão de manutenção: `missing` em toda execução; `full` automático quando completar 24 execuções sem full ou 24 horas desde o último full; `--maintenance-refresh full` continua disponível como override explícito;
 - a manutenção padrão do heartbeat também executa o backfill automático dos campos de governança do Notion para manter o tracker como memória operacional do projeto;
-- nunca executar candidaturas em paralelo enquanto houver escrita em `.career-state/applications_v2/<ID>/`;
+- candidaturas diferentes podem avançar em paralelo no mesmo workspace; uma mesma candidatura continua isolada em `.career-state/applications_v2/<ID>/` e recursos externos declarados são serializados por lock SQLite;
 - `max_per_run` padrão é 3, configurado em `.career-state/applications_v2/config.json`;
 - o heartbeat aceita `--format human|json|both`; usar `both` para terminal humano e `json` para integrações/bot;
 - para consumo automatizado do JSON por bot/Telegram, preferir a CLI direta `./scripts/python.sh scripts/career_cli.py applications heartbeat ... --format json`; não usar `npm run` como canal de parsing porque o banner do npm entra no `stdout`;
@@ -602,6 +604,31 @@ Contrato de leitura para agentes:
 - atualizar apenas os arquivos permitidos nessa etapa;
 - não abrir referências longas por padrão; usar somente quando o request apontar conflito factual, lacuna de evidência ou dúvida de defensabilidade;
 - qualquer request que mande "executar o pipeline completo" é inválido.
+
+### Segurança do workspace e handover celular
+
+Deve haver **uma única cópia autoritativa do workspace** em execução. O `WorkspaceLease` SQLite pertence ao dono da cópia, não a uma vaga: o mesmo dono pode executar múltiplas candidaturas, enquanto uma segunda cópia no MacBook ou RPi5 permanece bloqueada até release ou expiração.
+
+Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Se a origem caiu, aguardar a expiração; o takeover precisa registrar dono e expiração anteriores antes de renovar para a nova máquina. Nunca apagar `career.db`, lock ou manifesto para contornar o fence.
+
+Operação e recuperação:
+
+```bash
+npm run applications:plan -- --application-id <ID> --deliverable cv
+npm run applications:run -- --application-id <ID> --run-id <RUN_ID>
+npm run applications:repair -- --application-id <ID> --run-id <RUN_ID> --node <NODE_ID> --reason "<motivo>"
+npm run applications:inspect-run -- --application-id <ID> --run-id <RUN_ID>
+npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
+```
+
+Contrato obrigatório:
+- request celular contém `application_id`, `run_id`, `node_id`, `manifest_path`, `read_allowlist` e `write_allowlist`; ausência, path cruzado ou identidade divergente bloqueia a execução
+- em qualquer caminho celular é **proibido cair para estado global** ou chamar adapters mutáveis `configure_*`; comandos legados mantêm compatibilidade somente quando explicitamente não celulares
+- contexto e retomada usam manifesto imutável, artefatos versionados e `handover_summary.json`, nunca memória de conversa ou sessão anterior
+- correção usa `applications:repair` no nó bloqueado, preserva tentativas antigas e invalida apenas descendentes declarados
+- migração não reescreve fontes e não fabrica validação; CV sem revisão objetiva e polish aprovados fica `blocked`
+- a aceitação paralela exige dois subprocessos reais, fingerprints/manifests/artefatos distintos, nenhum path cruzado e locks externos declarados serializados
 
 Há dois tipos de interação com o Notion:
 

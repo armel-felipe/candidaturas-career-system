@@ -351,6 +351,10 @@ class HarnessSupervisor:
         request = prepared["request"]
         request_json = self.root / request["versioned_request_json"]
         request_md = self.root / request["versioned_request_md"]
+        request_payload = read_json(request_json)
+        cellular_context = self._cellular_request_context(request_payload)
+        if cellular_context:
+            self._acquire_cellular_workspace()
         run_dir = request_json.parent
         config_path = self.root / ".career-state" / "applications_v2" / "config.json"
         config = read_json(config_path) if config_path.exists() else {}
@@ -364,7 +368,14 @@ class HarnessSupervisor:
             instruction=instruction, runner_config=runner_config,
             model=active_model, variant=active_variant,
         )
-        specialist_run = begin_specialist_run(self.root, run_dir, SPECIALIST_OUTPUT_PATTERNS.get(step, []))
+        output_patterns = SPECIALIST_OUTPUT_PATTERNS.get(step, [])
+        if cellular_context:
+            output_patterns = []
+            for path in cellular_context["write_allowlist"]:
+                resolved = Path(path).resolve()
+                relative = str(resolved.relative_to(self.root.resolve()))
+                output_patterns.append(f"{relative}/**" if resolved.is_dir() else relative)
+        specialist_run = begin_specialist_run(self.root, run_dir, output_patterns)
         command = self.runner.build_command(run_request)
         result = self.runner.run(run_request)
         isolation = specialist_run.inspect()
@@ -489,7 +500,7 @@ class HarnessSupervisor:
             elif workflow == "applications_heartbeat":
                 from career.services import applications_v2 as applications_service
                 envelope["result"] = applications_service.run_heartbeat(
-                    applications_service.HeartbeatV2Options(max_per_run=max_per_run, run_agent=True, dry_run=False, model=model, variant=variant)
+                    applications_service.HeartbeatV2Options(max_per_run=max_per_run, run_agent=True, dry_run=False, model=model, variant=variant, cellular=True)
                 )
             elif workflow == "notion_job_analysis":
                 from career.services import agent_guard as agent_guard_service
@@ -792,7 +803,23 @@ class HarnessSupervisor:
     def run_application_stage(self, *, stage: str, record_key: str, application_dir: Path, request_json: Path, request_md: Path, runner_config: dict[str, Any], model: str = "", variant: str = "", on_start: Callable | None = None) -> dict[str, Any]:
         if not self.root or not self.runner:
             raise ValueError("HarnessSupervisor requires root and runner to execute stages.")
+        request_payload = read_json(request_json)
+        cellular_context = self._cellular_request_context(request_payload)
+        if cellular_context:
+            if cellular_context["application_id"] != record_key:
+                raise ValidationFailure("cellular harness record key does not match application_id")
+            expected_dir = (
+                self.root / ".career-state" / "applications_v2" / record_key
+            ).resolve()
+            if Path(application_dir).resolve() != expected_dir:
+                raise ValidationFailure("cellular harness application directory mismatch")
+            self._acquire_cellular_workspace()
         instruction = self._stage_instruction(stage)
+        if cellular_context:
+            instruction += (
+                " Preserve application_id, run_id, node_id and manifest_path; "
+                "read and write only the explicit allowlists."
+            )
         run_request = AgentRunRequest(stage=stage, record_key=record_key, request_path=request_md, instruction=instruction, runner_config=runner_config, model=model, variant=variant)
         harness_run = HarnessRunStore(self.root, application_dir).begin(stage, request_json, request_md)
         command = self.runner.build_command(run_request)
@@ -803,6 +830,45 @@ class HarnessSupervisor:
         payload = {"stage": stage, "command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "finished_at": utc_now_iso(), "run_dir": str(harness_run.run_dir.relative_to(self.root)), "isolation": isolation}
         harness_run.finish(payload, isolation)
         return payload
+
+    def _cellular_request_context(
+        self, request_payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if request_payload.get("cellular") is not True:
+            return None
+        if not self.root:
+            raise ValidationFailure("cellular harness requires a workspace root")
+        from career.services import multiagent as multiagent_service
+
+        return multiagent_service.validate_cellular_request_context(
+            {
+                "cellular": True,
+                "application_id": request_payload.get("application_id"),
+                "run_id": request_payload.get("run_id"),
+                "node_id": request_payload.get("node_id"),
+                "manifest_path": request_payload.get("manifest_path"),
+                "read_allowlist": request_payload.get("read_allowlist"),
+                "write_allowlist": request_payload.get("write_allowlist"),
+            },
+            root=self.root,
+        )
+
+    def _acquire_cellular_workspace(self) -> None:
+        if not self.root:
+            raise ValidationFailure("cellular harness requires a workspace root")
+        database = Database(self.root / ".career-state" / "career.db")
+        database.init_schema()
+        try:
+            lease = application_context_service.WorkspaceLease(database)
+            owner = application_context_service.workspace_owner_from_env()
+            if not lease.acquire(owner, ttl_seconds=300) or not lease.heartbeat(owner):
+                current = lease.inspect() or {}
+                raise ValidationFailure(
+                    "workspace lease blocked by another authoritative copy: "
+                    f"{current.get('owner') or 'unknown'}"
+                )
+        finally:
+            database.close()
 
     @staticmethod
     def _stage_instruction(stage: str) -> str:

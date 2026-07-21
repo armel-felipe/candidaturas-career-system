@@ -4,17 +4,140 @@ import hashlib
 import os
 import re
 import shutil
+import socket
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from career.paths import CAREER_STATE, ROOT
+from career.services.database import Database
 from career.utils import read_json, utc_now_iso, write_json
 
 
 APPLICATIONS_DIR = CAREER_STATE / "applications_v2"
 SESSION_REGISTRY = CAREER_STATE / "session_registry.json"
 ALIAS_INDEX = CAREER_STATE / "application_alias_index.json"
+
+
+def workspace_owner_from_env(env: dict[str, str] | None = None) -> str:
+    """Return the stable owner shared by processes in one authoritative copy."""
+    values = env or os.environ
+    explicit = str(values.get("CAREER_WORKSPACE_OWNER") or "").strip()
+    return explicit or socket.gethostname()
+
+
+class WorkspaceLease:
+    """SQLite fencing lease for the one authoritative workspace copy."""
+
+    LEASE_NAME = "authoritative-workspace"
+
+    def __init__(
+        self,
+        database: Database,
+        *,
+        lease_name: str = LEASE_NAME,
+        default_ttl_seconds: int = 300,
+    ) -> None:
+        if not lease_name:
+            raise ValueError("lease_name is required")
+        if default_ttl_seconds <= 0:
+            raise ValueError("default_ttl_seconds must be positive")
+        self.database = database
+        self.lease_name = lease_name
+        self.default_ttl_seconds = default_ttl_seconds
+
+    def acquire(self, owner: str, ttl_seconds: int = 300) -> bool:
+        owner = self._owner(owner)
+        ttl_seconds = self._ttl(ttl_seconds)
+        now = datetime.now(UTC).isoformat()
+        expires_at = (datetime.now(UTC) + timedelta(seconds=ttl_seconds)).isoformat()
+        with self.database.transaction(immediate=True) as conn:
+            current = conn.execute(
+                "SELECT worker_id, expires_at FROM workspace_leases WHERE lease_name = ?",
+                (self.lease_name,),
+            ).fetchone()
+            if current is None:
+                conn.execute(
+                    """INSERT INTO workspace_leases
+                       (lease_name, worker_id, run_id, acquired_at, expires_at)
+                       VALUES (?, ?, NULL, ?, ?)""",
+                    (self.lease_name, owner, now, expires_at),
+                )
+                return True
+            current_owner = str(current["worker_id"])
+            current_expiry = str(current["expires_at"])
+            if current_owner == owner and current_expiry > now:
+                conn.execute(
+                    "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
+                    (expires_at, self.lease_name),
+                )
+                return True
+            if current_expiry > now:
+                return False
+            if current_owner != owner:
+                conn.execute(
+                    """INSERT INTO workspace_lease_takeovers
+                       (lease_name, prior_owner, prior_expires_at, new_owner, taken_over_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        self.lease_name,
+                        current_owner,
+                        current_expiry,
+                        owner,
+                        now,
+                    ),
+                )
+            conn.execute(
+                """UPDATE workspace_leases
+                   SET worker_id = ?, run_id = NULL, acquired_at = ?, expires_at = ?
+                   WHERE lease_name = ?""",
+                (owner, now, expires_at, self.lease_name),
+            )
+            return True
+
+    def heartbeat(self, owner: str, ttl_seconds: int | None = None) -> bool:
+        owner = self._owner(owner)
+        ttl = self._ttl(ttl_seconds or self.default_ttl_seconds)
+        now = datetime.now(UTC).isoformat()
+        expires_at = (datetime.now(UTC) + timedelta(seconds=ttl)).isoformat()
+        with self.database.transaction(immediate=True) as conn:
+            renewed = conn.execute(
+                """UPDATE workspace_leases SET expires_at = ?
+                   WHERE lease_name = ? AND worker_id = ? AND expires_at > ?""",
+                (expires_at, self.lease_name, owner, now),
+            ).rowcount == 1
+        return renewed
+
+    def release(self, owner: str) -> bool:
+        owner = self._owner(owner)
+        with self.database.transaction(immediate=True) as conn:
+            released = conn.execute(
+                "DELETE FROM workspace_leases WHERE lease_name = ? AND worker_id = ?",
+                (self.lease_name, owner),
+            ).rowcount == 1
+        return released
+
+    def inspect(self) -> dict[str, Any] | None:
+        return self.database.fetch_one(
+            """SELECT lease_name, worker_id AS owner, acquired_at, expires_at
+               FROM workspace_leases WHERE lease_name = ?""",
+            (self.lease_name,),
+        )
+
+    @staticmethod
+    def _owner(owner: str) -> str:
+        value = str(owner or "").strip()
+        if not value:
+            raise ValueError("workspace lease owner is required")
+        return value
+
+    @staticmethod
+    def _ttl(ttl_seconds: int) -> int:
+        ttl = int(ttl_seconds)
+        if ttl <= 0:
+            raise ValueError("ttl_seconds must be positive")
+        return ttl
 
 
 def validate_application_id(application_id: str) -> str:

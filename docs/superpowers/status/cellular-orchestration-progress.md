@@ -1,15 +1,15 @@
 # Status — Orquestração Celular
 
-Atualizado em: 2026-07-20 — execução ativa
+Atualizado em: 2026-07-21 — gate final aprovado
 
 | Campo | Estado |
 |---|---|
 | Plano principal | `docs/superpowers/plans/2026-07-20-cellular-application-orchestration.md` |
 | Plano de recuperação | `docs/superpowers/plans/2026-07-20-cellular-orchestration-recovery-plan.md` |
-| Progresso | Fatias A–D aprovadas; Fatia E em execução |
-| Tarefa ativa | Task 9 / Fatia E — migração, lease, paralelo real e documentação |
-| Último gate | Fatia D aprovada após correções, commit `f753099` |
-| Próximo gate | Revisão independente da Fatia E e revisão ampla do branch |
+| Progresso | Fatias A–E aprovadas; orquestração celular concluída |
+| Tarefa ativa | Nenhuma — Task 9 / Fatia E concluída |
+| Último gate | Fatia E aprovada: lease, migração, paralelo real, aliases e regras operacionais |
+| Próximo gate | Integração do branch pelo controlador |
 
 ## Histórico aprovado
 
@@ -22,17 +22,20 @@ Atualizado em: 2026-07-20 — execução ativa
 - Fatia B — intake, contexto, FIT_MAP e proveniência por candidatura: `7a7b551`, `539217c`, `7d38d9e`.
 - Fatia C — composição, renderização e revisão de CV por célula: `e46e041`, `a676718`, `f54a742`, `629b355`, `0372bae`, `5eb78c9`, `63045fd`.
 - Fatia D — Notion, entrega e branches auxiliares com recibos: `7182ba5`, `bb085fb`, `fc5bcdd`, `f753099`.
+- Fatia E — lease do workspace, migração conservadora, dois subprocessos reais e regras operacionais: commit da Task 9.
 
-## Gate da Fatia D
+## Gate da Fatia E
 
-- 42 testes focados aprovados na verificação do controlador.
-- 203 testes na suíte completa aprovados na correção final.
-- Re-revisão independente: zero finding Critical, Important ou Minor.
-- Cobertura confirmada: branches independentes, revisões semânticas, Notion create→update por UUID, recibos idempotentes/atômicos, delivery vinculado ao DOCX aprovado e consumo de packs reais.
+- `pytest tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py -q`: 15 testes focados.
+- `pytest -q`: suíte completa obrigatória da Task 9.
+- `./scripts/python.sh scripts/career_cli.py project validate-structure`: estrutura canônica aprovada.
+- `npm run runtime:diagnose`: diagnóstico produzido em `outputs/_tmp/runtime_diagnosis.json`; sem finding celular bloqueante.
+- `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado e lock `notion-write` serializado.
+- Cobertura confirmada: uma única cópia autoritativa do workspace, handoff MacBook/RPi5 por lease, múltiplas candidaturas sob o mesmo dono, migração sem aprovação fabricada e proibição de fallback global em células.
 
-## Próximas fatias
+## Encerramento das fatias
 
-1. Fatia E — migração, lease de workspace, dois processos reais, documentação e aceitação final.
+1. Fatia E aprovada; não há fatia de implementação pendente neste plano.
 
 ## Regra de avanço
 

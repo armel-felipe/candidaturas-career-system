@@ -28,8 +28,9 @@ def test_database_creates_schema():
             "notion_cache",
             "resource_locks",
             "session_memory",
-            "workflow_events",
-            "workspace_leases",
+                "workflow_events",
+                "workspace_lease_takeovers",
+                "workspace_leases",
         ]
 
         db.close()
@@ -66,7 +67,7 @@ def test_database_idempotent_schema():
         tables = db.fetch_all(
             "SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence' ORDER BY name"
         )
-        assert len(tables) == 12
+        assert len(tables) == 13
 
         db.close()
 

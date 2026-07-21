@@ -382,6 +382,8 @@ npm run applications:heartbeat -- --dry-run --max-per-run 1
 npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium  # override explícito opcional
+npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
 ./scripts/python.sh scripts/career_cli.py applications status --format human
 ./scripts/python.sh scripts/career_cli.py applications heartbeat --dry-run --max-per-run 1 --format json
@@ -389,8 +391,8 @@ npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-r
 ```
 
 Regra operacional do heartbeat:
-- processa vagas elegíveis do Notion em sequência, nunca em paralelo
-- `max_per_run` define quantas vagas entram no lote do ciclo; a execução continua serial, uma vaga por vez
+- `applications:agent-heartbeat` agenda células isoladas por candidatura; o modo legado não celular só pode ser acionado explicitamente com `--legacy-non-cellular`
+- `max_per_run` define quantas vagas entram no lote; candidaturas diferentes podem avançar em paralelo no mesmo workspace, enquanto recursos externos declarados continuam serializados por lock SQLite
 - antes de montar a fila, o heartbeat executa a manutenção local equivalente a `npm run notion:memory:sync -- --refresh missing`, salvo override explícito de manutenção
 - cadência padrão de manutenção: `missing` em toda execução; `full` automático quando completar 24 execuções sem full ou 24 horas desde o último full; `--maintenance-refresh full` continua disponível como override explícito
 - a manutenção padrão do heartbeat também executa backfill automático dos campos de governança do Notion; esse maintenance path é autorizado para manter o tracker como memória operacional e não depende de pedido manual por candidatura
@@ -416,6 +418,36 @@ Regra operacional do heartbeat:
 - CV PT-BR só pode ser aprovado com `outputs/_tmp/output_review_report.json` e `outputs/_tmp/polish_review.json` compatíveis
 - o estágio `generate` deve ler primeiro `generation_request.json/md` e usar os packs compactos persistidos na própria candidatura como contexto primário
 - no `v2`, FIT_MAP completo e `job_description.md` são fallback; não leitura inicial obrigatória do agente de geração
+
+## Segurança e operação da orquestração celular
+
+Regra de autoridade: deve existir **uma única cópia autoritativa do workspace** executando células. O lease SQLite diferencia o dono do workspace, não a candidatura: um mesmo dono pode processar várias candidaturas em paralelo, mas uma segunda cópia no MacBook ou no RPi5 fica bloqueada até release/expiração do lease atual.
+
+Handoff MacBook ↔ RPi5:
+- interromper heartbeat, workers e launchd na máquina atual antes de iniciar a outra
+- preferir release pelo `WorkspaceLease.release(owner)` no desligamento controlado; se o processo morreu, aguardar a expiração do lease
+- takeover após expiração deve registrar `prior_owner`, `prior_expires_at`, `new_owner` e horário no SQLite antes de a nova máquina trabalhar
+- nunca apagar `career.db`, lock ou manifesto para forçar a troca de dono
+
+Comandos celulares canônicos:
+
+```bash
+npm run applications:plan -- --application-id <ID> --deliverable cv
+npm run applications:run -- --application-id <ID> --run-id <RUN_ID>
+npm run applications:repair -- --application-id <ID> --run-id <RUN_ID> --node <NODE_ID> --reason "<motivo>"
+npm run applications:inspect-run -- --application-id <ID> --run-id <RUN_ID>
+npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
+```
+
+Regras duras:
+- toda célula carrega `application_id`, `run_id`, `node_id`, `manifest_path`, `read_allowlist` e `write_allowlist`; se qualquer campo estiver ausente ou divergente, bloquear
+- em execução marcada como celular, é **proibido cair para estado global** (`.career-state/fit_map.json`, `.career-state/cv_content.json`, workflow/derived globais) ou chamar adapters `configure_*`; não há downgrade silencioso
+- compatibilidade global continua permitida somente em comandos explicitamente não celulares/legados
+- o contexto entre células passa por manifesto imutável, artefatos versionados e `handover_summary.json`; conversa, sessão anterior e path global não são fonte de verdade
+- reparo é local ao nó com `applications:repair`; preserve manifests/artefatos anteriores, invalide apenas descendentes declarados e retome pelo `run_id`
+- migração apenas inventaria e hasheia fontes legadas; revisão de CV ausente, desconhecida ou não aprovada entra como `blocked`, nunca como validada
+- `applications:verify-parallel` deve usar dois subprocessos reais, um SQLite compartilhado e duas candidaturas distintas, comprovando fingerprints/manifests/artefatos separados e locks externos serializados
 
 Entrega e persistência por candidatura:
 - a memória permanente da candidatura fica em `.career-state/applications_v2/<ID>/` até remoção manual ou rotina explícita de limpeza
