@@ -23,7 +23,8 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
             skills.append(value)
     if not skills:
         skills = ["Operações", "Planejamento", "Dados"]
-    normalized_keywords = [str(item).strip() for item in (normalized_pack or {}).get("keywords", []) if str(item).strip()]
+    keyword_pack = (normalized_pack or {}).get("job_keywords") or {}
+    normalized_keywords = [str(item).strip() for item in keyword_pack.get("top_focus_terms", []) if str(item).strip()]
     evidence_line = ", ".join(normalized_keywords[:3]) or "contexto normalizado da vaga"
     return "\n".join(
         [f"# Habilidades-chave — {cargo} — {empresa}", "", "## Habilidades priorizadas"]

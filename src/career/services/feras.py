@@ -17,7 +17,8 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
     keywords = [str(item).strip() for item in fit_map.get("keywords_para_ats", []) if str(item).strip()]
     omitted = keywords[5:8] or ["nenhuma relevante omitida no recorte atual"]
     result = str(principal.get("resultado") or "resultados defensáveis de crescimento e eficiência")
-    normalized_keywords = [str(item).strip() for item in (normalized_pack or {}).get("keywords", []) if str(item).strip()]
+    keyword_pack = (normalized_pack or {}).get("job_keywords") or {}
+    normalized_keywords = [str(item).strip() for item in keyword_pack.get("top_focus_terms", []) if str(item).strip()]
     context_line = f"Contexto da vaga: {', '.join(normalized_keywords[:3])}." if normalized_keywords else ""
     return "\n".join(
         [

@@ -383,6 +383,10 @@ def normalize_job(
         "description_stats": job_extract["description_stats"],
         "requirements_count": len(requirements),
         "responsibilities_count": len(responsibilities),
+        # Keep the production-shaped, compact packs available to downstream
+        # cellular nodes without making them reconstruct global state.
+        "job_keywords": job_keywords,
+        "job_company_context": job_company_context,
     }
     handover = {
         "kind": "handover_summary",

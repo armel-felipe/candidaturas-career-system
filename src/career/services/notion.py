@@ -442,6 +442,27 @@ def update_from_fit_map_record(
     )
 
 
+def update_from_fit_map_page(
+    token: str,
+    database_id: str,
+    page_id: str,
+    fit_map_path: Path,
+    job_description_path: Path | None,
+    *,
+    status: str,
+    dry_run: bool = False,
+) -> dict:
+    return legacy_notion.update_from_fit_map(
+        token,
+        database_id,
+        page_id,
+        fit_map_path,
+        job_description_path=job_description_path,
+        dry_run=dry_run,
+        status=status,
+    )
+
+
 def perform_cell_sync(client, request: dict) -> dict:
     """Execute one injected Notion write and return a bounded cellular receipt.
 
@@ -477,7 +498,7 @@ def perform_cell_sync(client, request: dict) -> dict:
         "application_id": str(request["application_id"]),
         "run_id": str(request["run_id"]),
         "node_id": str(request["node_id"]),
-        "record_id": str(response.get("record_id") or page_id),
+        "record_id": str(response.get("record_id") or ""),
         "page_id": page_id,
         "url": url,
     }
@@ -518,11 +539,17 @@ class NotionCellAdapter:
         if not fit_map_path.is_file() or not job_description_path.is_file():
             raise RuntimeError("Notion cell preflight requires FIT_MAP and job description artifacts")
         record_id = str(request.get("record_id") or "").strip()
+        page_id = str(request.get("page_id") or "").strip()
         operation = str(request.get("operation") or "")
-        if operation == "notion_final_sync" and not record_id:
-            raise RuntimeError("Notion final sync requires an existing record")
+        if operation == "notion_final_sync" and not record_id and not page_id:
+            raise RuntimeError("Notion final sync requires an existing record or page")
         try:
-            if self._service is not None and record_id:
+            if self._service is not None and page_id:
+                result = self._service.update_page(
+                    token, database_id, page_id, fit_map_path, job_description_path,
+                    status=str(request["status"]), dry_run=False,
+                )
+            elif self._service is not None and record_id:
                 result = self._service.update(
                     token, database_id, int(record_id), fit_map_path, job_description_path,
                     status=str(request["status"]), dry_run=False,
@@ -530,6 +557,11 @@ class NotionCellAdapter:
             elif self._service is not None:
                 result = self._service.create(
                     token, database_id, fit_map_path, job_description_path,
+                    status=str(request["status"]), dry_run=False,
+                )
+            elif page_id:
+                result = update_from_fit_map_page(
+                    token, database_id, page_id, fit_map_path, job_description_path,
                     status=str(request["status"]), dry_run=False,
                 )
             elif record_id:
@@ -546,8 +578,12 @@ class NotionCellAdapter:
         except (SystemExit, ValueError) as exc:
             raise RuntimeError(f"Notion cell sync failed: {exc}") from exc
         page = result.get("page") if isinstance(result.get("page"), dict) else {}
-        page_id = str(result.get("resolved_page_id") or page.get("id") or "")
+        resolved_page_id = str(result.get("resolved_page_id") or page.get("id") or page_id or "")
         url = str(page.get("url") or "")
-        if not page_id or not url:
+        if not resolved_page_id or not url:
             raise RuntimeError("Notion cell sync did not return a page ID and URL")
-        return {"page_id": page_id, "record_id": str(result.get("resolved_record_id") or record_id or page_id), "url": url}
+        return {
+            "page_id": resolved_page_id,
+            "record_id": str(result.get("resolved_record_id") or record_id or ""),
+            "url": url,
+        }

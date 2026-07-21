@@ -11,6 +11,7 @@ from career.cells.planner import compile_run_plan
 from career.services import cover_letter, habilidades_chave
 from career.services.application_context import paths_for
 from career.services.notion import NotionCellAdapter
+from career.utils import ValidationFailure
 
 
 class FakeNotionService:
@@ -90,24 +91,40 @@ def test_notion_adapter_updates_existing_and_never_creates_final_without_record(
 
 
 def test_cover_and_habilidades_policy_rejects_empty_semantic_shells():
-    with pytest.raises(Exception):
-        cover_letter.validate_cellular_artifact("# Carta de Apresentação\n\nOlá")
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationFailure):
+        cover_letter.validate_cellular_artifact(
+            "# Carta de Apresentação\n\nOlá",
+            {"cargo": "Diretor", "empresa": "Acme"},
+            {"application_id": "app-1", "evidence_items": [{"term": "operações", "source": "facts:1"}]},
+            expected_application_id="app-1",
+        )
+    with pytest.raises(ValidationFailure):
         habilidades_chave.validate_cellular_artifact("# Habilidades-chave\n\n## Habilidades priorizadas\n- liderança")
 
 
 def test_branch_evidence_uses_selected_normalized_evidence_and_atomic_receipt_write(tmp_path, monkeypatch):
     files = {
         "analyze_fit:fit_map.json": json.dumps({"cargo": "Diretor", "empresa": "Acme", "keywords_para_ats": ["operações"], "historias_selecionadas": {"principal": {"resultado": "reduziu custos"}}}).encode(),
-        "normalize_job:job_normalized.json": '{"application_id":"app-1","keywords":["operações"]}'.encode(),
+        "normalize_job:job_normalized.json": json.dumps({
+            "application_id": "app-1",
+            "job_keywords": {"top_focus_terms": ["operações"], "matched_keywords": [{"term": "operações", "source": "facts:1"}]},
+            "job_company_context": {"context_lines": ["operações com dados"]},
+        }).encode(),
         "normalize_job:handover_summary.json": b'{"application_id":"app-1","job_fingerprint":"job"}',
-        "normalize_job:evidence_index.json": b'{"application_id":"app-1","evidence_items":[{"id":"e-1","source":"facts:1","text":"reduziu custos"}]}',
+        "normalize_job:evidence_index.json": json.dumps({
+            "application_id": "app-1",
+            "sources": [{"path": "facts:1", "sha256": "fact-hash"}],
+            "evidence_items": [{"term": "operações", "source": "facts:1", "candidate_evidence": "reduziu custos"}],
+        }).encode(),
     }
     context = _context(tmp_path, "generate_feras", files)
     output = production_handler_registry()["generate_feras"](context)
     evidence = json.loads(output.artifacts["evidence_index.json"])
 
-    assert evidence["selected_evidence"] == [{"id": "e-1", "source": "facts:1"}]
+    assert evidence["selected_evidence"][0]["term"] == "operações"
+    assert evidence["selected_evidence"][0]["source"] == "facts:1"
+    assert evidence["selected_evidence"][0]["source_sha256"] == "fact-hash"
+    assert evidence["selected_evidence"][0]["id"].startswith("evidence:")
 
     notion_context = _context(tmp_path, "sync_notion_initial", {
         "application_identity": b'{"application_id":"app-1"}',

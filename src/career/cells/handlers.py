@@ -364,9 +364,9 @@ def _fit_map_for_application(context: CellExecutionContext) -> tuple[dict[str, A
 
 
 def _normalized_packs_for_application(context: CellExecutionContext) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
-    normalized_raw, _normalized_path, normalized_hash = _read_input(context, "job_normalized.json")
-    handover_raw, _handover_path, _handover_hash = _read_input(context, "handover_summary.json")
-    evidence_raw, _evidence_path, _evidence_hash = _read_input(context, "evidence_index.json")
+    normalized_raw, _normalized_path, normalized_hash = _read_named_input(context, "normalize_job:job_normalized.json")
+    handover_raw, _handover_path, _handover_hash = _read_named_input(context, "normalize_job:handover_summary.json")
+    evidence_raw, _evidence_path, _evidence_hash = _read_named_input(context, "normalize_job:evidence_index.json")
     normalized = json.loads(normalized_raw.decode("utf-8"))
     handover = json.loads(handover_raw.decode("utf-8"))
     evidence = json.loads(evidence_raw.decode("utf-8"))
@@ -380,31 +380,61 @@ def _normalized_packs_for_application(context: CellExecutionContext) -> tuple[di
 
 def _selected_evidence(evidence: Mapping[str, Any]) -> list[dict[str, str]]:
     items = evidence.get("evidence_items") if isinstance(evidence.get("evidence_items"), list) else []
+    sources = evidence.get("sources") if isinstance(evidence.get("sources"), list) else []
     selected: list[dict[str, str]] = []
     for item in items:
         if not isinstance(item, Mapping):
             continue
-        evidence_id = str(item.get("id") or item.get("evidence_id") or "").strip()
+        term = str(item.get("term") or "").strip()
         source = str(item.get("source") or item.get("source_id") or "").strip()
-        if evidence_id and source:
-            selected.append({"id": evidence_id, "source": source})
+        if term and source:
+            source_metadata = next(
+                (
+                    entry for entry in sources
+                    if isinstance(entry, Mapping)
+                    and str(entry.get("path") or "").endswith(source)
+                ),
+                {},
+            )
+            immutable = {
+                key: item[key]
+                for key in sorted(item)
+                if key not in {"id", "evidence_id"}
+            }
+            evidence_id = "evidence:" + hashlib.sha256(_json_bytes(immutable)).hexdigest()
+            selected.append(
+                {
+                    "id": evidence_id,
+                    "term": term,
+                    "source": source,
+                    "source_sha256": str(source_metadata.get("sha256") or ""),
+                }
+            )
         if len(selected) == 8:
             break
     return selected
 
 
-def _notion_record_id_for_sync(
+def _notion_target_for_sync(
     context: CellExecutionContext, phase: str, aliases: Mapping[str, Any]
-) -> str:
+) -> tuple[str, str]:
     record_id = str(aliases.get("notion_record_id") or "").strip()
-    if record_id or phase == "initial":
-        return record_id
+    page_id = str(aliases.get("notion_page_id") or "").strip()
+    if phase == "initial":
+        return record_id, page_id
+    if record_id and not record_id.isdigit() and not page_id:
+        page_id, record_id = record_id, ""
+    if record_id or page_id:
+        return record_id, page_id
     receipt_raw, _receipt_path, _receipt_hash = _read_input(context, "notion_initial_receipt.json")
     receipt = json.loads(receipt_raw.decode("utf-8"))
-    record_id = str(receipt.get("record_id") or receipt.get("page_id") or "").strip()
-    if not record_id:
+    record_id = str(receipt.get("record_id") or "").strip()
+    page_id = str(receipt.get("page_id") or "").strip()
+    if record_id and not record_id.isdigit():
+        page_id, record_id = record_id, ""
+    if not record_id and not page_id:
         raise ValueError("Notion final sync requires the initial receipt record/page ID")
-    return record_id
+    return record_id, page_id
 
 
 def _branch_output(
@@ -507,7 +537,12 @@ def _review_branch(
     elif kind == "cover_letter":
         fit_map, _fit_hash = _fit_map_for_application(context)
         _normalized, _normalized_handover, normalized_evidence, _normalized_hash = _normalized_packs_for_application(context)
-        cover_letter_service.validate_cellular_artifact(content, fit_map, normalized_evidence)
+        cover_letter_service.validate_cellular_artifact(
+            content,
+            fit_map,
+            normalized_evidence,
+            expected_application_id=context.application_id,
+        )
         validator = "validate-cover-letter"
     else:
         fit_map, _fit_hash = _fit_map_for_application(context)
@@ -624,6 +659,7 @@ def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> C
     identity = _optional_json_input(context, "application_identity")
     aliases = identity.get("aliases") if isinstance(identity.get("aliases"), Mapping) else {}
     target_status = str(identity.get("target_status") or "Aplicação andamento")
+    record_id, page_id = _notion_target_for_sync(context, phase, aliases)
     request_hash = _request_hash(context, operation=operation, target=target, target_status=target_status)
     receipt = _load_matching_receipt(context, request_hash)
     if receipt is None:
@@ -635,7 +671,8 @@ def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> C
             "run_id": context.run_id,
             "node_id": context.node_id,
             "status": target_status,
-            "record_id": _notion_record_id_for_sync(context, phase, aliases),
+            "record_id": record_id,
+            "page_id": page_id,
             "fit_map_path": str(_input_path(context, "fit_map.json") or ""),
             "job_description_path": str(_input_path(context, "job_description") or ""),
             # Only text artifacts can be consumed by the legacy extra-artifact reader.
@@ -746,9 +783,11 @@ def _validate_receipt_payload(receipt: Mapping[str, Any], context: CellExecution
         if not re.fullmatch(r"[0-9a-f]{64}", str(receipt["artifact_hash"])):
             raise ValueError("delivery receipt artifact_hash must be a SHA-256")
     else:
-        for field in ("record_id", "page_id", "url"):
+        for field in ("page_id", "url"):
             if not str(receipt.get(field) or ""):
                 raise ValueError(f"Notion receipt {field} is required")
+        if not isinstance(receipt.get("record_id"), str):
+            raise ValueError("Notion receipt record_id must be a string when present")
     encoded = json.dumps(dict(receipt), sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     if len(encoded) > 2048:
         raise ValueError("external receipt exceeds 2048 bytes")

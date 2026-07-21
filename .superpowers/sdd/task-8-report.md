@@ -121,3 +121,37 @@ pytest -q
 
 No real Notion, rclone, or OneDrive write was performed. `.inbox/` remained
 untouched.
+
+## Third Slice D remediation
+
+The third RED/GREEN cycle covered production-shaped Notion and normalized-pack
+contracts.
+
+- Notion receipts now keep `page_id` and `record_id` distinct. An initial
+  create may return only a UUID page ID; final sync then updates that page by
+  the page-update API. Numeric record aliases retain the legacy record-update
+  path. Neither UUID path performs `int(UUID)` nor creates a duplicate page.
+- Normalization carries its real `job_keywords` and `job_company_context`
+  packs into the cellular normalized payload. FERAS, cover letter, and
+  habilidades consume `top_focus_terms` and real context lines rather than
+  invented `keywords`/`context_lines` fixture fields.
+- Output evidence derives a stable `evidence:<sha256>` identifier from each
+  immutable real evidence item (`term` and `source`) and keeps bound source
+  metadata (`source_sha256`).
+- Cover-letter review scopes normalized evidence to the execution context's
+  application ID, not a noncanonical top-level FIT_MAP field. Canonical-like
+  valid evidence passes; greeting-only, unsupported-claim, and cross-app
+  evidence cases reject without a `TypeError` false pass.
+
+Final verification:
+
+```text
+pytest tests/test_cell_slice_d_third_remediation.py tests/test_cell_slice_d_second_remediation.py tests/test_cell_notion_delivery.py tests/test_cell_deliverable_branches.py tests/test_cell_intake.py tests/test_cell_planner.py -q
+42 passed
+
+pytest -q
+203 passed
+```
+
+All tests used injected fakes or local generated data. No external Notion,
+rclone, or OneDrive operation occurred; `.inbox/` was not touched.
