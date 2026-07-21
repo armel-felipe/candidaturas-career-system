@@ -16,6 +16,11 @@ from career.workflow.state_machine import WorkflowStateMachine
 from career.workflow.state_store import WorkflowStateStore
 
 
+TRANSLATION_REGISTRY = (
+    ROOT / ".agents/skills/career-system/references/keyword_translation_registry.json"
+)
+
+
 @dataclass
 class TaskContext:
     arguments: dict[str, Any]
@@ -274,6 +279,9 @@ def _cv_review(context: TaskContext) -> Any:
         fit_map_path=Path(context.arguments.get("fit_map", CAREER_STATE / "fit_map.json")),
         registry_path=Path(context.arguments["registry"]),
         report_path=Path(context.arguments["report"]),
+        translation_registry_path=Path(
+            context.arguments.get("translation_registry", TRANSLATION_REGISTRY)
+        ),
     )
 
 
@@ -284,6 +292,9 @@ def _cv_approve(context: TaskContext) -> Any:
         registry_path=Path(context.arguments["registry"]),
         report_path=Path(context.arguments["report"]),
         polish_report_path=Path(context.arguments["polish_report"]) if context.arguments.get("polish_report") else None,
+        translation_registry_path=Path(
+            context.arguments.get("translation_registry", TRANSLATION_REGISTRY)
+        ),
     )
 
 

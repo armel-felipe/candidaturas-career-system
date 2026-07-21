@@ -12,6 +12,10 @@ from typing import Any
 from career.paths import CAREER_STATE, ROOT
 from career.services import applications_v2 as applications_v2_service
 from career.services import derived_context as derived_context_service
+from career.cells.capabilities import (
+    canonical_node_executable,
+    canonical_subprocess_environment,
+)
 from career.services import fit_map as fit_map_service
 from career.services import provenance as provenance_service
 from career.services.application_context import ApplicationPaths
@@ -210,8 +214,8 @@ def render_cv(content_path: Path, output_dir: Path, application_id: str) -> Path
         raise ValueError("cv_content_output_name_invalid")
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [
-        "node",
-        "scripts/docx/generate_custom_cv.js",
+        str(canonical_node_executable()),
+        str((ROOT / "scripts/docx/generate_custom_cv.js").resolve()),
         "--content",
         str(content_path),
         "--output-dir",
@@ -222,6 +226,7 @@ def render_cv(content_path: Path, output_dir: Path, application_id: str) -> Path
     result = subprocess.run(
         command,
         cwd=ROOT,
+        env=canonical_subprocess_environment(),
         capture_output=True,
         text=True,
         encoding="utf-8",

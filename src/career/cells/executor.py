@@ -1004,6 +1004,42 @@ class CellExecutor:
             return (paths.derived_dir,)
         return ()
 
+    @staticmethod
+    def _assert_canonical_target_safe(
+        paths: ApplicationPaths, target: Path, *, label: str = "canonical target"
+    ) -> Path:
+        """Reject canonical projections that traverse a symlink or leave the app."""
+        app_dir = paths.app_dir.absolute()
+        candidate = Path(target).absolute()
+        try:
+            relative = candidate.relative_to(app_dir)
+        except ValueError as exc:
+            raise ValueError(f"{label} leaves the application directory") from exc
+        current = app_dir
+        if current.is_symlink():
+            raise ValueError(f"{label} uses a symlinked application directory")
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError(f"{label} traverses a symlink: {current}")
+        resolved_app = app_dir.resolve(strict=False)
+        resolved_candidate = candidate.resolve(strict=False)
+        if not resolved_candidate.is_relative_to(resolved_app):
+            raise ValueError(f"{label} resolves outside the application directory")
+        return candidate
+
+    @classmethod
+    def _assert_canonical_tree_safe(
+        cls, paths: ApplicationPaths, target: Path
+    ) -> Path:
+        candidate = cls._assert_canonical_target_safe(paths, target)
+        if candidate.is_dir():
+            for descendant in candidate.rglob("*"):
+                cls._assert_canonical_target_safe(
+                    paths, descendant, label="canonical tree entry"
+                )
+        return candidate
+
     def _begin_canonical_journal(
         self,
         paths: ApplicationPaths,
@@ -1013,7 +1049,7 @@ class CellExecutor:
     ) -> Path:
         entries: list[dict[str, Any]] = []
         for target in self._canonical_targets(paths, node_id):
-            resolved = target.resolve()
+            resolved = self._assert_canonical_tree_safe(paths, target)
             if resolved.is_dir():
                 files = sorted(path for path in resolved.rglob("*") if path.is_file())
                 encoded_files = {
@@ -1099,37 +1135,58 @@ class CellExecutor:
         except Exception:
             self._quarantine_canonical_journal(journal)
             raise
+        application_id = str(payload["application_id"])
+        journal_absolute = Path(journal).absolute()
+        app_root = journal_absolute.parents[4]
+        paths = paths_for(application_id, root=app_root.parent)
         for entry in payload.get("entries", []):
-            target = Path(str(entry["path"])).resolve()
+            target = self._assert_canonical_tree_safe(
+                paths, Path(str(entry["path"])).absolute()
+            )
             kind = entry.get("kind")
             if kind == "directory":
+                self._assert_canonical_target_safe(paths, target)
                 target.mkdir(parents=True, exist_ok=True)
                 expected = set((entry.get("files") or {}).keys())
                 for current in sorted(
                     (path for path in target.rglob("*") if path.is_file()), reverse=True
                 ):
                     if str(current.relative_to(target)) not in expected:
+                        self._assert_canonical_target_safe(
+                            paths, current, label="canonical restore deletion"
+                        )
                         current.unlink(missing_ok=True)
                 for relative, encoded in (entry.get("files") or {}).items():
-                    restored = (target / relative).resolve()
+                    restored = self._assert_canonical_target_safe(
+                        paths,
+                        target / relative,
+                        label="canonical restore file",
+                    )
                     if not restored.is_relative_to(target):
-                        raise ValueError(
-                            "canonical journal directory entry escapes its target"
-                        )
+                        raise ValueError("canonical journal directory entry escapes its target")
+                    self._assert_canonical_target_safe(paths, restored.parent)
                     restored.parent.mkdir(parents=True, exist_ok=True)
+                    self._assert_canonical_target_safe(paths, restored)
                     restored.write_bytes(base64.b64decode(encoded))
             elif kind == "file":
+                self._assert_canonical_target_safe(paths, target.parent)
                 target.parent.mkdir(parents=True, exist_ok=True)
+                self._assert_canonical_target_safe(paths, target)
                 target.write_bytes(base64.b64decode(entry["content"]))
             elif kind == "missing":
                 if target.is_file() or target.is_symlink():
+                    self._assert_canonical_target_safe(paths, target)
                     target.unlink(missing_ok=True)
                 elif target.is_dir():
                     for current in sorted(target.rglob("*"), reverse=True):
+                        self._assert_canonical_target_safe(
+                            paths, current, label="canonical restore deletion"
+                        )
                         if current.is_file() or current.is_symlink():
                             current.unlink(missing_ok=True)
                         elif current.is_dir():
                             current.rmdir()
+                    self._assert_canonical_target_safe(paths, target)
                     target.rmdir()
         self._clear_canonical_journal(
             journal,
@@ -1139,7 +1196,7 @@ class CellExecutor:
         )
 
     def _validate_canonical_journal(self, journal: Path) -> dict[str, Any]:
-        journal = Path(journal).resolve()
+        journal = Path(journal).absolute()
         payload = read_json(journal)
         if payload.get("kind") != "canonical_commit_journal":
             raise ValueError("canonical journal has invalid kind")
@@ -1156,8 +1213,11 @@ class CellExecutor:
         application_id = str(payload.get("application_id") or "")
         run_id = str(payload.get("run_id") or "")
         expected_paths = paths_for(application_id, root=app_root.parent)
-        if expected_paths.app_dir.resolve() != app_root.resolve():
+        if expected_paths.app_dir.absolute() != app_root.absolute():
             raise ValueError("canonical journal application path mismatch")
+        self._assert_canonical_target_safe(
+            expected_paths, journal, label="canonical journal path"
+        )
         if (
             not run_id
             or run_id != path_run_id
@@ -1172,12 +1232,12 @@ class CellExecutor:
         if payload.get("operation") != expected_operation:
             raise ValueError("canonical journal intended operation mismatch")
         expected_targets = {
-            str(path.resolve())
+            str(self._assert_canonical_tree_safe(expected_paths, path))
             for path in CellExecutor._canonical_targets(expected_paths, node_id)
         }
         entries = payload.get("entries")
         if not isinstance(entries, list) or {
-            str(Path(str(entry.get("path") or "")).resolve())
+            str(Path(str(entry.get("path") or "")).absolute())
             for entry in entries
             if isinstance(entry, Mapping)
         } != expected_targets:
@@ -1243,7 +1303,7 @@ class CellExecutor:
         if (
             authority["application_id"] != application_id
             or authority["operation"] != expected_operation
-            or Path(str(authority["journal_path"])).resolve() != journal
+            or Path(str(authority["journal_path"])).absolute() != journal
             or authority["journal_sha256"]
             != hashlib.sha256(journal.read_bytes()).hexdigest()
             or authority["snapshot_json"] != canonical_snapshot

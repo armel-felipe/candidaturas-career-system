@@ -14,7 +14,6 @@ from _bootstrap import bootstrap
 
 
 ROOT = bootstrap()
-DEFAULT_REPORT = ROOT / "outputs" / "_tmp" / "delivery_report.json"
 REQUIRED_BASE_FOLDER = "01_armel/Curriculos/personalizados"
 
 
@@ -90,7 +89,7 @@ def deliver(args: argparse.Namespace) -> int:
     remote = args.remote or os.environ.get("RCLONE_ONEDRIVE_REMOTE", "onedrive")
     requested_folder = args.folder or os.environ.get("RCLONE_ONEDRIVE_DELIVERY_DIR", REQUIRED_BASE_FOLDER)
     folder_allowed, folder = _validate_remote_folder(requested_folder)
-    report_path = Path(args.report) if args.report else DEFAULT_REPORT
+    report_path = Path(args.report)
     if not report_path.is_absolute():
         report_path = ROOT / report_path
 
@@ -203,7 +202,7 @@ def main() -> int:
     parser.add_argument("--file", required=True, help="Local artifact path, for example outputs/cv.docx")
     parser.add_argument("--remote", help="rclone remote name. Defaults to RCLONE_ONEDRIVE_REMOTE or onedrive.")
     parser.add_argument("--folder", help="Remote folder. Must be 01_armel/Curriculos/personalizados or a subfolder inside it.")
-    parser.add_argument("--report", help="Report path. Defaults to outputs/_tmp/delivery_report.json.")
+    parser.add_argument("--report", required=True, help="Explicit report path for this delivery attempt.")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args passed to rclone after --")

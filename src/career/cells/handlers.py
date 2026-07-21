@@ -5,14 +5,17 @@ import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TypeAlias
 
-from career.cells.capabilities import CapabilitySet
+from career.cells.capabilities import (
+    CapabilitySet,
+    canonical_python_executable,
+    canonical_subprocess_environment,
+)
 from career.services import derived_context as derived_context_service
 from career.services.delivery import CanonicalDeliveryCellAdapter
 from career.services import cv_content as cv_content_service
@@ -23,6 +26,7 @@ from career.services import habilidades_chave as habilidades_service
 from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.application_context import ApplicationPaths
+from career.paths import ROOT
 from career.utils import read_json, write_json
 
 
@@ -301,12 +305,24 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
     _artifact_raw, artifact_path, artifact_hash = _read_input(context, "cv.docx")
     _fit_raw, fit_map_path, fit_map_hash = _read_input(context, "fit_map.json")
     registry_path = context.staging_dir / "keyword_ats_registry.json"
+    translation_registry_path = context.staging_dir / "keyword_translation_registry.json"
     # Review intermediates are attempt-local; immutable CellOutput bytes are
     # the only review/approval records published by this node.
     report_path = context.staging_dir / "cv_review.json"
     polish_path = context.staging_dir / "polish_review.json"
-    for path in (registry_path, report_path, polish_path):
+    for path in (
+        registry_path,
+        translation_registry_path,
+        report_path,
+        polish_path,
+    ):
         context.capabilities.assert_writable(path)
+    translation_registry_path.write_bytes(
+        (
+            ROOT
+            / ".agents/skills/career-system/references/keyword_translation_registry.json"
+        ).read_bytes()
+    )
     try:
         report = review_service.approve_cv(
             artifact_path,
@@ -314,6 +330,7 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
             registry_path,
             report_path,
             polish_path,
+            translation_registry_path=translation_registry_path,
             control_db_path=context.control_db_path,
         )
     except SystemExit as exc:
@@ -717,6 +734,8 @@ def _deliver_cv(context: CellExecutionContext, client: Any) -> CellOutput:
     if receipt is None:
         if client is None:
             raise RuntimeError("CV delivery requires an injected client")
+        delivery_report_path = (context.staging_dir / "delivery_report.json").resolve()
+        context.capabilities.assert_writable(delivery_report_path)
         request = {
             "operation": operation,
             "target": _CANONICAL_DELIVERY_TARGET,
@@ -726,6 +745,7 @@ def _deliver_cv(context: CellExecutionContext, client: Any) -> CellOutput:
             "node_id": context.node_id,
             "artifact_hash": artifact_hash,
             "artifact_path": str(artifact_path),
+            "delivery_report_path": str(delivery_report_path),
         }
         if hasattr(client, "deliver_cell"):
             response = client.deliver_cell(dict(request), raw)
@@ -1081,8 +1101,18 @@ def _validate_rendered_cv(
             / "cv.docx"
         )
         result = subprocess.run(
-            [sys.executable, "scripts/docx/validate_docx.py", str(artifact)],
+            [
+                str(canonical_python_executable()),
+                str(
+                    (
+                        Path(__file__).resolve().parents[3]
+                        / "scripts/docx/validate_docx.py"
+                    ).resolve()
+                ),
+                str(artifact),
+            ],
             cwd=Path(__file__).resolve().parents[3],
+            env=canonical_subprocess_environment(),
             capture_output=True,
             text=True,
             encoding="utf-8",

@@ -11,7 +11,6 @@ from xml.etree import ElementTree
 
 from keyword_translation_utils import (
     DEFAULT_TRANSLATION_CANDIDATES,
-    DEFAULT_TRANSLATION_REGISTRY,
     build_translation_candidates,
     load_translation_registry,
     write_json as write_translation_json,
@@ -268,7 +267,7 @@ def main() -> int:
     parser.add_argument("--fit-map", default=".career-state/fit_map.json")
     parser.add_argument("--cv")
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
-    parser.add_argument("--translation-registry", default=str(DEFAULT_TRANSLATION_REGISTRY))
+    parser.add_argument("--translation-registry", required=True)
     parser.add_argument("--translation-candidates", default=str(DEFAULT_TRANSLATION_CANDIDATES))
     args = parser.parse_args()
 

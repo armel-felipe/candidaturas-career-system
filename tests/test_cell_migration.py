@@ -451,6 +451,10 @@ def test_migration_accepts_hash_chain_written_by_legacy_approval_service(
         registry_path,
         review_path,
         polish_path,
+        translation_registry_path=(
+            ROOT
+            / ".agents/skills/career-system/references/keyword_translation_registry.json"
+        ),
     )
 
     result = migrate_application(

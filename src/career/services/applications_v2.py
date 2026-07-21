@@ -47,6 +47,7 @@ V2_LOG_DIR = V2_DIR / "_logs"
 V2_MAINTENANCE_STATE = V2_DIR / "maintenance_state.json"
 NOTION_CACHE = ROOT / "inbox" / "notion" / "applications_cache.json"
 KEYWORD_REGISTRY = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
+TRANSLATION_REGISTRY = ROOT / ".agents/skills/career-system/references/keyword_translation_registry.json"
 
 DEFAULT_CONFIG = {
     "active_model": "",
@@ -1149,7 +1150,14 @@ def _normalize_fit_map_draft_file(path: Path) -> None:
 
 
 def _register_fit_map_keywords(fit_map_path: Path) -> None:
-    command = [sys.executable, "scripts/register_keywords.py", "--fit-map", str(fit_map_path)]
+    command = [
+        sys.executable,
+        "scripts/register_keywords.py",
+        "--fit-map",
+        str(fit_map_path),
+        "--translation-registry",
+        str(TRANSLATION_REGISTRY),
+    ]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise SystemExit(
@@ -1584,6 +1592,7 @@ def _postprocess_generate(paths: dict[str, Path]) -> dict[str, Any]:
             registry_path=KEYWORD_REGISTRY,
             report_path=paths["cv_review_report"],
             polish_report_path=paths["polish_review"],
+            translation_registry_path=TRANSLATION_REGISTRY,
         )
         _append_event(
             paths,

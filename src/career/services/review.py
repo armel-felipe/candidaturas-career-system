@@ -3,12 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import subprocess
-import sys
 
 import review_output as legacy_review_output
-from keyword_translation_utils import DEFAULT_TRANSLATION_REGISTRY
 
 from career.paths import ROOT
+from career.cells.capabilities import (
+    canonical_python_executable,
+    canonical_subprocess_environment,
+)
 from career.schemas.review import CvPolishReportSchema, CvReviewReportSchema
 from career.utils import sha256_file, write_json
 
@@ -118,11 +120,25 @@ def polish_cv(
     return payload
 
 
-def review_cv(artifact: Path, fit_map_path: Path, registry_path: Path, report_path: Path, *, control_db_path: Path | None = None) -> dict:
+def review_cv(
+    artifact: Path,
+    fit_map_path: Path,
+    registry_path: Path,
+    report_path: Path,
+    *,
+    translation_registry_path: Path,
+    control_db_path: Path | None = None,
+) -> dict:
     """Run the objective review against the exact rendered DOCX revision."""
     fit_map = legacy_review_output.read_json(fit_map_path)
     registry = legacy_review_output.read_json(registry_path)
-    report = legacy_review_output.build_cv_review(artifact, fit_map, registry, DEFAULT_TRANSLATION_REGISTRY, cellular_db_path=control_db_path)
+    report = legacy_review_output.build_cv_review(
+        artifact,
+        fit_map,
+        registry,
+        Path(translation_registry_path),
+        cellular_db_path=control_db_path,
+    )
     CvReviewReportSchema(report).validate()
     write_json(report_path, report)
     return report
@@ -134,27 +150,46 @@ def approve_cv(
     registry_path: Path,
     report_path: Path,
     polish_report_path: Path | None = None,
+    *,
+    translation_registry_path: Path,
     control_db_path: Path | None = None,
 ) -> dict:
     command = [
-        sys.executable,
-        "scripts/register_keywords.py",
+        str(canonical_python_executable()),
+        str((ROOT / "scripts/register_keywords.py").resolve()),
         "--fit-map",
         str(fit_map_path),
         "--cv",
         str(artifact),
         "--registry",
         str(registry_path),
+        "--translation-registry",
+        str(translation_registry_path),
         "--translation-candidates",
         str(registry_path.with_name("keyword_translation_candidates.json")),
     ]
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=canonical_subprocess_environment(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if result.returncode != 0:
         raise SystemExit(
             "Keyword registration failed before CV review.\n"
             f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
-    report = review_cv(artifact, fit_map_path, registry_path, report_path, control_db_path=control_db_path)
+    report = review_cv(
+        artifact,
+        fit_map_path,
+        registry_path,
+        report_path,
+        translation_registry_path=translation_registry_path,
+        control_db_path=control_db_path,
+    )
     polish_path = polish_report_path or report_path.with_name("polish_review.json")
     polish = polish_cv(artifact, polish_path, review_report=report)
     if polish.get("approval_blockers"):

@@ -133,7 +133,7 @@ Política de contexto compacto:
 Gate global para CV em DOCX:
 
 ```bash
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
@@ -442,8 +442,8 @@ npm run docx:tmp:clean       # limpa resíduos em outputs/_tmp/
 ## Entrega de Artefatos via OneDrive/rclone
 
 ```bash
-npm run deliver:artifact -- --file outputs/<arquivo>.docx --dry-run
-npm run deliver:artifact -- --file outputs/<arquivo>.docx
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --report outputs/_tmp/delivery_report.json --dry-run
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --report outputs/_tmp/delivery_report.json
 ```
 
 Regra global de entrega:
@@ -454,6 +454,7 @@ Regra global de entrega:
 - nunca subir configuração real do rclone, tokens ou `.env` para GitHub
 - para CV, usar `cv:deliver` como caminho normal de entrega; ele reexecuta `cv:approve` e só chama rclone se o artefato final estiver aprovado
 - cada entrega grava relatório em `outputs/_tmp/delivery_report.json`; sem `status=delivered` ou `dry_run_ok`, não afirmar que o upload funcionou
+- células sempre passam `--report` apontando para o staging da tentativa; o relatório global acima existe apenas no fluxo não celular explícito
 
 ## CV Geral — Comandos
 
@@ -501,13 +502,13 @@ Regra global para drafts de email:
 Depois de toda análise de vaga, registrar as keywords extraídas:
 
 ```bash
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Depois de todo CV gerado, atualizar o mesmo registro com o DOCX final para marcar cobertura real por string exata:
 
 ```bash
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv_gerado>.docx
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv_gerado>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Use esse histórico para:

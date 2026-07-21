@@ -6,7 +6,7 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from contextlib import contextmanager
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from career.paths import ROOT
@@ -14,6 +14,35 @@ from career.paths import ROOT
 
 class CapabilityViolation(PermissionError):
     """Raised when a cell attempts file access outside its allowlist."""
+
+
+_TRUSTED_EXECUTABLE_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+_CANONICAL_PYTHON_EXECUTABLE = Path(sys.executable).resolve()
+
+
+def canonical_subprocess_environment() -> dict[str, str]:
+    """Return the exact, minimal environment accepted by cellular subprocesses."""
+    environment = {
+        "PATH": _TRUSTED_EXECUTABLE_PATH,
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONUNBUFFERED": "1",
+    }
+    for name in ("HOME", "LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+    return environment
+
+
+def canonical_node_executable() -> Path:
+    executable = shutil.which("node", path=_TRUSTED_EXECUTABLE_PATH)
+    if not executable:
+        raise RuntimeError("canonical Node.js executable is unavailable")
+    return Path(executable).resolve()
+
+
+def canonical_python_executable() -> Path:
+    return _CANONICAL_PYTHON_EXECUTABLE
 
 
 class CapabilitySet:
@@ -218,14 +247,10 @@ def _audit_cell_writes(event: str, args: tuple[object, ...]) -> None:
                 raise
 
 
-def _resolve_executable(executable: str, cwd: Path) -> Path | None:
-    if not executable:
+def _absolute_executable(executable: str) -> Path | None:
+    if not executable or not Path(executable).is_absolute():
         return None
-    candidate = Path(executable)
-    if candidate.is_absolute() or "/" in executable:
-        return (candidate if candidate.is_absolute() else cwd / candidate).resolve()
-    discovered = shutil.which(executable)
-    return Path(discovered).resolve() if discovered else None
+    return Path(executable).resolve()
 
 
 def _subprocess_path(
@@ -248,6 +273,19 @@ def _reject_subprocess(
 ) -> None:
     _record_violation(capability, target, "subprocess.Popen")
     raise CapabilityViolation(message)
+
+
+def _require_canonical_environment(
+    capability: CapabilitySet, executable: Path, environment: object
+) -> None:
+    if not isinstance(environment, Mapping) or {
+        str(key): str(value) for key, value in environment.items()
+    } != canonical_subprocess_environment():
+        _reject_subprocess(
+            capability,
+            executable,
+            "cell capability rejected a custom subprocess environment",
+        )
 
 
 def _require_option_pairs(
@@ -289,25 +327,39 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
     executable = str(args[0]) if args else ""
     command = args[1] if len(args) > 1 else ()
     cwd = Path(str(args[2])).resolve() if len(args) > 2 and args[2] else Path.cwd()
+    environment = args[3] if len(args) > 3 else None
     parts = [str(item) for item in command] if isinstance(command, (list, tuple)) else []
-    resolved_executable = _resolve_executable(executable, cwd)
-    command_executable = _resolve_executable(parts[0], cwd) if parts else None
+    resolved_executable = _absolute_executable(executable)
+    command_executable = _absolute_executable(parts[0]) if parts else None
     if (
         len(parts) < 2
         or resolved_executable is None
         or command_executable != resolved_executable
     ):
+        suspicious = Path(executable or "subprocess")
+        for raw in reversed(parts[1:]):
+            candidate = Path(raw)
+            candidate = (
+                candidate.resolve()
+                if candidate.is_absolute()
+                else (cwd / candidate).resolve()
+            )
+            if _is_within(candidate, capability.application_root.parent):
+                suspicious = candidate
+                break
         _reject_subprocess(
             capability,
-            Path(executable or "subprocess"),
+            suspicious,
             f"cell capability does not authorize subprocess: {executable or command}",
         )
 
     script = Path(parts[1])
     script = script.resolve() if script.is_absolute() else (cwd / script).resolve()
-    python_executable = Path(sys.executable).resolve()
-    node_name = shutil.which("node")
-    node_executable = Path(node_name).resolve() if node_name else None
+    python_executable = canonical_python_executable()
+    try:
+        node_executable = canonical_node_executable()
+    except RuntimeError:
+        node_executable = None
     canonical_scripts = {
         "generate": (ROOT / "scripts/docx/generate_custom_cv.js").resolve(),
         "validate": (ROOT / "scripts/docx/validate_docx.py").resolve(),
@@ -334,6 +386,7 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
                 script,
                 "cell capability rejected the canonical CV renderer arguments",
             )
+        _require_canonical_environment(capability, resolved_executable, environment)
         return
 
     if script == canonical_scripts["validate"] and resolved_executable == python_executable:
@@ -342,6 +395,7 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
                 capability, script, "cell capability rejected DOCX validator arguments"
             )
         _subprocess_path(capability, parts[2], cwd, writable=False)
+        _require_canonical_environment(capability, resolved_executable, environment)
         return
 
     if script == canonical_scripts["register"] and resolved_executable == python_executable:
@@ -353,16 +407,24 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
                 "--fit-map": "read_path",
                 "--cv": "read_path",
                 "--registry": "write_path",
+                "--translation-registry": "read_path",
                 "--translation-candidates": "write_path",
             },
         )
-        required = {"--fit-map", "--cv", "--registry", "--translation-candidates"}
+        required = {
+            "--fit-map",
+            "--cv",
+            "--registry",
+            "--translation-registry",
+            "--translation-candidates",
+        }
         if set(parsed) != required:
             _reject_subprocess(
                 capability,
                 script,
                 "cell capability requires the complete canonical keyword registration schema",
             )
+        _require_canonical_environment(capability, resolved_executable, environment)
         return
 
     if script == canonical_scripts["deliver"] and resolved_executable == python_executable:
@@ -374,9 +436,10 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
                 "--file": "read_path",
                 "--remote": "literal",
                 "--folder": "literal",
+                "--report": "write_path",
             },
         )
-        required = {"--file", "--remote", "--folder"}
+        required = {"--file", "--remote", "--folder", "--report"}
         folder = parsed.get("--folder", "")
         if (
             set(parsed) != required
@@ -389,6 +452,7 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
             _reject_subprocess(
                 capability, script, "cell capability rejected delivery arguments"
             )
+        _require_canonical_environment(capability, resolved_executable, environment)
         return
 
     _reject_subprocess(

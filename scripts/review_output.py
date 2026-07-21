@@ -7,6 +7,7 @@ import json
 import re
 import sqlite3
 import subprocess
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -18,6 +19,24 @@ from keyword_translation_utils import (
     load_translation_registry,
     normalize_text,
 )
+
+
+ROOT = Path(__file__).resolve().parent.parent
+_TRUSTED_EXECUTABLE_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+_CANONICAL_PYTHON_EXECUTABLE = Path(sys.executable).resolve()
+
+
+def _canonical_subprocess_environment() -> dict[str, str]:
+    environment = {
+        "PATH": _TRUSTED_EXECUTABLE_PATH,
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONUNBUFFERED": "1",
+    }
+    for name in ("HOME", "LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+    return environment
 
 
 DEFAULT_REGISTRY = Path(".career-state/derived/keyword_ats_registry.json")
@@ -343,8 +362,18 @@ def is_validated_cellular_artifact(artifact: Path, *, control_db_path: Path | No
 
 
 def run_docx_validator(artifact: Path) -> tuple[bool, str]:
-    command = [sys.executable, "scripts/docx/validate_docx.py", str(artifact)]
-    result = subprocess.run(command, capture_output=True, text=True)
+    command = [
+        str(_CANONICAL_PYTHON_EXECUTABLE),
+        str((ROOT / "scripts/docx/validate_docx.py").resolve()),
+        str(artifact),
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=_canonical_subprocess_environment(),
+        capture_output=True,
+        text=True,
+    )
     output = (result.stdout or "") + (result.stderr or "")
     return result.returncode == 0, output.strip()
 

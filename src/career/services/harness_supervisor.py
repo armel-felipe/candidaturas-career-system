@@ -689,7 +689,17 @@ class HarnessSupervisor:
                 "score": run_task("fit_map.score", {"path": str(fit_map_path)}),
                 "validate": run_task("fit_map.validate", {"path": str(fit_map_path)}),
             }
-            register_command = [str(self.root / "scripts" / "python.sh"), "scripts/register_keywords.py", "--fit-map", str(fit_map_path)]
+            register_command = [
+                str(self.root / "scripts" / "python.sh"),
+                "scripts/register_keywords.py",
+                "--fit-map",
+                str(fit_map_path),
+                "--translation-registry",
+                str(
+                    self.root
+                    / ".agents/skills/career-system/references/keyword_translation_registry.json"
+                ),
+            ]
             registered = subprocess.run(register_command, cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10 * 60)
             if registered.returncode != 0:
                 return {"status": "blocked", "blocker_reason": "register_keywords_failed", "command": register_command, "stderr": (registered.stderr or registered.stdout)[-2000:]}

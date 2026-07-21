@@ -286,7 +286,16 @@ def phase_12() -> None:
                 "summary_chars": 100,
             }
             try:
-                review_service.approve_cv(artifact, fit_map, registry, report)
+                review_service.approve_cv(
+                    artifact,
+                    fit_map,
+                    registry,
+                    report,
+                    translation_registry_path=(
+                        ROOT
+                        / ".agents/skills/career-system/references/keyword_translation_registry.json"
+                    ),
+                )
             except SystemExit as exc:
                 if "not approved" not in str(exc):
                     raise

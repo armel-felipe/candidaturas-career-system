@@ -211,8 +211,8 @@ npm run fit-map:status
 npm run fit-map:guard
 
 # 4. Registrar keywords ATS
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 npm run registry:summary
 
 # 5. Opcional: reassociar a descrição da vaga usando o FIT_MAP final
@@ -279,8 +279,8 @@ Regra global para CV em DOCX:
 ## Entrega de artefatos via OneDrive/rclone
 
 ```bash
-npm run deliver:artifact -- --file outputs/<arquivo>.docx --dry-run
-npm run deliver:artifact -- --file outputs/<arquivo>.docx
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --report outputs/_tmp/delivery_report.json --dry-run
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --report outputs/_tmp/delivery_report.json
 ```
 
 Regra global de entrega:
@@ -291,6 +291,7 @@ Regra global de entrega:
 - nunca subir configuração real do rclone, tokens ou `.env` para GitHub
 - para CV, usar `cv:deliver` como caminho normal de entrega; ele reexecuta `cv:approve` e só chama rclone se o artefato final estiver aprovado
 - cada entrega grava relatório em `outputs/_tmp/delivery_report.json`; sem `status=delivered` ou `dry_run_ok`, não afirmar que o upload funcionou
+- células sempre passam `--report` apontando para o staging da tentativa; o relatório global acima existe apenas no fluxo não celular explícito
 - `scripts/generated/` é camada legada explícita; não criar novos `.js` intermediários ali
 - novos scripts temporários de geração DOCX devem ficar em `outputs/_tmp/generated_scripts/` ou em memória operacional de candidatura quando houver necessidade real de persistência técnica
 
