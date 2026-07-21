@@ -8,7 +8,7 @@ Atualizado em: 2026-07-21 — gate final aprovado
 | Plano de recuperação | `docs/superpowers/plans/2026-07-20-cellular-orchestration-recovery-plan.md` |
 | Progresso | Fatias A–E aprovadas; orquestração celular concluída |
 | Tarefa ativa | Nenhuma — Task 9 / Fatia E concluída |
-| Último gate | Fatia E aprovada: lease, migração, paralelo real, aliases e regras operacionais |
+| Último gate | Fatia E aprovada: autoridade do control DB, heartbeat celular concorrente, migração retomável e paralelo real |
 | Próximo gate | Integração do branch pelo controlador |
 
 ## Histórico aprovado
@@ -26,12 +26,12 @@ Atualizado em: 2026-07-21 — gate final aprovado
 
 ## Gate da Fatia E
 
-- `pytest tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py -q`: 19 testes focados aprovados.
-- `pytest -q`: 222 testes aprovados na suíte completa.
+- `pytest -q tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py tests/test_database.py`: 29 testes focados aprovados.
+- `pytest -q`: 228 testes aprovados na suíte completa.
 - `./scripts/python.sh scripts/career_cli.py project validate-structure`: estrutura canônica aprovada.
 - `npm run runtime:diagnose`: diagnóstico produzido em `outputs/_tmp/runtime_diagnosis.json`; sem finding celular bloqueante.
 - `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado, contenção observada e lock `notion-write` serializado.
-- Cobertura confirmada: uma única cópia autoritativa do workspace, handoff MacBook/RPi5 por lease, múltiplas candidaturas sob o mesmo dono, migração sem aprovação fabricada e proibição de fallback global em células.
+- Cobertura confirmada: control DB com identidade persistida e handoff MacBook/RPi5 fail-closed, renovação sob TTL curto, pool limitado de candidaturas, `analyze_fit` app-scoped com `awaiting_agent`, capabilities exatas, migração com cadeia objetiva e estado SQLite retomável, além da proibição de fallback global.
 
 ## Encerramento das fatias
 
