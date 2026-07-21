@@ -23,6 +23,15 @@ def allowed_outputs_from_request(request_json: Path, root: Path) -> list[Path]:
     if not request_json.exists():
         return []
     payload = read_json(request_json)
+    if payload.get("cellular") is True:
+        write_allowlist = payload.get("write_allowlist")
+        if not isinstance(write_allowlist, list) or not write_allowlist:
+            raise ValidationFailure("cellular harness request requires write_allowlist")
+        return [
+            (root / str(item)).resolve()
+            for item in write_allowlist
+            if item and "<" not in str(item)
+        ]
     raw: list[str] = []
     outputs = payload.get("outputs")
     if isinstance(outputs, dict):
@@ -35,11 +44,6 @@ def allowed_outputs_from_request(request_json: Path, root: Path) -> list[Path]:
     allowed = payload.get("allowed_outputs")
     if isinstance(allowed, list):
         raw.extend(str(item) for item in allowed)
-    if payload.get("cellular") is True:
-        write_allowlist = payload.get("write_allowlist")
-        if not isinstance(write_allowlist, list) or not write_allowlist:
-            raise ValidationFailure("cellular harness request requires write_allowlist")
-        raw.extend(str(item) for item in write_allowlist)
     return [(root / item).resolve() for item in raw if item and "<" not in item]
 
 

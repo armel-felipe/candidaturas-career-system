@@ -55,7 +55,11 @@ def test_expired_workspace_takeover_records_prior_owner_and_expiry(db):
         (expired_at, WorkspaceLease.LEASE_NAME),
     )
 
-    assert lease.acquire("macbook", ttl_seconds=60) is True
+    assert lease.acquire("macbook", ttl_seconds=60) is False
+    authorized = WorkspaceLease(
+        db, expected_control_db_id=lease.control_db_id
+    )
+    assert authorized.acquire("macbook", ttl_seconds=60) is True
 
     takeover = db.fetch_one(
         "SELECT prior_owner, prior_expires_at, new_owner "
@@ -66,6 +70,26 @@ def test_expired_workspace_takeover_records_prior_owner_and_expiry(db):
         "prior_expires_at": expired_at,
         "new_owner": "macbook",
     }
+
+
+def test_separate_control_database_identity_cannot_authorize_machine_handoff(
+    tmp_path,
+):
+    first = Database(tmp_path / "rpi" / "career.db")
+    second = Database(tmp_path / "mac" / "career.db")
+    first.init_schema()
+    second.init_schema()
+    try:
+        rpi = WorkspaceLease(first)
+        assert rpi.acquire("rpi5", ttl_seconds=60) is True
+        assert rpi.control_db_id != WorkspaceLease(second).control_db_id
+        with pytest.raises(ValueError, match="authoritative control database"):
+            WorkspaceLease(
+                second, expected_control_db_id=rpi.control_db_id
+            )
+    finally:
+        first.close()
+        second.close()
 
 
 def test_expired_workspace_reacquire_records_takeover_even_for_same_owner(db):
@@ -198,6 +222,10 @@ def test_cellular_multiagent_request_requires_complete_identity_and_never_config
             "application_id": "app-a",
             "run_id": "run-a",
             "node_id": "analyze_fit",
+            "capabilities": {
+                "read_paths": [str(application_dir / "derived")],
+                "write_paths": [str(manifest.parent / "staging")],
+            },
         },
     )
 
@@ -232,6 +260,43 @@ def test_cellular_multiagent_request_requires_complete_identity_and_never_config
     assert context["run_id"] == "run-a"
     assert context["node_id"] == "analyze_fit"
     assert context["manifest_path"] == str(manifest.resolve())
+
+
+def test_cellular_request_rejects_allowlists_not_declared_by_attempt_manifest(
+    tmp_path,
+):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    manifest = application_dir / "cells" / "analyze_fit" / "1" / "manifest.json"
+    staging = manifest.parent / "staging"
+    derived = application_dir / "derived"
+    manifest.parent.mkdir(parents=True)
+    write_json(
+        manifest,
+        {
+            "kind": "cell_attempt_manifest",
+            "application_id": "app-a",
+            "run_id": "run-a",
+            "node_id": "analyze_fit",
+            "capabilities": {
+                "read_paths": [str(derived)],
+                "write_paths": [str(staging)],
+            },
+        },
+    )
+
+    with pytest.raises(ValidationFailure, match="manifest capabilities"):
+        multiagent.validate_cellular_request_context(
+            {
+                "cellular": True,
+                "application_id": "app-a",
+                "run_id": "run-a",
+                "node_id": "analyze_fit",
+                "manifest_path": str(manifest),
+                "read_allowlist": [str(derived), str(application_dir / "identity.json")],
+                "write_allowlist": [str(application_dir)],
+            },
+            root=tmp_path,
+        )
 
 
 def test_agent_heartbeat_schedules_cellular_nodes_with_full_handover_context(
@@ -308,6 +373,147 @@ def test_agent_heartbeat_schedules_cellular_nodes_with_full_handover_context(
         assert item["write_allowlist"]
 
 
+def test_agent_heartbeat_second_cycle_invokes_cellular_harness_with_model_variant(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
+    monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
+    monkeypatch.setattr(
+        applications_v2,
+        "_load_config",
+        lambda: {**applications_v2.DEFAULT_CONFIG, "max_per_run": 1},
+    )
+    monkeypatch.setattr(
+        applications_v2, "_run_maintenance_sync", lambda *_args: {"executed": False}
+    )
+    monkeypatch.setattr(
+        applications_v2.notion_service,
+        "notion_config",
+        lambda: ("unused", "unused"),
+    )
+    monkeypatch.setattr(
+        applications_v2,
+        "_load_queue",
+        lambda *_args: [
+            {
+                "record_id": 101,
+                "page_id": "page-a",
+                "company": "Acme",
+                "role": "Operations Lead",
+                "title": "Operations Lead",
+                "status": "Fila Agente",
+                "description": "Lead operations, planning, data and governance. " * 30,
+            }
+        ],
+    )
+    calls: list[dict] = []
+
+    def blocked_agent(self, **kwargs):
+        calls.append(kwargs)
+        return {
+            "returncode": 1,
+            "stderr": "agent unavailable",
+            "isolation": {"status": "ok"},
+        }
+
+    monkeypatch.setattr(HarnessSupervisor, "run_application_stage", blocked_agent)
+    options = applications_v2.HeartbeatV2Options(
+        max_per_run=1,
+        run_agent=True,
+        dry_run=False,
+        model="openai/gpt-test",
+        variant="medium",
+        skip_maintenance=True,
+        cellular=True,
+        workspace_owner="rpi5",
+    )
+
+    first = applications_v2.run_heartbeat(options)
+    second = applications_v2.run_heartbeat(options)
+
+    assert first["results"][0]["node_id"] == "normalize_job"
+    assert second["results"][0]["node_id"] == "analyze_fit"
+    assert second["results"][0]["status"] == "awaiting_agent"
+    assert "draft" not in str(second["results"][0].get("blocker", "")).casefold()
+    assert calls and calls[0]["model"] == "openai/gpt-test"
+    assert calls[0]["variant"] == "medium"
+
+
+def test_cellular_heartbeat_processes_distinct_applications_concurrently(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
+    monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
+    monkeypatch.setattr(
+        applications_v2,
+        "_load_config",
+        lambda: {**applications_v2.DEFAULT_CONFIG, "max_per_run": 2},
+    )
+    monkeypatch.setattr(
+        applications_v2, "_run_maintenance_sync", lambda *_args: {"executed": False}
+    )
+    monkeypatch.setattr(
+        applications_v2.notion_service,
+        "notion_config",
+        lambda: ("unused", "unused"),
+    )
+    queue = [
+        {
+            "record_id": record_id,
+            "page_id": f"page-{record_id}",
+            "company": f"Company {record_id}",
+            "role": "Operations Lead",
+            "title": "Operations Lead",
+            "status": "Fila Agente",
+            "description": "Lead operations, planning, data and governance. " * 30,
+        }
+        for record_id in (101, 102)
+    ]
+    monkeypatch.setattr(applications_v2, "_load_queue", lambda *_args: queue)
+    barrier = threading.Barrier(2)
+    intervals: dict[str, tuple[int, int]] = {}
+
+    def fake_process(application, *, options, config, database_path):
+        application_id = str(application["record_id"])
+        barrier.wait(timeout=2)
+        entered = time.time_ns()
+        time.sleep(0.1)
+        exited = time.time_ns()
+        intervals[application_id] = (entered, exited)
+        return [
+            {
+                "status": "validated",
+                "application_id": application_id,
+                "run_id": f"run-{application_id}",
+                "node_id": "normalize_job",
+            }
+        ]
+
+    monkeypatch.setattr(
+        applications_v2, "_process_cellular_application", fake_process, raising=False
+    )
+
+    result = applications_v2.run_heartbeat(
+        applications_v2.HeartbeatV2Options(
+            max_per_run=2,
+            run_agent=True,
+            dry_run=False,
+            skip_maintenance=True,
+            cellular=True,
+            workspace_owner="rpi5",
+        )
+    )
+
+    assert len(result["results"]) == 2
+    assert set(intervals) == {"101", "102"}
+    first, second = intervals.values()
+    assert max(first[0], second[0]) < min(first[1], second[1])
+
+
 def test_agent_heartbeat_cli_defaults_to_cellular_and_legacy_is_explicit(
     monkeypatch, capsys
 ):
@@ -352,6 +558,49 @@ def test_agent_heartbeat_cli_defaults_to_cellular_and_legacy_is_explicit(
     assert received[-1].cellular is False
 
 
+def test_migrate_cellular_cli_dry_run_never_opens_control_db_or_acquires_lease(
+    tmp_path, monkeypatch, capsys
+):
+    legacy = tmp_path / "legacy-app"
+    legacy.mkdir()
+    (legacy / "job_description.md").write_text(
+        "# Operations Lead\n\nLead planning and logistics.\n", encoding="utf-8"
+    )
+    before = {
+        str(path.relative_to(legacy)): path.read_bytes()
+        for path in legacy.rglob("*")
+        if path.is_file()
+    }
+
+    def forbidden_database(*_args, **_kwargs):
+        raise AssertionError("dry-run must not open or mutate the control database")
+
+    monkeypatch.setattr(cli, "Database", forbidden_database)
+
+    assert (
+        cli.main(
+            [
+                "applications",
+                "migrate-cellular",
+                "--application-id",
+                "app-1",
+                "--application-dir",
+                str(legacy),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "dry_run"
+    assert not (legacy / "cellular_migration_manifest.json").exists()
+    assert {
+        str(path.relative_to(legacy)): path.read_bytes()
+        for path in legacy.rglob("*")
+        if path.is_file()
+    } == before
+
+
 def test_harness_uses_the_cellular_write_allowlist_without_global_patterns(tmp_path):
     application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
     output = application_dir / "cells" / "analyze_fit" / "1" / "staging" / "fit_map.json"
@@ -366,6 +615,9 @@ def test_harness_uses_the_cellular_write_allowlist_without_global_patterns(tmp_p
             "manifest_path": str(application_dir / "cells/analyze_fit/1/manifest.json"),
             "read_allowlist": [str(application_dir / "derived")],
             "write_allowlist": [str(output)],
+            "allowed_outputs": [str(tmp_path / "outputs" / "legacy.docx")],
+            "outputs": {"allowed_files": [str(tmp_path / ".career-state" / "fit_map.json")]},
+            "required_output": {"legacy": str(tmp_path / "outputs" / "legacy.json")},
         },
     )
 
@@ -424,6 +676,10 @@ def test_canonical_operational_docs_lock_down_cellular_handover_and_no_fallback(
         assert "application_id" in document
         assert "run_id" in document
         assert "node_id" in document
+        assert "CAREER_CONTROL_DB_ID" in document
+        assert "bancos SQLite fisicamente separados não se coordenam" in document
+        assert "awaiting_agent" in document
+        assert "pool limitado" in document
 
     assert "Fatia E aprovada" in panel
     assert "pytest -q" in panel

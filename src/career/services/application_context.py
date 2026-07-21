@@ -38,6 +38,7 @@ class WorkspaceLease:
         *,
         lease_name: str = LEASE_NAME,
         default_ttl_seconds: int = 300,
+        expected_control_db_id: str | None = None,
     ) -> None:
         if not lease_name:
             raise ValueError("lease_name is required")
@@ -46,6 +47,21 @@ class WorkspaceLease:
         self.database = database
         self.lease_name = lease_name
         self.default_ttl_seconds = default_ttl_seconds
+        self.control_db_id = database.control_db_identity()
+        self.expected_control_db_id = str(
+            expected_control_db_id
+            or os.environ.get("CAREER_CONTROL_DB_ID")
+            or ""
+        ).strip()
+        if (
+            self.expected_control_db_id
+            and self.expected_control_db_id != self.control_db_id
+        ):
+            raise ValueError(
+                "configured authoritative control database identity does not match "
+                f"this database: expected={self.expected_control_db_id} "
+                f"actual={self.control_db_id}"
+            )
 
     def acquire(self, owner: str, ttl_seconds: int = 300) -> bool:
         owner = self._owner(owner)
@@ -74,6 +90,8 @@ class WorkspaceLease:
                 )
                 return True
             if current_expiry > now:
+                return False
+            if current_owner != owner and not self.expected_control_db_id:
                 return False
             conn.execute(
                 """INSERT INTO workspace_lease_takeovers
@@ -118,11 +136,15 @@ class WorkspaceLease:
         return released
 
     def inspect(self) -> dict[str, Any] | None:
-        return self.database.fetch_one(
+        current = self.database.fetch_one(
             """SELECT lease_name, worker_id AS owner, acquired_at, expires_at
                FROM workspace_leases WHERE lease_name = ?""",
             (self.lease_name,),
         )
+        if current is not None:
+            current["control_db_id"] = self.control_db_id
+            current["handoff_authorized"] = bool(self.expected_control_db_id)
+        return current
 
     @staticmethod
     def _owner(owner: str) -> str:

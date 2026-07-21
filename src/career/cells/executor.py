@@ -45,6 +45,16 @@ class CellExecutionResult:
 
 
 @dataclass(frozen=True)
+class PreparedCellAttempt:
+    run_id: str
+    application_id: str
+    node_id: str
+    attempt: int
+    worker_id: str
+    manifest_path: Path
+
+
+@dataclass(frozen=True)
 class RepairResult:
     run_id: str
     node_id: str
@@ -183,6 +193,63 @@ class CellExecutor:
                 self._execute_reserved(plan, paths, self._node(plan, node_id), reservation)
             )
         return tuple(results)
+
+    def prepare_ready_node(self, run_id: str, node_id: str) -> PreparedCellAttempt:
+        """Reserve one ready node so an external specialist can fill its inputs."""
+        self._renew_workspace_lease()
+        plan, paths = self._load_run(run_id)
+        node = self._node(plan, node_id)
+        if node_id not in self.ready_nodes(run_id):
+            raise RuntimeError(f"cell node is not ready: {run_id}/{node_id}")
+        reservation = self.store.reserve_node(
+            run_id,
+            node_id,
+            self.worker_id,
+            lease_seconds=self.lease_seconds,
+        )
+        if reservation.get("status") != "reserved":
+            raise RuntimeError(f"cell node could not be reserved: {run_id}/{node_id}")
+        record = self._load_or_begin_execution_attempt(
+            ManifestStore(paths), paths, run_id, node, int(reservation["attempt"])
+        )
+        return PreparedCellAttempt(
+            run_id=run_id,
+            application_id=plan.application_id,
+            node_id=node_id,
+            attempt=int(reservation["attempt"]),
+            worker_id=self.worker_id,
+            manifest_path=record.path,
+        )
+
+    @contextmanager
+    def keep_prepared_attempt_alive(self, prepared: PreparedCellAttempt):
+        if prepared.worker_id != self.worker_id:
+            raise RuntimeError("prepared cell attempt belongs to another worker")
+        with self._execution_keepalive(
+            prepared.run_id, prepared.node_id, prepared.attempt, ()
+        ) as state:
+            yield state
+
+    def defer_prepared_attempt(
+        self, prepared: PreparedCellAttempt, *, reason: str
+    ) -> bool:
+        """Return an agent-prepared attempt to planned state for a later heartbeat."""
+        if prepared.worker_id != self.worker_id:
+            raise RuntimeError("prepared cell attempt belongs to another worker")
+        deferred = self.store.defer_attempt(
+            prepared.run_id,
+            prepared.node_id,
+            prepared.attempt,
+            self.worker_id,
+            reason=reason,
+        )
+        if deferred["deferred"] and prepared.manifest_path.is_file():
+            manifest = dict(read_json(prepared.manifest_path))
+            manifest["status"] = "cancelled"
+            manifest["blocker"] = {"reason": reason}
+            manifest["finished_at"] = utc_now_iso()
+            write_json(prepared.manifest_path, manifest)
+        return bool(deferred["deferred"])
 
     def repair(self, run_id: str, node_id: str, reason: str) -> RepairResult:
         self._renew_workspace_lease()
@@ -1176,9 +1243,10 @@ class CellExecutor:
         if node.node_id == "normalize_job" and paths.job_description.is_file():
             inputs["job_description"] = paths.job_description
             read_paths.append(paths.job_description)
-        if node.node_id == "analyze_fit" and paths.fit_map_draft.is_file():
-            inputs["fit_map_draft"] = paths.fit_map_draft
+        if node.node_id == "analyze_fit":
             read_paths.append(paths.fit_map_draft)
+            if paths.fit_map_draft.is_file():
+                inputs["fit_map_draft"] = paths.fit_map_draft
         if node.node_id == "capture_source":
             source_input = paths.app_dir / "source_input.md"
             if source_input.is_file():
@@ -1209,6 +1277,8 @@ class CellExecutor:
             write_paths.extend((paths.job_description, paths.source_metadata))
         elif node.node_id == "normalize_job":
             write_paths.append(paths.derived_dir)
+        elif node.node_id == "analyze_fit":
+            write_paths.append(paths.fit_map_draft)
         elif node.node_id in {"deliver_cv", "sync_notion_initial", "sync_notion_final"}:
             write_paths.append(paths.cells_dir / node.node_id / "receipts" / run_id)
         return tuple(write_paths)

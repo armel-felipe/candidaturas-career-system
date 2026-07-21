@@ -811,7 +811,7 @@ class HarnessSupervisor:
             payload["sections"].append({"id": "resume_previous_job", "title": "Retomar Trabalho Antigo", "items": [self._menu_item("resume", f"Retomar {stale.get('role') or 'vaga anterior'}", "Continuar manualmente o trabalho salvo anteriormente, mesmo ele parecendo antigo.", "continue o trabalho em andamento")]})
         return self._finalize_menu_payload(payload)
 
-    def run_application_stage(self, *, stage: str, record_key: str, application_dir: Path, request_json: Path, request_md: Path, runner_config: dict[str, Any], model: str = "", variant: str = "", on_start: Callable | None = None) -> dict[str, Any]:
+    def run_application_stage(self, *, stage: str, record_key: str, application_dir: Path, request_json: Path, request_md: Path, runner_config: dict[str, Any], model: str = "", variant: str = "", on_start: Callable | None = None, workspace_owner: str = "") -> dict[str, Any]:
         if not self.root or not self.runner:
             raise ValueError("HarnessSupervisor requires root and runner to execute stages.")
         request_payload = read_json(request_json)
@@ -824,7 +824,7 @@ class HarnessSupervisor:
             ).resolve()
             if Path(application_dir).resolve() != expected_dir:
                 raise ValidationFailure("cellular harness application directory mismatch")
-            self._acquire_cellular_workspace()
+            self._acquire_cellular_workspace(workspace_owner)
         instruction = self._stage_instruction(stage)
         if cellular_context:
             instruction += (
@@ -864,14 +864,17 @@ class HarnessSupervisor:
             root=self.root,
         )
 
-    def _acquire_cellular_workspace(self) -> None:
+    def _acquire_cellular_workspace(self, workspace_owner: str = "") -> None:
         if not self.root:
             raise ValidationFailure("cellular harness requires a workspace root")
         database = Database(self.root / ".career-state" / "career.db")
         database.init_schema()
         try:
             lease = application_context_service.WorkspaceLease(database)
-            owner = application_context_service.workspace_owner_from_env()
+            owner = (
+                str(workspace_owner).strip()
+                or application_context_service.workspace_owner_from_env()
+            )
             if not lease.acquire(owner, ttl_seconds=300) or not lease.heartbeat(owner):
                 current = lease.inspect() or {}
                 raise ValidationFailure(

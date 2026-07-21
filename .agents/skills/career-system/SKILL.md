@@ -607,9 +607,9 @@ Contrato de leitura para agentes:
 
 ### Segurança do workspace e handover celular
 
-Deve haver **uma única cópia autoritativa do workspace** em execução. O `WorkspaceLease` SQLite pertence ao dono da cópia, não a uma vaga: o mesmo dono pode executar múltiplas candidaturas, enquanto uma segunda cópia no MacBook ou RPi5 permanece bloqueada até release ou expiração.
+Deve haver **uma única cópia autoritativa do workspace** em execução. O `WorkspaceLease` SQLite pertence ao dono da cópia, não a uma vaga: o mesmo dono executa candidaturas distintas por um **pool limitado**, enquanto uma segunda cópia no MacBook ou RPi5 permanece bloqueada até handoff autorizado. O plano de controle é a mesma `.career-state/career.db`; **bancos SQLite fisicamente separados não se coordenam** e não oferecem fence cross-machine.
 
-Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Se a origem caiu, aguardar a expiração; o takeover precisa registrar dono e expiração anteriores antes de renovar para a nova máquina. Nunca apagar `career.db`, lock ou manifesto para contornar o fence.
+Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Rodar `npm run applications:doctor-concurrency`, sincronizar a mesma `career.db` e manifests, e configurar `CAREER_CONTROL_DB_ID=<control_db_id>` no destino. Se a origem caiu, aguardar a expiração; takeover cross-owner sem ID autoritativo compatível falha fechado, e o autorizado registra dono/expiração anteriores antes de renovar. Nunca apagar `career.db`, lock ou manifesto para contornar o fence.
 
 Operação e recuperação:
 
@@ -624,10 +624,12 @@ npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 
 Contrato obrigatório:
 - request celular contém `application_id`, `run_id`, `node_id`, `manifest_path`, `read_allowlist` e `write_allowlist`; ausência, path cruzado ou identidade divergente bloqueia a execução
+- allowlists do request são subconjuntos exatos das capabilities do manifesto; em modo celular o harness aceita somente `write_allowlist` e não une outputs legados
 - em qualquer caminho celular é **proibido cair para estado global** ou chamar adapters mutáveis `configure_*`; comandos legados mantêm compatibilidade somente quando explicitamente não celulares
 - contexto e retomada usam manifesto imutável, artefatos versionados e `handover_summary.json`, nunca memória de conversa ou sessão anterior
 - correção usa `applications:repair` no nó bloqueado, preserva tentativas antigas e invalida apenas descendentes declarados
-- migração não reescreve fontes e não fabrica validação; CV sem revisão objetiva e polish aprovados fica `blocked`
+- o heartbeat usa pool limitado por candidatura; `analyze_fit` chama o harness app-scoped com modelo/variant selecionados e retorna `awaiting_agent`, sem bloquear por draft ausente, quando o runner estiver temporariamente indisponível
+- migração não reescreve fontes e não fabrica validação; exige DOCX válido e cadeia de hashes de reviewer, polish executado sem blockers, approval manifest e registry, persistindo run/nós/tentativas/artefatos/manifests retomáveis; evidência incompleta fica `blocked`
 - a aceitação paralela exige dois subprocessos reais, fingerprints/manifests/artefatos distintos, nenhum path cruzado e locks externos declarados serializados
 
 Há dois tipos de interação com o Notion:

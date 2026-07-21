@@ -255,6 +255,9 @@ def validate_cellular_request_context(
     }
     if any(manifest.get(key) != value for key, value in expected_identity.items()):
         raise ValidationFailure("cellular manifest identity does not match request")
+    manifest_capabilities = manifest.get("capabilities")
+    if not isinstance(manifest_capabilities, dict):
+        raise ValidationFailure("cellular manifest capabilities are missing")
 
     normalized_lists: dict[str, list[str]] = {}
     for field in ("read_allowlist", "write_allowlist"):
@@ -272,6 +275,26 @@ def validate_cellular_request_context(
                 ) from exc
             normalized.append(str(candidate))
         normalized_lists[field] = normalized
+        manifest_field = "read_paths" if field == "read_allowlist" else "write_paths"
+        declared_values = manifest_capabilities.get(manifest_field)
+        if not isinstance(declared_values, list):
+            raise ValidationFailure(
+                f"cellular manifest capabilities missing {manifest_field}"
+            )
+        declared: set[str] = set()
+        for value in declared_values:
+            declared_path = Path(str(value)).resolve()
+            try:
+                declared_path.relative_to(app_dir)
+            except ValueError as exc:
+                raise ValidationFailure(
+                    "cellular manifest capabilities escape their application"
+                ) from exc
+            declared.add(str(declared_path))
+        if not set(normalized).issubset(declared):
+            raise ValidationFailure(
+                f"cellular {field} exceeds immutable manifest capabilities"
+            )
     return {
         "cellular": True,
         **expected_identity,

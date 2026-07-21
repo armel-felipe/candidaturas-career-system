@@ -1092,8 +1092,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.action == "doctor-concurrency":
             active = application_context_service.list_active()
+            control_database = Database()
+            control_database.init_schema()
+            try:
+                control_db_id = control_database.control_db_identity()
+                control_db_path = str(control_database.db_path.resolve())
+            finally:
+                control_database.close()
             _dump({
                 "status": "ok",
+                "control_db_id": control_db_id,
+                "control_db_path": control_db_path,
                 "tracked_applications": active.get("count", 0),
                 "locked_applications": [
                     item for item in active.get("applications", []) if item.get("locked")
@@ -1118,6 +1127,18 @@ def main(argv: list[str] | None = None) -> int:
                 if args.application_dir
                 else application_context_service.paths_for(args.application_id).app_dir
             )
+            if args.dry_run:
+                try:
+                    result = migrate_application(
+                        application_dir,
+                        application_id=args.application_id,
+                        dry_run=True,
+                    )
+                except (FileNotFoundError, RuntimeError, ValueError) as exc:
+                    _dump_error(exc)
+                    return 1
+                _dump(result)
+                return 0
             lease_database = Database()
             lease_database.init_schema()
             try:
@@ -1132,7 +1153,8 @@ def main(argv: list[str] | None = None) -> int:
                 result = migrate_application(
                     application_dir,
                     application_id=args.application_id,
-                    dry_run=args.dry_run,
+                    dry_run=False,
+                    database_path=lease_database.db_path,
                 )
             except (FileNotFoundError, RuntimeError, ValueError) as exc:
                 _dump_error(exc)

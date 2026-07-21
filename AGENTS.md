@@ -421,12 +421,13 @@ Regra operacional do heartbeat:
 
 ## Segurança e operação da orquestração celular
 
-Regra de autoridade: deve existir **uma única cópia autoritativa do workspace** executando células. O lease SQLite diferencia o dono do workspace, não a candidatura: um mesmo dono pode processar várias candidaturas em paralelo, mas uma segunda cópia no MacBook ou no RPi5 fica bloqueada até release/expiração do lease atual.
+Regra de autoridade: deve existir **uma única cópia autoritativa do workspace** executando células. O lease SQLite diferencia o dono do workspace, não a candidatura: um mesmo dono pode processar várias candidaturas em paralelo por um **pool limitado**, mas uma segunda cópia no MacBook ou no RPi5 fica bloqueada até um handoff autorizado. O banco `.career-state/career.db` é o plano de controle compartilhado: **bancos SQLite fisicamente separados não se coordenam** e nunca devem ser apresentados como proteção cross-machine.
 
 Handoff MacBook ↔ RPi5:
 - interromper heartbeat, workers e launchd na máquina atual antes de iniciar a outra
 - preferir release pelo `WorkspaceLease.release(owner)` no desligamento controlado; se o processo morreu, aguardar a expiração do lease
-- takeover após expiração deve registrar `prior_owner`, `prior_expires_at`, `new_owner` e horário no SQLite antes de a nova máquina trabalhar
+- executar `npm run applications:doctor-concurrency` na cópia autoritativa, transportar/sincronizar a mesma `career.db` com os manifests e configurar `CAREER_CONTROL_DB_ID=<control_db_id>` na máquina de destino
+- takeover cross-owner após expiração falha fechado sem `CAREER_CONTROL_DB_ID` compatível; com a autoridade correta, registra `prior_owner`, `prior_expires_at`, `new_owner` e horário no SQLite antes de a nova máquina trabalhar
 - nunca apagar `career.db`, lock ou manifesto para forçar a troca de dono
 
 Comandos celulares canônicos:
@@ -442,11 +443,13 @@ npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 
 Regras duras:
 - toda célula carrega `application_id`, `run_id`, `node_id`, `manifest_path`, `read_allowlist` e `write_allowlist`; se qualquer campo estiver ausente ou divergente, bloquear
+- `read_allowlist` e `write_allowlist` só podem ser subconjuntos exatos das capabilities do manifesto imutável; o harness celular ignora outputs legados/globais
 - em execução marcada como celular, é **proibido cair para estado global** (`.career-state/fit_map.json`, `.career-state/cv_content.json`, workflow/derived globais) ou chamar adapters `configure_*`; não há downgrade silencioso
 - compatibilidade global continua permitida somente em comandos explicitamente não celulares/legados
 - o contexto entre células passa por manifesto imutável, artefatos versionados e `handover_summary.json`; conversa, sessão anterior e path global não são fonte de verdade
 - reparo é local ao nó com `applications:repair`; preserve manifests/artefatos anteriores, invalide apenas descendentes declarados e retome pelo `run_id`
-- migração apenas inventaria e hasheia fontes legadas; revisão de CV ausente, desconhecida ou não aprovada entra como `blocked`, nunca como validada
+- o heartbeat celular agenda candidaturas distintas no pool limitado; ao chegar em `analyze_fit`, reserva a tentativa, chama o harness app-scoped respeitando `--model/--variant` e, se o agente estiver indisponível, devolve `awaiting_agent` sem bloquear por draft ausente
+- migração apenas inventaria e hasheia fontes legadas; só valida CV quando DOCX, reviewer, polish executado sem blockers, approval manifest e registry formam uma cadeia de hashes; também cria run/nós/tentativas/artefatos/manifests retomáveis. Estado desconhecido entra como `blocked`, nunca como validado
 - `applications:verify-parallel` deve usar dois subprocessos reais, um SQLite compartilhado e duas candidaturas distintas, comprovando fingerprints/manifests/artefatos separados e locks externos serializados
 
 Entrega e persistência por candidatura:

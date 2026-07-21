@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1878,12 +1879,6 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         raise ValidationFailure(
             "cellular heartbeat requires --run-agent and does not downgrade to dry-run globals"
         )
-    from career.cells.executor import CellExecutor
-    from career.cells.handlers import (
-        production_handler_registry,
-        production_validator_registry,
-    )
-
     V2_DIR.mkdir(parents=True, exist_ok=True)
     V2_LOG_DIR.mkdir(parents=True, exist_ok=True)
     started_at = utc_now_iso()
@@ -1897,61 +1892,47 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         else int(config["max_per_run"])
     )
     selected = _eligible(queue, config, effective_max)
-    database = Database(V2_DIR.parent / "career.db")
+    database_path = V2_DIR.parent / "career.db"
+    database = Database(database_path)
     database.init_schema()
-    executor = CellExecutor(
-        database,
-        applications_root=V2_DIR,
-        handlers=production_handler_registry(),
-        validators=production_validator_registry(),
-        worker_id=f"applications-cellular-{os.getpid()}",
-        workspace_owner=options.workspace_owner,
-    )
+    database.close()
     results: list[dict[str, Any]] = []
-    try:
-        for application in selected:
-            paths = _ensure_cellular_application(application, applications_root=V2_DIR)
-            latest = database.fetch_one(
-                """SELECT run_id, status FROM application_runs
-                   WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
-                (paths.application_id,),
-            )
-            if (
-                latest is None
-                or latest["status"] in {"completed", "cancelled"}
-                or _is_reprocess_requested(application, config)
-            ):
-                run_id = executor.plan(paths.application_id, {"cv"}).run_id
-            else:
-                run_id = str(latest["run_id"])
-            executed = executor.run_ready(run_id)
-            for execution in executed:
-                manifest = read_json(execution.manifest_path)
-                capabilities = (
-                    manifest.get("capabilities")
-                    if isinstance(manifest.get("capabilities"), dict)
-                    else {}
-                )
-                results.append(
-                    {
-                        "status": execution.status,
-                        "application_id": paths.application_id,
-                        "run_id": execution.run_id,
-                        "node_id": execution.node_id,
-                        "manifest_path": str(execution.manifest_path),
-                        "read_allowlist": list(capabilities.get("read_paths") or []),
-                        "write_allowlist": list(capabilities.get("write_paths") or []),
-                        "artifact_paths": [
-                            str(item.get("path"))
-                            for item in manifest.get("outputs", [])
-                            if isinstance(item, dict) and item.get("path")
-                        ],
-                    }
-                )
-            if executor.is_terminal(run_id):
-                executor.finalize(run_id)
-    finally:
-        database.close()
+    worker_count = min(
+        len(selected),
+        max(1, int(config.get("cellular_max_workers") or effective_max)),
+        max(1, effective_max),
+    )
+    if selected:
+        by_index: dict[int, list[dict[str, Any]]] = {}
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="applications-cellular",
+        ) as pool:
+            future_indexes = {
+                pool.submit(
+                    _process_cellular_application,
+                    application,
+                    options=options,
+                    config=config,
+                    database_path=database_path,
+                ): index
+                for index, application in enumerate(selected)
+            }
+            for future in as_completed(future_indexes):
+                index = future_indexes[future]
+                application = selected[index]
+                try:
+                    by_index[index] = future.result()
+                except Exception as exc:
+                    by_index[index] = [
+                        {
+                            "status": "error",
+                            "application_id": _record_key(application),
+                            "blocker": f"{type(exc).__name__}:{exc}",
+                        }
+                    ]
+        for index in range(len(selected)):
+            results.extend(by_index[index])
     summary = {
         "status": "ok",
         "mode": "cellular",
@@ -1961,6 +1942,7 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         "maintenance": maintenance_report,
         "max_per_run": effective_max,
         "selected": len(selected),
+        "worker_count": worker_count,
         "results": results,
         "global_fallback": False,
     }
@@ -1970,6 +1952,215 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
     write_json(log_path, summary)
     summary["log"] = str(log_path)
     return summary
+
+
+def _cell_execution_payload(execution: Any, *, application_id: str) -> dict[str, Any]:
+    manifest = read_json(execution.manifest_path)
+    capabilities = (
+        manifest.get("capabilities")
+        if isinstance(manifest.get("capabilities"), dict)
+        else {}
+    )
+    return {
+        "status": execution.status,
+        "application_id": application_id,
+        "run_id": execution.run_id,
+        "node_id": execution.node_id,
+        "manifest_path": str(execution.manifest_path),
+        "read_allowlist": list(capabilities.get("read_paths") or []),
+        "write_allowlist": list(capabilities.get("write_paths") or []),
+        "artifact_paths": [
+            str(item.get("path"))
+            for item in manifest.get("outputs", [])
+            if isinstance(item, dict) and item.get("path")
+        ],
+        "blocker": execution.blocker,
+    }
+
+
+def _cellular_workspace_root() -> Path:
+    state_dir = V2_DIR.parent
+    if state_dir.name != ".career-state":
+        raise ValidationFailure(
+            "cellular applications directory must be under .career-state"
+        )
+    return state_dir.parent.resolve()
+
+
+def _write_cellular_analyze_request(
+    paths: Any,
+    prepared: Any,
+    *,
+    workspace_owner: str,
+) -> tuple[Path, Path]:
+    manifest = read_json(prepared.manifest_path)
+    capabilities = manifest.get("capabilities")
+    if not isinstance(capabilities, dict):
+        raise ValidationFailure("cellular attempt manifest is missing capabilities")
+    read_allowlist = list(capabilities.get("read_paths") or [])
+    write_allowlist = list(capabilities.get("write_paths") or [])
+    request_dir = (
+        paths.requests_dir
+        / "cellular"
+        / prepared.run_id
+        / prepared.node_id
+        / str(prepared.attempt)
+    )
+    request_json = request_dir / "request.json"
+    request_md = request_dir / "request.md"
+    payload = {
+        "kind": "cellular_agent_request",
+        "cellular": True,
+        "step": "fit-map",
+        "application_id": prepared.application_id,
+        "run_id": prepared.run_id,
+        "node_id": prepared.node_id,
+        "manifest_path": str(prepared.manifest_path.resolve()),
+        "read_allowlist": read_allowlist,
+        "write_allowlist": write_allowlist,
+        "workspace_owner": workspace_owner,
+        "objective": (
+            "Produce only the application-scoped FIT_MAP draft required by "
+            "this analyze_fit attempt."
+        ),
+        "allowed_files": read_allowlist,
+        "expected_outputs": write_allowlist,
+    }
+    from career.services import multiagent as multiagent_service
+
+    context = multiagent_service.validate_cellular_request_context(
+        payload, root=_cellular_workspace_root()
+    )
+    payload.update(context)
+    payload["operational_rules"] = multiagent_service.cellular_operational_rules(
+        context
+    )
+    write_json(request_json, payload)
+    write_text(
+        request_md,
+        "# Cellular analyze_fit request\n\n"
+        + "\n".join(f"- {rule}" for rule in payload["operational_rules"])
+        + "\n",
+    )
+    return request_json, request_md
+
+
+def _run_cellular_analyze_agent(
+    paths: Any,
+    prepared: Any,
+    *,
+    options: HeartbeatV2Options,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    workspace_owner = options.workspace_owner or os.environ.get(
+        "CAREER_WORKSPACE_OWNER"
+    ) or ""
+    request_json, request_md = _write_cellular_analyze_request(
+        paths, prepared, workspace_owner=workspace_owner
+    )
+    supervisor = HarnessSupervisor(_cellular_workspace_root())
+    return supervisor.run_application_stage(
+        stage="analyze",
+        record_key=paths.application_id,
+        application_dir=paths.app_dir,
+        request_json=request_json,
+        request_md=request_md,
+        runner_config=dict(config.get("analysis_runner") or {}),
+        model=str(options.model or config.get("active_model") or ""),
+        variant=str(options.variant or config.get("active_variant") or ""),
+        workspace_owner=workspace_owner,
+    )
+
+
+def _process_cellular_application(
+    application: dict[str, Any],
+    *,
+    options: HeartbeatV2Options,
+    config: dict[str, Any],
+    database_path: Path,
+) -> list[dict[str, Any]]:
+    """Advance one application independently; callers may run this concurrently."""
+    from career.cells.executor import CellExecutor
+    from career.cells.handlers import (
+        production_handler_registry,
+        production_validator_registry,
+    )
+
+    database = Database(database_path)
+    database.init_schema()
+    paths = _ensure_cellular_application(application, applications_root=V2_DIR)
+    executor = CellExecutor(
+        database,
+        applications_root=V2_DIR,
+        handlers=production_handler_registry(),
+        validators=production_validator_registry(),
+        worker_id=f"applications-cellular-{paths.application_id}-{os.getpid()}-{id(database)}",
+        workspace_owner=options.workspace_owner,
+    )
+    try:
+        latest = database.fetch_one(
+            """SELECT run_id, status FROM application_runs
+               WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
+            (paths.application_id,),
+        )
+        if (
+            latest is None
+            or latest["status"] in {"completed", "cancelled"}
+            or _is_reprocess_requested(application, config)
+        ):
+            run_id = executor.plan(paths.application_id, {"cv"}).run_id
+        else:
+            run_id = str(latest["run_id"])
+
+        if "analyze_fit" in executor.ready_nodes(run_id) and not paths.fit_map_draft.is_file():
+            prepared = executor.prepare_ready_node(run_id, "analyze_fit")
+            with executor.keep_prepared_attempt_alive(prepared) as keepalive:
+                agent_result = _run_cellular_analyze_agent(
+                    paths, prepared, options=options, config=config
+                )
+            agent_ok = (
+                agent_result.get("returncode") == 0
+                and (agent_result.get("isolation") or {}).get("status") == "ok"
+                and paths.fit_map_draft.is_file()
+                and not keepalive.get("failure")
+            )
+            if not agent_ok:
+                reason = (
+                    str(keepalive.get("failure") or "")
+                    or str(agent_result.get("blocker_reason") or "")
+                    or (
+                        "agent_returned_nonzero"
+                        if agent_result.get("returncode") != 0
+                        else "agent_output_not_available"
+                    )
+                )
+                executor.defer_prepared_attempt(prepared, reason=reason)
+                manifest = read_json(prepared.manifest_path)
+                capabilities = manifest.get("capabilities") or {}
+                return [
+                    {
+                        "status": "awaiting_agent",
+                        "application_id": paths.application_id,
+                        "run_id": run_id,
+                        "node_id": "analyze_fit",
+                        "manifest_path": str(prepared.manifest_path),
+                        "read_allowlist": list(capabilities.get("read_paths") or []),
+                        "write_allowlist": list(capabilities.get("write_paths") or []),
+                        "artifact_paths": [],
+                        "blocker": reason,
+                    }
+                ]
+
+        executed = executor.run_ready(run_id)
+        results = [
+            _cell_execution_payload(item, application_id=paths.application_id)
+            for item in executed
+        ]
+        if executor.is_terminal(run_id):
+            executor.finalize(run_id)
+        return results
+    finally:
+        database.close()
 
 
 def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:

@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import sqlite3
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterator
+from uuid import uuid4
 
 from career.paths import CAREER_STATE
 
@@ -206,6 +208,12 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_workspace_lease_takeovers_name_time
                 ON workspace_lease_takeovers(lease_name, taken_over_at);
 
+            CREATE TABLE IF NOT EXISTS workspace_authority (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                control_db_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS artifact_dependencies (
                 artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id),
                 input_hash TEXT NOT NULL,
@@ -223,7 +231,20 @@ class Database:
         }
         if "lease_id" not in resource_lock_columns:
             conn.execute("ALTER TABLE resource_locks ADD COLUMN lease_id TEXT")
+        conn.execute(
+            """INSERT OR IGNORE INTO workspace_authority
+               (singleton_id, control_db_id, created_at) VALUES (1, ?, ?)""",
+            (f"control_{uuid4().hex}", datetime.now(UTC).isoformat()),
+        )
         conn.commit()
+
+    def control_db_identity(self) -> str:
+        row = self.fetch_one(
+            "SELECT control_db_id FROM workspace_authority WHERE singleton_id = 1"
+        )
+        if row is None or not row.get("control_db_id"):
+            raise RuntimeError("authoritative control database identity is missing")
+        return str(row["control_db_id"])
 
     @contextmanager
     def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:

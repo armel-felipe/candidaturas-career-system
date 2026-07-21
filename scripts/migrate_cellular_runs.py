@@ -7,12 +7,23 @@ import json
 from pathlib import Path
 from typing import Any
 
+from career.cells.contracts import CELL_CONTRACTS, CONTRACT_VERSION
 from career.paths import CAREER_STATE
 from career.services.application_context import validate_application_id
-from career.utils import read_json, utc_now_iso
+from career.services.database import Database
+from career.utils import read_json, utc_now_iso, write_json
+from scripts.docx.validate_docx import validate as validate_docx
 
 
 MIGRATION_MANIFEST = "cellular_migration_manifest.json"
+_CV_NODES = (
+    "normalize_job",
+    "analyze_fit",
+    "compose_cv",
+    "render_cv",
+    "review_cv",
+    "deliver_cv",
+)
 
 
 def _sha256(path: Path) -> str:
@@ -34,67 +45,364 @@ def _legacy_sources(application_dir: Path) -> list[dict[str, Any]]:
     return sources
 
 
-def _cv_review_status(application_dir: Path) -> tuple[str, str]:
-    docx_files = sorted(application_dir.glob("*.docx"))
+def _matches_path(value: Any, path: Path) -> bool:
+    return str(value or "") in {str(path), path.name, str(path.resolve())}
+
+
+def _valid_docx(path: Path) -> bool:
+    return path.is_file() and not validate_docx(path)
+
+
+def _cv_review_status(
+    application_dir: Path,
+) -> tuple[str, str, dict[str, Path]]:
+    docx_files = [path for path in sorted(application_dir.glob("*.docx")) if _valid_docx(path)]
     if not docx_files:
-        return "blocked", "legacy_cv_artifact_missing"
+        return "blocked", "legacy_cv_review_unknown_or_unapproved", {}
     review_path = application_dir / "cv_review_report.json"
     polish_path = application_dir / "polish_review.json"
-    if not review_path.is_file() or not polish_path.is_file():
-        return "blocked", "legacy_cv_review_unknown_or_unapproved"
+    approval_path = application_dir / "approved_cv_manifest.json"
+    registry_path = application_dir / "keyword_ats_registry.json"
+    required = (review_path, polish_path, approval_path, registry_path)
+    if not all(path.is_file() for path in required):
+        return "blocked", "legacy_cv_review_unknown_or_unapproved", {}
     try:
         review = read_json(review_path)
         polish = read_json(polish_path)
+        approval = read_json(approval_path)
+        read_json(registry_path)
     except (OSError, ValueError, json.JSONDecodeError):
-        return "blocked", "legacy_cv_review_unknown_or_unapproved"
-    reviewed_artifact = str(review.get("artifact") or "")
-    artifact_matches = any(
-        reviewed_artifact in {str(path), path.name, str(path.resolve())}
-        for path in docx_files
-    )
-    explicitly_approved = (
-        review.get("approved") is True
-        and review.get("approved_for_delivery") is True
-        and artifact_matches
-        and isinstance(polish.get("approval_blockers"), list)
-        and not polish["approval_blockers"]
-    )
-    if explicitly_approved:
-        return "validated", "legacy_explicit_review_receipts"
-    return "blocked", "legacy_cv_review_unknown_or_unapproved"
+        return "blocked", "legacy_cv_review_unknown_or_unapproved", {}
+
+    for artifact in docx_files:
+        artifact_hash = _sha256(artifact)
+        review_valid = (
+            review.get("approved") is True
+            and review.get("approved_for_delivery") is True
+            and _matches_path(review.get("artifact"), artifact)
+            and review.get("artifact_sha256") == artifact_hash
+            and _matches_path(review.get("polish_report"), polish_path)
+            and review.get("polish_report_sha256") == _sha256(polish_path)
+        )
+        polish_valid = (
+            polish.get("polish_executed") is True
+            and isinstance(polish.get("approval_blockers"), list)
+            and not polish["approval_blockers"]
+            and _matches_path(polish.get("artifact"), artifact)
+            and polish.get("artifact_sha256") == artifact_hash
+        )
+        approval_valid = (
+            approval.get("approved_for_delivery") is True
+            and _matches_path(approval.get("artifact"), artifact)
+            and approval.get("artifact_sha256") == artifact_hash
+            and _matches_path(approval.get("review_report"), review_path)
+            and approval.get("review_report_sha256") == _sha256(review_path)
+            and _matches_path(approval.get("polish_report"), polish_path)
+            and approval.get("polish_report_sha256") == _sha256(polish_path)
+            and _matches_path(approval.get("keyword_registry"), registry_path)
+            and approval.get("keyword_registry_sha256") == _sha256(registry_path)
+        )
+        if review_valid and polish_valid and approval_valid:
+            return (
+                "validated",
+                "legacy_objective_docx_review_polish_hash_chain",
+                {
+                    "docx": artifact,
+                    "review": review_path,
+                    "polish": polish_path,
+                    "approval": approval_path,
+                    "registry": registry_path,
+                },
+            )
+    return "blocked", "legacy_cv_review_unknown_or_unapproved", {}
 
 
-def _node_records(application_dir: Path) -> tuple[list[dict[str, str]], list[str]]:
-    records: list[dict[str, str]] = []
-    blockers: list[str] = []
-    candidates = (
-        ("capture_source", "job_description.md", "source_artifact_hash_only"),
-        ("analyze_fit", "fit_map.json", "source_artifact_hash_only"),
-        ("compose_cv", "cv_content.json", "source_artifact_hash_only"),
-    )
-    for node_id, file_name, origin in candidates:
-        status = "imported_unvalidated" if (application_dir / file_name).is_file() else "blocked"
+def _node_records(
+    application_dir: Path,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    review_status, review_origin, evidence = _cv_review_status(application_dir)
+    source_by_node: dict[str, list[Path]] = {
+        "normalize_job": [application_dir / "job_description.md"],
+        "analyze_fit": [application_dir / "fit_map.json"],
+        "compose_cv": [application_dir / "cv_content.json"],
+        "render_cv": [evidence["docx"]] if evidence else list(application_dir.glob("*.docx")),
+        "review_cv": (
+            [evidence[name] for name in ("review", "polish", "approval", "registry")]
+            if evidence
+            else [
+                application_dir / "cv_review_report.json",
+                application_dir / "polish_review.json",
+            ]
+        ),
+        "deliver_cv": [],
+    }
+    records: list[dict[str, Any]] = []
+    for node_id in _CV_NODES:
+        source_paths = [
+            str(path.relative_to(application_dir))
+            for path in source_by_node[node_id]
+            if path.is_file()
+        ]
+        if node_id in {"render_cv", "review_cv"}:
+            status = review_status
+            origin = review_origin
+        else:
+            status = "blocked"
+            origin = (
+                "external_delivery_not_imported"
+                if node_id == "deliver_cv"
+                else "source_artifact_hash_only"
+            )
         records.append(
             {
                 "node_id": node_id,
                 "status": status,
-                "source_path": file_name,
+                "source_paths": source_paths,
                 "validation_origin": origin,
+                "manifest_path": f"cells/{node_id}/1/manifest.json",
             }
         )
-    review_status, review_origin = _cv_review_status(application_dir)
-    for node_id in ("render_cv", "review_cv"):
-        records.append(
+    blockers = [] if review_status == "validated" else [review_origin]
+    return records, blockers
+
+
+def _stable_run_id(application_id: str, sources: list[dict[str, Any]]) -> str:
+    canonical = json.dumps(
+        {"application_id": application_id, "sources": sources},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "legacy_" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+
+
+def _run_graph(application_id: str, app_dir: Path, run_id: str) -> dict[str, Any]:
+    nodes: list[dict[str, Any]] = []
+    selected = set(_CV_NODES)
+    for node_id in _CV_NODES:
+        contract = CELL_CONTRACTS[node_id]
+        requires = tuple(required for required in contract.requires if required in selected)
+        nodes.append(
             {
                 "node_id": node_id,
-                "status": review_status,
-                "source_path": "*.docx",
-                "validation_origin": review_origin,
+                "requires": list(requires),
+                "produces": [str((app_dir / item).resolve()) for item in contract.produces],
+                "validators": list(contract.validators),
+                "resources": list(contract.resources),
+                "invalidates": list(contract.invalidates),
+                "repair_scope": contract.repair_scope,
+                "max_attempts": contract.max_attempts,
+                "allows_external_effect": contract.allows_external_effect,
+                "contract_version": contract.version,
             }
         )
-    if review_status != "validated":
-        blockers.append(review_origin)
-    return records, blockers
+    return {
+        "run_id": run_id,
+        "application_id": application_id,
+        "nodes": nodes,
+        "edges": sorted(
+            [required, node["node_id"]]
+            for node in nodes
+            for required in node["requires"]
+        ),
+        "resource_locks": sorted(
+            {
+                resource
+                for node_id in _CV_NODES
+                for resource in CELL_CONTRACTS[node_id].resources
+            }
+        ),
+        "created_at": utc_now_iso(),
+        "contract_version": CONTRACT_VERSION,
+    }
+
+
+def _write_json_once(path: Path, payload: dict[str, Any]) -> None:
+    if path.exists():
+        if read_json(path) != payload:
+            raise RuntimeError(f"existing immutable import manifest differs: {path}")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def _persist_node_manifests(
+    app_dir: Path,
+    *,
+    application_id: str,
+    run_id: str,
+    nodes: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    outputs_by_node: dict[str, list[dict[str, Any]]] = {}
+    for node in nodes:
+        node_id = str(node["node_id"])
+        outputs: list[dict[str, Any]] = []
+        for source_name in node["source_paths"]:
+            source = app_dir / source_name
+            digest = _sha256(source)
+            artifact_manifest_path = (
+                app_dir
+                / "legacy_imports"
+                / "artifacts"
+                / node_id
+                / f"{source.name}.manifest.json"
+            )
+            artifact_manifest = {
+                "kind": "legacy_import_artifact_manifest",
+                "application_id": application_id,
+                "run_id": run_id,
+                "node_id": node_id,
+                "attempt": 1,
+                "artifact_name": source.name,
+                "path": str(source.resolve()),
+                "manifest_path": str(artifact_manifest_path.resolve()),
+                "sha256": digest,
+                "revision": digest[:12],
+                "status": node["status"],
+                "validation_origin": node["validation_origin"],
+            }
+            _write_json_once(artifact_manifest_path, artifact_manifest)
+            outputs.append(artifact_manifest)
+        attempt_path = app_dir / str(node["manifest_path"])
+        attempt_manifest = {
+            "kind": "cell_attempt_manifest",
+            "application_id": application_id,
+            "run_id": run_id,
+            "node_id": node_id,
+            "attempt": 1,
+            "contract_version": CONTRACT_VERSION,
+            "inputs": {},
+            "capabilities": {"read_paths": [], "write_paths": []},
+            "context": {
+                "migration": "legacy_import",
+                "validation_origin": node["validation_origin"],
+            },
+            "outputs": outputs,
+            "validators": [],
+            "status": node["status"],
+            "created_at": utc_now_iso(),
+            "finished_at": utc_now_iso(),
+        }
+        if node["status"] != "validated":
+            attempt_manifest["blocker"] = {
+                "reason": node["validation_origin"],
+                "repair_scope": CELL_CONTRACTS[node_id].repair_scope,
+            }
+        _write_json_once(attempt_path, attempt_manifest)
+        outputs_by_node[node_id] = outputs
+    return outputs_by_node
+
+
+def _persist_database_state(
+    database_path: Path,
+    *,
+    application_id: str,
+    run_id: str,
+    graph: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    outputs_by_node: dict[str, list[dict[str, Any]]],
+) -> None:
+    database = Database(database_path)
+    database.init_schema()
+    try:
+        existing = database.fetch_one(
+            "SELECT application_id, graph_json FROM application_runs WHERE run_id = ?",
+            (run_id,),
+        )
+        graph_json = json.dumps(graph, sort_keys=True, separators=(",", ":"), default=str)
+        if existing is not None:
+            if (
+                existing["application_id"] != application_id
+                or json.loads(existing["graph_json"]) != graph
+            ):
+                raise RuntimeError("existing imported cellular run does not match manifest")
+            return
+        now = utc_now_iso()
+        by_node = {str(item["node_id"]): item for item in nodes}
+        with database.transaction(immediate=True) as conn:
+            conn.execute(
+                """INSERT INTO application_runs
+                   (run_id, application_id, graph_json, status, contract_version,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, 'blocked', ?, ?, ?)""",
+                (run_id, application_id, graph_json, CONTRACT_VERSION, now, now),
+            )
+            for graph_node in graph["nodes"]:
+                node_id = str(graph_node["node_id"])
+                imported = by_node[node_id]
+                status = str(imported["status"])
+                conn.execute(
+                    """INSERT INTO cell_nodes
+                       (run_id, node_id, status, requires_json, latest_attempt,
+                        created_at, updated_at)
+                       VALUES (?, ?, ?, ?, 1, ?, ?)""",
+                    (
+                        run_id,
+                        node_id,
+                        status,
+                        json.dumps(graph_node["requires"], separators=(",", ":")),
+                        now,
+                        now,
+                    ),
+                )
+                conn.execute(
+                    """INSERT INTO cell_attempts
+                       (run_id, node_id, attempt, worker_id, status, created_at,
+                        finished_at, detail_json)
+                       VALUES (?, ?, 1, 'legacy-migration', ?, ?, ?, ?)""",
+                    (
+                        run_id,
+                        node_id,
+                        status,
+                        now,
+                        now,
+                        json.dumps(
+                            {
+                                "status": status,
+                                "paths": [item["path"] for item in outputs_by_node[node_id]],
+                                "hashes": {
+                                    item["path"]: item["sha256"]
+                                    for item in outputs_by_node[node_id]
+                                },
+                                "metadata": {
+                                    "validation_origin": imported["validation_origin"]
+                                },
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                    ),
+                )
+                for output in outputs_by_node[node_id]:
+                    artifact_id = hashlib.sha256(
+                        f"{run_id}\0{node_id}\0{output['path']}\0{output['sha256']}".encode(
+                            "utf-8"
+                        )
+                    ).hexdigest()
+                    conn.execute(
+                        """INSERT INTO artifacts
+                           (artifact_id, run_id, node_id, artifact_name, path,
+                            content_hash, input_hash, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, NULL, ?)""",
+                        (
+                            artifact_id,
+                            run_id,
+                            node_id,
+                            output["artifact_name"],
+                            output["path"],
+                            output["sha256"],
+                            now,
+                        ),
+                    )
+    finally:
+        database.close()
+
+
+def _default_database_path(app_dir: Path) -> Path:
+    if app_dir.parent.name == "applications_v2":
+        return app_dir.parent.parent / "career.db"
+    return app_dir.parent / "career.db"
 
 
 def migrate_application(
@@ -102,8 +410,9 @@ def migrate_application(
     *,
     application_id: str,
     dry_run: bool = False,
+    database_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Inventory legacy files without rewriting them or inventing validation."""
+    """Import legacy evidence without rewriting it or inventing validation."""
     application_id = validate_application_id(application_id)
     app_dir = Path(application_dir).resolve()
     if not app_dir.is_dir():
@@ -112,10 +421,55 @@ def migrate_application(
     sources = _legacy_sources(app_dir)
     nodes, blockers = _node_records(app_dir)
     imported_nodes = {item["node_id"]: item["status"] for item in nodes}
+    run_id = _stable_run_id(application_id, sources)
+    result = {
+        "status": "dry_run" if dry_run else "migrated",
+        "application_id": application_id,
+        "run_id": run_id,
+        "manifest_path": str(manifest_path),
+        "imported_nodes": imported_nodes,
+        "blockers": blockers,
+        "source_artifact_count": len(sources),
+    }
+    if dry_run:
+        return result
+
+    if manifest_path.exists():
+        existing = read_json(manifest_path)
+        if (
+            existing.get("application_id") != application_id
+            or existing.get("source_artifacts") != sources
+            or existing.get("run_id") != run_id
+        ):
+            raise RuntimeError(
+                "existing cellular migration manifest does not match legacy sources"
+            )
+        result["status"] = "already_migrated"
+        return result
+
+    graph = _run_graph(application_id, app_dir, run_id)
+    write_json(app_dir / "plans" / f"{run_id}.json", graph)
+    outputs_by_node = _persist_node_manifests(
+        app_dir,
+        application_id=application_id,
+        run_id=run_id,
+        nodes=nodes,
+    )
+    target_database = Path(database_path).resolve() if database_path else _default_database_path(app_dir)
+    _persist_database_state(
+        target_database,
+        application_id=application_id,
+        run_id=run_id,
+        graph=graph,
+        nodes=nodes,
+        outputs_by_node=outputs_by_node,
+    )
     payload = {
         "kind": "cellular_legacy_import_manifest",
-        "version": 1,
+        "version": 2,
         "application_id": application_id,
+        "run_id": run_id,
+        "control_db_path": str(target_database),
         "legacy_application_dir": str(app_dir),
         "source_artifacts": sources,
         "nodes": nodes,
@@ -124,32 +478,11 @@ def migrate_application(
             "source_artifacts_rewritten": False,
             "validation_fabricated": False,
             "unknown_cv_review": "blocked",
+            "objective_hash_chain_required": True,
         },
         "created_at": utc_now_iso(),
     }
-    result = {
-        "status": "dry_run" if dry_run else "migrated",
-        "application_id": application_id,
-        "manifest_path": str(manifest_path),
-        "imported_nodes": imported_nodes,
-        "blockers": blockers,
-        "source_artifact_count": len(sources),
-    }
-    if dry_run:
-        return result
-    if manifest_path.exists():
-        existing = read_json(manifest_path)
-        if (
-            existing.get("application_id") != application_id
-            or existing.get("source_artifacts") != sources
-        ):
-            raise RuntimeError("existing cellular migration manifest does not match legacy sources")
-        result["status"] = "already_migrated"
-        return result
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("x", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-        handle.write("\n")
+    _write_json_once(manifest_path, payload)
     return result
 
 
@@ -157,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--application-id", required=True)
     parser.add_argument("--application-dir")
+    parser.add_argument("--database-path")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     application_dir = Path(args.application_dir) if args.application_dir else (
@@ -168,6 +502,7 @@ def main(argv: list[str] | None = None) -> int:
                 application_dir,
                 application_id=args.application_id,
                 dry_run=args.dry_run,
+                database_path=args.database_path,
             ),
             ensure_ascii=False,
         )
