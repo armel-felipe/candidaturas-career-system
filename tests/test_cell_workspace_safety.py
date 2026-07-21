@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from career.cells.executor import CellExecutor
+from career.cells.handlers import CellOutput, ValidatorResult
 from career import cli
 from career.services import applications_v2, derived_context, multiagent
 from career.services.application_context import WorkspaceLease
 from career.services.database import Database
 from career.services.harness_runs import allowed_outputs_from_request
+from career.services.harness_supervisor import HarnessSupervisor
 from career.utils import ValidationFailure, write_json
 
 
@@ -64,6 +68,26 @@ def test_expired_workspace_takeover_records_prior_owner_and_expiry(db):
     }
 
 
+def test_expired_workspace_reacquire_records_takeover_even_for_same_owner(db):
+    lease = WorkspaceLease(db)
+    assert lease.acquire("rpi5", ttl_seconds=60) is True
+    expired_at = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+    db.execute(
+        "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
+        (expired_at, WorkspaceLease.LEASE_NAME),
+    )
+
+    assert lease.acquire("rpi5", ttl_seconds=60) is True
+    assert db.fetch_one(
+        "SELECT prior_owner, prior_expires_at, new_owner "
+        "FROM workspace_lease_takeovers ORDER BY id DESC LIMIT 1"
+    ) == {
+        "prior_owner": "rpi5",
+        "prior_expires_at": expired_at,
+        "new_owner": "rpi5",
+    }
+
+
 def test_cell_executor_renews_one_workspace_owner_and_blocks_a_second(db, tmp_path):
     applications_root = tmp_path / "applications"
     rpi = CellExecutor(
@@ -84,6 +108,81 @@ def test_cell_executor_renews_one_workspace_owner_and_blocks_a_second(db, tmp_pa
     assert second.application_id == "app-b"
     with pytest.raises(RuntimeError, match="workspace lease"):
         mac.plan("app-c", {"feras"})
+
+
+def test_cell_executor_keeps_workspace_lease_alive_during_a_long_handler(
+    tmp_path,
+):
+    database_path = tmp_path / "career.db"
+    database = Database(database_path)
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text(
+        "# Operations Lead\n\nLead operations, planning, data and governance.\n",
+        encoding="utf-8",
+    )
+    write_json(
+        paths.identity,
+        {
+            "kind": "application_identity",
+            "application_id": "app-a",
+            "company": "Acme",
+            "role": "Operations Lead",
+        },
+    )
+    started = threading.Event()
+    contender_result: list[bool] = []
+
+    def slow_normalize(_context):
+        started.set()
+        time.sleep(1.4)
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": b"{}",
+                "handover_summary.json": b"{}",
+                "evidence_index.json": b"{}",
+            }
+        )
+
+    def pass_validator(context, _output):
+        report = context.paths.reviews_dir / "keepalive.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("{}", encoding="utf-8")
+        return ValidatorResult.passed(context.validator_command, report)
+
+    def contend_after_original_expiry():
+        assert started.wait(timeout=2)
+        time.sleep(1.05)
+        contender_db = Database(database_path)
+        contender_db.init_schema()
+        try:
+            contender_result.append(
+                WorkspaceLease(contender_db).acquire("macbook", ttl_seconds=1)
+            )
+        finally:
+            contender_db.close()
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"normalize_job": slow_normalize},
+        validators={"context:validate": pass_validator},
+        workspace_owner="rpi5",
+        lease_seconds=1,
+    )
+    plan = executor.plan("app-a", {"cv"})
+    contender = threading.Thread(target=contend_after_original_expiry)
+    contender.start()
+    try:
+        result = executor.run_ready(plan.run_id)
+    finally:
+        contender.join(timeout=3)
+        database.close()
+
+    assert result[0].status == "validated"
+    assert contender_result == [False]
 
 
 def test_cellular_multiagent_request_requires_complete_identity_and_never_configures_globals(
@@ -271,6 +370,37 @@ def test_harness_uses_the_cellular_write_allowlist_without_global_patterns(tmp_p
     )
 
     assert allowed_outputs_from_request(request, tmp_path) == [output.resolve()]
+
+
+def test_cellular_request_rules_never_direct_the_agent_to_global_state(tmp_path):
+    context = {
+        "cellular": True,
+        "application_id": "app-a",
+        "run_id": "run-a",
+        "node_id": "analyze_fit",
+        "manifest_path": str(tmp_path / "manifest.json"),
+        "read_allowlist": [str(tmp_path / "inputs")],
+        "write_allowlist": [str(tmp_path / "staging")],
+    }
+
+    rules = multiagent.cellular_operational_rules(context)
+
+    joined = "\n".join(rules)
+    assert "application_id=app-a" in joined
+    assert "run_id=run-a" in joined
+    assert "node_id=analyze_fit" in joined
+    assert ".career-state/fit_map.json" not in joined
+    assert "configure_" not in joined
+    assert "global" in joined.casefold()
+
+
+def test_cellular_fit_map_specialist_never_runs_the_legacy_global_postprocess():
+    assert HarnessSupervisor.should_auto_finalize_fit_map(
+        step="fit-map", status="completed", enabled=True, cellular=True
+    ) is False
+    assert HarnessSupervisor.should_auto_finalize_fit_map(
+        step="fit-map", status="completed", enabled=True, cellular=False
+    ) is True
 
 
 def test_canonical_operational_docs_lock_down_cellular_handover_and_no_fallback():

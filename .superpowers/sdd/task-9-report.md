@@ -21,14 +21,15 @@ Implementation and objective validation complete; broad review follows this impl
 - Heartbeat RED: 2 failures for missing cellular/default-vs-legacy behavior.
 - Harness allowlist RED: 1 failure because cellular `write_allowlist` was not consumed.
 - Documentation RED: canonical rule assertion failed before the docs were edited.
-- Final focused GREEN: `15 passed`.
+- Hardening RED: 6 failures covering same-owner expired takeover audit, long-handler keepalive, cellular-only rules/global postprocess, and observed external-lock contention.
+- Final focused GREEN: `19 passed`.
 
 ## Validation evidence
 
-- `pytest tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py -q` → `15 passed`.
-- `pytest -q` → `218 passed`.
+- `pytest tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py -q` → `19 passed`.
+- `pytest -q` → `222 passed`.
 - `./scripts/python.sh scripts/career_cli.py project validate-structure` → `Project structure validation passed.`
-- `applications verify-parallel --fixture-dir <tmp>` → `status=validated`, 2 subprocesses, distinct fingerprints/manifests, no crossed paths, external locks serialized.
+- `applications verify-parallel --fixture-dir <tmp>` → `status=validated`, 2 subprocesses, distinct fingerprints/manifests, no crossed paths, real contention observed, external locks serialized.
 - `npm run runtime:diagnose` → exit 0 and report at `outputs/_tmp/runtime_diagnosis.json`; no cellular blocker. Environment inventory still reports LibreOffice unavailable and two pre-existing large reference files.
 - No real Notion, Gmail, LinkedIn, OneDrive, or other external writes were executed. `.inbox/` was not changed.
 

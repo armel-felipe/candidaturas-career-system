@@ -40,6 +40,7 @@ def test_two_processes_complete_separate_normalization_cells(tmp_path):
         "external_lock_entered_at"
     ]
     assert {item["external_resource"] for item in results} == {"notion-write"}
+    assert sum(item["external_lock_contention_count"] for item in results) >= 1
 
 
 def test_verify_parallel_cli_uses_fixture_directory_and_returns_proof(
@@ -66,6 +67,7 @@ def test_verify_parallel_cli_uses_fixture_directory_and_returns_proof(
     assert payload["distinct_manifests"] is True
     assert payload["crossed_paths"] == []
     assert payload["external_locks_serialized"] is True
+    assert payload["external_lock_contention_observed"] is True
 
 
 def test_package_exposes_cellular_migration_and_parallel_verification_aliases():

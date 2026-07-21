@@ -26,11 +26,11 @@ Atualizado em: 2026-07-21 — gate final aprovado
 
 ## Gate da Fatia E
 
-- `pytest tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py -q`: 15 testes focados.
-- `pytest -q`: suíte completa obrigatória da Task 9.
+- `pytest tests/test_cell_workspace_safety.py tests/test_cell_migration.py tests/test_cell_parallel_integration.py -q`: 19 testes focados aprovados.
+- `pytest -q`: 222 testes aprovados na suíte completa.
 - `./scripts/python.sh scripts/career_cli.py project validate-structure`: estrutura canônica aprovada.
 - `npm run runtime:diagnose`: diagnóstico produzido em `outputs/_tmp/runtime_diagnosis.json`; sem finding celular bloqueante.
-- `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado e lock `notion-write` serializado.
+- `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado, contenção observada e lock `notion-write` serializado.
 - Cobertura confirmada: uma única cópia autoritativa do workspace, handoff MacBook/RPi5 por lease, múltiplas candidaturas sob o mesmo dono, migração sem aprovação fabricada e proibição de fallback global em células.
 
 ## Encerramento das fatias

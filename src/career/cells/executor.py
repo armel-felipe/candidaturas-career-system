@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -457,7 +459,28 @@ class CellExecutor:
                         attempt_record=attempt_record,
                     )
             try:
-                output = handler(context)
+                with self._execution_keepalive(
+                    plan.run_id,
+                    node.node_id,
+                    attempt,
+                    acquired_resources,
+                ) as keepalive:
+                    output = handler(context)
+                if keepalive["failure"]:
+                    failure = str(keepalive["failure"])
+                    if failure == "node_lease_expired":
+                        return self._cancel_expired_execution(
+                            paths, node, reservation, attempt_record.path
+                        )
+                    return self._block_reserved(
+                        paths,
+                        node,
+                        reservation,
+                        failure,
+                        (),
+                        (),
+                        attempt_record=attempt_record,
+                    )
             except Exception as exc:
                 return self._block_reserved(
                     paths,
@@ -756,6 +779,75 @@ class CellExecutor:
             if not renewed["renewed"]:
                 return f"resource_lease_expired:{lock['resource_name']}"
         return None
+
+    @contextmanager
+    def _execution_keepalive(
+        self,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        resource_locks: Iterable[Mapping[str, Any]],
+    ):
+        """Renew workspace, node, and resource fences during long handlers."""
+        state: dict[str, str | None] = {"failure": None}
+        stop = threading.Event()
+        locks = tuple(dict(item) for item in resource_locks)
+        interval = max(min(self.lease_seconds / 3, 30.0), 0.1)
+
+        def heartbeat() -> None:
+            database = Database(self.database.db_path)
+            try:
+                database.init_schema()
+                store = CellStore(database)
+                workspace = WorkspaceLease(
+                    database, default_ttl_seconds=self.lease_seconds
+                )
+                while not stop.wait(interval):
+                    if not workspace.heartbeat(
+                        self.workspace_owner, ttl_seconds=self.lease_seconds
+                    ):
+                        state["failure"] = "workspace_lease_expired"
+                        return
+                    node_lease = store.renew_node_reservation(
+                        run_id,
+                        node_id,
+                        attempt,
+                        self.worker_id,
+                        lease_seconds=self.lease_seconds,
+                    )
+                    if not node_lease["renewed"]:
+                        state["failure"] = "node_lease_expired"
+                        return
+                    for lock in locks:
+                        renewed = store.renew_resource_lock(
+                            str(lock["resource_name"]),
+                            self.worker_id,
+                            str(lock["lease_id"]),
+                            lease_seconds=self.lease_seconds,
+                        )
+                        if not renewed["renewed"]:
+                            state["failure"] = (
+                                f"resource_lease_expired:{lock['resource_name']}"
+                            )
+                            return
+            except BaseException as exc:
+                state["failure"] = f"lease_heartbeat_error:{type(exc).__name__}:{exc}"
+            finally:
+                database.close()
+
+        thread = threading.Thread(
+            target=heartbeat,
+            name=f"cell-lease-{run_id}-{node_id}-{attempt}",
+            daemon=True,
+        )
+        thread.start()
+        try:
+            yield state
+        finally:
+            stop.set()
+            thread.join(timeout=max(interval * 2, 1.0))
+            if thread.is_alive() and state["failure"] is None:
+                state["failure"] = "lease_heartbeat_did_not_stop"
 
     def _stage_output(
         self, context: CellExecutionContext, output: CellOutput

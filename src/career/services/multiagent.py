@@ -20,6 +20,7 @@ __all__ = [
     "LOCAL_MODEL_TRIGGER_MAP",
     "write_request",
     "validate_cellular_request_context",
+    "cellular_operational_rules",
     "validate_request",
     "write_runbook",
     "write_local_model_map",
@@ -279,6 +280,22 @@ def validate_cellular_request_context(
     }
 
 
+def cellular_operational_rules(context: dict[str, Any]) -> list[str]:
+    """Return a cell-only contract with no legacy/global path instructions."""
+    return [
+        (
+            "Preserve cell identity exactly: "
+            f"application_id={context['application_id']}, "
+            f"run_id={context['run_id']}, node_id={context['node_id']}."
+        ),
+        f"Read the immutable attempt manifest first: {context['manifest_path']}.",
+        "Read only paths in read_allowlist and write only paths in write_allowlist.",
+        "Do not use global active state, session memory, or legacy compatibility paths.",
+        "If identity, manifest, or allowlists are missing or inconsistent, return blocked instead of falling back.",
+        "Persist a compact handover in the attempt and report only paths, hashes, validation status, and blocker reason.",
+    ]
+
+
 def write_request(step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None) -> dict[str, Any]:
     contract = CONTRACTS.get(step)
     if not contract:
@@ -346,12 +363,16 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
             if cellular_context
             else _derived_context_payload(contract)
         ),
-        "allowed_commands": list(contract.allowed_commands),
+        "allowed_commands": [] if cellular_context else list(contract.allowed_commands),
         "expected_outputs": cellular_context["write_allowlist"] if cellular_context else list(contract.expected_outputs),
         "forbidden_actions": list(contract.forbidden_actions),
         "validation_commands": list(contract.validation_commands),
-        "operational_rules": _operational_rules(contract),
-        "non_stop_contract": _non_stop_contract(contract),
+        "operational_rules": cellular_operational_rules(cellular_context) if cellular_context else _operational_rules(contract),
+        "non_stop_contract": (
+            ["Complete only this cell node; never continue into another node or a legacy/global pipeline."]
+            if cellular_context
+            else _non_stop_contract(contract)
+        ),
         "completion_contract": {
             "status_values": ["completed", "blocked"],
             "must_report": [

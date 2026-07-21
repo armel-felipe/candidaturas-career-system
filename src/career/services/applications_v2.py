@@ -2277,8 +2277,19 @@ def _run_parallel_fixture_worker(
     write_text(paths.job_description, _parallel_fixture_job(application_id))
     worker_id = f"parallel-{application_id}-{os.getpid()}"
     store = CellStore(database)
+    ready_marker = fixture_dir / f"{application_id}-ready"
+    ready_marker.write_text(str(os.getpid()), encoding="utf-8")
+    ready_deadline = time.monotonic() + 10
+    while time.monotonic() < ready_deadline:
+        if len(list(fixture_dir.glob("*-ready"))) >= 2:
+            break
+        time.sleep(0.01)
+    else:
+        database.close()
+        raise RuntimeError("parallel fixture workers did not reach the contention barrier")
     deadline = time.monotonic() + 15
     lock: dict[str, Any] | None = None
+    contention_count = 0
     while time.monotonic() < deadline:
         candidate = store.acquire_resource_lock(
             "notion-write", worker_id, lease_seconds=5
@@ -2286,12 +2297,13 @@ def _run_parallel_fixture_worker(
         if candidate["acquired"]:
             lock = candidate
             break
+        contention_count += 1
         time.sleep(0.02)
     if lock is None:
         database.close()
         raise RuntimeError("parallel fixture could not acquire declared external lock")
     entered_at = time.time_ns()
-    time.sleep(0.12)
+    time.sleep(0.2)
     released_at = time.time_ns()
     released = store.release_resource_lock(
         "notion-write", worker_id, lease_id=str(lock["lease_id"])
@@ -2331,6 +2343,7 @@ def _run_parallel_fixture_worker(
         "external_resource": "notion-write",
         "external_lock_entered_at": entered_at,
         "external_lock_released_at": released_at,
+        "external_lock_contention_count": contention_count,
     }
     write_json(result_path, payload)
     database.close()
@@ -2418,6 +2431,9 @@ def parallel_verification_report(fixture_dir: str | Path) -> dict[str, Any]:
         and ordered[0]["external_lock_released_at"]
         <= ordered[1]["external_lock_entered_at"]
     )
+    contention_observed = sum(
+        int(item.get("external_lock_contention_count") or 0) for item in results
+    ) >= 1
     valid = (
         len(results) == 2
         and {item["status"] for item in results} == {"validated"}
@@ -2425,6 +2441,7 @@ def parallel_verification_report(fixture_dir: str | Path) -> dict[str, Any]:
         and len(manifests) == 2
         and not crossed_paths
         and serialized
+        and contention_observed
     )
     return {
         "status": "validated" if valid else "blocked",
@@ -2433,6 +2450,7 @@ def parallel_verification_report(fixture_dir: str | Path) -> dict[str, Any]:
         "distinct_manifests": len(manifests) == 2,
         "crossed_paths": crossed_paths,
         "external_locks_serialized": serialized,
+        "external_lock_contention_observed": contention_observed,
         "results": results,
     }
 

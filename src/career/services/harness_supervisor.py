@@ -393,7 +393,12 @@ class HarnessSupervisor:
             payload["blocker_reason"] = "specialist_produced_no_allowed_output"
         elif step in {"notion-update", "email-draft"}:
             status = "awaiting_approval"
-        if step == "fit-map" and status == "completed" and self._fit_map_auto_finalize_enabled():
+        if self.should_auto_finalize_fit_map(
+            step=step,
+            status=status,
+            enabled=self._fit_map_auto_finalize_enabled(),
+            cellular=bool(cellular_context),
+        ):
             postprocess = self._finalize_fit_map_pipeline()
             payload["postprocess"] = postprocess
             if postprocess.get("status") != "completed":
@@ -407,6 +412,12 @@ class HarnessSupervisor:
                 if status == "blocked":
                     payload["blocker_reason"] = str(auto_execution.get("blocker_reason") or "approved_action_auto_execution_failed")
         return {**prepared, "status": status, "execution": payload}
+
+    @staticmethod
+    def should_auto_finalize_fit_map(
+        *, step: str, status: str, enabled: bool, cellular: bool
+    ) -> bool:
+        return step == "fit-map" and status == "completed" and enabled and not cellular
 
     def handle_message(self, message: str, *, channel: str = "cli", execute: bool = False, max_per_run: int | None = None, model: str | None = None, variant: str | None = None, runtime_context: dict[str, Any] | None = None) -> dict[str, Any]:
         user_message = message

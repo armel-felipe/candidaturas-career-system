@@ -75,19 +75,18 @@ class WorkspaceLease:
                 return True
             if current_expiry > now:
                 return False
-            if current_owner != owner:
-                conn.execute(
-                    """INSERT INTO workspace_lease_takeovers
-                       (lease_name, prior_owner, prior_expires_at, new_owner, taken_over_at)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (
-                        self.lease_name,
-                        current_owner,
-                        current_expiry,
-                        owner,
-                        now,
-                    ),
-                )
+            conn.execute(
+                """INSERT INTO workspace_lease_takeovers
+                   (lease_name, prior_owner, prior_expires_at, new_owner, taken_over_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    self.lease_name,
+                    current_owner,
+                    current_expiry,
+                    owner,
+                    now,
+                ),
+            )
             conn.execute(
                 """UPDATE workspace_leases
                    SET worker_id = ?, run_id = NULL, acquired_at = ?, expires_at = ?
