@@ -271,10 +271,11 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
     _artifact_raw, artifact_path, artifact_hash = _read_input(context, "cv.docx")
     _fit_raw, fit_map_path, fit_map_hash = _read_input(context, "fit_map.json")
     registry_path = context.staging_dir / "keyword_ats_registry.json"
-    report_path = context.paths.reviews_dir / "cv_review.json"
-    polish_path = context.paths.reviews_dir / "polish_review.json"
-    approval_path = context.paths.reviews_dir / "cv_approved_artifact.json"
-    for path in (registry_path, report_path, polish_path, approval_path):
+    # Review intermediates are attempt-local; immutable CellOutput bytes are
+    # the only review/approval records published by this node.
+    report_path = context.staging_dir / "cv_review.json"
+    polish_path = context.staging_dir / "polish_review.json"
+    for path in (registry_path, report_path, polish_path):
         context.capabilities.assert_writable(path)
     try:
         report = review_service.approve_cv(
@@ -298,12 +299,11 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
         "review_report_sha256": hashlib.sha256(report_bytes).hexdigest(),
         "approved_for_delivery": bool(report.get("approved_for_delivery")),
     }
-    write_json(approval_path, approval_manifest)
     return CellOutput(
         artifacts={
             "cv_review.json": report_bytes,
             "polish_review.json": polish_path.read_bytes(),
-            "cv_approved_artifact.json": _json_bytes(approval_manifest),
+            "approved_cv_manifest.json": _json_bytes(approval_manifest),
             "keyword_ats_registry.json": registry_path.read_bytes(),
         },
         handover={"kind": "cv_review_handover", **approval_manifest},
@@ -508,12 +508,9 @@ def _validate_cv_review(
         report = _artifact_json(output, "cv_review.json")
         artifact_raw, artifact_path, artifact_hash = _read_input(context, "cv.docx")
         _fit_raw, fit_map_path, fit_map_hash = _read_input(context, "fit_map.json")
-        approval_path = context.paths.reviews_dir / "cv_approved_artifact.json"
+        approval = _artifact_json(output, "approved_cv_manifest.json")
         if not report.get("approved_for_delivery"):
             raise ValueError("objective review did not approve the DOCX")
-        if not approval_path.is_file():
-            raise ValueError("approved artifact manifest is missing")
-        approval = read_json(approval_path)
         if approval.get("application_id") != context.application_id:
             raise ValueError("approved artifact manifest belongs to another application")
         if approval.get("artifact_path") != str(artifact_path) or approval.get("artifact_sha256") != artifact_hash:

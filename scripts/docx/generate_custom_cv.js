@@ -161,7 +161,10 @@ async function main() {
   if (applicationId && cv?.metadata?.application_id && cv.metadata.application_id !== applicationId) {
     throw new Error("cv_content.metadata.application_id does not match the requested application");
   }
-  const outputName = outputNameOverride || cv.output_name || "felipe_armel_cv.docx";
+  const outputName = outputNameOverride || cv.output_name;
+  if (!outputName) {
+    throw new Error("cv content must declare an explicit output filename");
+  }
   if (path.basename(outputName) !== outputName) {
     throw new Error("output name must be a single filename");
   }

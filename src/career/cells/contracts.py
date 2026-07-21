@@ -107,7 +107,7 @@ CELL_CONTRACTS: dict[str, CellContract] = {
         produces=(
             "reviews/cv_review.json",
             "reviews/polish_review.json",
-            "reviews/cv_approved_artifact.json",
+            "reviews/approved_cv_manifest.json",
             "reviews/keyword_ats_registry.json",
         ),
         validators=("cv:approve",),

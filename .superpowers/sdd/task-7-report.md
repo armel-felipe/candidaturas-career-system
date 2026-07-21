@@ -34,3 +34,30 @@ Validation executed after remediation:
 - `pytest tests/test_cell_cv_pipeline.py tests/test_custom_cv_generation.py -q --maxfail=1` — 8 passed
 - `pytest -q` — 175 passed
 - `git diff --check` — passed
+
+### Second review remediation
+
+Canonical CV provenance now binds each rendered claim to a revision-pinned source
+with an opaque evidence ID, claim kind, exact source locator and SHA-256 of the
+rendered value. Validation rejects changes to role, period, bullet, education,
+language, stack and every contact field, while also checking canonical source
+bytes and the candidate-facts revision.
+
+The review cell publishes `cv_review.json` and `approved_cv_manifest.json` as
+the same immutable CellOutput set. The validator consumes those output bytes
+directly; mutable application-level review and approval files are no longer
+used. Cellular review acceptance now requires a full render-CV artifact manifest
+identity, revision/path/hash self-consistency and a persisted passing DOCX
+validator record.
+
+The dual-application regression uses a render barrier to prove overlap and
+checks both rendered DOCX documents for isolated role, period, education,
+language and stack content. Renderer output filenames are required explicitly;
+there is no candidate-specific fallback filename.
+
+Validation executed after second remediation:
+
+- `pytest tests/test_custom_cv_generation.py tests/test_cell_cv_pipeline.py tests/test_review_output_cellular_artifact.py -q --maxfail=1` — 10 passed
+- `pytest -q` — 177 passed
+- `python3 scripts/docx/validate_docx.py <published cellular CV>` — passed
+- `git diff --check` — passed

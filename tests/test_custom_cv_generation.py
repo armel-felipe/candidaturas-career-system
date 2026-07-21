@@ -115,6 +115,23 @@ def test_renderer_rejects_ascending_experience_order(tmp_path):
         render_cv(payload, tmp_path)
 
 
+def test_renderer_requires_explicit_output_filename(tmp_path):
+    payload = english_payload()
+    payload.pop("output_name")
+    content_path = tmp_path / "cv_content.json"
+    content_path.write_text(json.dumps(payload), encoding="utf-8")
+    env = {**os.environ, "CAREER_CV_CONTENT": str(content_path), "CAREER_OUTPUTS": str(tmp_path)}
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run(
+            ["node", "scripts/docx/generate_custom_cv.js"],
+            cwd=ROOT,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
 def test_renderer_applies_arial_theme(tmp_path):
     payload = english_payload()
     render_cv(payload, tmp_path)

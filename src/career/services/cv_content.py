@@ -812,8 +812,8 @@ def _slug(text: str) -> str:
 
 
 def _evidence_id(experience_id: str, claim: str) -> str:
-    """Stable candidate-facts pointer for a selected CV claim."""
-    return f"candidate_facts:{experience_id}:{claim}"
+    """Legacy placeholder replaced by canonical binding during payload assembly."""
+    return f"unbound:{experience_id}:{claim}"
 
 
 def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
@@ -832,55 +832,84 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
         for name, path in sources.items()
     }
 
-    def evidence_id(source: str, locator: str) -> str:
-        return hashlib.sha256(f"{revision}\0{source}\0{locator}".encode("utf-8")).hexdigest()
+    def value_hash(value: Any) -> str:
+        return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+    def evidence_id(source: str, kind: str, locator: str, value: Any) -> str:
+        return hashlib.sha256(
+            f"{revision}\0{source}\0{kind}\0{locator}\0{value_hash(value)}".encode("utf-8")
+        ).hexdigest()
 
     evidence: dict[str, dict[str, str]] = {}
 
-    def bind(source: str, claim: str, locator: str) -> str:
+    def bind(source: str, kind: str, locator: str, value: Any) -> str:
         # A claim can only be published when its locator resolves in the
         # revision-pinned canonical source.  The opaque ID protects callers
         # from treating labels as proof while preserving auditability.
-        if _normalize(locator) not in source_text[source]:
-            raise ValidationFailure(f"canonical evidence locator is absent: {source}/{claim}")
-        item_id = evidence_id(source, locator)
-        evidence[item_id] = {"source": source, "claim": claim, "locator": locator}
+        if _normalize(locator.split("::", 1)[0]) not in source_text[source]:
+            raise ValidationFailure(f"canonical evidence locator is absent: {source}/{kind}")
+        item_id = evidence_id(source, kind, locator, value)
+        evidence[item_id] = {
+            "source": source,
+            "kind": kind,
+            "locator": locator,
+            "value_sha256": value_hash(value),
+        }
         return item_id
 
     for experience in payload["experiences"]:
         experience_id = str(experience["experience_id"])
         locator = _experience_source_locator(experience_id)
-        experience["evidence_id"] = bind("self_knowledge", f"{experience_id}:experience", locator)
+        experience["evidence_id"] = bind("self_knowledge", "experience", locator, experience_id)
+        experience["provenance"] = {
+            "role": bind("self_knowledge", "experience_role", locator, experience["role"]),
+            "company": bind("self_knowledge", "experience_company", locator, experience["company"]),
+            "period": bind("self_knowledge", "experience_period", locator, experience["period"]),
+        }
         for index, bullet in enumerate(experience["bullets"]):
-            bullet["evidence_id"] = bind("self_knowledge", f"{experience_id}:bullet:{index}", locator)
+            bullet["evidence_id"] = bind(
+                "self_knowledge", "experience_bullet", f"{locator}::{index}", bullet["text"]
+            )
     for experience in payload["experiencias"]:
         experience_id = str(experience["experience_id"])
-        experience["evidence_id"] = bind("self_knowledge", f"{experience_id}:experience", _experience_source_locator(experience_id))
+        locator = _experience_source_locator(experience_id)
+        experience["evidence_id"] = bind("self_knowledge", "experience_pt", locator, experience_id)
+        experience["provenance"] = {
+            "cargo": bind("self_knowledge", "experience_role_pt", locator, experience["cargo"]),
+            "empresa": bind("self_knowledge", "experience_company_pt", locator, experience["empresa"]),
+            "periodo": bind("self_knowledge", "experience_period_pt", locator, experience["periodo"]),
+            "bullets": [
+                bind("self_knowledge", "experience_bullet_pt", f"{locator}::{index}", bullet)
+                for index, bullet in enumerate(experience["bullets"])
+            ],
+        }
     for mapping in payload["ats_keyword_coverage"]:
         experience_id = str(mapping["experience_id"])
         mapping["evidence_id"] = bind(
             "self_knowledge",
-            f"{experience_id}:bullet:{mapping['bullet_index']}",
+            "ats_evidence",
             _experience_source_locator(experience_id),
+            mapping["defensible_evidence"],
         )
     for support in payload["summary_support"]:
         experience_id = str(support["experience_id"])
         support["evidence_id"] = bind(
             "self_knowledge",
-            f"{experience_id}:bullet:{support['bullet_index']}",
+            "summary_evidence",
             _experience_source_locator(experience_id),
+            support["defensible_evidence"],
         )
     education_evidence = []
     for index, _ in enumerate(payload["education"]):
         source, locator = _education_source_locator(index)
-        education_evidence.append(bind(source, f"education:{index}", locator))
+        education_evidence.append(bind(source, "education", locator, payload["education"][index]))
     payload["claim_provenance"] = {
         "summary": [item["evidence_id"] for item in payload["summary_support"]],
         "education": education_evidence,
-        "languages": [bind("profile", f"language:{index}", "Idiomas:") for index, _ in enumerate(payload["languages"])],
-        "stack": bind("profile", "technical_stack", "Stack técnica:"),
+        "languages": [bind("profile", "language", "Idiomas:", value) for value in payload["languages"]],
+        "stack": bind("profile", "technical_stack", "Stack técnica:", payload["stack"]),
         "candidate": {
-            key: bind("profile", f"candidate:{key}", value)
+            key: bind("profile", f"candidate_{key}", value, value)
             for key, value in payload["candidate"].items()
         },
     }
@@ -912,20 +941,54 @@ def validate_canonical_provenance(payload: dict[str, Any]) -> None:
         if not isinstance(path_record, dict):
             raise ValidationFailure("CV evidence references an unknown canonical source")
         source_path = Path(str(path_record.get("path") or ""))
-        if not locator or _normalize(locator) not in _normalize(source_path.read_text(encoding="utf-8")):
+        if (
+            not locator
+            or not str(item.get("kind") or "")
+            or not str(item.get("value_sha256") or "")
+            or _normalize(locator.split("::", 1)[0]) not in _normalize(source_path.read_text(encoding="utf-8"))
+        ):
             raise ValidationFailure("CV evidence locator cannot be resolved")
     required: list[str] = []
+    def require(item_id: Any, kind: str, value: Any) -> None:
+        item_id = str(item_id or "")
+        required.append(item_id)
+        record = evidence.get(item_id)
+        if not isinstance(record, dict) or record.get("kind") != kind:
+            raise ValidationFailure("CV evidence kind cannot be resolved")
+        if record.get("value_sha256") != hashlib.sha256(str(value).encode("utf-8")).hexdigest():
+            raise ValidationFailure("CV evidence value hash mismatch")
+
     for experience in payload.get("experiences", []):
-        required.append(str(experience.get("evidence_id") or ""))
-        required.extend(str(bullet.get("evidence_id") or "") for bullet in experience.get("bullets", []))
+        require(experience.get("evidence_id"), "experience", experience.get("experience_id"))
+        provenance = experience.get("provenance") if isinstance(experience.get("provenance"), dict) else {}
+        for key in ("role", "company", "period"):
+            require(provenance.get(key), f"experience_{key}", experience.get(key))
+        for bullet in experience.get("bullets", []):
+            require(bullet.get("evidence_id"), "experience_bullet", bullet.get("text"))
+    for experience in payload.get("experiencias", []):
+        require(experience.get("evidence_id"), "experience_pt", experience.get("experience_id"))
+        provenance = experience.get("provenance") if isinstance(experience.get("provenance"), dict) else {}
+        pt_kinds = {
+            "cargo": "experience_role_pt",
+            "empresa": "experience_company_pt",
+            "periodo": "experience_period_pt",
+        }
+        for key, kind in pt_kinds.items():
+            require(provenance.get(key), kind, experience.get(key))
+        for item_id, bullet in zip(provenance.get("bullets", []), experience.get("bullets", []), strict=True):
+            require(item_id, "experience_bullet_pt", bullet)
     for mapping in payload.get("ats_keyword_coverage", []):
-        required.append(str(mapping.get("evidence_id") or ""))
-    required.extend(str(item.get("evidence_id") or "") for item in payload.get("summary_support", []))
+        require(mapping.get("evidence_id"), "ats_evidence", mapping.get("defensible_evidence"))
+    for item in payload.get("summary_support", []):
+        require(item.get("evidence_id"), "summary_evidence", item.get("defensible_evidence"))
     claims = payload.get("claim_provenance") if isinstance(payload.get("claim_provenance"), dict) else {}
-    for key in ("summary", "education", "languages"):
-        required.extend(str(item) for item in claims.get(key, []))
-    required.append(str(claims.get("stack") or ""))
-    required.extend(str(item) for item in (claims.get("candidate") or {}).values())
+    for item_id, value in zip(claims.get("education", []), payload.get("education", []), strict=True):
+        require(item_id, "education", value)
+    for item_id, value in zip(claims.get("languages", []), payload.get("languages", []), strict=True):
+        require(item_id, "language", value)
+    require(claims.get("stack"), "technical_stack", payload.get("stack"))
+    for key, value in payload.get("candidate", {}).items():
+        require((claims.get("candidate") or {}).get(key), f"candidate_{key}", value)
     if not required or any(item not in evidence for item in required):
         raise ValidationFailure("CV evidence ID cannot be resolved against canonical facts")
 

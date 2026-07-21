@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import zipfile
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, Lock
 from xml.etree import ElementTree
+
+import pytest
 
 from career.cells import handlers as cell_handlers
 from career.cells.executor import CellExecutor
@@ -12,6 +17,7 @@ from career.services import cv_content
 from career.services.application_context import paths_for
 from career.services.database import Database
 from career.utils import read_json, write_json
+from career.utils import ValidationFailure
 
 
 def _docx_text(path: Path) -> str:
@@ -172,12 +178,26 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
     try:
         first_plan = executor.plan(first.application_id, {"cv"})
         second_plan = executor.plan(second.application_id, {"cv"})
+        render_barrier = Barrier(2)
+        render_lock = Lock()
+        render_entries: list[str] = []
+
         def run_isolated(plan):
             worker_database = Database(database.db_path)
+            handlers = cell_handlers.production_handler_registry()
+            base_render = handlers["render_cv"]
+
+            def synchronized_render(context):
+                with render_lock:
+                    render_entries.append(context.application_id)
+                render_barrier.wait(timeout=10)
+                return base_render(context)
+
+            handlers["render_cv"] = synchronized_render
             worker = CellExecutor(
                 worker_database,
                 applications_root=applications_root,
-                handlers=cell_handlers.production_handler_registry(),
+                handlers=handlers,
                 validators=cell_handlers.production_validator_registry(),
             )
             try:
@@ -191,6 +211,9 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
             first_result = first_future.result()
             second_result = second_future.result()
 
+        assert set(render_entries) == {first.application_id, second.application_id}
+        assert not render_barrier.broken
+
         first_manifest = read_json(first_result.manifest_path)
         second_manifest = read_json(second_result.manifest_path)
         first_artifact = Path(first_manifest["inputs"]["render_cv:cv.docx"]["path"])
@@ -198,6 +221,16 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
         assert first_artifact != second_artifact
         assert first_manifest["application_id"] != second_manifest["application_id"]
         assert first_manifest["inputs"]["render_cv:cv.docx"]["sha256"] != second_manifest["inputs"]["render_cv:cv.docx"]["sha256"]
+        for manifest, artifact in ((first_manifest, first_artifact), (second_manifest, second_artifact)):
+            outputs = {item["artifact_name"]: item for item in manifest["outputs"]}
+            assert {"cv_review.json", "approved_cv_manifest.json"} <= set(outputs)
+            report_path = Path(outputs["cv_review.json"]["path"])
+            report = read_json(report_path)
+            approval = read_json(Path(outputs["approved_cv_manifest.json"]["path"]))
+            assert approval["review_report_artifact"] == "cv_review.json"
+            assert approval["review_report_sha256"] == hashlib.sha256(report_path.read_bytes()).hexdigest()
+            assert approval["artifact_path"] == str(artifact)
+            assert approval["artifact_sha256"] == hashlib.sha256(artifact.read_bytes()).hexdigest()
 
         first_render_manifest = read_json(first.cells_dir / first_plan.run_id / "render_cv" / "1" / "manifest.json")
         second_render_manifest = read_json(second.cells_dir / second_plan.run_id / "render_cv" / "1" / "manifest.json")
@@ -205,17 +238,43 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
         second_content = read_json(Path(second_render_manifest["inputs"]["compose_cv:cv_content.json"]["path"]))
         assert first_content["metadata"]["language"] == "pt-BR"
         assert second_content["metadata"]["language"] == "en"
+        portuguese_docx = _docx_text(first_artifact)
         english_docx = _docx_text(second_artifact)
+        assert "Head de Operações" in portuguese_docx
+        assert "maio/2024 — fev/2026" in portuguese_docx
+        assert "Formação" in portuguese_docx
+        assert "Stack técnica" in portuguese_docx
+        assert "Português — Nativo" in portuguese_docx
+        assert "Head of Operations" in english_docx
         assert "May 2024 — Feb 2026" in english_docx
         assert "maio/2024 — fev/2026" not in english_docx
+        assert "Education" in english_docx
+        assert "Technical Stack" in english_docx
+        assert "Portuguese — Native" in english_docx
         for payload in (first_content, second_content):
             assert payload["metadata"]["candidate_facts_revision"]
             assert all("experience_id" in item and "evidence_id" in item for item in payload["experiences"])
             assert all("experience_id" in item and "evidence_id" in item for item in payload["ats_keyword_coverage"])
             cv_content.validate_canonical_provenance(payload)
+            evidence = payload["metadata"]["candidate_facts"]["evidence"]
+            assert len(evidence) == len(set(evidence))
+        tampering = {
+            "role": lambda item: item["experiences"][0].__setitem__("role", "Tampered role"),
+            "period": lambda item: item["experiences"][0].__setitem__("period", "Tampered period"),
+            "bullet": lambda item: item["experiences"][0]["bullets"][0].__setitem__("text", "Tampered bullet"),
+            "education": lambda item: item["education"].__setitem__(0, "Tampered education"),
+            "language": lambda item: item["languages"].__setitem__(0, "Tampered language"),
+            "stack": lambda item: item.__setitem__("stack", "Tampered stack"),
+            "contact": lambda item: item["candidate"].__setitem__("email", "tampered@example.test"),
+        }
+        for field, mutate in tampering.items():
+            tampered = deepcopy(first_content)
+            mutate(tampered)
+            with pytest.raises(ValidationFailure, match="evidence"):
+                cv_content.validate_canonical_provenance(tampered)
         assert first_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"] != second_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"]
-        assert (first.reviews_dir / first_plan.run_id / "cv_review.json").is_file()
-        assert (second.reviews_dir / second_plan.run_id / "cv_review.json").is_file()
+        assert not (first.reviews_dir / first_plan.run_id / "cv_review.json").exists()
+        assert not (second.reviews_dir / second_plan.run_id / "cv_review.json").exists()
         assert first.reviews_dir != second.reviews_dir
         assert not first.cv_content.exists()
         assert not second.cv_content.exists()

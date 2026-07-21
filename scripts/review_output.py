@@ -232,7 +232,16 @@ def normalized_path_string(path_text: str | None) -> str | None:
 
 def is_validated_cellular_artifact(artifact: Path) -> bool:
     """Allow non-outputs DOCX files only through their immutable cell manifest."""
+    artifact = artifact.resolve()
     if "artifacts" not in artifact.parts or artifact.name != "cv.docx":
+        return False
+    artifact_index = artifact.parts.index("artifacts")
+    # <application>/artifacts/<run>/cv.docx/<revision>/cv.docx
+    if len(artifact.parts) != artifact_index + 5 or artifact_index == 0:
+        return False
+    application_id = artifact.parts[artifact_index - 1]
+    run_id, artifact_name, revision, filename = artifact.parts[artifact_index + 1 :]
+    if not application_id or not run_id or artifact_name != "cv.docx" or filename != "cv.docx":
         return False
     manifest_path = artifact.parent / "manifest.json"
     if not manifest_path.is_file():
@@ -241,11 +250,29 @@ def is_validated_cellular_artifact(artifact: Path) -> bool:
         manifest = read_json(manifest_path)
     except Exception:
         return False
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    validators = manifest.get("validators")
+    validator_passed = isinstance(validators, list) and any(
+        isinstance(item, dict)
+        and item.get("command") == "validate:docx"
+        and item.get("result") == "passed"
+        and normalized_path_string(item.get("report_path"))
+        and Path(str(item["report_path"])).is_file()
+        for item in validators
+    )
     return (
-        manifest.get("status") == "validated"
-        and manifest.get("artifact_name") == "cv.docx"
-        and normalized_path_string(manifest.get("path")) == str(artifact.resolve())
-        and manifest.get("sha256") == hashlib.sha256(artifact.read_bytes()).hexdigest()
+        manifest.get("kind") == "artifact_manifest"
+        and manifest.get("status") == "validated"
+        and manifest.get("application_id") == application_id
+        and manifest.get("run_id") == run_id
+        and manifest.get("node_id") == "render_cv"
+        and isinstance(manifest.get("attempt"), int)
+        and manifest.get("artifact_name") == artifact_name
+        and manifest.get("revision") == revision == digest[:12]
+        and normalized_path_string(manifest.get("path")) == str(artifact)
+        and normalized_path_string(manifest.get("manifest_path")) == str(manifest_path)
+        and manifest.get("sha256") == digest
+        and validator_passed
     )
 
 
