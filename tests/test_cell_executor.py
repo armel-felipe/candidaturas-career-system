@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -10,6 +11,45 @@ from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services.application_context import paths_for
 from career.services.database import Database
+from career.utils import write_json
+
+
+def _prepare_bound_analyze_fit(executor: CellExecutor, run_id: str) -> None:
+    plan, application_paths = executor._load_run(run_id)
+    application_id = plan.application_id
+    node = executor.database.fetch_one(
+        "SELECT latest_attempt FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+        (run_id, "analyze_fit"),
+    )
+    assert node is not None
+    attempt = int(node["latest_attempt"]) + 1
+    manifest_path = (
+        application_paths.cells_dir / "analyze_fit" / str(attempt) / "manifest.json"
+    )
+    application_paths.fit_map_draft.parent.mkdir(parents=True, exist_ok=True)
+    application_paths.fit_map_draft.write_text(
+        '{"cargo": "Operations Lead"}', encoding="utf-8"
+    )
+    job_hash = (
+        hashlib.sha256(application_paths.job_description.read_bytes()).hexdigest()
+        if application_paths.job_description.is_file()
+        else ""
+    )
+    write_json(
+        application_paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": application_id,
+            "run_id": run_id,
+            "node_id": "analyze_fit",
+            "attempt": attempt,
+            "job_fingerprint": job_hash,
+            "draft_sha256": hashlib.sha256(
+                application_paths.fit_map_draft.read_bytes()
+            ).hexdigest(),
+            "manifest_path": str(manifest_path.resolve()),
+        },
+    )
 
 
 @pytest.fixture
@@ -125,6 +165,7 @@ def test_run_ready_invokes_one_handler_and_all_contract_validators(tmp_path):
     )
     plan = executor.plan("app-1", {"cv"})
     executor.mark_validated(plan.run_id, "normalize_job")
+    _prepare_bound_analyze_fit(executor, plan.run_id)
 
     results = executor.run_ready(plan.run_id)
 
@@ -165,6 +206,7 @@ def test_failed_validator_keeps_staging_and_blocks_descendant(tmp_path):
     )
     plan = executor.plan("app-1", {"cv"})
     executor.mark_validated(plan.run_id, "normalize_job")
+    _prepare_bound_analyze_fit(executor, plan.run_id)
 
     results = executor.run_ready(plan.run_id)
 
@@ -662,6 +704,7 @@ def test_executor_revalidates_dependency_artifact_before_child_handler(tmp_path)
     )
     plan = executor.plan("app-1", {"cv"})
     executor.mark_validated(plan.run_id, "normalize_job")
+    _prepare_bound_analyze_fit(executor, plan.run_id)
     fit_result = next(
         item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
     )

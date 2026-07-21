@@ -409,16 +409,19 @@ class CellExecutor:
     def finalize(self, run_id: str) -> RunCompletion:
         self._renew_workspace_lease()
         _plan, paths = self._load_run(run_id)
-        completion = ManifestStore(paths).finish_run(
-            run_id,
-            validated_artifacts=(),
-            blocked_nodes=(),
-        )
-        self.database.execute(
-            "UPDATE application_runs SET status = ?, updated_at = ? WHERE run_id = ?",
-            (completion.manifest["status"], utc_now_iso(), run_id),
-        )
-        return completion
+        with self.database.authority_ledger_lock():
+            if self.database.authority_ledger_path is not None:
+                self.database.assert_authoritative_storage()
+            completion = ManifestStore(paths).finish_run(
+                run_id,
+                validated_artifacts=(),
+                blocked_nodes=(),
+            )
+            self.database.execute(
+                "UPDATE application_runs SET status = ?, updated_at = ? WHERE run_id = ?",
+                (completion.manifest["status"], utc_now_iso(), run_id),
+            )
+            return completion
 
     def is_terminal(self, run_id: str) -> bool:
         statuses = self.resume(run_id).statuses.values()
@@ -1044,34 +1047,44 @@ class CellExecutor:
         )
         staged = tuple(Path(path) for path in staged_paths)
         hashes = {str(path): self._sha256_file(path) for path in staged if path.is_file()}
-        self.store.finish_attempt(
-            str(reservation["run_id"]),
-            node.node_id,
-            attempt,
-            "blocked",
-            worker_id=self.worker_id,
-            receipt={
-                "status": "blocked",
-                "paths": [str(path) for path in staged],
-                "hashes": hashes,
-                "metadata": {
-                    "reason": str(reason)[:256],
-                    "workspace_owner": self.workspace_owner,
+        with self.database.authority_ledger_lock():
+            if self.database.authority_ledger_path is not None:
+                try:
+                    self.database.assert_authoritative_storage()
+                except ValueError:
+                    return self._cancel_stale_workspace_execution(
+                        reservation, node, record.path
+                    )
+            self.store.finish_attempt(
+                str(reservation["run_id"]),
+                node.node_id,
+                attempt,
+                "blocked",
+                worker_id=self.worker_id,
+                receipt={
+                    "status": "blocked",
+                    "paths": [str(path) for path in staged],
+                    "hashes": hashes,
+                    "metadata": {
+                        "reason": str(reason)[:256],
+                        "workspace_owner": self.workspace_owner,
+                    },
                 },
-            },
-            workspace_owner=self.workspace_owner,
-            workspace_fence_token=self.workspace_fence_token,
-        )
-        manifest = dict(read_json(record.path))
-        manifest["validators"] = [self._validator_mapping(item) for item in validators]
-        manifest["status"] = "blocked"
-        manifest["blocker"] = {
-            "reason": str(reason),
-            "repair_scope": node.repair_scope,
-        }
-        manifest["finished_at"] = utc_now_iso()
-        manifest["workspace_owner"] = self.workspace_owner
-        write_json(record.path, manifest)
+                workspace_owner=self.workspace_owner,
+                workspace_fence_token=self.workspace_fence_token,
+            )
+            manifest = dict(read_json(record.path))
+            manifest["validators"] = [
+                self._validator_mapping(item) for item in validators
+            ]
+            manifest["status"] = "blocked"
+            manifest["blocker"] = {
+                "reason": str(reason),
+                "repair_scope": node.repair_scope,
+            }
+            manifest["finished_at"] = utc_now_iso()
+            manifest["workspace_owner"] = self.workspace_owner
+            write_json(record.path, manifest)
         return CellExecutionResult(
             run_id=str(reservation["run_id"]),
             node_id=node.node_id,
@@ -1360,13 +1373,13 @@ class CellExecutor:
             read_paths.append(paths.job_description)
         if node.node_id == "analyze_fit":
             read_paths.append(paths.fit_map_draft)
+            if validate_draft_binding:
+                self._validate_fit_map_draft_binding(
+                    paths,
+                    run_id=run_id,
+                    attempt=int(attempt or 0),
+                )
             if paths.fit_map_draft.is_file():
-                if validate_draft_binding:
-                    self._validate_fit_map_draft_binding(
-                        paths,
-                        run_id=run_id,
-                        attempt=int(attempt or 0),
-                    )
                 inputs["fit_map_draft"] = paths.fit_map_draft
         if node.node_id == "capture_source":
             source_input = paths.app_dir / "source_input.md"
@@ -1401,7 +1414,11 @@ class CellExecutor:
             except Exception as exc:
                 binding = {}
                 reasons.append(f"invalid_json:{type(exc).__name__}")
-        draft_hash = hashlib.sha256(paths.fit_map_draft.read_bytes()).hexdigest()
+        if paths.fit_map_draft.is_file():
+            draft_hash = hashlib.sha256(paths.fit_map_draft.read_bytes()).hexdigest()
+        else:
+            draft_hash = ""
+            reasons.append("draft_missing")
         job_hash = (
             hashlib.sha256(paths.job_description.read_bytes()).hexdigest()
             if paths.job_description.is_file()
@@ -1517,6 +1534,23 @@ class CellExecutor:
     ) -> None:
         plan, _ = self._load_run(run_id)
         node = self._node(plan, node_id)
+        with self.database.authority_ledger_lock():
+            if self.database.authority_ledger_path is not None:
+                self.database.assert_authoritative_storage()
+            self._commit_manual_terminal(
+                run_id, paths, node, status=status, reason=reason
+            )
+
+    def _commit_manual_terminal(
+        self,
+        run_id: str,
+        paths: ApplicationPaths,
+        node: NodePlan,
+        *,
+        status: str,
+        reason: str,
+    ) -> None:
+        node_id = node.node_id
         row = self.database.fetch_one(
             "SELECT latest_attempt FROM cell_nodes WHERE run_id = ? AND node_id = ?",
             (run_id, node_id),

@@ -560,6 +560,7 @@ npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:provision-authority-ledger -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_ORIGEM>
 npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
@@ -608,11 +609,11 @@ Contrato de leitura para agentes:
 
 ### Segurança do workspace e handover celular
 
-Deve haver **uma única cópia autoritativa do workspace** em execução. O `WorkspaceLease` SQLite pertence ao dono da cópia, não a uma vaga: o mesmo dono executa candidaturas distintas por um **pool limitado**, enquanto uma segunda cópia no MacBook ou RPi5 permanece bloqueada até handoff autorizado. A `.career-state/career.db` controla somente sua cópia local; **bancos SQLite fisicamente separados não se coordenam** e não oferecem fence cross-machine. Um handoff entre hosts exige `CAREER_AUTHORITY_LEDGER_PATH` apontando nas duas máquinas para o mesmo ledger durável compartilhado/sincronizado com lock atômico; sem esse ledger único, o handoff falha fechado.
+Deve haver **uma única cópia autoritativa do workspace** em execução. O `WorkspaceLease` SQLite pertence ao dono da cópia, não a uma vaga: o mesmo dono executa candidaturas distintas por um **pool limitado**, enquanto uma segunda cópia no MacBook ou RPi5 permanece bloqueada até handoff autorizado. A `.career-state/career.db` controla somente sua cópia local; **bancos SQLite fisicamente separados não se coordenam** e não oferecem fence cross-machine. Um handoff entre hosts exige `CAREER_AUTHORITY_LEDGER_PATH` apontando nas duas máquinas para o mesmo ledger durável compartilhado/sincronizado com lock atômico; sem esse ledger único, o handoff falha fechado. O ledger é provisionado explicitamente uma única vez na origem antes da primeira cópia; `init_schema` falha se o caminho configurado estiver ausente, e uma SQLite já vinculada por `ledger_id` não pode criar outra autoridade independente.
 
 Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. A identidade também fica vinculada ao armazenamento físico atual; uma cópia byte a byte falha antes de maintenance, leitura da fila, planejamento, reserva ou execução. Cada aquisição recebe `lease_epoch` monotônico; o commit terminal compara owner + epoch transacionalmente e uma tentativa que perdeu o fence não publica nem grava estado terminal. Cada invocação de produção recebe owner distinto, compartilhado apenas com os workers do próprio pool. Leases do workspace, nó e recursos seguem renovados durante handler, validação, publicação e commit terminal.
 
-Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Rodar `npm run applications:doctor-concurrency`, sincronizar a mesma `career.db` e manifests, configurar `CAREER_CONTROL_DB_ID=<control_db_id>` e `CAREER_AUTHORITY_LEDGER_PATH=<caminho_compartilhado>`. Após confirmar release/expiração, executar no destino `npm run applications:authorize-handoff -- --control-db-id <control_db_id> --owner <owner_destino>`. Sob lock do ledger, o comando incrementa o epoch de autoridade, reata a nova cópia física e audita o handoff; uma origem reiniciada relê o ledger e rejeita acquire/heartbeat por epoch/storage revogados. Copiar só a SQLite ou manter ledgers locais separados não coordena os hosts. Se a origem caiu, aguardar a expiração. Nunca apagar `career.db`, ledger, lock ou manifesto para contornar o fence.
+Na implantação inicial, configurar `CAREER_AUTHORITY_LEDGER_PATH=<caminho_compartilhado>` na origem e executar uma única vez `npm run applications:provision-authority-ledger -- --control-db-id <control_db_id> --owner <owner_origem>` antes de copiar o workspace. Para handoff MacBook ↔ RPi5, parar heartbeat/workers na origem e liberar o lease com `WorkspaceLease.release(owner)`. Rodar `npm run applications:doctor-concurrency`, sincronizar a mesma `career.db` e manifests, configurar `CAREER_CONTROL_DB_ID=<control_db_id>` e o mesmo `CAREER_AUTHORITY_LEDGER_PATH`. Após confirmar release/expiração, executar no destino `npm run applications:authorize-handoff -- --control-db-id <control_db_id> --owner <owner_destino>`. Sob lock do ledger, o comando incrementa o epoch de autoridade, reata a nova cópia física e audita o handoff; uma origem reiniciada relê o ledger e rejeita acquire/heartbeat por epoch/storage revogados. Copiar só a SQLite ou manter ledgers locais separados não coordena os hosts. Se a origem caiu, aguardar a expiração. Nunca apagar `career.db`, ledger, lock ou manifesto para contornar o fence.
 
 Operação e recuperação:
 
@@ -622,6 +623,7 @@ npm run applications:run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:repair -- --application-id <ID> --run-id <RUN_ID> --node <NODE_ID> --reason "<motivo>"
 npm run applications:inspect-run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:provision-authority-ledger -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_ORIGEM>
 npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 ```

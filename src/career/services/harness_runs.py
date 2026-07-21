@@ -102,8 +102,11 @@ class HarnessRun:
 
     def _snapshot_application_files(self) -> dict[str, str]:
         snapshot: dict[str, str] = {}
+        immutable_run_controls = {"request.json", "request.md", "manifest.json"}
         for path in self.application_dir.rglob("*"):
-            if not path.is_file() or self.run_dir in path.parents:
+            if not path.is_file():
+                continue
+            if self.run_dir in path.parents and path.name not in immutable_run_controls:
                 continue
             snapshot[str(path.relative_to(self.application_dir))] = _file_hash(path)
         return snapshot
@@ -133,10 +136,6 @@ class HarnessRunStore:
             before_files={},
             before_workspace_files={},
         )
-        run.before_files = run._snapshot_application_files()
-        run.before_workspace_files = _protected_workspace_snapshot(
-            self.root, self.application_dir
-        )
         write_json(
             run_dir / "manifest.json",
             {
@@ -150,6 +149,10 @@ class HarnessRunStore:
                     for path in allowed_outputs
                 ],
             },
+        )
+        run.before_files = run._snapshot_application_files()
+        run.before_workspace_files = _protected_workspace_snapshot(
+            self.root, self.application_dir
         )
         return run
 

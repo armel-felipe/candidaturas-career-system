@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -15,6 +16,31 @@ from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services.application_context import paths_for
 from career.services.database import Database
+from career.utils import write_json
+
+
+def _bind_analyze_fit(executor: CellExecutor, run_id: str) -> None:
+    plan, paths = executor._load_run(run_id)
+    paths.fit_map_draft.write_text('{"cargo":"test"}', encoding="utf-8")
+    write_json(
+        paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": plan.application_id,
+            "run_id": run_id,
+            "node_id": "analyze_fit",
+            "attempt": 1,
+            "job_fingerprint": hashlib.sha256(
+                paths.job_description.read_bytes()
+            ).hexdigest(),
+            "draft_sha256": hashlib.sha256(
+                paths.fit_map_draft.read_bytes()
+            ).hexdigest(),
+            "manifest_path": str(
+                (paths.cells_dir / "analyze_fit" / "1" / "manifest.json").resolve()
+            ),
+        },
+    )
 
 
 @pytest.fixture
@@ -290,6 +316,7 @@ def test_run_finalizes_a_terminal_run_and_reports_published_artifacts(
         },
     )
     plan = executor.plan("app-1", {"notion"})
+    _bind_analyze_fit(executor, plan.run_id)
     while executor.ready_nodes(plan.run_id):
         executor.run_ready(plan.run_id)
 

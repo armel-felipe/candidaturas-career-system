@@ -18,7 +18,7 @@ from career.services.application_context import WorkspaceLease, workspace_owner_
 from career.services.database import Database
 from career.services.harness_runs import HarnessRunStore, allowed_outputs_from_request
 from career.services.harness_supervisor import HarnessSupervisor
-from career.utils import ValidationFailure, utc_now_iso, write_json
+from career.utils import ValidationFailure, read_json, utc_now_iso, write_json
 
 
 @pytest.fixture
@@ -36,6 +36,22 @@ def _control_db_id(v2_dir: Path) -> str:
         return database.control_db_identity()
     finally:
         database.close()
+
+
+def _provisioned_authority_database(
+    database_path: Path, ledger_path: Path
+) -> tuple[Database, str]:
+    unbound = Database(database_path)
+    unbound.init_schema()
+    control_db_id = unbound.control_db_identity()
+    unbound.close()
+    database = Database(database_path, authority_ledger_path=ledger_path)
+    database.provision_authority_ledger(
+        expected_control_db_id=control_db_id,
+        provisioned_by="test-suite",
+    )
+    database.init_schema()
+    return database, control_db_id
 
 
 def test_second_workspace_owner_is_blocked_but_same_owner_can_schedule_many_apps(db):
@@ -169,9 +185,9 @@ def test_explicit_storage_handoff_rebinds_a_released_byte_copy(tmp_path):
     source_path = tmp_path / "source" / "career.db"
     target_path = tmp_path / "target" / "career.db"
     authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
-    source = Database(source_path, authority_ledger_path=authority_ledger)
-    source.init_schema()
-    control_db_id = source.control_db_identity()
+    source, control_db_id = _provisioned_authority_database(
+        source_path, authority_ledger
+    )
     lease = WorkspaceLease(source)
     assert lease.acquire("macbook", ttl_seconds=60)
     assert lease.release("macbook")
@@ -207,9 +223,9 @@ def test_handoff_shared_authority_ledger_revokes_the_origin_copy_on_restart(
     source_path = tmp_path / "source" / "career.db"
     target_path = tmp_path / "target" / "career.db"
     authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
-    source = Database(source_path, authority_ledger_path=authority_ledger)
-    source.init_schema()
-    control_db_id = source.control_db_identity()
+    source, control_db_id = _provisioned_authority_database(
+        source_path, authority_ledger
+    )
     source_lease = WorkspaceLease(
         source,
         expected_control_db_id=control_db_id,
@@ -248,13 +264,55 @@ def test_handoff_shared_authority_ledger_revokes_the_origin_copy_on_restart(
         target.close()
 
 
+def test_copied_database_cannot_bootstrap_an_independent_authority_ledger(
+    tmp_path,
+):
+    source_path = tmp_path / "source" / "career.db"
+    target_path = tmp_path / "target" / "career.db"
+    shared_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+    independent_ledger = tmp_path / "target-control" / "workspace-authority.json"
+
+    unbound_source = Database(source_path)
+    unbound_source.init_schema()
+    control_db_id = unbound_source.control_db_identity()
+    unbound_source.close()
+
+    source = Database(source_path, authority_ledger_path=shared_ledger)
+    source.provision_authority_ledger(
+        expected_control_db_id=control_db_id,
+        provisioned_by="test-source",
+    )
+    source.init_schema()
+    target_path.parent.mkdir(parents=True)
+    shutil.copy2(source_path, target_path)
+
+    copied = Database(target_path, authority_ledger_path=independent_ledger)
+    try:
+        with pytest.raises(ValueError, match="pre-provisioned|missing"):
+            copied.init_schema()
+        with pytest.raises(ValueError, match="pre-provisioned|missing"):
+            copied.authorize_storage_handoff(
+                expected_control_db_id=control_db_id,
+                new_owner="copied-host",
+            )
+        assert not independent_ledger.exists()
+        assert WorkspaceLease(
+            source,
+            expected_control_db_id=control_db_id,
+            require_authority=True,
+        ).acquire("source-host", ttl_seconds=60)
+    finally:
+        copied.close()
+        source.close()
+
+
 def test_authorize_handoff_cli_rebinds_control_database(tmp_path, monkeypatch, capsys):
     source_path = tmp_path / "source" / "career.db"
     target_path = tmp_path / "target" / "career.db"
     authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
-    source = Database(source_path, authority_ledger_path=authority_ledger)
-    source.init_schema()
-    control_db_id = source.control_db_identity()
+    source, control_db_id = _provisioned_authority_database(
+        source_path, authority_ledger
+    )
     source.close()
     target_path.parent.mkdir(parents=True)
     shutil.copy2(source_path, target_path)
@@ -283,6 +341,39 @@ def test_authorize_handoff_cli_rebinds_control_database(tmp_path, monkeypatch, c
     assert payload["status"] == "authorized"
     assert payload["control_db_id"] == control_db_id
     assert payload["owner"] == "rpi5"
+
+
+def test_provision_authority_ledger_cli_is_explicit_and_verifiable(
+    tmp_path, monkeypatch, capsys
+):
+    database_path = tmp_path / "source" / "career.db"
+    authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+    unbound = Database(database_path)
+    unbound.init_schema()
+    control_db_id = unbound.control_db_identity()
+    unbound.close()
+    bound = Database(database_path, authority_ledger_path=authority_ledger)
+    monkeypatch.setattr(cli, "Database", lambda *args, **kwargs: bound)
+
+    exit_code = cli.main(
+        [
+            "applications",
+            "provision-authority-ledger",
+            "--control-db-id",
+            control_db_id,
+            "--owner",
+            "macbook",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "provisioned"
+    assert payload["control_db_id"] == control_db_id
+    assert payload["ledger_id"].startswith("ledger_")
+    assert payload["owner"] == "macbook"
+    bound.init_schema()
+    bound.close()
 
 
 def test_cellular_heartbeat_validates_authority_before_maintenance_or_queue(
@@ -1158,6 +1249,190 @@ def test_executor_rejects_and_quarantines_an_unbound_fit_map_draft(tmp_path):
     database.close()
 
 
+def test_executor_requires_analyze_fit_draft_binding_even_when_both_are_missing(
+    tmp_path,
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text(
+        "Lead operations and planning.\n", encoding="utf-8"
+    )
+    called: list[str] = []
+
+    def analyze(_context):
+        called.append("analyze_fit")
+        return CellOutput(artifacts={"fit_map.json": b'{"score": 8}'})
+
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers={"analyze_fit": analyze},
+        workspace_owner="rpi5",
+    )
+    plan = executor.plan("app-a", {"cv"})
+    executor.mark_validated(plan.run_id, "normalize_job")
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
+    )
+
+    assert result.status == "blocked"
+    assert "draft_binding" in result.blocker
+    assert called == []
+    database.close()
+
+
+def test_handoff_fences_a_stale_origin_blocked_terminal_commit(tmp_path):
+    source_path = tmp_path / "source" / "career.db"
+    target_path = tmp_path / "target" / "career.db"
+    authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+
+    unbound = Database(source_path)
+    unbound.init_schema()
+    control_db_id = unbound.control_db_identity()
+    unbound.close()
+    source = Database(source_path, authority_ledger_path=authority_ledger)
+    source.provision_authority_ledger(
+        expected_control_db_id=control_db_id,
+        provisioned_by="test-source",
+    )
+    source.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text(
+        "Lead operations and planning.\n", encoding="utf-8"
+    )
+
+    def handoff_then_fail(_context):
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target = Database(target_path, authority_ledger_path=authority_ledger)
+        source.get_connection().backup(target.get_connection())
+        target.init_schema()
+        target.execute(
+            "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
+            (
+                (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                WorkspaceLease.LEASE_NAME,
+            ),
+        )
+        target.authorize_storage_handoff(
+            expected_control_db_id=control_db_id,
+            new_owner="target-host",
+        )
+        target.close()
+        raise RuntimeError("origin handler completed after handoff")
+
+    executor = CellExecutor(
+        source,
+        applications_root=applications_root,
+        handlers={"analyze_fit": handoff_then_fail},
+        workspace_owner="source-host",
+        workspace_control_db_id=control_db_id,
+        require_authoritative_workspace=True,
+    )
+    plan = executor.plan("app-a", {"cv"})
+    executor.mark_validated(plan.run_id, "normalize_job")
+    prepared = executor.prepare_ready_node(plan.run_id, "analyze_fit")
+    paths.fit_map_draft.write_text(
+        '{"cargo": "Operations Lead"}', encoding="utf-8"
+    )
+    write_json(
+        paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": "app-a",
+            "run_id": plan.run_id,
+            "node_id": "analyze_fit",
+            "attempt": prepared.attempt,
+            "job_fingerprint": applications_v2.sha256_file(paths.job_description),
+            "draft_sha256": applications_v2.sha256_file(paths.fit_map_draft),
+            "manifest_path": str(prepared.manifest_path.resolve()),
+        },
+    )
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
+    )
+
+    assert result.status == "cancelled"
+    assert source.fetch_one(
+        "SELECT status FROM cell_nodes WHERE run_id = ? AND node_id = 'analyze_fit'",
+        (plan.run_id,),
+    ) == {"status": "reserved"}
+    assert read_json(prepared.manifest_path)["status"] == "reserved"
+    source.close()
+
+
+def test_handoff_fences_manual_terminal_manifest_and_database_commit(
+    tmp_path, monkeypatch
+):
+    source_path = tmp_path / "source" / "career.db"
+    target_path = tmp_path / "target" / "career.db"
+    authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+    source, control_db_id = _provisioned_authority_database(
+        source_path, authority_ledger
+    )
+    applications_root = tmp_path / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("Lead operations.\n", encoding="utf-8")
+    executor = CellExecutor(
+        source,
+        applications_root=applications_root,
+        workspace_owner="source-host",
+        workspace_control_db_id=control_db_id,
+        require_authoritative_workspace=True,
+    )
+    plan = executor.plan("app-a", {"cv"})
+    original_load = executor._load_run
+    handed_off = False
+
+    def load_then_handoff(run_id):
+        nonlocal handed_off
+        loaded = original_load(run_id)
+        if not handed_off:
+            handed_off = True
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target = Database(target_path, authority_ledger_path=authority_ledger)
+            source.get_connection().backup(target.get_connection())
+            target.init_schema()
+            target.execute(
+                "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
+                (
+                    (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                    WorkspaceLease.LEASE_NAME,
+                ),
+            )
+            target.authorize_storage_handoff(
+                expected_control_db_id=control_db_id,
+                new_owner="target-host",
+            )
+            target.close()
+        return loaded
+
+    monkeypatch.setattr(executor, "_load_run", load_then_handoff)
+
+    with pytest.raises(ValueError, match="authority epoch|revoked|another physical"):
+        executor._set_manual_terminal(
+            plan.run_id,
+            paths,
+            "normalize_job",
+            "blocked",
+            "stale origin",
+        )
+
+    assert source.fetch_one(
+        "SELECT status FROM cell_nodes WHERE run_id = ? AND node_id = 'normalize_job'",
+        (plan.run_id,),
+    ) == {"status": "planned"}
+    assert not (paths.cells_dir / "normalize_job" / "1" / "manifest.json").exists()
+    source.close()
+
+
 def test_lease_epoch_transfer_during_finalization_cannot_commit_or_publish(
     tmp_path, monkeypatch
 ):
@@ -1587,6 +1862,59 @@ def test_cellular_harness_detects_request_control_and_authoritative_db_writes(
     assert any("requests/cellular/run-a/request.json" in item for item in isolation["unauthorized_changes"])
     assert any("career.db::application_runs" in item for item in isolation["unauthorized_workspace_changes"])
     database.close()
+
+
+def test_cellular_harness_detects_mutation_of_copied_run_control_files(tmp_path):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "cellular" / "run-a" / "request.json"
+    request_md = request.with_suffix(".md")
+    allowed = application_dir / "fit_map.draft.json"
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(allowed)],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    (run.run_dir / "request.json").write_text('{"tampered": true}', encoding="utf-8")
+    (run.run_dir / "manifest.json").write_text('{"tampered": true}', encoding="utf-8")
+    isolation = run.inspect()
+
+    assert isolation["status"] == "blocked"
+    assert any(item.endswith("/request.json") for item in isolation["unauthorized_changes"])
+    assert any(item.endswith("/manifest.json") for item in isolation["unauthorized_changes"])
+
+
+def test_cellular_harness_allows_expected_run_result_and_log_files(tmp_path):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "cellular" / "run-a" / "request.json"
+    request_md = request.with_suffix(".md")
+    allowed = application_dir / "fit_map.draft.json"
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(allowed)],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    run.finish(
+        {"stdout": "ok", "stderr": ""},
+        {"status": "ok", "unauthorized_changes": []},
+    )
+    isolation = run.inspect()
+
+    assert isolation["status"] == "ok"
+    assert isolation["unauthorized_changes"] == []
 
 
 def test_cellular_harness_reports_authoritative_database_corruption_as_violation(

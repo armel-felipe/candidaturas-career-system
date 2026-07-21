@@ -285,77 +285,84 @@ class CellStore:
         leases = tuple(resource_leases)
         artifacts = self._published_artifacts(status, receipt, published_artifacts)
 
-        with self.database.transaction(immediate=True) as conn:
-            now = self._now()
-            if workspace_owner:
-                if workspace_fence_token is None:
-                    raise ValueError(
-                        "workspace fence token is required for terminal commit"
+        with self.database.authority_ledger_lock():
+            if self.database.authority_ledger_path is not None:
+                self.database.assert_authoritative_storage()
+            with self.database.transaction(immediate=True) as conn:
+                now = self._now()
+                if workspace_owner:
+                    if workspace_fence_token is None:
+                        raise ValueError(
+                            "workspace fence token is required for terminal commit"
+                        )
+                    workspace_owned = conn.execute(
+                        """SELECT 1 FROM workspace_leases
+                           WHERE lease_name = 'authoritative-workspace'
+                             AND worker_id = ? AND lease_epoch = ?
+                             AND expires_at > ?""",
+                        (workspace_owner, int(workspace_fence_token), now),
+                    ).fetchone()
+                    if workspace_owned is None:
+                        raise RuntimeError("stale authoritative workspace lease")
+                for lease in leases:
+                    resource_name = str(lease.get("resource_name", ""))
+                    lease_id = str(lease.get("lease_id", ""))
+                    if not resource_name or not lease_id:
+                        raise ValueError("resource lease requires resource_name and lease_id")
+                    owned = conn.execute(
+                        """SELECT 1 FROM resource_locks
+                           WHERE resource_name = ? AND worker_id = ? AND lease_id = ?
+                             AND expires_at > ?""",
+                        (resource_name, worker_id, lease_id, now),
+                    ).fetchone()
+                    if owned is None:
+                        raise RuntimeError(f"stale resource lease: {resource_name}")
+                node_updated = conn.execute(
+                    """UPDATE cell_nodes
+                       SET status = ?, reserved_by = NULL, reservation_expires_at = NULL, updated_at = ?
+                       WHERE run_id = ? AND node_id = ? AND latest_attempt = ?
+                         AND reserved_by = ? AND status IN ('reserved', 'running')
+                         AND reservation_expires_at > ?""",
+                    (status, now, run_id, node_id, attempt, worker_id, now),
+                ).rowcount
+                if node_updated != 1:
+                    raise RuntimeError(
+                        f"stale or unowned cell attempt: {run_id}/{node_id}/{attempt}"
                     )
-                workspace_owned = conn.execute(
-                    """SELECT 1 FROM workspace_leases
-                       WHERE lease_name = 'authoritative-workspace'
-                         AND worker_id = ? AND lease_epoch = ?
-                         AND expires_at > ?""",
-                    (workspace_owner, int(workspace_fence_token), now),
-                ).fetchone()
-                if workspace_owned is None:
-                    raise RuntimeError("stale authoritative workspace lease")
-            for lease in leases:
-                resource_name = str(lease.get("resource_name", ""))
-                lease_id = str(lease.get("lease_id", ""))
-                if not resource_name or not lease_id:
-                    raise ValueError("resource lease requires resource_name and lease_id")
-                owned = conn.execute(
-                    """SELECT 1 FROM resource_locks
-                       WHERE resource_name = ? AND worker_id = ? AND lease_id = ?
-                         AND expires_at > ?""",
-                    (resource_name, worker_id, lease_id, now),
-                ).fetchone()
-                if owned is None:
-                    raise RuntimeError(f"stale resource lease: {resource_name}")
-            node_updated = conn.execute(
-                """UPDATE cell_nodes
-                   SET status = ?, reserved_by = NULL, reservation_expires_at = NULL, updated_at = ?
-                   WHERE run_id = ? AND node_id = ? AND latest_attempt = ?
-                     AND reserved_by = ? AND status IN ('reserved', 'running')
-                     AND reservation_expires_at > ?""",
-                (status, now, run_id, node_id, attempt, worker_id, now),
-            ).rowcount
-            if node_updated != 1:
-                raise RuntimeError(f"stale or unowned cell attempt: {run_id}/{node_id}/{attempt}")
 
-            attempt_updated = conn.execute(
-                """UPDATE cell_attempts
-                   SET status = ?, finished_at = ?, detail_json = ?
-                   WHERE run_id = ? AND node_id = ? AND attempt = ? AND worker_id = ?
-                     AND status IN ('reserved', 'running') AND finished_at IS NULL""",
-                (status, now, receipt_json, run_id, node_id, attempt, worker_id),
-            ).rowcount
-            if attempt_updated != 1:
-                raise RuntimeError(f"stale or unowned cell attempt: {run_id}/{node_id}/{attempt}")
-            for artifact in artifacts:
-                conn.execute(
-                    """INSERT INTO artifacts
-                       (artifact_id, run_id, node_id, artifact_name, path, content_hash,
-                        input_hash, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        artifact["artifact_id"],
-                        run_id,
-                        node_id,
-                        artifact["artifact_name"],
-                        artifact["path"],
-                        artifact["sha256"],
-                        artifact["input_hash"],
-                        now,
-                    ),
-                )
-            if status == "blocked":
-                conn.execute(
-                    "UPDATE application_runs SET status = 'blocked', updated_at = ? WHERE run_id = ?",
-                    (now, run_id),
-                )
+                attempt_updated = conn.execute(
+                    """UPDATE cell_attempts
+                       SET status = ?, finished_at = ?, detail_json = ?
+                       WHERE run_id = ? AND node_id = ? AND attempt = ? AND worker_id = ?
+                         AND status IN ('reserved', 'running') AND finished_at IS NULL""",
+                    (status, now, receipt_json, run_id, node_id, attempt, worker_id),
+                ).rowcount
+                if attempt_updated != 1:
+                    raise RuntimeError(
+                        f"stale or unowned cell attempt: {run_id}/{node_id}/{attempt}"
+                    )
+                for artifact in artifacts:
+                    conn.execute(
+                        """INSERT INTO artifacts
+                           (artifact_id, run_id, node_id, artifact_name, path, content_hash,
+                            input_hash, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            artifact["artifact_id"],
+                            run_id,
+                            node_id,
+                            artifact["artifact_name"],
+                            artifact["path"],
+                            artifact["sha256"],
+                            artifact["input_hash"],
+                            now,
+                        ),
+                    )
+                if status == "blocked":
+                    conn.execute(
+                        "UPDATE application_runs SET status = 'blocked', updated_at = ? WHERE run_id = ?",
+                        (now, run_id),
+                    )
 
         return {"run_id": run_id, "node_id": node_id, "attempt": attempt, "status": status}
 

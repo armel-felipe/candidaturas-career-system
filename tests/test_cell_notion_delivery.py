@@ -12,6 +12,31 @@ from career.services.application_context import paths_for
 from career.services.database import Database
 from career.services.delivery import CanonicalDeliveryCellAdapter
 from career.services.notion import NotionCellAdapter
+from career.utils import write_json
+
+
+def _bind_analyze_fit(executor: CellExecutor, run_id: str) -> None:
+    plan, paths = executor._load_run(run_id)
+    paths.fit_map_draft.write_text('{"cargo":"test"}', encoding="utf-8")
+    write_json(
+        paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": plan.application_id,
+            "run_id": run_id,
+            "node_id": "analyze_fit",
+            "attempt": 1,
+            "job_fingerprint": hashlib.sha256(
+                paths.job_description.read_bytes()
+            ).hexdigest(),
+            "draft_sha256": hashlib.sha256(
+                paths.fit_map_draft.read_bytes()
+            ).hexdigest(),
+            "manifest_path": str(
+                (paths.cells_dir / "analyze_fit" / "1" / "manifest.json").resolve()
+            ),
+        },
+    )
 
 
 class FakeNotion:
@@ -238,6 +263,7 @@ def test_executor_delivery_uses_exact_rendered_docx_and_review_manifest(tmp_path
     executor = CellExecutor(database, applications_root=tmp_path / "applications", handlers=handlers, validators=validators)
     try:
         plan = executor.plan("app-1", {"cv"})
+        _bind_analyze_fit(executor, plan.run_id)
         while executor.node_status(plan.run_id, "deliver_cv") not in {"validated", "blocked"}:
             assert executor.run_ready(plan.run_id)
         assert executor.node_status(plan.run_id, "deliver_cv") == "validated"

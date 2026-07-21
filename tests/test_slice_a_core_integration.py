@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -14,6 +15,47 @@ from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services.application_context import paths_for
 from career.services.database import Database
+from career.utils import write_json
+
+
+def _bind_analyze_fit(executor: CellExecutor, run_id: str) -> None:
+    plan, paths = executor._load_run(run_id)
+    node = executor.database.fetch_one(
+        "SELECT latest_attempt, status FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+        (run_id, "analyze_fit"),
+    )
+    assert node is not None
+    attempt = int(node["latest_attempt"])
+    if node["status"] not in {"reserved", "repairing"} or attempt == 0:
+        attempt += 1
+    paths.fit_map_draft.write_text('{"cargo":"test"}', encoding="utf-8")
+    job_hash = (
+        hashlib.sha256(paths.job_description.read_bytes()).hexdigest()
+        if paths.job_description.is_file()
+        else ""
+    )
+    write_json(
+        paths.app_dir / "fit_map.draft.binding.json",
+        {
+            "kind": "cellular_fit_map_draft_binding",
+            "application_id": plan.application_id,
+            "run_id": run_id,
+            "node_id": "analyze_fit",
+            "attempt": attempt,
+            "job_fingerprint": job_hash,
+            "draft_sha256": hashlib.sha256(
+                paths.fit_map_draft.read_bytes()
+            ).hexdigest(),
+            "manifest_path": str(
+                (
+                    paths.cells_dir
+                    / "analyze_fit"
+                    / str(attempt)
+                    / "manifest.json"
+                ).resolve()
+            ),
+        },
+    )
 
 
 def test_two_application_runs_share_sqlite_but_publish_and_inspect_only_scoped_validated_artifacts(
@@ -99,6 +141,7 @@ def test_two_application_runs_share_sqlite_but_publish_and_inspect_only_scoped_v
                 f"Job description for {application_id}", encoding="utf-8"
             )
             plans[application_id] = executor.plan(application_id, {"notion"})
+            _bind_analyze_fit(executor, plans[application_id].run_id)
 
         while any(executor.ready_nodes(plan.run_id) for plan in plans.values()):
             for application_id, plan in plans.items():
@@ -217,6 +260,7 @@ def test_two_application_runs_share_sqlite_but_publish_and_inspect_only_scoped_v
         original_manifest_bytes = original_manifest_path.read_bytes()
 
         executor.repair(revised_plan.run_id, "analyze_fit", "revised evidence")
+        _bind_analyze_fit(executor, revised_plan.run_id)
         executor.run_ready(revised_plan.run_id)
         while executor.ready_nodes(revised_plan.run_id):
             executor.run_ready(revised_plan.run_id)
@@ -289,6 +333,7 @@ def test_finalization_rejects_file_only_state_and_blocks_failed_terminal_run(tmp
 
     try:
         plan = executor.plan(application_id, {"notion"})
+        _bind_analyze_fit(executor, plan.run_id)
         fake_artifact = paths.artifacts_dir / "fit_map.json" / "fake" / "fit_map.json"
         fake_artifact.parent.mkdir(parents=True)
         fake_artifact.write_text("exists but is not validated", encoding="utf-8")
@@ -388,6 +433,9 @@ def test_independent_reservations_proceed_while_only_notion_write_serializes(tmp
             paths.job_description.write_text(application_id, encoding="utf-8")
             plans[application_id] = executors[application_id].plan(
                 application_id, {"notion"}
+            )
+            _bind_analyze_fit(
+                executors[application_id], plans[application_id].run_id
             )
 
         reservations = {

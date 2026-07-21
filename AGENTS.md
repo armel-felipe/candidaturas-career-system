@@ -383,6 +383,7 @@ npm run applications:heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3
 npm run applications:agent-heartbeat -- --max-per-run 3 --model openai/gpt-5.4 --variant medium  # override explícito opcional
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:provision-authority-ledger -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_ORIGEM>
 npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 npm run applications:heartbeat:install-task -- --interval-minutes 60 --max-per-run 3 --run-agent
@@ -422,11 +423,12 @@ Regra operacional do heartbeat:
 
 ## Segurança e operação da orquestração celular
 
-Regra de autoridade: deve existir **uma única cópia autoritativa do workspace** executando células. O lease SQLite diferencia o dono do workspace, não a candidatura: um mesmo dono pode processar várias candidaturas em paralelo por um **pool limitado**, mas uma segunda cópia no MacBook ou no RPi5 fica bloqueada até um handoff autorizado. A `.career-state/career.db` controla apenas a cópia local: **bancos SQLite fisicamente separados não se coordenam** e nunca devem ser apresentados como proteção cross-machine. O handoff cross-machine exige ainda `CAREER_AUTHORITY_LEDGER_PATH` apontando, nas duas máquinas, para o mesmo ledger durável em armazenamento compartilhado/sincronizado que preserve lock atômico; sem esse ledger único o comando de handoff falha fechado.
+Regra de autoridade: deve existir **uma única cópia autoritativa do workspace** executando células. O lease SQLite diferencia o dono do workspace, não a candidatura: um mesmo dono pode processar várias candidaturas em paralelo por um **pool limitado**, mas uma segunda cópia no MacBook ou no RPi5 fica bloqueada até um handoff autorizado. A `.career-state/career.db` controla apenas a cópia local: **bancos SQLite fisicamente separados não se coordenam** e nunca devem ser apresentados como proteção cross-machine. O handoff cross-machine exige ainda `CAREER_AUTHORITY_LEDGER_PATH` apontando, nas duas máquinas, para o mesmo ledger durável em armazenamento compartilhado/sincronizado que preserve lock atômico; sem esse ledger único o comando de handoff falha fechado. O ledger é provisionado explicitamente uma única vez na origem autoritativa, antes da primeira cópia; `init_schema` não fabrica ledger ausente, e uma SQLite já vinculada por `ledger_id` não pode criar um ledger independente.
 
 Todo entrypoint celular de produção exige `CAREER_CONTROL_DB_ID` igual à identidade persistida na `career.db` autoritativa, inclusive `applications:plan/run/repair`, heartbeat, harness e migração real. A identidade também fica vinculada ao armazenamento físico atual; uma cópia byte a byte do banco falha antes de maintenance, leitura da fila, planejamento, reserva ou execução. Cada aquisição recebe `lease_epoch` monotônico, e o commit terminal compara owner + epoch na mesma transação; uma tentativa que perdeu o fence não publica nem grava estado terminal. Cada invocação de produção recebe owner distinto, compartilhado apenas com os workers do próprio pool. Leases do workspace, do nó e dos recursos permanecem renovados durante handler, validação, publicação e commit terminal.
 
 Handoff MacBook ↔ RPi5:
+- na implantação inicial, configurar `CAREER_AUTHORITY_LEDGER_PATH` para um caminho compartilhado ainda inexistente e executar uma única vez na origem `npm run applications:provision-authority-ledger -- --control-db-id <control_db_id> --owner <owner_origem>`; o comando falha se o banco já estiver vinculado ou se o ledger existir
 - interromper heartbeat, workers e launchd na máquina atual antes de iniciar a outra
 - preferir release pelo `WorkspaceLease.release(owner)` no desligamento controlado; se o processo morreu, aguardar a expiração do lease
 - executar `npm run applications:doctor-concurrency` na origem, transportar/sincronizar a mesma `career.db` com os manifests e configurar `CAREER_CONTROL_DB_ID=<control_db_id>` na máquina de destino
@@ -444,6 +446,7 @@ npm run applications:run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:repair -- --application-id <ID> --run-id <RUN_ID> --node <NODE_ID> --reason "<motivo>"
 npm run applications:inspect-run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
+npm run applications:provision-authority-ledger -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_ORIGEM>
 npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owner <OWNER_DESTINO>
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 ```

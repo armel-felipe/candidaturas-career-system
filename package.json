@@ -140,6 +140,7 @@
     "applications:lock-status": "./scripts/python.sh scripts/career_cli.py applications lock-status",
     "applications:release-lock": "./scripts/python.sh scripts/career_cli.py applications release-lock",
     "applications:doctor-concurrency": "./scripts/python.sh scripts/career_cli.py applications doctor-concurrency",
+    "applications:provision-authority-ledger": "./scripts/python.sh scripts/career_cli.py applications provision-authority-ledger",
     "applications:authorize-handoff": "./scripts/python.sh scripts/career_cli.py applications authorize-handoff",
     "applications:migrate-global-state": "./scripts/python.sh scripts/career_cli.py applications migrate-global-state",
     "applications:migrate-cellular": "./scripts/python.sh scripts/career_cli.py applications migrate-cellular",

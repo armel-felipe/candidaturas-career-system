@@ -6,6 +6,7 @@ import json
 import platform
 import sqlite3
 import tempfile
+import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,9 @@ from career.paths import CAREER_STATE
 
 
 class Database:
+    AUTHORITY_LEDGER_KIND = "career_workspace_authority"
+    AUTHORITY_LEDGER_VERSION = 1
+
     def __init__(
         self,
         db_path: str | Path | None = None,
@@ -32,6 +36,7 @@ class Database:
             else None
         )
         self._conn: sqlite3.Connection | None = None
+        self._authority_lock_state = threading.local()
 
     def get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -230,6 +235,7 @@ class Database:
                 singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
                 control_db_id TEXT NOT NULL UNIQUE,
                 storage_identity TEXT,
+                authority_ledger_id TEXT,
                 authority_epoch INTEGER NOT NULL DEFAULT 1,
                 lease_epoch_counter INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
@@ -281,6 +287,10 @@ class Database:
                 "ALTER TABLE workspace_authority "
                 "ADD COLUMN authority_epoch INTEGER NOT NULL DEFAULT 1"
             )
+        if "authority_ledger_id" not in authority_columns:
+            conn.execute(
+                "ALTER TABLE workspace_authority ADD COLUMN authority_ledger_id TEXT"
+            )
         if "lease_epoch_counter" not in authority_columns:
             conn.execute(
                 "ALTER TABLE workspace_authority "
@@ -318,7 +328,7 @@ class Database:
             (storage_identity,),
         )
         conn.commit()
-        self._initialize_authority_ledger()
+        self._verify_configured_authority_ledger()
 
     def control_db_identity(self) -> str:
         row = self.fetch_one(
@@ -346,7 +356,8 @@ class Database:
 
     def assert_authoritative_storage(self) -> str:
         row = self.fetch_one(
-            """SELECT control_db_id, storage_identity, authority_epoch
+            """SELECT control_db_id, storage_identity, authority_ledger_id,
+                      authority_epoch
                FROM workspace_authority
                WHERE singleton_id = 1"""
         )
@@ -362,6 +373,10 @@ class Database:
             ledger = self._read_authority_ledger()
             if str(ledger.get("control_db_id") or "") != str(row["control_db_id"]):
                 raise ValueError("shared authority ledger control database mismatch")
+            if str(ledger.get("ledger_id") or "") != str(
+                row.get("authority_ledger_id") or ""
+            ):
+                raise ValueError("shared authority ledger provenance mismatch")
             local_epoch = int(row.get("authority_epoch") or 0)
             ledger_epoch = int(ledger.get("authority_epoch") or 0)
             if local_epoch != ledger_epoch:
@@ -392,7 +407,8 @@ class Database:
             ledger = self._read_authority_ledger()
             with self.transaction(immediate=True) as conn:
                 authority = conn.execute(
-                    """SELECT control_db_id, storage_identity, authority_epoch
+                    """SELECT control_db_id, storage_identity, authority_ledger_id,
+                              authority_epoch
                        FROM workspace_authority WHERE singleton_id = 1"""
                 ).fetchone()
                 if authority is None or str(authority["control_db_id"]) != expected:
@@ -401,6 +417,10 @@ class Database:
                     )
                 if str(ledger.get("control_db_id") or "") != expected:
                     raise ValueError("shared authority ledger identity does not match")
+                if str(ledger.get("ledger_id") or "") != str(
+                    authority["authority_ledger_id"] or ""
+                ):
+                    raise ValueError("shared authority ledger provenance mismatch")
                 local_epoch = int(authority["authority_epoch"] or 0)
                 ledger_epoch = int(ledger.get("authority_epoch") or 0)
                 if local_epoch != ledger_epoch:
@@ -444,6 +464,7 @@ class Database:
                     new_epoch = local_epoch
             self._write_authority_ledger(
                 {
+                    **ledger,
                     "control_db_id": expected,
                     "authority_epoch": new_epoch,
                     "storage_identity": actual,
@@ -453,34 +474,103 @@ class Database:
             )
         return actual
 
-    def _initialize_authority_ledger(self) -> None:
+    def provision_authority_ledger(
+        self, *, expected_control_db_id: str, provisioned_by: str
+    ) -> dict:
+        """Explicitly bind an unbound authoritative DB to one shared ledger.
+
+        Provisioning is deliberately separate from ``init_schema`` so a copied
+        SQLite database cannot silently create an independent authority plane.
+        Once the ledger id is persisted in SQLite, another ledger cannot be
+        provisioned from a byte copy of that database.
+        """
+        if self.authority_ledger_path is None:
+            raise ValueError("CAREER_AUTHORITY_LEDGER_PATH is required for provisioning")
+        expected = str(expected_control_db_id or "").strip()
+        actor = str(provisioned_by or "").strip()
+        if not expected or not actor:
+            raise ValueError("control database identity and provisioner are required")
+        with self.authority_ledger_lock():
+            if self.authority_ledger_path.exists():
+                raise ValueError("shared authority ledger already exists")
+            row = self.fetch_one(
+                """SELECT control_db_id, storage_identity, authority_ledger_id,
+                          authority_epoch
+                   FROM workspace_authority WHERE singleton_id = 1"""
+            )
+            if row is None or str(row.get("control_db_id") or "") != expected:
+                raise ValueError("authoritative control database identity does not match")
+            if str(row.get("authority_ledger_id") or ""):
+                raise ValueError(
+                    "database is already bound to a pre-provisioned shared authority ledger"
+                )
+            actual = self.physical_storage_identity()
+            if str(row.get("storage_identity") or "") != actual:
+                raise ValueError("physical control database copy is not authoritative")
+            now = datetime.now(UTC).isoformat()
+            ledger_id = f"ledger_{uuid4().hex}"
+            payload = {
+                "kind": self.AUTHORITY_LEDGER_KIND,
+                "schema_version": self.AUTHORITY_LEDGER_VERSION,
+                "ledger_id": ledger_id,
+                "control_db_id": expected,
+                "authority_epoch": int(row.get("authority_epoch") or 1),
+                "storage_identity": actual,
+                "owner": actor,
+                "provisioned_by": actor,
+                "provisioned_at": now,
+                "updated_at": now,
+            }
+            self._write_authority_ledger(payload)
+            with self.transaction(immediate=True) as conn:
+                updated = conn.execute(
+                    """UPDATE workspace_authority SET authority_ledger_id = ?
+                       WHERE singleton_id = 1
+                         AND control_db_id = ?
+                         AND (authority_ledger_id IS NULL OR authority_ledger_id = '')""",
+                    (ledger_id, expected),
+                ).rowcount
+                if updated != 1:
+                    raise RuntimeError("authority ledger binding raced with another provisioner")
+            return dict(payload)
+
+    def _verify_configured_authority_ledger(self) -> None:
         if self.authority_ledger_path is None:
             return
         with self.authority_ledger_lock():
-            if self.authority_ledger_path.is_file():
-                self._read_authority_ledger()
-                return
+            if not self.authority_ledger_path.is_file():
+                raise ValueError(
+                    "shared authority ledger is missing; it must be pre-provisioned"
+                )
+            ledger = self._read_authority_ledger()
             row = self.fetch_one(
-                """SELECT control_db_id, storage_identity, authority_epoch
+                """SELECT control_db_id, authority_ledger_id
                    FROM workspace_authority WHERE singleton_id = 1"""
             )
             if row is None:
                 raise RuntimeError("workspace authority row is missing")
-            self._write_authority_ledger(
-                {
-                    "control_db_id": row["control_db_id"],
-                    "authority_epoch": int(row.get("authority_epoch") or 1),
-                    "storage_identity": row["storage_identity"],
-                    "owner": "bootstrap",
-                    "updated_at": datetime.now(UTC).isoformat(),
-                }
-            )
+            if str(row.get("authority_ledger_id") or "") != str(
+                ledger.get("ledger_id") or ""
+            ):
+                raise ValueError("shared authority ledger provenance mismatch")
+            if str(row.get("control_db_id") or "") != str(
+                ledger.get("control_db_id") or ""
+            ):
+                raise ValueError("shared authority ledger control database mismatch")
 
     @contextmanager
     def authority_ledger_lock(self) -> Iterator[None]:
         """Serialize shared-ledger handoff/finalization across workspace copies."""
         if self.authority_ledger_path is None:
             yield
+            return
+        depth = int(getattr(self._authority_lock_state, "depth", 0))
+        if depth:
+            self._authority_lock_state.depth = depth + 1
+            try:
+                yield
+            finally:
+                self._authority_lock_state.depth -= 1
             return
         import fcntl
 
@@ -490,9 +580,11 @@ class Database:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+", encoding="utf-8") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            self._authority_lock_state.depth = 1
             try:
                 yield
             finally:
+                self._authority_lock_state.depth = 0
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _read_authority_ledger(self) -> dict:
@@ -506,6 +598,17 @@ class Database:
             raise ValueError("shared authority ledger is missing or invalid") from exc
         if not isinstance(payload, dict):
             raise ValueError("shared authority ledger is invalid")
+        if (
+            payload.get("kind") != self.AUTHORITY_LEDGER_KIND
+            or payload.get("schema_version") != self.AUTHORITY_LEDGER_VERSION
+            or not str(payload.get("ledger_id") or "").startswith("ledger_")
+            or not str(payload.get("control_db_id") or "").startswith("control_")
+            or int(payload.get("authority_epoch") or 0) <= 0
+            or not str(payload.get("storage_identity") or "")
+            or not str(payload.get("provisioned_by") or "")
+            or not str(payload.get("provisioned_at") or "")
+        ):
+            raise ValueError("shared authority ledger provenance is invalid")
         return payload
 
     def _write_authority_ledger(self, payload: dict) -> None:
