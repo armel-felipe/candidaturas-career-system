@@ -14,7 +14,14 @@ from career.services import fit_map as fit_map_service
 from career.services import notion as notion_service
 from career.services import project as project_service
 from career.tasks.registry import run_task
-from career.utils import ValidationFailure, sha256_file, utc_now_iso, write_json, write_text
+from career.utils import (
+    ValidationFailure,
+    sha256_file,
+    sha256_text,
+    utc_now_iso,
+    write_json,
+    write_text,
+)
 from career.workflow.state_store import WorkflowStateStore
 
 
@@ -52,6 +59,31 @@ INTAKE_FINGERPRINTS_TO_CLEAR = {
     "cv.review",
     "cv.approve",
 }
+
+
+def capture_source(
+    application_paths: application_context_service.ApplicationPaths,
+    *,
+    source_text: str,
+    source_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Persist one source only inside its immutable application path set."""
+    if not isinstance(source_text, str) or not source_text.strip():
+        raise ValidationFailure("source job description must be non-empty text")
+    if application_paths.application_id != application_paths.app_dir.name:
+        raise ValueError("ApplicationPaths identity does not match its application directory")
+    application_paths.app_dir.mkdir(parents=True, exist_ok=True)
+    write_text(application_paths.job_description, source_text)
+    metadata = dict(source_metadata or {})
+    persisted_metadata = {
+        "application_id": application_paths.application_id,
+        "job_description_path": str(application_paths.job_description),
+        "job_fingerprint": sha256_text(source_text),
+        "source_id": metadata.get("source_id"),
+        "source_type": str(metadata.get("source_type") or "application_source"),
+    }
+    write_json(application_paths.source_metadata, persisted_metadata)
+    return persisted_metadata
 
 
 def _relative(path: Path) -> str:
@@ -340,9 +372,9 @@ def _run_ready_pipeline(
         state_store.save()
     _prepare_template(state_store)
     if application_paths:
-        derived_context_service.configure_derived_dir(application_paths.derived_dir)
-        derived_context_service.configure_state_store_path(state_store.path)
-    derived_context_service.build_all_for_fit_map()
+        derived_context_service.build_all_for_fit_map(application_paths)
+    else:
+        derived_context_service.build_all_for_fit_map()
     extra_payload = dict(extra or {})
     if application_paths:
         extra_payload.update(

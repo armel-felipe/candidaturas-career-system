@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import re
 import unicodedata
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from career.paths import CAREER_STATE, ROOT
+from career.services import provenance as provenance_service
+from career.services.application_context import ApplicationPaths
 from career.services import memory as memory_service
 from career.services.packs import build_pack, list_packs
 from career.utils import ensure, read_json, read_text, sha256_file, utc_now_iso, write_json
@@ -41,6 +44,11 @@ SELF_KNOWLEDGE_PATH = REFERENCES / "autoconhecimento.md"
 
 
 def configure_derived_dir(derived_dir: Path) -> None:
+    warnings.warn(
+        "configure_derived_dir is a deprecated legacy adapter; pass ApplicationPaths instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     global DERIVED_DIR, ACTIVE_CONTEXT_PATH, JOB_EXTRACT_PATH, JOB_SECTIONS_PATH
     global JOB_KEYWORDS_PATH, JOB_REQUIREMENTS_PATH, JOB_RESPONSIBILITIES_PATH
     global JOB_COMPANY_CONTEXT_PATH, REFERENCE_DIGEST_PATH, CANDIDATE_EVIDENCE_PACK_PATH
@@ -59,6 +67,11 @@ def configure_derived_dir(derived_dir: Path) -> None:
 
 
 def configure_state_store_path(path: Path | None) -> None:
+    warnings.warn(
+        "configure_state_store_path is a deprecated legacy adapter; pass ApplicationPaths instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     global ACTIVE_STATE_STORE_PATH
     ACTIVE_STATE_STORE_PATH = path
 
@@ -84,7 +97,394 @@ class DerivedContextBuilder:
         return {name: build_pack(name, application_id, self.db) for name in list_packs()}
 
 
-def build_all_for_fit_map() -> dict[str, Any]:
+def normalize_job(
+    application_paths: ApplicationPaths,
+    *,
+    job_description_path: Path | None = None,
+    candidate_facts_revision: str | None = None,
+) -> dict[str, Any]:
+    """Build pre-FIT packs with explicit application-local input and output paths."""
+    app_root = application_paths.app_dir.resolve()
+    source_path = Path(job_description_path or application_paths.job_description).resolve()
+    try:
+        source_path.relative_to(app_root)
+    except ValueError as exc:
+        raise ValueError(
+            "job description path must stay within its application directory"
+        ) from exc
+    ensure(source_path.is_file(), f"active_job_description_missing: {source_path}")
+
+    identity = read_json(application_paths.identity) if application_paths.identity.is_file() else {}
+    active = ActiveJobContext(
+        job_description_path=source_path,
+        fingerprint=sha256_file(source_path),
+        company=str(identity.get("company") or ""),
+        role=str(identity.get("role") or ""),
+        source_type=str(identity.get("source_type") or "application_source"),
+        source_id=str(identity.get("source_id") or "") or None,
+    )
+    facts_revision = (
+        candidate_facts_revision or provenance_service.candidate_facts_revision()
+    )
+    text = read_text(source_path)
+    lines = [line.strip() for line in text.splitlines()]
+    description = _extract_description_body(text)
+    sections = _split_sections(description)
+    metadata = _extract_metadata(lines)
+    company = metadata.get("company") or active.company
+    role = _extract_markdown_title(lines) or active.role
+    language = _infer_language(description)
+
+    active_context = {
+        "kind": "active_context",
+        "application_id": application_paths.application_id,
+        "created_at": utc_now_iso(),
+        "job_description_path": str(source_path),
+        "fingerprint": active.fingerprint,
+        "candidate_facts_revision": facts_revision,
+        "company": company,
+        "role": role,
+        "source_type": active.source_type,
+        "source_id": active.source_id,
+    }
+    job_extract = {
+        "kind": "job_extract",
+        "application_id": application_paths.application_id,
+        "created_at": utc_now_iso(),
+        "source": {
+            "job_description_path": str(source_path),
+            "fingerprint": active.fingerprint,
+            "source_type": active.source_type,
+            "source_id": active.source_id,
+        },
+        "job_identity": {
+            "company": company,
+            "role": role,
+            "location": metadata.get("location") or "",
+            "language": language,
+        },
+        "description_stats": {
+            "chars": len(description),
+            "lines": len([line for line in description.splitlines() if line.strip()]),
+            "sections": len(sections),
+        },
+        "description_preview": _preview_lines(description, limit=8),
+        "section_names": [section["name"] for section in sections],
+    }
+    ensure(job_extract["job_identity"]["role"], "job_extract_missing_role")
+    ensure(
+        int(job_extract["description_stats"]["chars"]) > 0,
+        "job_extract_description_empty",
+    )
+    job_sections = {
+        "kind": "job_sections",
+        "application_id": application_paths.application_id,
+        "created_at": utc_now_iso(),
+        "source": {
+            "job_description_path": str(source_path),
+            "fingerprint": active.fingerprint,
+        },
+        "language": language,
+        "sections": sections,
+    }
+    requirements = _extract_section_lines(
+        job_sections,
+        markers=(
+            "requisito",
+            "qualific",
+            "buscando",
+            "requirements",
+            "conhecimento",
+            "experi",
+        ),
+    )[:20]
+    responsibilities = _extract_section_lines(
+        job_sections,
+        markers=("responsabil", "atividad", "desafio", "role", "missao"),
+    )[:25]
+    job_requirements = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "job_requirements",
+        requirements=requirements,
+    )
+    job_responsibilities = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "job_responsibilities",
+        responsibilities=responsibilities,
+    )
+    overview = next(
+        (section for section in sections if section.get("name") == "Sobre a vaga"),
+        None,
+    )
+    job_company_context = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "job_company_context",
+        company=company,
+        role=role,
+        location=metadata.get("location") or "",
+        language=language,
+        context_lines=(overview or {}).get("content_preview")
+        or job_extract["description_preview"][:5],
+    )
+    normalized_description = _normalize(description)
+    matches = _dedupe_keyword_matches(
+        _matched_terms(
+            normalized_description,
+            _load_table_terms(KEYWORD_DICTIONARY_PATH),
+            source_name=_relative(KEYWORD_DICTIONARY_PATH),
+        )
+        + _matched_terms(
+            normalized_description,
+            _load_table_terms(CAREER_KEYWORDS_PATH),
+            source_name=_relative(CAREER_KEYWORDS_PATH),
+        )
+    )
+    focus_terms = [match["term"] for match in matches[:12]]
+    job_keywords = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "job_keywords",
+        language=language,
+        matched_keywords=matches[:40],
+        fallback_requirement_lines=_extract_requirement_lines(job_sections)[:15],
+        top_focus_terms=focus_terms,
+    )
+    reference_digest = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "reference_digest",
+        language_rules={
+            "english": "Avancado",
+            "spanish": "never include as competency",
+        },
+        protected_claims=[
+            "Never claim full P&L ownership.",
+            "VivaReal CS is described as arquiteto da area.",
+            "Fill rate belongs to Trifil.",
+            "wehandle must stay lowercase in final documents.",
+        ],
+        fit_rules=[
+            "Prioritize interview defensibility over semantic similarity.",
+            "Repositioning never becomes direct coverage by narrative strength alone.",
+            "Sensitive claims without literal proof must remain explicit gaps.",
+        ],
+        tone="factual, direct, first person, no coach language",
+        objections=_extract_bullets_under_heading(
+            SELF_KNOWLEDGE_PATH, "## Objeções mapeadas para vaga ideal"
+        )[:8],
+        critical_numbers=_extract_table_rows(
+            PROFILE_RESTRICTIONS_PATH,
+            "## NÚMEROS CRÍTICOS — NUNCA ALTERAR",
+            limit=12,
+        ),
+        focus_terms=focus_terms,
+    )
+    evidence_items = _dedupe_evidence_items(
+        _evidence_from_dictionary_terms(focus_terms)
+        + _evidence_from_career_keywords(focus_terms)
+    )[:30]
+    candidate_evidence_pack = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "candidate_evidence_pack",
+        focus_terms=focus_terms,
+        evidence_items=evidence_items,
+    )
+    themes: dict[str, list[dict[str, Any]]] = {
+        key: []
+        for key in (
+            "leadership",
+            "growth",
+            "pricing",
+            "channels",
+            "pipeline_conversion",
+            "data_dashboards",
+            "digital_ai",
+            "industry",
+            "strategy_planning",
+        )
+    }
+    theme_tokens = (
+        ("lider", "leadership"),
+        ("team", "leadership"),
+        ("growth", "growth"),
+        ("pric", "pricing"),
+        ("canal", "channels"),
+        ("pipeline", "pipeline_conversion"),
+        ("convers", "pipeline_conversion"),
+        ("data", "data_dashboards"),
+        ("dash", "data_dashboards"),
+        ("sql", "data_dashboards"),
+        ("digital", "digital_ai"),
+        ("autom", "digital_ai"),
+        ("industr", "industry"),
+        ("s&op", "industry"),
+        ("strateg", "strategy_planning"),
+        ("planning", "strategy_planning"),
+    )
+    for item in evidence_items:
+        searchable = _normalize(
+            str(item.get("term") or item.get("candidate_evidence") or "")
+        )
+        for token, theme in theme_tokens:
+            if token in searchable and item not in themes[theme]:
+                themes[theme].append(item)
+    candidate_evidence_by_theme = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "candidate_evidence_by_theme",
+        themes={key: values[:8] for key, values in themes.items() if values},
+    )
+    fit_map_seed = _scoped_pack(
+        application_paths,
+        active,
+        facts_revision,
+        "fit_map_seed",
+        cargo=role,
+        empresa=company,
+        idioma=language,
+        dor_central_candidates=job_keywords["fallback_requirement_lines"][:5],
+        keywords_vaga_candidates=job_keywords["matched_keywords"][:15],
+        keywords_habilidade_ats_candidates=focus_terms,
+        candidate_evidence_candidates=evidence_items[:12],
+        rules={
+            "fit_rules": reference_digest["fit_rules"],
+            "protected_claims": reference_digest["protected_claims"],
+        },
+    )
+    job_normalized = {
+        "kind": "job_normalized",
+        "application_id": application_paths.application_id,
+        "job_fingerprint": active.fingerprint,
+        "candidate_facts_revision": facts_revision,
+        "job_identity": job_extract["job_identity"],
+        "description_stats": job_extract["description_stats"],
+        "requirements_count": len(requirements),
+        "responsibilities_count": len(responsibilities),
+    }
+    handover = {
+        "kind": "handover_summary",
+        "application_id": application_paths.application_id,
+        "job_fingerprint": active.fingerprint,
+        "candidate_facts_revision": facts_revision,
+        "job_description_path": str(source_path),
+        "next_node": "analyze_fit",
+        "primary_packs": [
+            "job_extract.json",
+            "job_requirements.json",
+            "job_responsibilities.json",
+            "job_keywords.json",
+            "reference_digest.json",
+            "candidate_evidence_pack.json",
+            "fit_map_seed.json",
+        ],
+    }
+    evidence_index = {
+        "kind": "evidence_index",
+        "application_id": application_paths.application_id,
+        "job_fingerprint": active.fingerprint,
+        "candidate_facts_revision": facts_revision,
+        "sources": [
+            {
+                "kind": "job_description",
+                "path": str(source_path),
+                "sha256": active.fingerprint,
+            },
+            *[
+                {
+                    "kind": "candidate_facts",
+                    "path": str(path),
+                    "sha256": sha256_file(path),
+                }
+                for path in provenance_service.CANDIDATE_FACT_SOURCES
+            ],
+        ],
+        "evidence_items": evidence_items,
+    }
+    payloads = {
+        "active_context": active_context,
+        "job_extract": job_extract,
+        "job_sections": job_sections,
+        "job_requirements": job_requirements,
+        "job_responsibilities": job_responsibilities,
+        "job_company_context": job_company_context,
+        "job_keywords": job_keywords,
+        "reference_digest": reference_digest,
+        "candidate_evidence_pack": candidate_evidence_pack,
+        "candidate_evidence_by_theme": candidate_evidence_by_theme,
+        "fit_map_seed": fit_map_seed,
+        "job_normalized": job_normalized,
+        "handover_summary": handover,
+        "evidence_index": evidence_index,
+    }
+    application_paths.derived_dir.mkdir(parents=True, exist_ok=True)
+    output_paths: dict[str, Path] = {}
+    for name, payload in payloads.items():
+        output_path = application_paths.derived_dir / f"{name}.json"
+        write_json(output_path, payload)
+        output_paths[name] = output_path
+    manifest = {
+        "kind": "derived_manifest",
+        "application_id": application_paths.application_id,
+        "created_at": utc_now_iso(),
+        "job_description_path": str(source_path),
+        "fingerprint": active.fingerprint,
+        "candidate_facts_revision": facts_revision,
+        "outputs": {
+            name: {
+                "path": str(path),
+                "exists": True,
+                "bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+            for name, path in output_paths.items()
+        },
+    }
+    write_json(application_paths.derived_dir / "manifest.json", manifest)
+    return {
+        "status": "ok",
+        "manifest": manifest,
+        "job_normalized": job_normalized,
+        "handover": handover,
+        "evidence_index": evidence_index,
+    }
+
+
+def _scoped_pack(
+    application_paths: ApplicationPaths,
+    active: ActiveJobContext,
+    candidate_facts_revision: str,
+    kind: str,
+    **payload: Any,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "application_id": application_paths.application_id,
+        "created_at": utc_now_iso(),
+        "source": {
+            "job_description_path": str(active.job_description_path),
+            "fingerprint": active.fingerprint,
+            "candidate_facts_revision": candidate_facts_revision,
+        },
+        **payload,
+    }
+
+
+def build_all_for_fit_map(
+    application_paths: ApplicationPaths | None = None,
+) -> dict[str, Any]:
+    if application_paths is not None:
+        return normalize_job(application_paths)
     active = resolve_active_job_context()
     memory_service.build_memory_bundle()
     active_context = build_active_context(active)

@@ -71,6 +71,7 @@ class ApplicationPaths:
     identity: Path
     state: Path
     workflow_state: Path
+    source_metadata: Path
     job_description: Path
     saved_job_description: Path
     conversation_context: Path
@@ -98,6 +99,7 @@ def paths_for(application_id: str, root: Path | None = None) -> ApplicationPaths
         identity=app_dir / "identity.json",
         state=app_dir / "state.json",
         workflow_state=app_dir / "workflow_state.json",
+        source_metadata=app_dir / "source_metadata.json",
         job_description=app_dir / "job_description.md",
         saved_job_description=app_dir / "saved_job_description_path.txt",
         conversation_context=app_dir / "conversation_context.md",

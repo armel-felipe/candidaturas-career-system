@@ -817,7 +817,7 @@ class CellExecutor:
             node,
             allow_unvalidated=allow_unvalidated_inputs,
         )
-        staging_dir = paths.cells_dir / node.node_id / str(attempt) / "staging"
+        write_paths = self._write_paths_for_node(paths, node, attempt)
         return ManifestStore(paths).begin_attempt(
             node.node_id,
             attempt,
@@ -825,7 +825,7 @@ class CellExecutor:
             contract_version=node.contract_version,
             inputs=inputs,
             read_paths=read_paths,
-            write_paths=(staging_dir, paths.reviews_dir),
+            write_paths=write_paths,
             context={
                 "repair_scope": node.repair_scope,
                 "repair_reason": repair_reason,
@@ -858,12 +858,8 @@ class CellExecutor:
             manifest["capabilities"] = {
                 "read_paths": [str(store._target(path)) for path in read_paths],
                 "write_paths": [
-                    str(
-                        store._target(
-                            paths.cells_dir / node.node_id / str(attempt) / "staging"
-                        )
-                    ),
-                    str(store._target(paths.reviews_dir)),
+                    str(store._target(path))
+                    for path in self._write_paths_for_node(paths, node, attempt)
                 ],
             }
             manifest["inputs_materialized_at"] = utc_now_iso()
@@ -876,10 +872,7 @@ class CellExecutor:
             contract_version=node.contract_version,
             inputs=inputs,
             read_paths=read_paths,
-            write_paths=(
-                paths.cells_dir / node.node_id / str(attempt) / "staging",
-                paths.reviews_dir,
-            ),
+            write_paths=self._write_paths_for_node(paths, node, attempt),
             context={"repair_scope": node.repair_scope},
             status="reserved",
         )
@@ -902,10 +895,7 @@ class CellExecutor:
             contract_version=node.contract_version,
             inputs={},
             read_paths=(),
-            write_paths=(
-                paths.cells_dir / node.node_id / str(attempt) / "staging",
-                paths.reviews_dir,
-            ),
+            write_paths=self._write_paths_for_node(paths, node, attempt),
             context={"repair_scope": node.repair_scope},
             status="reserved",
         )
@@ -1027,7 +1017,32 @@ class CellExecutor:
         if node.node_id == "normalize_job" and paths.job_description.is_file():
             inputs["job_description"] = paths.job_description
             read_paths.append(paths.job_description)
+        if node.node_id == "analyze_fit" and paths.fit_map_draft.is_file():
+            inputs["fit_map_draft"] = paths.fit_map_draft
+            read_paths.append(paths.fit_map_draft)
+        if node.node_id == "capture_source":
+            source_input = paths.app_dir / "source_input.md"
+            if source_input.is_file():
+                inputs["source_description"] = source_input
+                read_paths.append(source_input)
+            if paths.identity.is_file():
+                inputs["application_identity"] = paths.identity
+                read_paths.append(paths.identity)
         return inputs, tuple(read_paths)
+
+    @staticmethod
+    def _write_paths_for_node(
+        paths: ApplicationPaths, node: NodePlan, attempt: int
+    ) -> tuple[Path, ...]:
+        write_paths = [
+            paths.cells_dir / node.node_id / str(attempt) / "staging",
+            paths.reviews_dir,
+        ]
+        if node.node_id == "capture_source":
+            write_paths.extend((paths.job_description, paths.source_metadata))
+        elif node.node_id == "normalize_job":
+            write_paths.append(paths.derived_dir)
+        return tuple(write_paths)
 
     def _cancel_expired_execution(
         self,

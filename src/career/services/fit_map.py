@@ -3,11 +3,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import build_fit_map as legacy_build_fit_map
-import score_fit_map as legacy_score_fit_map
-import validate_fit_map as legacy_validate_fit_map
+try:  # Legacy CLIs add scripts/ directly to sys.path.
+    import build_fit_map as legacy_build_fit_map
+    import score_fit_map as legacy_score_fit_map
+    import validate_fit_map as legacy_validate_fit_map
+except ModuleNotFoundError:  # Package/test imports resolve scripts as a namespace.
+    from scripts import build_fit_map as legacy_build_fit_map
+    from scripts import score_fit_map as legacy_score_fit_map
+    from scripts import validate_fit_map as legacy_validate_fit_map
 
 from career.paths import CAREER_STATE, INBOX, ROOT
+from career.services import provenance as provenance_service
+from career.services.application_context import ApplicationPaths
 from career.schemas.fit_map import (
     FitMapDraftSchema,
     FitMapFinalSchema,
@@ -541,3 +548,97 @@ def validate_fit_map(path: Path) -> dict:
         pass
     FitMapFinalSchema(fit_map).validate()
     return fit_map
+
+
+def build_application_fit_map(
+    application_paths: ApplicationPaths,
+    *,
+    expected_job_fingerprint: str,
+    candidate_facts_revision: str,
+    produced_by_attempt: int,
+    contract_version: str,
+    draft_path: Path | None = None,
+) -> dict:
+    """Build and validate a FIT_MAP without consulting global active state."""
+    draft_path = Path(draft_path or application_paths.fit_map_draft).resolve()
+    _assert_application_path(application_paths, draft_path, "FIT_MAP draft")
+    job_path = application_paths.job_description.resolve()
+    _assert_application_path(application_paths, job_path, "job description")
+    if not job_path.is_file():
+        raise ValidationFailure(f"application job description is missing: {job_path}")
+    actual_job_fingerprint = sha256_file(job_path)
+    if actual_job_fingerprint != expected_job_fingerprint:
+        raise ValidationFailure("normalized job fingerprint does not match application job fingerprint")
+
+    manifest_path = application_paths.derived_dir / "manifest.json"
+    if manifest_path.is_file():
+        manifest = read_json(manifest_path)
+        if manifest.get("application_id") != application_paths.application_id:
+            raise ValidationFailure("derived manifest belongs to another application")
+        if manifest.get("fingerprint") != actual_job_fingerprint:
+            raise ValidationFailure("derived manifest job fingerprint mismatch")
+        if manifest.get("candidate_facts_revision") != candidate_facts_revision:
+            raise ValidationFailure("derived manifest candidate facts revision mismatch")
+
+    draft = validate_draft(draft_path)
+    declared = draft.get("provenance") or draft.get("_provenance")
+    if isinstance(declared, dict):
+        declared_fingerprint = str(declared.get("job_fingerprint") or "")
+        if declared_fingerprint and declared_fingerprint != actual_job_fingerprint:
+            raise ValidationFailure("FIT_MAP draft job fingerprint mismatch")
+        declared_revision = str(declared.get("candidate_facts_revision") or "")
+        if declared_revision and declared_revision != candidate_facts_revision:
+            raise ValidationFailure("FIT_MAP draft candidate facts revision mismatch")
+
+    payload = legacy_build_fit_map.canonical_fit_map(draft)
+    score_payload = payload.get("nota_aderencia")
+    if not isinstance(score_payload, dict):
+        raise ValidationFailure(
+            "nota_aderencia must be an object with dimensoes to be scored"
+        )
+    payload["nota_aderencia"] = legacy_score_fit_map.compute_score(score_payload)
+    payload["provenance"] = provenance_service.fit_map_provenance(
+        application_paths,
+        candidate_revision=candidate_facts_revision,
+        draft_path=draft_path,
+        contract_version=contract_version,
+        produced_by_attempt=produced_by_attempt,
+    )
+    validate_application_fit_map(
+        payload,
+        application_paths=application_paths,
+        expected_candidate_facts_revision=candidate_facts_revision,
+    )
+    return payload
+
+
+def validate_application_fit_map(
+    payload: dict,
+    *,
+    application_paths: ApplicationPaths,
+    expected_candidate_facts_revision: str | None = None,
+    expected_draft_sha256: str | None = None,
+    expected_contract_version: str | None = None,
+    expected_produced_by_attempt: int | None = None,
+) -> dict:
+    FitMapFinalSchema(payload).validate()
+    provenance_service.validate_fit_map_provenance(
+        payload,
+        application_paths=application_paths,
+        expected_candidate_facts_revision=expected_candidate_facts_revision,
+        expected_draft_sha256=expected_draft_sha256,
+        expected_contract_version=expected_contract_version,
+        expected_produced_by_attempt=expected_produced_by_attempt,
+    )
+    return payload
+
+
+def _assert_application_path(
+    application_paths: ApplicationPaths, path: Path, label: str
+) -> Path:
+    target = Path(path).resolve()
+    try:
+        target.relative_to(application_paths.app_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay within its application directory") from exc
+    return target

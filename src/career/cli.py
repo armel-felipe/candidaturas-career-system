@@ -28,7 +28,10 @@ from career.services import workflow_reset as workflow_reset_service
 from career.services.database import Database
 from career.services.session_memory import SessionMemoryService
 from career.cells.executor import CellExecutor
-from career.cells.handlers import production_handlers, production_validators
+from career.cells.handlers import (
+    production_handler_registry,
+    production_validator_registry,
+)
 from career.tasks.registry import run_pipeline, run_task
 from career.utils import CareerError
 from career.workflow.state_store import WorkflowStateStore
@@ -1017,8 +1020,8 @@ def main(argv: list[str] | None = None) -> int:
             database.init_schema()
             executor = CellExecutor(
                 database,
-                handlers=production_handlers(),
-                validators=production_validators(),
+                handlers=production_handler_registry(),
+                validators=production_validator_registry(),
                 worker_id="career-applications-cli",
             )
             try:

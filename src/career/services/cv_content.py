@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,15 @@ from career.paths import CAREER_STATE
 from career.services import applications_v2 as applications_v2_service
 from career.services import derived_context as derived_context_service
 from career.services import fit_map as fit_map_service
-from career.utils import ValidationFailure, ensure, read_json, utc_now_iso, write_json
+from career.services.application_context import ApplicationPaths
+from career.utils import (
+    ValidationFailure,
+    ensure,
+    read_json,
+    sha256_file,
+    utc_now_iso,
+    write_json,
+)
 
 
 CV_CONTENT_PATH = CAREER_STATE / "cv_content.json"
@@ -17,6 +26,11 @@ FIT_MAP_PATH = CAREER_STATE / "fit_map.json"
 
 
 def configure_paths(*, cv_content_path: Path | None = None, fit_map_path: Path | None = None) -> None:
+    warnings.warn(
+        "configure_paths is a deprecated legacy adapter; pass ApplicationPaths instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     global CV_CONTENT_PATH
     global FIT_MAP_PATH
     if cv_content_path is not None:
@@ -234,6 +248,65 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     active = derived_context_service.resolve_active_job_context()
     _ensure_fit_map_matches_active(active)
     fit_map = read_json(FIT_MAP_PATH)
+    payload = _build_cv_payload(active, fit_map, source_fit_map=str(FIT_MAP_PATH))
+    write_json(path, payload)
+    validate_cv_content(path)
+    return payload
+
+
+def build_cv_content(
+    application_paths: ApplicationPaths,
+    fit_map_path: Path,
+    candidate_facts_revision: str,
+) -> dict[str, Any]:
+    """Build CV content from explicit application paths without global adapters."""
+    resolved_fit_map = Path(fit_map_path).resolve()
+    for label, path in (
+        ("job description", application_paths.job_description.resolve()),
+        ("FIT_MAP", resolved_fit_map),
+        ("CV content", application_paths.cv_content.resolve()),
+    ):
+        try:
+            path.relative_to(application_paths.app_dir.resolve())
+        except ValueError as exc:
+            raise ValueError(f"{label} must stay within its application directory") from exc
+    ensure(application_paths.job_description.is_file(), "application_job_description_missing")
+    ensure(resolved_fit_map.is_file(), "application_fit_map_missing")
+    identity = read_json(application_paths.identity) if application_paths.identity.is_file() else {}
+    active = derived_context_service.ActiveJobContext(
+        job_description_path=application_paths.job_description.resolve(),
+        fingerprint=sha256_file(application_paths.job_description),
+        company=str(identity.get("company") or ""),
+        role=str(identity.get("role") or ""),
+        source_type=str(identity.get("source_type") or "application_source"),
+        source_id=str(identity.get("source_id") or "") or None,
+    )
+    fit_map = read_json(resolved_fit_map)
+    fit_map_service.validate_application_fit_map(
+        fit_map,
+        application_paths=application_paths,
+        expected_candidate_facts_revision=candidate_facts_revision,
+    )
+    payload = _build_cv_payload(
+        active,
+        fit_map,
+        source_fit_map=str(resolved_fit_map),
+        candidate_facts_revision=candidate_facts_revision,
+    )
+    write_json(application_paths.cv_content, payload)
+    applications_v2_service._validate_cv_content_contract(
+        {"cv_content": application_paths.cv_content, "fit_map": resolved_fit_map}
+    )
+    return payload
+
+
+def _build_cv_payload(
+    active: derived_context_service.ActiveJobContext,
+    fit_map: dict[str, Any],
+    *,
+    source_fit_map: str,
+    candidate_facts_revision: str | None = None,
+) -> dict[str, Any]:
     job_family = _infer_job_family(fit_map)
     selected = _select_experiences(fit_map)
     ensure(4 <= len(selected) <= 8, "cv_content_requires_between_4_and_8_experiences")
@@ -249,9 +322,10 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
             "created_at": utc_now_iso(),
             "job_fingerprint": active.fingerprint,
             "job_description_path": derived_context_service._relative(active.job_description_path),
+            "candidate_facts_revision": candidate_facts_revision,
             "cargo": fit_map.get("cargo"),
             "empresa": fit_map.get("empresa"),
-            "source_fit_map": ".career-state/fit_map.json",
+            "source_fit_map": source_fit_map,
             "job_family": job_family,
             "language": "en" if is_en else "pt-BR",
         },
@@ -286,8 +360,6 @@ def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
         "ats_keyword_coverage": coverage,
         "summary_support": summary_support,
     }
-    write_json(path, payload)
-    validate_cv_content(path)
     return payload
 
 
