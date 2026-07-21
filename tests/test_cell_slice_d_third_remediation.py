@@ -145,7 +145,7 @@ def test_notion_numeric_record_id_still_uses_record_update(tmp_path):
 
 def test_real_normalize_packs_drive_all_branch_evidence_with_stable_source_bound_ids(tmp_path):
     paths, normalized = _real_normalized_outputs(tmp_path)
-    keywords = read_json(paths.derived_dir / "job_keywords.json")
+    keywords = json.loads(normalized["job_normalized.json"])["job_keywords"]
     evidence = json.loads(normalized["evidence_index.json"])
     terms = keywords["top_focus_terms"]
     assert terms and keywords["matched_keywords"]
@@ -168,7 +168,7 @@ def test_real_normalize_packs_drive_all_branch_evidence_with_stable_source_bound
 def test_cover_letter_review_uses_context_application_scope_for_real_evidence(tmp_path):
     _paths, normalized = _real_normalized_outputs(tmp_path)
     evidence = json.loads(normalized["evidence_index.json"])
-    terms = read_json(_paths.derived_dir / "job_keywords.json")["top_focus_terms"]
+    terms = json.loads(normalized["job_normalized.json"])["job_keywords"]["top_focus_terms"]
     fit_map = _fit_map("app-real", terms)
     generated = production_handler_registry()["generate_cover_letter"](
         _context(tmp_path, "generate_cover_letter", _branch_inputs(normalized, fit_map))

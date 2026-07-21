@@ -248,6 +248,105 @@ def test_migration_manifest_is_idempotent_immutable_and_hashes_legacy_sources(tm
     )
 
 
+def test_migration_uses_run_scoped_attempts_and_canonical_artifact_manifests(tmp_path):
+    legacy = tmp_path / "applications" / "app-1"
+    _seed_legacy_application(legacy, reviewed="verified")
+
+    result = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=tmp_path / "career.db",
+    )
+    migration_manifest = json.loads(
+        Path(result["manifest_path"]).read_text(encoding="utf-8")
+    )
+
+    for node in migration_manifest["nodes"]:
+        node_id = node["node_id"]
+        expected_attempt = (
+            legacy / "cells" / result["run_id"] / node_id / "1" / "manifest.json"
+        )
+        assert node["manifest_path"] == (
+            f"cells/{result['run_id']}/{node_id}/1/manifest.json"
+        )
+        assert expected_attempt.is_file()
+        attempt = json.loads(expected_attempt.read_text(encoding="utf-8"))
+        assert attempt["run_id"] == result["run_id"]
+        assert attempt["node_id"] == node_id
+        for output in attempt["outputs"]:
+            revision = output["revision"]
+            artifact_name = output["artifact_name"]
+            expected_manifest = (
+                legacy
+                / "artifacts"
+                / result["run_id"]
+                / artifact_name
+                / revision
+                / "manifest.json"
+            )
+            expected_artifact = expected_manifest.parent / artifact_name
+            assert Path(output["manifest_path"]) == expected_manifest.resolve()
+            assert Path(output["path"]) == expected_artifact.resolve()
+            artifact_manifest = json.loads(
+                expected_manifest.read_text(encoding="utf-8")
+            )
+            assert artifact_manifest["kind"] == "artifact_manifest"
+            assert artifact_manifest["application_id"] == "app-1"
+            assert artifact_manifest["run_id"] == result["run_id"]
+            assert artifact_manifest["node_id"] == node_id
+            assert artifact_manifest["attempt"] == 1
+            assert artifact_manifest["status"] == "validated"
+            assert artifact_manifest["manifest_path"] == str(
+                expected_manifest.resolve()
+            )
+            assert artifact_manifest["path"] == str(expected_artifact.resolve())
+
+
+def test_migrated_run_is_resumable_and_finalizable_by_cell_executor(tmp_path):
+    legacy = tmp_path / "applications" / "app-1"
+    _seed_legacy_application(legacy, reviewed="verified")
+    database_path = tmp_path / "career.db"
+    result = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=database_path,
+    )
+
+    database = Database(database_path)
+    database.init_schema()
+    try:
+        executor = CellExecutor(database, applications_root=legacy.parent)
+        resumed = executor.resume(result["run_id"])
+
+        assert resumed.run_id == result["run_id"]
+        assert resumed.application_id == "app-1"
+        assert resumed.ready_nodes == ()
+        assert set(resumed.statuses.values()) <= {"validated", "blocked"}
+        assert resumed.statuses["render_cv"] == "validated"
+        assert resumed.statuses["review_cv"] == "validated"
+
+        completion = executor.finalize(result["run_id"])
+
+        assert completion.path == (
+            legacy
+            / "runs"
+            / result["run_id"]
+            / "run_completion_manifest.json"
+        ).resolve()
+        assert completion.manifest["run_id"] == result["run_id"]
+        assert completion.manifest["status"] == "blocked"
+        assert {
+            item["node_id"] for item in completion.manifest["blocked_nodes"]
+        } == {"normalize_job", "analyze_fit", "compose_cv", "deliver_cv"}
+        assert {
+            item["node_id"]
+            for item in completion.manifest["validated_artifacts"]
+        } == {"render_cv", "review_cv"}
+        assert executor.is_terminal(result["run_id"])
+    finally:
+        database.close()
+
+
 def test_migration_reconciles_deleted_control_database_from_existing_receipt(tmp_path):
     legacy = tmp_path / "applications" / "app-1"
     _seed_legacy_application(legacy)
