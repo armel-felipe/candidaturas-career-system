@@ -569,6 +569,8 @@ def build_application_fit_map(
     actual_job_fingerprint = sha256_file(job_path)
     if actual_job_fingerprint != expected_job_fingerprint:
         raise ValidationFailure("normalized job fingerprint does not match application job fingerprint")
+    if candidate_facts_revision != provenance_service.candidate_facts_revision():
+        raise ValidationFailure("candidate facts revision mismatch")
 
     manifest_path = application_paths.derived_dir / "manifest.json"
     if manifest_path.is_file():

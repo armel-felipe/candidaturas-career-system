@@ -183,6 +183,8 @@ class CellExecutor:
             raise RuntimeError(f"maximum attempts reached for node: {node_id}")
 
         invalidated = self._contract_descendants(node_id, {item.node_id for item in plan.nodes})
+        defer_invalidation_until_publication = node_id == "analyze_fit"
+        reservation_invalidated = () if defer_invalidation_until_publication else invalidated
         now = utc_now_iso()
         with self.database.transaction(immediate=True) as conn:
             current = conn.execute(
@@ -223,7 +225,7 @@ class CellExecutor:
                    WHERE run_id = ? AND node_id = ?""",
                 (now, run_id, node_id),
             )
-            for descendant in invalidated:
+            for descendant in reservation_invalidated:
                 descendant_row = conn.execute(
                     """SELECT status, latest_attempt FROM cell_nodes
                        WHERE run_id = ? AND node_id = ?""",
@@ -249,7 +251,7 @@ class CellExecutor:
                         ),
                     )
 
-        for descendant in invalidated:
+        for descendant in reservation_invalidated:
             self._mark_attempt_manifest_superseded(paths, run_id, descendant)
 
         reservation = self.store.reserve_node(
@@ -276,7 +278,7 @@ class CellExecutor:
             attempt=attempt,
             repair_scope=contract.repair_scope,
             reason=str(reason),
-            invalidated=invalidated,
+            invalidated=reservation_invalidated,
             manifest_path=manifest.path,
         )
 
@@ -346,6 +348,11 @@ class CellExecutor:
             )
 
         attempt = int(reservation["attempt"])
+        prior_fit_map_hash = (
+            self._latest_fit_map_revision_hash(plan.run_id, node.node_id)
+            if node.node_id == "analyze_fit" and attempt > 1
+            else None
+        )
         manifest_store = ManifestStore(paths)
         try:
             attempt_record = self._load_or_begin_execution_attempt(
@@ -597,6 +604,27 @@ class CellExecutor:
                         for item in published
                     ),
                 )
+                if node.node_id == "analyze_fit" and prior_fit_map_hash is not None:
+                    current_fit_map_path = next(
+                        (
+                            item.path
+                            for item in published
+                            if item.manifest["artifact_name"] == "fit_map.json"
+                        ),
+                        None,
+                    )
+                    current_fit_map_hash = (
+                        self._fit_map_revision_hash(current_fit_map_path)
+                        if current_fit_map_path is not None
+                        else None
+                    )
+                    if current_fit_map_hash != prior_fit_map_hash:
+                        self._supersede_contract_descendants(
+                            paths,
+                            plan.run_id,
+                            node.node_id,
+                            {item.node_id for item in plan.nodes},
+                        )
             except Exception as exc:
                 manifest_store.rollback_publications(
                     node.node_id, attempt, published
@@ -1289,6 +1317,78 @@ class CellExecutor:
             if contract is not None:
                 pending.extend(contract.invalidates)
         return tuple(sorted(descendants & planned_nodes))
+
+    def _latest_fit_map_revision_hash(
+        self, run_id: str, node_id: str
+    ) -> str | None:
+        row = self.database.fetch_one(
+            """SELECT path FROM artifacts
+               WHERE run_id = ? AND node_id = ? AND artifact_name = 'fit_map.json'
+               ORDER BY created_at DESC, artifact_id DESC LIMIT 1""",
+            (run_id, node_id),
+        )
+        return self._fit_map_revision_hash(Path(row["path"])) if row is not None else None
+
+    @staticmethod
+    def _fit_map_revision_hash(path: Path) -> str:
+        """Hash FIT_MAP meaning while excluding attempt-local provenance.
+
+        ``produced_by_attempt`` is required audit metadata and necessarily changes
+        for every repair. It must not invalidate descendants when the published
+        FIT_MAP content is otherwise unchanged.
+        """
+        raw = Path(path).read_bytes()
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return hashlib.sha256(raw).hexdigest()
+        provenance = payload.get("provenance")
+        if isinstance(provenance, dict):
+            payload = dict(payload)
+            payload["provenance"] = {
+                key: value
+                for key, value in provenance.items()
+                if key != "produced_by_attempt"
+            }
+        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _supersede_contract_descendants(
+        self,
+        paths: ApplicationPaths,
+        run_id: str,
+        node_id: str,
+        planned_nodes: set[str],
+    ) -> tuple[str, ...]:
+        descendants = self._contract_descendants(node_id, planned_nodes)
+        now = utc_now_iso()
+        superseded: list[str] = []
+        with self.database.transaction(immediate=True) as conn:
+            for descendant in descendants:
+                row = conn.execute(
+                    """SELECT status, latest_attempt FROM cell_nodes
+                       WHERE run_id = ? AND node_id = ?""",
+                    (run_id, descendant),
+                ).fetchone()
+                if row is None or row["status"] == "planned":
+                    continue
+                conn.execute(
+                    """UPDATE cell_nodes
+                       SET status = 'superseded', reserved_by = NULL,
+                           reservation_expires_at = NULL, updated_at = ?
+                       WHERE run_id = ? AND node_id = ?""",
+                    (now, run_id, descendant),
+                )
+                if int(row["latest_attempt"]) > 0:
+                    conn.execute(
+                        """UPDATE cell_attempts SET status = 'superseded'
+                           WHERE run_id = ? AND node_id = ? AND attempt = ?""",
+                        (run_id, descendant, int(row["latest_attempt"])),
+                    )
+                superseded.append(descendant)
+        for descendant in superseded:
+            self._mark_attempt_manifest_superseded(paths, run_id, descendant)
+        return tuple(superseded)
 
     def _mark_attempt_manifest_superseded(
         self, paths: ApplicationPaths, run_id: str, node_id: str

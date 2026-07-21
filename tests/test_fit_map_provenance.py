@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from career.cells.executor import CellExecutor
 from career.cells import handlers as cell_handlers
-from career.services import derived_context, fit_map
+from career.services import derived_context, fit_map, provenance
 from career.services.application_context import paths_for
 from career.services.database import Database
 from career.utils import ValidationFailure, read_json, write_json
@@ -193,6 +193,34 @@ def test_analyze_fit_rejects_a_normalized_fingerprint_from_another_application(
         )
 
 
+def test_candidate_facts_revision_covers_every_canonical_normalize_source(tmp_path):
+    paths = paths_for("revision-app", root=tmp_path / "applications")
+    _seed_application(paths, company="Acme", role="Head A", marker="alpha")
+
+    assert {
+        derived_context.KEYWORD_DICTIONARY_PATH,
+        derived_context.CAREER_KEYWORDS_PATH,
+        derived_context.SELF_KNOWLEDGE_PATH,
+        derived_context.PROFILE_RESTRICTIONS_PATH,
+    }.issubset(provenance.CANDIDATE_FACT_SOURCES)
+    normalized = derived_context.normalize_job(paths)
+
+    assert normalized["handover"]["candidate_facts_revision"] == (
+        provenance.candidate_facts_revision()
+    )
+
+
+def test_normalize_job_rejects_a_supplied_candidate_facts_revision_mismatch(tmp_path):
+    paths = paths_for("revision-mismatch-app", root=tmp_path / "applications")
+    _seed_application(paths, company="Acme", role="Head A", marker="alpha")
+
+    with pytest.raises(ValidationFailure, match="candidate facts revision mismatch"):
+        derived_context.normalize_job(
+            paths,
+            candidate_facts_revision="0" * 64,
+        )
+
+
 def test_two_production_cell_runs_keep_descriptions_packs_fit_maps_and_inputs_scoped(
     tmp_path, monkeypatch
 ):
@@ -327,8 +355,9 @@ def test_changed_fit_map_revision_invalidates_only_that_app_contract_descendants
         write_json(first.fit_map_draft, changed)
         executor.repair(first_plan.run_id, "analyze_fit", "new fit evidence")
 
-        assert executor.node_status(first_plan.run_id, "compose_cv") == "superseded"
-        assert executor.node_status(first_plan.run_id, "generate_feras") == "superseded"
+        # Reserving a repair cannot invalidate descendants before a new FIT_MAP exists.
+        assert executor.node_status(first_plan.run_id, "compose_cv") == "validated"
+        assert executor.node_status(first_plan.run_id, "generate_feras") == "validated"
         assert executor.node_status(second_plan.run_id, "compose_cv") == "validated"
         assert executor.node_status(second_plan.run_id, "generate_feras") == "validated"
 
@@ -342,6 +371,47 @@ def test_changed_fit_map_revision_invalidates_only_that_app_contract_descendants
         assert read_json(Path(revised["path"]))["provenance"][
             "produced_by_attempt"
         ] == 2
+        first_descendant_attempts = database.fetch_all(
+            """SELECT node_id, status FROM cell_attempts
+               WHERE run_id = ? AND node_id IN ('compose_cv', 'generate_feras')
+                 AND attempt = 1
+               ORDER BY node_id""",
+            (first_plan.run_id,),
+        )
+        assert [(row["node_id"], row["status"]) for row in first_descendant_attempts] == [
+            ("compose_cv", "superseded"),
+            ("generate_feras", "superseded"),
+        ]
+    finally:
+        database.close()
+
+
+def test_unchanged_fit_map_repair_preserves_declared_descendants(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = paths_for("unchanged-repair-app", root=applications_root)
+    _seed_application(paths, company="Acme", role="Head A", marker="alpha")
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers=cell_handlers.production_handler_registry(),
+        validators=cell_handlers.production_validator_registry(),
+    )
+    try:
+        plan = executor.plan(paths.application_id, {"cv", "feras"})
+        _run_through_fit(executor, plan.run_id)
+        executor.mark_validated(plan.run_id, "compose_cv")
+        executor.mark_validated(plan.run_id, "generate_feras")
+
+        executor.repair(plan.run_id, "analyze_fit", "verify unchanged fit")
+        assert executor.node_status(plan.run_id, "compose_cv") == "validated"
+        assert executor.node_status(plan.run_id, "generate_feras") == "validated"
+
+        repaired = executor.run_ready(plan.run_id)
+        assert next(item for item in repaired if item.node_id == "analyze_fit").status == "validated"
+        assert executor.node_status(plan.run_id, "compose_cv") == "validated"
+        assert executor.node_status(plan.run_id, "generate_feras") == "validated"
     finally:
         database.close()
 

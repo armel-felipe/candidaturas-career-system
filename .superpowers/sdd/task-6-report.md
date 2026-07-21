@@ -99,3 +99,35 @@ Modified:
 ## Independent review status
 
 A read-only reviewer agent was dispatched with the exact brief and full changed-file list. It was still running without findings when the controller instructed this task to proceed to commit/report and stated that the controller would run the mandated independent gate. No Critical, Important, Minor, or approval verdict was returned by that reviewer, so independent approval remains explicitly pending at this report commit.
+
+## Slice B bounded review fixes — 2026-07-20
+
+Implemented two review fixes with RED→GREEN regression coverage:
+
+- Candidate-facts revision now hashes every canonical reference read by application-scoped `normalize_job`: the market keyword dictionary, career keywords, self-knowledge, and profile restrictions. A caller-supplied revision must equal this canonical digest; `normalize_job` and `build_application_fit_map` reject mismatches.
+- `analyze_fit` repair no longer supersedes descendants at reservation time. After a successful immutable publication, it compares a stable FIT_MAP revision SHA (excluding only audit-only `produced_by_attempt`) with the prior validated revision. A changed revision supersedes only the contract-declared descendants in the same run/application; an unchanged revision preserves them.
+
+RED evidence:
+
+```text
+$ pytest -q tests/test_fit_map_provenance.py -k 'candidate_facts_revision_covers or normalize_job_rejects_a_supplied or changed_fit_map_revision_invalidates_only_that_app_contract_descendants or unchanged_fit_map_repair_preserves'
+FFFF
+```
+
+GREEN and verification evidence:
+
+```text
+$ pytest -q tests/test_cell_intake.py tests/test_fit_map_provenance.py tests/test_cell_executor.py
+33 passed in 1.47s
+
+$ pytest -q
+173 passed in 3.79s
+
+$ python3 -m py_compile src/career/services/provenance.py src/career/services/derived_context.py src/career/services/fit_map.py src/career/cells/executor.py tests/test_fit_map_provenance.py
+# exit 0
+
+$ git diff --check
+# exit 0
+```
+
+`.inbox/` remained unmodified and unstaged.

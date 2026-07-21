@@ -11,11 +11,10 @@ from career.utils import ValidationFailure, sha256_file
 
 
 CANDIDATE_FACT_SOURCES: tuple[Path, ...] = (
+    ROOT / ".agents/skills/career-system/references/dicionario_palavras_chave_mercado.md",
     ROOT / ".agents/skills/career-system/references/palavras_chave_carreira.md",
     ROOT / ".agents/skills/career-system/references/autoconhecimento.md",
     ROOT / ".agents/skills/career-system/references/perfil_restricoes.md",
-    ROOT / ".agents/skills/career-system/references/competencias_matrix.json",
-    ROOT / ".agents/skills/career-system/references/competencias_por_experiencia.json",
 )
 
 

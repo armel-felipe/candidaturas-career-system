@@ -12,7 +12,15 @@ from career.services import provenance as provenance_service
 from career.services.application_context import ApplicationPaths
 from career.services import memory as memory_service
 from career.services.packs import build_pack, list_packs
-from career.utils import ensure, read_json, read_text, sha256_file, utc_now_iso, write_json
+from career.utils import (
+    ValidationFailure,
+    ensure,
+    read_json,
+    read_text,
+    sha256_file,
+    utc_now_iso,
+    write_json,
+)
 from career.workflow.state_store import WorkflowStateStore
 
 
@@ -123,9 +131,13 @@ def normalize_job(
         source_type=str(identity.get("source_type") or "application_source"),
         source_id=str(identity.get("source_id") or "") or None,
     )
-    facts_revision = (
-        candidate_facts_revision or provenance_service.candidate_facts_revision()
-    )
+    canonical_facts_revision = provenance_service.candidate_facts_revision()
+    if (
+        candidate_facts_revision is not None
+        and candidate_facts_revision != canonical_facts_revision
+    ):
+        raise ValidationFailure("candidate facts revision mismatch")
+    facts_revision = canonical_facts_revision
     text = read_text(source_path)
     lines = [line.strip() for line in text.splitlines()]
     description = _extract_description_body(text)
