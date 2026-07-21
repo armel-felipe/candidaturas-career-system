@@ -1057,6 +1057,8 @@ class CellExecutor:
             if paths.identity.is_file():
                 inputs["application_identity"] = paths.identity
                 read_paths.append(paths.identity)
+        if node.node_id in {"deliver_cv", "sync_notion_initial", "sync_notion_final"}:
+            read_paths.append(paths.cells_dir / node.node_id / "receipts" / run_id)
         return inputs, tuple(read_paths)
 
     @staticmethod
@@ -1071,6 +1073,8 @@ class CellExecutor:
             write_paths.extend((paths.job_description, paths.source_metadata))
         elif node.node_id == "normalize_job":
             write_paths.append(paths.derived_dir)
+        elif node.node_id in {"deliver_cv", "sync_notion_initial", "sync_notion_final"}:
+            write_paths.append(paths.cells_dir / node.node_id / "receipts")
         return tuple(write_paths)
 
     def _cancel_expired_execution(

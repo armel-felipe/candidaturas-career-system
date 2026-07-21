@@ -8,6 +8,31 @@ from career.services import derived_context as derived_context_service
 from career.utils import ensure, read_json, utc_now_iso, write_text
 
 
+def build_from_fit_map(fit_map: dict[str, Any]) -> str:
+    """Build the cellular FERAS artifact from an explicit FIT_MAP payload."""
+    cargo = str(fit_map.get("cargo") or "Cargo")
+    empresa = str(fit_map.get("empresa") or "Empresa")
+    stories = fit_map.get("historias_selecionadas") if isinstance(fit_map.get("historias_selecionadas"), dict) else {}
+    principal = stories.get("principal") if isinstance(stories.get("principal"), dict) else {}
+    keywords = [str(item).strip() for item in fit_map.get("keywords_para_ats", []) if str(item).strip()]
+    omitted = keywords[5:8] or ["nenhuma relevante omitida no recorte atual"]
+    result = str(principal.get("resultado") or "resultados defensáveis de crescimento e eficiência")
+    return "\n".join(
+        [
+            f"# FERAS — {cargo} — {empresa}", "", "## FERAS estruturado",
+            "- F: Engenharia química e estratégia aplicada a operações e negócios.",
+            f"- E: {result}",
+            "- R: Conexão entre dados, execução e crescimento em ambientes complexos.",
+            f"- A: Contribuir para a agenda prioritária da {empresa}.",
+            "- S: Ampliar impacto com execução consistente e evidência defensável.", "",
+            "## Pitch fluido para fala/leitura",
+            f"Minha trajetória conecta operações, dados e execução; em especial, {result}. Busco a posição de {cargo} para ampliar esse impacto na {empresa}.", "",
+            "## Keywords incorporadas naturalmente", *[f"- {item}" for item in keywords[:5]], "",
+            "## Keywords relevantes não usadas", *[f"- {item}" for item in omitted], "",
+        ]
+    )
+
+
 def build_current_feras(output_path: Path | None = None) -> dict[str, Any]:
     active = derived_context_service.resolve_active_job_context()
     pack = (

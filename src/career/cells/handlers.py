@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -12,8 +13,12 @@ from typing import Any, Callable, TypeAlias
 from career.cells.capabilities import CapabilitySet
 from career.services import derived_context as derived_context_service
 from career.services import cv_content as cv_content_service
+from career.services import cover_letter as cover_letter_service
+from career.services import feras as feras_service
 from career.services import fit_map as fit_map_service
+from career.services import habilidades_chave as habilidades_service
 from career.services import intake as intake_service
+from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.application_context import ApplicationPaths
 from career.utils import read_json, write_json
@@ -77,7 +82,9 @@ CellValidator: TypeAlias = Callable[
 ]
 
 
-def production_handler_registry() -> dict[str, CellHandler]:
+def production_handler_registry(
+    *, notion_client: Any = None, delivery_client: Any = None
+) -> dict[str, CellHandler]:
     """Return the production handlers already migrated to application cells."""
     return {
         "capture_source": _capture_source,
@@ -86,6 +93,15 @@ def production_handler_registry() -> dict[str, CellHandler]:
         "compose_cv": _compose_cv,
         "render_cv": _render_cv,
         "review_cv": _review_cv,
+        "deliver_cv": lambda context: _deliver_cv(context, delivery_client),
+        "sync_notion_initial": lambda context: _sync_notion_initial(context, notion_client),
+        "sync_notion_final": lambda context: _sync_notion_final(context, notion_client),
+        "generate_feras": _generate_feras,
+        "review_feras": _review_feras,
+        "generate_cover_letter": _generate_cover_letter,
+        "review_cover_letter": _review_cover_letter,
+        "generate_habilidades": _generate_habilidades,
+        "review_habilidades": _review_habilidades,
     }
 
 
@@ -101,6 +117,14 @@ def production_validator_registry() -> dict[str, CellValidator]:
         "validate-cv-provenance": _validate_cv_provenance,
         "validate:docx": _validate_rendered_cv,
         "cv:approve": _validate_cv_review,
+        "validate-delivery-receipt": _validate_external_receipt,
+        "validate-notion-receipt": _validate_external_receipt,
+        "validate-feras": _validate_feras,
+        "validate-cover-letter": _validate_cover_letter,
+        "validate-habilidades": _validate_habilidades,
+        "review-output:feras": _validate_branch_review,
+        "review-output:cover-letter": _validate_branch_review,
+        "review-output:habilidades": _validate_branch_review,
     }
 
 
@@ -315,6 +339,364 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
             "approved_for_delivery": bool(report.get("approved_for_delivery")),
         },
     )
+
+
+_EXTERNAL_RECEIPT_NODES = frozenset(
+    {"deliver_cv", "sync_notion_initial", "sync_notion_final"}
+)
+_CANONICAL_DELIVERY_TARGET = "onedrive-cv"
+
+
+def _fit_map_for_application(context: CellExecutionContext) -> tuple[dict[str, Any], str]:
+    raw, _path, digest = _read_input(context, "fit_map.json")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("FIT_MAP cell input is not an object")
+    declared_application = payload.get("application_id")
+    if declared_application is not None and declared_application != context.application_id:
+        raise ValueError("FIT_MAP pointer belongs to another application")
+    return payload, digest
+
+
+def _branch_output(
+    context: CellExecutionContext,
+    *, artifact_name: str,
+    content: str,
+    kind: str,
+    fit_map_hash: str,
+) -> CellOutput:
+    if not content.strip():
+        raise ValueError(f"{kind} output is empty")
+    content_bytes = content.encode("utf-8")
+    artifact_hash = hashlib.sha256(content_bytes).hexdigest()
+    return CellOutput(
+        artifacts={artifact_name: content_bytes},
+        handover={
+            "kind": f"{kind}_handover",
+            "application_id": context.application_id,
+            "run_id": context.run_id,
+            "fit_map_sha256": fit_map_hash,
+            "artifact_sha256": artifact_hash,
+        },
+        metadata={"fit_map_sha256": fit_map_hash, "artifact_sha256": artifact_hash},
+    )
+
+
+def _generate_feras(context: CellExecutionContext) -> CellOutput:
+    fit_map, fit_map_hash = _fit_map_for_application(context)
+    content = feras_service.build_from_fit_map(fit_map)
+    feras_service.validate_feras_text(content)
+    return _branch_output(
+        context, artifact_name="feras.md", content=content, kind="feras", fit_map_hash=fit_map_hash
+    )
+
+
+def _generate_cover_letter(context: CellExecutionContext) -> CellOutput:
+    fit_map, fit_map_hash = _fit_map_for_application(context)
+    content = cover_letter_service.build_from_fit_map(fit_map)
+    cover_letter_service.validate_cover_letter_text(content)
+    return _branch_output(
+        context,
+        artifact_name="cover_letter.md",
+        content=content,
+        kind="cover_letter",
+        fit_map_hash=fit_map_hash,
+    )
+
+
+def _generate_habilidades(context: CellExecutionContext) -> CellOutput:
+    fit_map, fit_map_hash = _fit_map_for_application(context)
+    content = habilidades_service.build_from_fit_map(fit_map)
+    return _branch_output(
+        context,
+        artifact_name="habilidades.md",
+        content=content,
+        kind="habilidades",
+        fit_map_hash=fit_map_hash,
+    )
+
+
+def _review_branch(
+    context: CellExecutionContext, *, artifact_name: str, review_name: str, kind: str
+) -> CellOutput:
+    raw, _path, artifact_hash = _read_input(context, artifact_name)
+    if not raw.strip():
+        raise ValueError(f"{kind} artifact is empty")
+    review = {
+        "kind": f"{kind}_review",
+        "application_id": context.application_id,
+        "run_id": context.run_id,
+        "node_id": context.node_id,
+        "artifact_sha256": artifact_hash,
+        "approved": True,
+    }
+    return CellOutput(
+        artifacts={review_name: _json_bytes(review)},
+        handover={"kind": f"{kind}_review_handover", **review},
+        metadata={"artifact_sha256": artifact_hash, "approved": True},
+    )
+
+
+def _review_feras(context: CellExecutionContext) -> CellOutput:
+    return _review_branch(context, artifact_name="feras.md", review_name="feras_review.json", kind="feras")
+
+
+def _review_cover_letter(context: CellExecutionContext) -> CellOutput:
+    return _review_branch(context, artifact_name="cover_letter.md", review_name="cover_letter_review.json", kind="cover_letter")
+
+
+def _review_habilidades(context: CellExecutionContext) -> CellOutput:
+    return _review_branch(context, artifact_name="habilidades.md", review_name="habilidades_review.json", kind="habilidades")
+
+
+def _request_hash(context: CellExecutionContext, *, operation: str, target: str) -> str:
+    inputs = {
+        name: str(record.get("sha256") or "")
+        for name, record in sorted(context.inputs.items())
+        if isinstance(record, Mapping)
+    }
+    payload = {
+        "application_id": context.application_id,
+        "node_id": context.node_id,
+        "operation": operation,
+        "target": target,
+        "input_hashes": inputs,
+    }
+    return hashlib.sha256(_json_bytes(payload)).hexdigest()
+
+
+def _receipt_cache_path(context: CellExecutionContext, request_hash: str) -> Path:
+    if context.node_id not in _EXTERNAL_RECEIPT_NODES:
+        raise ValueError("receipt cache is only available to external-effect nodes")
+    path = (
+        context.paths.cells_dir
+        / context.node_id
+        / "receipts"
+        / context.run_id
+        / f"{request_hash}.json"
+    )
+    return path.resolve()
+
+
+def _load_matching_receipt(context: CellExecutionContext, request_hash: str) -> dict[str, Any] | None:
+    path = _receipt_cache_path(context, request_hash)
+    if not path.is_file():
+        return None
+    context.capabilities.assert_readable(path)
+    receipt = read_json(path)
+    if receipt.get("request_hash") != request_hash:
+        return None
+    _validate_receipt_payload(receipt, context)
+    return receipt
+
+
+def _persist_external_receipt(context: CellExecutionContext, receipt: dict[str, Any]) -> dict[str, Any]:
+    _validate_receipt_payload(receipt, context)
+    path = _receipt_cache_path(context, str(receipt["request_hash"]))
+    context.capabilities.assert_writable(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            json.dump(receipt, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+    except FileExistsError:
+        existing = _load_matching_receipt(context, str(receipt["request_hash"]))
+        if existing is None:
+            raise
+        return existing
+    return receipt
+
+
+def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> CellOutput:
+    operation = f"notion_{phase}_sync"
+    target = "notion:application"
+    request_hash = _request_hash(context, operation=operation, target=target)
+    receipt = _load_matching_receipt(context, request_hash)
+    if receipt is None:
+        request = {
+            "operation": operation,
+            "target": target,
+            "request_hash": request_hash,
+            "application_id": context.application_id,
+            "run_id": context.run_id,
+            "node_id": context.node_id,
+            "status": "Aplicação andamento",
+            # Only text artifacts can be consumed by the legacy extra-artifact reader.
+            "extra_artifacts": [
+                str(record["path"])
+                for record in context.inputs.values()
+                if isinstance(record, Mapping) and str(record.get("path", "")).endswith((".md", ".txt", ".json"))
+            ],
+        }
+        receipt = _persist_external_receipt(
+            context, notion_service.perform_cell_sync(client, request)
+        )
+    name = "notion_initial_receipt.json" if phase == "initial" else "notion_final_receipt.json"
+    return CellOutput(
+        artifacts={name: _json_bytes(receipt)},
+        handover={"kind": f"{operation}_handover", **receipt},
+        metadata={"request_hash": receipt["request_hash"], "response_hash": receipt["response_hash"]},
+    )
+
+
+def _sync_notion_initial(context: CellExecutionContext, client: Any) -> CellOutput:
+    return _sync_notion(context, client, phase="initial")
+
+
+def _sync_notion_final(context: CellExecutionContext, client: Any) -> CellOutput:
+    return _sync_notion(context, client, phase="final")
+
+
+def _deliver_cv(context: CellExecutionContext, client: Any) -> CellOutput:
+    raw, _path, artifact_hash = _read_input(context, "cv.docx")
+    approval_raw, _approval_path, _approval_hash = _read_input(context, "approved_cv_manifest.json")
+    approval = json.loads(approval_raw.decode("utf-8"))
+    if approval.get("application_id") != context.application_id:
+        raise ValueError("approved CV manifest belongs to another application")
+    if approval.get("approved_for_delivery") is not True:
+        raise ValueError("approved CV manifest does not authorize delivery")
+    operation = "cv_delivery"
+    request_hash = _request_hash(context, operation=operation, target=_CANONICAL_DELIVERY_TARGET)
+    receipt = _load_matching_receipt(context, request_hash)
+    if receipt is None:
+        if client is None:
+            raise RuntimeError("CV delivery requires an injected client")
+        request = {
+            "operation": operation,
+            "target": _CANONICAL_DELIVERY_TARGET,
+            "request_hash": request_hash,
+            "application_id": context.application_id,
+            "run_id": context.run_id,
+            "node_id": context.node_id,
+            "artifact_hash": artifact_hash,
+        }
+        if hasattr(client, "deliver_cell"):
+            response = client.deliver_cell(dict(request), raw)
+        elif callable(client):
+            response = client(dict(request), raw)
+        else:
+            raise TypeError("delivery client must implement deliver_cell(request, artifact)")
+        if not isinstance(response, Mapping):
+            raise ValueError("delivery client returned an invalid response")
+        response_hash = hashlib.sha256(_json_bytes(dict(response))).hexdigest()
+        receipt = _persist_external_receipt(
+            context,
+            {
+                **request,
+                "response_hash": response_hash,
+                "delivery_id": str(response.get("delivery_id") or response.get("id") or ""),
+                "url": str(response.get("url") or ""),
+            },
+        )
+    return CellOutput(
+        artifacts={"cv_delivery_receipt.json": _json_bytes(receipt)},
+        handover={"kind": "cv_delivery_handover", **receipt},
+        metadata={"request_hash": receipt["request_hash"], "artifact_hash": receipt["artifact_hash"]},
+    )
+
+
+def _validate_receipt_payload(receipt: Mapping[str, Any], context: CellExecutionContext) -> None:
+    if not isinstance(receipt, Mapping):
+        raise ValueError("external receipt must be an object")
+    required = {
+        "operation", "target", "request_hash", "response_hash", "application_id", "run_id", "node_id"
+    }
+    missing = sorted(required - set(receipt))
+    if missing:
+        raise ValueError("external receipt fields missing: " + ", ".join(missing))
+    if receipt.get("application_id") != context.application_id:
+        raise ValueError("external receipt belongs to another application")
+    if receipt.get("run_id") != context.run_id or receipt.get("node_id") != context.node_id:
+        raise ValueError("external receipt belongs to another run or node")
+    for field in ("request_hash", "response_hash"):
+        value = str(receipt.get(field) or "")
+        if not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError(f"external receipt {field} must be a SHA-256")
+    if context.node_id == "deliver_cv":
+        for field in ("artifact_hash", "delivery_id", "url"):
+            if not str(receipt.get(field) or ""):
+                raise ValueError(f"delivery receipt {field} is required")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(receipt["artifact_hash"])):
+            raise ValueError("delivery receipt artifact_hash must be a SHA-256")
+    else:
+        for field in ("record_id", "page_id", "url"):
+            if not str(receipt.get(field) or ""):
+                raise ValueError(f"Notion receipt {field} is required")
+    encoded = json.dumps(dict(receipt), sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    if len(encoded) > 2048:
+        raise ValueError("external receipt exceeds 2048 bytes")
+    if any(isinstance(value, (dict, list, tuple, set)) for value in receipt.values()):
+        raise ValueError("external receipt must contain only scalar values")
+
+
+def _validate_external_receipt(
+    context: CellExecutionContext, output: CellOutput
+) -> ValidatorResult:
+    reason = ""
+    try:
+        artifact = (
+            "cv_delivery_receipt.json"
+            if context.node_id == "deliver_cv"
+            else "notion_initial_receipt.json"
+            if context.node_id == "sync_notion_initial"
+            else "notion_final_receipt.json"
+        )
+        _validate_receipt_payload(_artifact_json(output, artifact), context)
+    except Exception as exc:
+        reason = f"{type(exc).__name__}:{exc}"
+    return _persist_validator_result(context, reason)
+
+
+def _validate_feras(context: CellExecutionContext, output: CellOutput) -> ValidatorResult:
+    reason = ""
+    try:
+        raw = output.artifacts.get("feras.md")
+        feras_service.validate_feras_text(raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or ""))
+    except Exception as exc:
+        reason = f"{type(exc).__name__}:{exc}"
+    return _persist_validator_result(context, reason)
+
+
+def _validate_cover_letter(context: CellExecutionContext, output: CellOutput) -> ValidatorResult:
+    reason = ""
+    try:
+        raw = output.artifacts.get("cover_letter.md")
+        cover_letter_service.validate_cover_letter_text(raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or ""))
+    except Exception as exc:
+        reason = f"{type(exc).__name__}:{exc}"
+    return _persist_validator_result(context, reason)
+
+
+def _validate_habilidades(context: CellExecutionContext, output: CellOutput) -> ValidatorResult:
+    reason = ""
+    try:
+        raw = output.artifacts.get("habilidades.md")
+        text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
+        if "# Habilidades-chave" not in text or "## Habilidades priorizadas" not in text:
+            raise ValueError("habilidades artifact misses required sections")
+    except Exception as exc:
+        reason = f"{type(exc).__name__}:{exc}"
+    return _persist_validator_result(context, reason)
+
+
+def _validate_branch_review(context: CellExecutionContext, output: CellOutput) -> ValidatorResult:
+    reason = ""
+    try:
+        review_name = {
+            "review_feras": "feras_review.json",
+            "review_cover_letter": "cover_letter_review.json",
+            "review_habilidades": "habilidades_review.json",
+        }.get(context.node_id)
+        if review_name is None:
+            raise ValueError("unknown branch review")
+        review = _artifact_json(output, review_name)
+        if review.get("application_id") != context.application_id or review.get("run_id") != context.run_id:
+            raise ValueError("branch review belongs to another application or run")
+        if review.get("approved") is not True:
+            raise ValueError("branch review is not approved")
+    except Exception as exc:
+        reason = f"{type(exc).__name__}:{exc}"
+    return _persist_validator_result(context, reason)
 def _validate_captured_source(
     context: CellExecutionContext, output: CellOutput
 ) -> ValidatorResult:
@@ -428,14 +810,17 @@ def _validate_fit_map_provenance(
 ) -> ValidatorResult:
     reason = ""
     try:
-        fit_map_service.validate_application_fit_map(
-            _artifact_json(output, "fit_map.json"),
-            application_paths=context.paths,
-            expected_candidate_facts_revision=_expected_candidate_revision(context),
-            expected_draft_sha256=_expected_draft_sha256(context),
-            expected_contract_version=_attempt_contract_version(context),
-            expected_produced_by_attempt=context.attempt,
-        )
+        if context.node_id in {"generate_feras", "generate_cover_letter", "generate_habilidades"}:
+            _fit_map_for_application(context)
+        else:
+            fit_map_service.validate_application_fit_map(
+                _artifact_json(output, "fit_map.json"),
+                application_paths=context.paths,
+                expected_candidate_facts_revision=_expected_candidate_revision(context),
+                expected_draft_sha256=_expected_draft_sha256(context),
+                expected_contract_version=_attempt_contract_version(context),
+                expected_produced_by_attempt=context.attempt,
+            )
     except Exception as exc:
         reason = f"{type(exc).__name__}:{exc}"
     return _persist_validator_result(context, reason)

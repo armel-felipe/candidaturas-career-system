@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 import re
 import sys
 import unicodedata
@@ -437,3 +439,44 @@ def update_from_fit_map_record(
         allow_mismatch=False,
         status=status,
     )
+
+
+def perform_cell_sync(client, request: dict) -> dict:
+    """Execute one injected Notion write and return a bounded cellular receipt.
+
+    Cellular callers deliberately supply a client.  The legacy module keeps its
+    command-line OAuth/token implementation, while this boundary makes cell
+    effects testable and prevents a default handler from making a remote write.
+    """
+    if client is None:
+        raise RuntimeError("Notion cell sync requires an injected client")
+    if not isinstance(request, dict):
+        raise ValueError("Notion cell request must be an object")
+    if hasattr(client, "sync_cell"):
+        response = client.sync_cell(dict(request))
+    elif callable(client):
+        response = client(dict(request))
+    else:
+        raise TypeError("Notion cell client must implement sync_cell(request)")
+    if not isinstance(response, dict):
+        raise ValueError("Notion cell client returned an invalid response")
+    page = response.get("page") if isinstance(response.get("page"), dict) else {}
+    page_id = str(response.get("page_id") or response.get("id") or page.get("id") or "")
+    url = str(response.get("url") or page.get("url") or "")
+    if not page_id or not url:
+        raise ValueError("Notion cell response must include page_id and url")
+    response_hash = hashlib.sha256(
+        json.dumps(response, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    return {
+        "operation": str(request["operation"]),
+        "target": str(request["target"]),
+        "request_hash": str(request["request_hash"]),
+        "response_hash": response_hash,
+        "application_id": str(request["application_id"]),
+        "run_id": str(request["run_id"]),
+        "node_id": str(request["node_id"]),
+        "record_id": str(response.get("record_id") or page_id),
+        "page_id": page_id,
+        "url": url,
+    }

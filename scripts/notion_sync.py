@@ -1322,6 +1322,10 @@ def bullet_block(text: str) -> dict:
 def _read_extra_artifact(path: Path) -> str:
     if not path.exists():
         raise SystemExit(f"Extra artifact not found: {path}")
+    if path.suffix.casefold() not in {".md", ".txt", ".json"}:
+        raise SystemExit(
+            f"Extra artifact must be text-only (.md, .txt or .json), not: {path}"
+        )
     text = path.read_text(encoding="utf-8").strip()
     assert_clean_display_text(f"extra artifact {path}", text)
     if not text:

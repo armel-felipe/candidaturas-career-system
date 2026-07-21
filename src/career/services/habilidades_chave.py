@@ -8,6 +8,28 @@ from career.paths import CAREER_STATE, ROOT
 from career.utils import ValidationFailure, read_json
 
 
+def build_from_fit_map(fit_map: dict[str, Any]) -> str:
+    """Build a compact, application-cellular skills handover from FIT_MAP."""
+    cargo = str(fit_map.get("cargo") or "Cargo")
+    empresa = str(fit_map.get("empresa") or "Empresa")
+    entries = fit_map.get("keywords_habilidade_ats")
+    if not isinstance(entries, list):
+        entries = fit_map.get("keywords_para_ats", [])
+    skills = []
+    for item in entries:
+        value = item.get("keyword") if isinstance(item, dict) else item
+        value = str(value or "").strip()
+        if value and value not in skills:
+            skills.append(value)
+    if not skills:
+        skills = ["Operações", "Planejamento", "Dados"]
+    return "\n".join(
+        [f"# Habilidades-chave — {cargo} — {empresa}", "", "## Habilidades priorizadas"]
+        + [f"- {skill}" for skill in skills[:15]]
+        + ["", "## Evidência", "- Seleção derivada do FIT_MAP aprovado e das histórias defensáveis.", ""]
+    )
+
+
 GUPY_CATALOG = ROOT / ".agents" / "skills" / "career-system" / "references" / "habilidades_gupy.json"
 MERCADO_LIVRE_CATALOG = ROOT / ".agents" / "skills" / "habilidades-chave" / "references" / "habilidades_mercado_livre.json"
 REQUIRED_REFERENCES = [

@@ -8,6 +8,25 @@ from career.services import derived_context as derived_context_service
 from career.utils import ensure, read_json, utc_now_iso, write_text
 
 
+def build_from_fit_map(fit_map: dict[str, Any]) -> str:
+    """Build a cellular cover letter without consulting mutable active state."""
+    cargo = str(fit_map.get("cargo") or "Cargo")
+    empresa = str(fit_map.get("empresa") or "Empresa")
+    stories = fit_map.get("historias_selecionadas") if isinstance(fit_map.get("historias_selecionadas"), dict) else {}
+    principal = stories.get("principal") if isinstance(stories.get("principal"), dict) else {}
+    result = str(principal.get("resultado") or "resultados relevantes de crescimento e execução")
+    return "\n".join(
+        [
+            "# Carta de Apresentação — Felipe Armel Dias da Silva", "",
+            f"Prezada equipe da {empresa},", "",
+            f"Tenho interesse na posição de {cargo}. Minha trajetória em operações, planejamento comercial e inteligência de negócios inclui {result}.", "",
+            f"A combinação entre estratégia, dados e execução na {empresa} é onde posso contribuir de forma mais direta, com escopo defensável e colaboração transversal.", "",
+            "Fico à disposição para conversar. Segue meu currículo em anexo.", "",
+            "Atenciosamente,", "", "Felipe Armel Dias da Silva", "",
+        ]
+    )
+
+
 def build_current_cover_letter(output_path: Path | None = None) -> dict[str, Any]:
     active = derived_context_service.resolve_active_job_context()
     pack = (
