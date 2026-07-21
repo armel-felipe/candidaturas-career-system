@@ -28,5 +28,12 @@ def test_canonical_cv_facts_json_is_revisioned_and_drives_values(tmp_path, monke
     assert cv_content.load_canonical_cv_facts()["candidate"]["location"] == "Canonical Test Location"
     assert cv_content.load_canonical_cv_facts()["filename_slug"] == "canonical_test_cv"
     assert cv_content.load_canonical_cv_facts()["summary_profiles"]["en"]["opening"] == "Canonical Test Summary"
+    selected = [
+        cv_content._materialize_experience(item, "operations", language="en")
+        for item in cv_content._facts_experiences()[:5]
+    ]
+    summary, _ = cv_content._build_summary(selected, {"cargo": "Test Role"}, language="en")
+    assert summary.startswith("Canonical Test Summary")
+    assert cv_content._output_name({"cargo": "Test Role", "empresa": "Test Company"}).startswith("canonical_test_cv_")
     with pytest.raises(ValidationFailure):
         cv_content.validate_canonical_provenance({"metadata": {"candidate_facts_revision": original_revision}})

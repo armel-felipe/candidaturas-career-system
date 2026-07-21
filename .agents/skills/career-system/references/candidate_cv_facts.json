@@ -327,5 +327,30 @@
     "vivareal_planejamento_operacoes": "VivaReal",
     "trifil_sop": "Coordenador de S&OP",
     "trifil_inteligencia_comercial": "Coordenador de Inteligência Comercial"
+  },
+  "selectors": {
+    "fallback_experience_priority": [
+      "ifood_diretor_operacoes",
+      "ifood_head_operacoes",
+      "vivareal_planejamento_operacoes",
+      "trifil_sop",
+      "trifil_inteligencia_comercial",
+      "wehandle_head_operacoes",
+      "renault_cs"
+    ],
+    "summary_priority": [
+      "wehandle_head_operacoes",
+      "ifood_diretor_operacoes",
+      "ifood_head_operacoes",
+      "trifil_sop",
+      "vivareal_planejamento_operacoes",
+      "trifil_inteligencia_comercial",
+      "renault_cs"
+    ],
+    "education_source_locators": [
+      "BSP Business School São Paulo",
+      "Engenheiro Químico — Faculdades Oswaldo Cruz",
+      "Six Sigma Green Belt"
+    ]
   }
 }

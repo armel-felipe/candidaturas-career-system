@@ -418,15 +418,7 @@ def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         if any(company_norm in _normalize(target) or role_norm in _normalize(target) for target in targets):
             selected_ids.append(entry["id"])
-    fallback_priority = [
-        "ifood_diretor_operacoes",
-        "ifood_head_operacoes",
-        "vivareal_planejamento_operacoes",
-        "trifil_sop",
-        "trifil_inteligencia_comercial",
-        "wehandle_head_operacoes",
-        "renault_cs",
-    ]
+    fallback_priority = load_canonical_cv_facts()["selectors"]["fallback_experience_priority"]
     for item_id in fallback_priority:
         if item_id not in selected_ids:
             selected_ids.append(item_id)
@@ -568,15 +560,7 @@ def _summary_opening(fit_map: dict[str, Any]) -> str:
 
 
 def _summary_support_pairs(selected: list[dict[str, Any]], *, language: str = "pt-BR") -> list[tuple[str, int, int]]:
-    desired = [
-        "wehandle_head_operacoes",
-        "ifood_diretor_operacoes",
-        "ifood_head_operacoes",
-        "trifil_sop",
-        "vivareal_planejamento_operacoes",
-        "trifil_inteligencia_comercial",
-        "renault_cs",
-    ]
+    desired = load_canonical_cv_facts()["selectors"]["summary_priority"]
     summary_fragments = load_canonical_cv_facts()["summary_fragments"][language]
     by_id = {entry["id"]: index for index, entry in enumerate(selected)}
     pairs: list[tuple[str, int, int]] = []
@@ -980,9 +964,4 @@ def _experience_source_locator(experience_id: str) -> str:
 
 
 def _education_source_locator(index: int) -> tuple[str, str]:
-    locators = (
-        ("cv_facts", "BSP Business School São Paulo"),
-        ("cv_facts", "Engenheiro Químico — Faculdades Oswaldo Cruz"),
-        ("cv_facts", "Six Sigma Green Belt"),
-    )
-    return locators[index]
+    return "cv_facts", str(load_canonical_cv_facts()["selectors"]["education_source_locators"][index])

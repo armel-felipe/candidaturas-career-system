@@ -35,6 +35,21 @@ Validation executed after remediation:
 - `pytest -q` — 175 passed
 - `git diff --check` — passed
 
+### Last selector remediation
+
+Moved fallback experience order, summary priority and education source locators
+into `candidate_cv_facts.json`; Python now reads those generic arrays/mappings.
+A scan finds no candidate experience IDs or education locators in the CV Python
+module or DOCX renderer. The canonical-facts mutation test now invokes real
+summary composition and output-name generation, proving changed revisioned
+profile text and filename slug alter generated values.
+
+Validation executed after selector remediation:
+
+- `pytest tests/test_custom_cv_generation.py tests/test_cell_cv_pipeline.py tests/test_candidate_cv_facts.py tests/test_review_output_cellular_artifact.py -q --maxfail=1` — 12 passed
+- `pytest -q` — 179 passed
+- `git diff --check` — passed
+
 ### Bounded final remediation
 
 Moved the remaining candidate-specific summary openings, achievement fragments,
