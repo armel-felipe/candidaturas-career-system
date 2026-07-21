@@ -104,7 +104,12 @@ CELL_CONTRACTS: dict[str, CellContract] = {
     "review_cv": _contract(
         "review_cv",
         requires=("render_cv", "analyze_fit"),
-        produces=("reviews/cv_review.json",),
+        produces=(
+            "reviews/cv_review.json",
+            "reviews/polish_review.json",
+            "reviews/cv_approved_artifact.json",
+            "reviews/keyword_ats_registry.json",
+        ),
         validators=("cv:approve",),
         invalidates=("deliver_cv", "sync_notion_final"),
         repair_scope="cv_review_only",

@@ -40,6 +40,10 @@ def validate(path: Path) -> list[str]:
 
             if "word/theme/theme1.xml" not in names:
                 errors.append("Missing Arial theme part: word/theme/theme1.xml")
+            else:
+                theme_text = zf.read("word/theme/theme1.xml").decode("utf-8", errors="replace")
+                if 'typeface="Arial"' not in theme_text:
+                    errors.append("Arial theme is not applied")
     except zipfile.BadZipFile:
         errors.append("File is not a valid zip/docx package")
 

@@ -593,6 +593,15 @@ def build_application_fit_map(
             raise ValidationFailure("FIT_MAP draft candidate facts revision mismatch")
 
     payload = legacy_build_fit_map.canonical_fit_map(draft)
+    # Language is carried forward only when the intake/draft made an explicit
+    # normalized declaration.  Older FIT_MAP producers remain valid; CV
+    # composition will reject a missing language instead of guessing from
+    # marker words or silently defaulting to Portuguese.
+    declared_language = str(draft.get("idioma") or "").strip()
+    if declared_language:
+        if declared_language not in {"pt-BR", "en"}:
+            raise ValidationFailure("FIT_MAP draft idioma must be pt-BR or en")
+        payload["idioma"] = declared_language
     score_payload = payload.get("nota_aderencia")
     if not isinstance(score_payload, dict):
         raise ValidationFailure(

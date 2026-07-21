@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import unicodedata
@@ -19,6 +20,14 @@ from career.utils import (
     sha256_file,
     utc_now_iso,
     write_json,
+)
+
+
+PROFILE_FACTS_PATH = (
+    ROOT / ".agents/skills/career-system/references/perfil_restricoes.md"
+)
+SELF_KNOWLEDGE_PATH = (
+    ROOT / ".agents/skills/career-system/references/autoconhecimento.md"
 )
 
 
@@ -294,11 +303,7 @@ def build_cv_content(
         source_fit_map=str(resolved_fit_map),
         candidate_facts_revision=candidate_facts_revision,
         application_id=application_paths.application_id,
-        language=_job_description_language(application_paths.job_description),
-    )
-    write_json(application_paths.cv_content, payload)
-    applications_v2_service._validate_cv_content_contract(
-        {"cv_content": application_paths.cv_content, "fit_map": resolved_fit_map}
+        language=_application_cv_language(application_paths, fit_map),
     )
     return payload
 
@@ -365,6 +370,7 @@ def _build_cv_payload(
     coverage = _build_ats_coverage(selected_with_bullets, top8)
     summary_text, summary_support = _build_summary(selected_with_bullets, fit_map, language="en" if is_en else "pt-BR")
     education_list = DEFAULT_EDUCATION_EN if is_en else DEFAULT_EDUCATION_PT
+    candidate = _candidate_contact_facts()
     payload = {
         "metadata": {
             "kind": "cv_content",
@@ -380,6 +386,7 @@ def _build_cv_payload(
             "language": "en" if is_en else "pt-BR",
         },
         "output_name": _output_name(fit_map, active=active, language="en" if is_en else "pt-BR"),
+        "candidate": candidate,
         "mode": "concise",
         "persona": _persona_name(fit_map),
         "summary": summary_text,
@@ -421,6 +428,7 @@ def _build_cv_payload(
         "ats_keyword_coverage": coverage,
         "summary_support": summary_support,
     }
+    _attach_canonical_provenance(payload)
     return payload
 
 
@@ -588,7 +596,15 @@ def _infer_job_family(fit_map: dict[str, Any]) -> str:
 def _materialize_experience(entry: dict[str, Any], job_family: str, *, language: str = "pt-BR") -> dict[str, Any]:
     if language == "en":
         role, scope, leverage, result = EN_EXPERIENCE_TEXT[entry["id"]]
-        return {**entry, "role": role, "scope_bullet": scope, "result_bullet": result, "bullets": [scope, leverage, result], "job_family": job_family}
+        return {
+            **entry,
+            "role": role,
+            "period": _english_period(str(entry["period"])),
+            "scope_bullet": scope,
+            "result_bullet": result,
+            "bullets": [scope, leverage, result],
+            "job_family": job_family,
+        }
     leverage = entry.get("leverage") if isinstance(entry.get("leverage"), dict) else {}
     bullet2 = str(leverage.get(job_family) or leverage.get("default") or "").strip()
     bullets = [
@@ -747,14 +763,41 @@ def _cv_language(fit_map: dict[str, Any]) -> str:
     return "en" if str(fit_map.get("idioma") or "").strip().casefold().startswith("en") else "pt-BR"
 
 
-def _job_description_language(path: Path) -> str:
-    """Use the persisted application description, not FIT_MAP wording, for locale."""
-    text = path.read_text(encoding="utf-8", errors="replace").casefold()
-    english_markers = ("company:", "responsibilities", "requirements", "lead ", "operations")
-    portuguese_markers = ("empresa:", "responsabilidades", "requisitos", "liderar ", "operações")
-    english_score = sum(marker in text for marker in english_markers)
-    portuguese_score = sum(marker in text for marker in portuguese_markers)
-    return "en" if english_score > portuguese_score else "pt-BR"
+def _application_cv_language(application_paths: ApplicationPaths, fit_map: dict[str, Any]) -> str:
+    """Read the persisted normalized language; never infer it from marker words here."""
+    for key in ("required_cv_language", "idioma", "language"):
+        language = str(fit_map.get(key) or "").strip()
+        if language in {"pt-BR", "en"}:
+            return language
+    extract_path = application_paths.derived_dir / "job_extract.json"
+    if extract_path.is_file():
+        extract = read_json(extract_path)
+        language = str((extract.get("job_identity") or {}).get("language") or "").strip()
+        if language in {"pt-BR", "en"}:
+            return language
+    raise ValidationFailure("application CV language is missing from normalized inputs")
+
+
+def _candidate_contact_facts() -> dict[str, str]:
+    """Extract immutable renderer-facing identity facts from the canonical profile."""
+    text = PROFILE_FACTS_PATH.read_text(encoding="utf-8")
+    patterns = {
+        "location": r"\*\*Localização:\*\*\s*(.+)",
+        "linkedin": r"\*\*LinkedIn:\*\*\s*\[([^]]+)\]",
+        "phone": r"\*\*(?:WhatsApp/Tel|Telefone):\*\*\s*\[([^]]+)\]",
+        "email": r"\*\*E-mail:\*\*\s*\[([^]]+)\]",
+    }
+    values = {
+        key: (match.group(1).strip() if (match := re.search(pattern, text)) else "")
+        for key, pattern in patterns.items()
+    }
+    name_match = re.search(r"##\s+PERFIL\s+—\s+(.+)", text, flags=re.IGNORECASE)
+    values["name"] = (
+        name_match.group(1).title().replace(" Da ", " da ") if name_match else ""
+    )
+    if not all(values.values()):
+        raise ValidationFailure("canonical candidate contact facts are incomplete")
+    return values
 
 
 def _normalize(text: str) -> str:
@@ -771,3 +814,154 @@ def _slug(text: str) -> str:
 def _evidence_id(experience_id: str, claim: str) -> str:
     """Stable candidate-facts pointer for a selected CV claim."""
     return f"candidate_facts:{experience_id}:{claim}"
+
+
+def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
+    """Bind every renderer-facing fact to immutable candidate source hashes."""
+    revision = str(payload["metadata"].get("candidate_facts_revision") or "")
+    sources = {
+        "profile": PROFILE_FACTS_PATH,
+        "self_knowledge": SELF_KNOWLEDGE_PATH,
+    }
+    catalog = {
+        name: {"path": str(path), "sha256": sha256_file(path)}
+        for name, path in sources.items()
+    }
+    source_text = {
+        name: _normalize(path.read_text(encoding="utf-8"))
+        for name, path in sources.items()
+    }
+
+    def evidence_id(source: str, locator: str) -> str:
+        return hashlib.sha256(f"{revision}\0{source}\0{locator}".encode("utf-8")).hexdigest()
+
+    evidence: dict[str, dict[str, str]] = {}
+
+    def bind(source: str, claim: str, locator: str) -> str:
+        # A claim can only be published when its locator resolves in the
+        # revision-pinned canonical source.  The opaque ID protects callers
+        # from treating labels as proof while preserving auditability.
+        if _normalize(locator) not in source_text[source]:
+            raise ValidationFailure(f"canonical evidence locator is absent: {source}/{claim}")
+        item_id = evidence_id(source, locator)
+        evidence[item_id] = {"source": source, "claim": claim, "locator": locator}
+        return item_id
+
+    for experience in payload["experiences"]:
+        experience_id = str(experience["experience_id"])
+        locator = _experience_source_locator(experience_id)
+        experience["evidence_id"] = bind("self_knowledge", f"{experience_id}:experience", locator)
+        for index, bullet in enumerate(experience["bullets"]):
+            bullet["evidence_id"] = bind("self_knowledge", f"{experience_id}:bullet:{index}", locator)
+    for experience in payload["experiencias"]:
+        experience_id = str(experience["experience_id"])
+        experience["evidence_id"] = bind("self_knowledge", f"{experience_id}:experience", _experience_source_locator(experience_id))
+    for mapping in payload["ats_keyword_coverage"]:
+        experience_id = str(mapping["experience_id"])
+        mapping["evidence_id"] = bind(
+            "self_knowledge",
+            f"{experience_id}:bullet:{mapping['bullet_index']}",
+            _experience_source_locator(experience_id),
+        )
+    for support in payload["summary_support"]:
+        experience_id = str(support["experience_id"])
+        support["evidence_id"] = bind(
+            "self_knowledge",
+            f"{experience_id}:bullet:{support['bullet_index']}",
+            _experience_source_locator(experience_id),
+        )
+    education_evidence = []
+    for index, _ in enumerate(payload["education"]):
+        source, locator = _education_source_locator(index)
+        education_evidence.append(bind(source, f"education:{index}", locator))
+    payload["claim_provenance"] = {
+        "summary": [item["evidence_id"] for item in payload["summary_support"]],
+        "education": education_evidence,
+        "languages": [bind("profile", f"language:{index}", "Idiomas:") for index, _ in enumerate(payload["languages"])],
+        "stack": bind("profile", "technical_stack", "Stack técnica:"),
+        "candidate": {
+            key: bind("profile", f"candidate:{key}", value)
+            for key, value in payload["candidate"].items()
+        },
+    }
+    payload["metadata"]["candidate_facts"] = {
+        "revision": revision,
+        "sources": catalog,
+        "evidence": evidence,
+    }
+
+
+def validate_canonical_provenance(payload: dict[str, Any]) -> None:
+    """Resolve every submitted evidence ID against canonical source bytes."""
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    facts = metadata.get("candidate_facts") if isinstance(metadata.get("candidate_facts"), dict) else {}
+    if facts.get("revision") != metadata.get("candidate_facts_revision"):
+        raise ValidationFailure("CV candidate facts revision mismatch")
+    sources = facts.get("sources") if isinstance(facts.get("sources"), dict) else {}
+    evidence = facts.get("evidence") if isinstance(facts.get("evidence"), dict) else {}
+    if not sources or not evidence:
+        raise ValidationFailure("CV canonical evidence catalog is missing")
+    for source in sources.values():
+        path = Path(str(source.get("path") or ""))
+        if not path.is_file() or sha256_file(path) != source.get("sha256"):
+            raise ValidationFailure("CV canonical evidence source changed")
+    for item in evidence.values():
+        source_name = str(item.get("source") or "")
+        locator = str(item.get("locator") or "")
+        path_record = sources.get(source_name) if isinstance(sources, dict) else None
+        if not isinstance(path_record, dict):
+            raise ValidationFailure("CV evidence references an unknown canonical source")
+        source_path = Path(str(path_record.get("path") or ""))
+        if not locator or _normalize(locator) not in _normalize(source_path.read_text(encoding="utf-8")):
+            raise ValidationFailure("CV evidence locator cannot be resolved")
+    required: list[str] = []
+    for experience in payload.get("experiences", []):
+        required.append(str(experience.get("evidence_id") or ""))
+        required.extend(str(bullet.get("evidence_id") or "") for bullet in experience.get("bullets", []))
+    for mapping in payload.get("ats_keyword_coverage", []):
+        required.append(str(mapping.get("evidence_id") or ""))
+    required.extend(str(item.get("evidence_id") or "") for item in payload.get("summary_support", []))
+    claims = payload.get("claim_provenance") if isinstance(payload.get("claim_provenance"), dict) else {}
+    for key in ("summary", "education", "languages"):
+        required.extend(str(item) for item in claims.get(key, []))
+    required.append(str(claims.get("stack") or ""))
+    required.extend(str(item) for item in (claims.get("candidate") or {}).values())
+    if not required or any(item not in evidence for item in required):
+        raise ValidationFailure("CV evidence ID cannot be resolved against canonical facts")
+
+
+def _english_period(period: str) -> str:
+    months = {
+        "jan": "Jan", "janeiro": "Jan", "fev": "Feb", "fevereiro": "Feb",
+        "mar": "Mar", "março": "Mar", "abr": "Apr", "abril": "Apr",
+        "mai": "May", "maio": "May", "jun": "Jun", "junho": "Jun",
+        "jul": "Jul", "julho": "Jul", "ago": "Aug", "agosto": "Aug",
+        "set": "Sep", "setembro": "Sep", "out": "Oct", "outubro": "Oct",
+        "nov": "Nov", "novembro": "Nov", "dez": "Dec", "dezembro": "Dec",
+    }
+    translated = period
+    for source, target in months.items():
+        translated = re.sub(rf"\b{source}(?=/|\s)", target, translated, flags=re.IGNORECASE)
+    return translated.replace("Atual", "Present").replace("/", " ")
+
+
+def _experience_source_locator(experience_id: str) -> str:
+    locators = {
+        "wehandle_head_operacoes": "wehandle",
+        "ifood_diretor_operacoes": "Ifood",
+        "ifood_head_operacoes": "Ifood",
+        "renault_cs": "Renault do Brasil",
+        "vivareal_planejamento_operacoes": "VivaReal",
+        "trifil_sop": "Coordenador de S&OP",
+        "trifil_inteligencia_comercial": "Coordenador de Inteligência Comercial",
+    }
+    return locators[experience_id]
+
+
+def _education_source_locator(index: int) -> tuple[str, str]:
+    locators = (
+        ("profile", "BSP Business School São Paulo"),
+        ("self_knowledge", "Engenheiro Químico — Faculdades Oswaldo Cruz"),
+        ("self_knowledge", "Six Sigma Green Belt - Setec Consulting"),
+    )
+    return locators[index]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -227,6 +228,25 @@ def normalized_path_string(path_text: str | None) -> str | None:
     if not path_text:
         return None
     return str(Path(path_text).resolve())
+
+
+def is_validated_cellular_artifact(artifact: Path) -> bool:
+    """Allow non-outputs DOCX files only through their immutable cell manifest."""
+    if "artifacts" not in artifact.parts or artifact.name != "cv.docx":
+        return False
+    manifest_path = artifact.parent / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+    try:
+        manifest = read_json(manifest_path)
+    except Exception:
+        return False
+    return (
+        manifest.get("status") == "validated"
+        and manifest.get("artifact_name") == "cv.docx"
+        and normalized_path_string(manifest.get("path")) == str(artifact.resolve())
+        and manifest.get("sha256") == hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
 
 
 def run_docx_validator(artifact: Path) -> tuple[bool, str]:
@@ -488,7 +508,10 @@ def build_cv_review(
     technical_checks = [
         {
             "id": "artifact_exists_in_outputs",
-            "passed": artifact.exists() and "_tmp" not in artifact.parts,
+            "passed": artifact.exists() and (
+                ("outputs" in artifact.parts and "_tmp" not in artifact.parts)
+                or is_validated_cellular_artifact(artifact)
+            ),
             "evidence": str(artifact),
         },
         {

@@ -18,8 +18,15 @@ def _experience(role: str, period: str) -> dict:
 
 def english_payload() -> dict:
     return {
-        "metadata": {"language": "en"},
+        "metadata": {"language": "en", "application_id": "english-fixture"},
         "output_name": "fixture_en.docx",
+        "candidate": {
+            "name": "Fixture English Name",
+            "location": "London, United Kingdom",
+            "linkedin": "linkedin.com/in/fixture-english",
+            "phone": "+44 20 0000 0000",
+            "email": "fixture.english@example.test",
+        },
         "summary": "Operations leader with proven results.",
         "experiences": [
             _experience("Head of Operations", "May 2024 — Present"),
@@ -35,8 +42,15 @@ def english_payload() -> dict:
 
 def portuguese_payload() -> dict:
     return {
-        "metadata": {"language": "pt-BR"},
+        "metadata": {"language": "pt-BR", "application_id": "portuguese-fixture"},
         "output_name": "fixture.docx",
+        "candidate": {
+            "name": "Nome de Teste",
+            "location": "Curitiba, PR",
+            "linkedin": "linkedin.com/in/fixture-portugues",
+            "phone": "+55 41 0000-0000",
+            "email": "fixture.portugues@example.test",
+        },
         "resumo": "Líder de operações com resultados comprovados.",
         "experiencias": [
             {"cargo": "Head de Operações", "empresa": "Empresa Exemplo", "periodo": "maio/2024 — Atual", "bullets": ["Escopo", "Ação", "Resultado"]},
@@ -68,6 +82,12 @@ def test_english_cv_has_only_english_labels_and_canonical_degree(tmp_path):
     assert "Formação" not in text
     assert "Bachelor's Degree in Chemical Engineering — Faculdades Oswaldo Cruz (2014)" in text
     assert "B.Sc." not in text
+    assert "May 2024 — Present" in text
+    assert "Fixture English Name" in text
+    assert "London, United Kingdom" in text
+    assert "linkedin.com/in/fixture-english" in text
+    assert "fixture.english@example.test" in text
+    assert "Felipe Armel Dias da Silva" not in text
 
 
 def test_portuguese_cv_is_not_misclassified_as_english(tmp_path):
@@ -76,6 +96,8 @@ def test_portuguese_cv_is_not_misclassified_as_english(tmp_path):
     assert "Stack técnica" in text
     assert "Idiomas" in text
     assert "Education" not in text
+    assert "Nome de Teste" in text
+    assert "Curitiba, PR" in text
 
 
 @pytest.mark.parametrize("field,value", [("education", []), ("stack", "  "), ("languages", [])])
@@ -91,3 +113,11 @@ def test_renderer_rejects_ascending_experience_order(tmp_path):
     payload["experiences"] = list(reversed(payload["experiences"]))
     with pytest.raises(subprocess.CalledProcessError):
         render_cv(payload, tmp_path)
+
+
+def test_renderer_applies_arial_theme(tmp_path):
+    payload = english_payload()
+    render_cv(payload, tmp_path)
+    with zipfile.ZipFile(tmp_path / payload["output_name"]) as docx:
+        theme = docx.read("word/theme/theme1.xml").decode("utf-8")
+    assert 'typeface="Arial"' in theme

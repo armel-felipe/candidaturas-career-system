@@ -224,7 +224,6 @@ def _compose_cv(context: CellExecutionContext) -> CellOutput:
     candidate_revision = str(provenance.get("candidate_facts_revision") or "")
     if not candidate_revision:
         raise ValueError("FIT_MAP is missing candidate facts revision")
-    context.capabilities.assert_writable(context.paths.cv_content)
     payload = cv_content_service.build_cv_content(
         context.paths,
         fit_map_path,
@@ -271,7 +270,7 @@ def _render_cv(context: CellExecutionContext) -> CellOutput:
 def _review_cv(context: CellExecutionContext) -> CellOutput:
     _artifact_raw, artifact_path, artifact_hash = _read_input(context, "cv.docx")
     _fit_raw, fit_map_path, fit_map_hash = _read_input(context, "fit_map.json")
-    registry_path = context.paths.derived_dir / "keyword_ats_registry.json"
+    registry_path = context.staging_dir / "keyword_ats_registry.json"
     report_path = context.paths.reviews_dir / "cv_review.json"
     polish_path = context.paths.reviews_dir / "polish_review.json"
     approval_path = context.paths.reviews_dir / "cv_approved_artifact.json"
@@ -287,6 +286,7 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
         )
     except SystemExit as exc:
         raise ValueError(f"objective CV review failed: {exc}") from exc
+    report_bytes = _json_bytes(report)
     approval_manifest = {
         "kind": "approved_cv_artifact",
         "application_id": context.application_id,
@@ -294,13 +294,18 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
         "artifact_sha256": artifact_hash,
         "fit_map_path": str(fit_map_path),
         "fit_map_sha256": fit_map_hash,
-        "review_report_path": str(report_path),
-        "review_report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+        "review_report_artifact": "cv_review.json",
+        "review_report_sha256": hashlib.sha256(report_bytes).hexdigest(),
         "approved_for_delivery": bool(report.get("approved_for_delivery")),
     }
     write_json(approval_path, approval_manifest)
     return CellOutput(
-        artifacts={"cv_review.json": _json_bytes(report)},
+        artifacts={
+            "cv_review.json": report_bytes,
+            "polish_review.json": polish_path.read_bytes(),
+            "cv_approved_artifact.json": _json_bytes(approval_manifest),
+            "keyword_ats_registry.json": registry_path.read_bytes(),
+        },
         handover={"kind": "cv_review_handover", **approval_manifest},
         metadata={
             "artifact_sha256": artifact_hash,
@@ -445,10 +450,6 @@ def _validate_cv_content(
             raise ValueError("cv content belongs to another application")
         if not str(metadata.get("candidate_facts_revision") or ""):
             raise ValueError("cv content is missing candidate facts revision")
-        if not context.paths.cv_content.is_file():
-            raise ValueError("application cv content was not persisted")
-        if read_json(context.paths.cv_content) != payload:
-            raise ValueError("persisted cv content differs from published content")
     except Exception as exc:
         reason = f"{type(exc).__name__}:{exc}"
     return _persist_validator_result(context, reason)
@@ -470,21 +471,7 @@ def _validate_cv_provenance(
             raise ValueError("cv content FIT_MAP path mismatch")
         if not fit_hash:
             raise ValueError("cv content FIT_MAP hash is missing")
-        for experience in payload.get("experiences", []):
-            if not isinstance(experience, dict):
-                raise ValueError("cv experience is invalid")
-            experience_id = str(experience.get("experience_id") or "")
-            evidence_id = str(experience.get("evidence_id") or "")
-            if not experience_id or not evidence_id.startswith(f"candidate_facts:{experience_id}:"):
-                raise ValueError("cv experience provenance is invalid")
-            for bullet in experience.get("bullets", []):
-                if not isinstance(bullet, dict) or bullet.get("experience_id") != experience_id:
-                    raise ValueError("cv bullet experience provenance is invalid")
-                if not str(bullet.get("evidence_id") or "").startswith(f"candidate_facts:{experience_id}:"):
-                    raise ValueError("cv bullet evidence provenance is invalid")
-        for mapping in payload.get("ats_keyword_coverage", []):
-            if not isinstance(mapping, dict) or not mapping.get("experience_id") or not mapping.get("evidence_id"):
-                raise ValueError("ATS mapping provenance is invalid")
+        cv_content_service.validate_canonical_provenance(payload)
     except Exception as exc:
         reason = f"{type(exc).__name__}:{exc}"
     return _persist_validator_result(context, reason)
@@ -533,6 +520,10 @@ def _validate_cv_review(
             raise ValueError("approved artifact manifest does not reference exact DOCX")
         if approval.get("fit_map_path") != str(fit_map_path) or approval.get("fit_map_sha256") != fit_map_hash:
             raise ValueError("approved artifact manifest does not reference exact FIT_MAP")
+        if approval.get("review_report_artifact") != "cv_review.json":
+            raise ValueError("approved artifact manifest does not reference published review")
+        if approval.get("review_report_sha256") != hashlib.sha256(_json_bytes(report)).hexdigest():
+            raise ValueError("approved artifact manifest review hash mismatch")
         if hashlib.sha256(artifact_raw).hexdigest() != artifact_hash:
             raise ValueError("reviewed DOCX hash changed during review")
     except Exception as exc:

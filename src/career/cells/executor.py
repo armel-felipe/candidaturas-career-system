@@ -1070,10 +1070,6 @@ class CellExecutor:
             write_paths.extend((paths.job_description, paths.source_metadata))
         elif node.node_id == "normalize_job":
             write_paths.append(paths.derived_dir)
-        elif node.node_id == "compose_cv":
-            write_paths.append(paths.cv_content)
-        elif node.node_id == "review_cv":
-            write_paths.append(paths.derived_dir)
         return tuple(write_paths)
 
     def _cancel_expired_execution(

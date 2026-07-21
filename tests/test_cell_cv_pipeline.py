@@ -1,21 +1,37 @@
 from __future__ import annotations
 
 import hashlib
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from xml.etree import ElementTree
 
 from career.cells import handlers as cell_handlers
 from career.cells.executor import CellExecutor
+from career.services import cv_content
 from career.services.application_context import paths_for
 from career.services.database import Database
 from career.utils import read_json, write_json
+
+
+def _docx_text(path: Path) -> str:
+    with zipfile.ZipFile(path) as docx:
+        root = ElementTree.fromstring(docx.read("word/document.xml"))
+    return "\n".join(
+        node.text or ""
+        for node in root.findall(
+            ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+        )
+    )
 
 
 def _job_text(company: str, role: str, language: str) -> str:
     if language == "en":
         return (
             f"# {role}\nCompany: {company}\n\n"
+            "## About the job\nLead operations planning, data, and cross-functional execution.\n"
             "## Responsibilities\nLead operations planning, data, and cross-functional execution.\n"
-            "## Requirements\nOperations leadership, SQL, S&OP, pricing, and dashboards.\n"
+            "## Qualifications\nOperations leadership, SQL, S&OP, pricing, and dashboards.\n"
         )
     return (
         f"# {role}\nEmpresa: {company}\n\n"
@@ -156,8 +172,24 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
     try:
         first_plan = executor.plan(first.application_id, {"cv"})
         second_plan = executor.plan(second.application_id, {"cv"})
-        first_result = _run_through(executor, first_plan.run_id, "review_cv")
-        second_result = _run_through(executor, second_plan.run_id, "review_cv")
+        def run_isolated(plan):
+            worker_database = Database(database.db_path)
+            worker = CellExecutor(
+                worker_database,
+                applications_root=applications_root,
+                handlers=cell_handlers.production_handler_registry(),
+                validators=cell_handlers.production_validator_registry(),
+            )
+            try:
+                return _run_through(worker, plan.run_id, "review_cv")
+            finally:
+                worker_database.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first_future = pool.submit(run_isolated, first_plan)
+            second_future = pool.submit(run_isolated, second_plan)
+            first_result = first_future.result()
+            second_result = second_future.result()
 
         first_manifest = read_json(first_result.manifest_path)
         second_manifest = read_json(second_result.manifest_path)
@@ -173,13 +205,21 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
         second_content = read_json(Path(second_render_manifest["inputs"]["compose_cv:cv_content.json"]["path"]))
         assert first_content["metadata"]["language"] == "pt-BR"
         assert second_content["metadata"]["language"] == "en"
+        english_docx = _docx_text(second_artifact)
+        assert "May 2024 — Feb 2026" in english_docx
+        assert "maio/2024 — fev/2026" not in english_docx
         for payload in (first_content, second_content):
             assert payload["metadata"]["candidate_facts_revision"]
             assert all("experience_id" in item and "evidence_id" in item for item in payload["experiences"])
             assert all("experience_id" in item and "evidence_id" in item for item in payload["ats_keyword_coverage"])
+            cv_content.validate_canonical_provenance(payload)
         assert first_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"] != second_manifest["inputs"]["analyze_fit:fit_map.json"]["sha256"]
         assert (first.reviews_dir / first_plan.run_id / "cv_review.json").is_file()
         assert (second.reviews_dir / second_plan.run_id / "cv_review.json").is_file()
         assert first.reviews_dir != second.reviews_dir
+        assert not first.cv_content.exists()
+        assert not second.cv_content.exists()
+        assert not (first.derived_dir / "keyword_ats_registry.json").exists()
+        assert not (second.derived_dir / "keyword_ats_registry.json").exists()
     finally:
         database.close()

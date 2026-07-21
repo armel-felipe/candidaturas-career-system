@@ -151,6 +151,13 @@ async function main() {
     throw new Error("cv_content.metadata.language must be 'pt-BR' or 'en'");
   }
   const l10n = L10N[lang];
+  const candidate = cv.candidate;
+  if (!candidate || typeof candidate !== "object") {
+    throw new Error("cv_content.candidate is required");
+  }
+  for (const field of ["name", "location", "linkedin", "phone", "email"]) {
+    assertNonEmptyString(candidate[field], `candidate.${field}`);
+  }
   if (applicationId && cv?.metadata?.application_id && cv.metadata.application_id !== applicationId) {
     throw new Error("cv_content.metadata.application_id does not match the requested application");
   }
@@ -174,11 +181,11 @@ async function main() {
   const children = [];
 
   // Header
-  children.push(paragraph("Felipe Armel Dias da Silva", { size: 12, bold: true }));
-  children.push(hyperlink("linkedin.com/in/felipearmel", "https://linkedin.com/in/felipearmel"));
-  children.push(paragraph(l10n.location));
-  children.push(hyperlink("(11) 98674-8218", "https://wa.me/5511986748218"));
-  children.push(hyperlink("armelfelipe@gmail.com", "mailto:armelfelipe@gmail.com"));
+  children.push(paragraph(candidate.name, { size: 12, bold: true }));
+  children.push(hyperlink(candidate.linkedin, `https://${candidate.linkedin}`));
+  children.push(paragraph(candidate.location));
+  children.push(hyperlink(candidate.phone, candidate.phone.startsWith("+") ? `tel:${candidate.phone.replace(/[^+0-9]/g, "")}` : candidate.phone));
+  children.push(hyperlink(candidate.email, `mailto:${candidate.email}`));
   children.push(espaco(8));
 
   // Resumo / Summary
@@ -260,7 +267,7 @@ async function main() {
   const pythonCmd = process.env.PYTHON || path.join(workspace, "scripts", "python.sh");
   const themeResult = spawnSync(pythonCmd, [themeScript, outputPath], { stdio: "inherit" });
   if (themeResult.status !== 0) {
-    console.error("Theme injection failed, continuing anyway");
+    throw new Error(`Arial theme injection failed for ${outputPath}`);
   }
   console.log(outputPath);
 }
