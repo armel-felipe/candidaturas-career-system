@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import threading
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 from collections.abc import Iterable
 from pathlib import Path
+
+from career.paths import ROOT
 
 
 class CapabilityViolation(PermissionError):
@@ -158,12 +161,28 @@ def _audit_cell_writes(event: str, args: tuple[object, ...]) -> None:
         else:
             targets = (args[0],)
             operation = "read"
-    elif event in {"os.remove", "os.rmdir", "os.mkdir", "os.chmod", "os.truncate"}:
+    elif event in {
+        "os.remove",
+        "os.rmdir",
+        "os.mkdir",
+        "os.chmod",
+        "os.chown",
+        "os.truncate",
+        "os.utime",
+        "os.setxattr",
+        "os.removexattr",
+    }:
         targets = args[:1]
         operation = "write"
     elif event in {"os.rename", "os.replace"}:
         targets = args[:2]
         operation = "write"
+    elif event == "os.link":
+        _audit_link(capability, args, symbolic=False)
+        return
+    elif event == "os.symlink":
+        _audit_link(capability, args, symbolic=True)
+        return
     elif event == "subprocess.Popen":
         _audit_subprocess(capability, args)
         return
@@ -199,59 +218,212 @@ def _audit_cell_writes(event: str, args: tuple[object, ...]) -> None:
                 raise
 
 
+def _resolve_executable(executable: str, cwd: Path) -> Path | None:
+    if not executable:
+        return None
+    candidate = Path(executable)
+    if candidate.is_absolute() or "/" in executable:
+        return (candidate if candidate.is_absolute() else cwd / candidate).resolve()
+    discovered = shutil.which(executable)
+    return Path(discovered).resolve() if discovered else None
+
+
+def _subprocess_path(
+    capability: CapabilitySet, raw: str, cwd: Path, *, writable: bool
+) -> Path:
+    target = Path(raw)
+    target = target.resolve() if target.is_absolute() else (cwd / target).resolve()
+    if writable:
+        capability.assert_writable(target)
+    else:
+        try:
+            capability.assert_readable(target)
+        except CapabilityViolation:
+            capability.assert_writable(target)
+    return target
+
+
+def _reject_subprocess(
+    capability: CapabilitySet, target: Path, message: str
+) -> None:
+    _record_violation(capability, target, "subprocess.Popen")
+    raise CapabilityViolation(message)
+
+
+def _require_option_pairs(
+    capability: CapabilitySet,
+    parts: list[str],
+    *,
+    cwd: Path,
+    allowed: dict[str, str],
+) -> dict[str, str]:
+    tail = parts[2:]
+    if len(tail) % 2:
+        _reject_subprocess(
+            capability,
+            Path(parts[-1] or "subprocess"),
+            "cell capability subprocess has an incomplete option",
+        )
+    parsed: dict[str, str] = {}
+    for index in range(0, len(tail), 2):
+        option, value = tail[index], tail[index + 1]
+        if option not in allowed or option in parsed or not value:
+            suspicious = value if option in allowed else option
+            if "=" in suspicious:
+                suspicious = suspicious.split("=", 1)[1]
+            _reject_subprocess(
+                capability,
+                (cwd / suspicious).resolve(),
+                f"cell capability subprocess option is not allowed: {option}",
+            )
+        kind = allowed[option]
+        if kind == "read_path":
+            _subprocess_path(capability, value, cwd, writable=False)
+        elif kind == "write_path":
+            _subprocess_path(capability, value, cwd, writable=True)
+        parsed[option] = value
+    return parsed
+
+
 def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> None:
     executable = str(args[0]) if args else ""
     command = args[1] if len(args) > 1 else ()
     cwd = Path(str(args[2])).resolve() if len(args) > 2 and args[2] else Path.cwd()
     parts = [str(item) for item in command] if isinstance(command, (list, tuple)) else []
-    approved_scripts = {
-        "scripts/docx/generate_custom_cv.js",
-        "scripts/docx/validate_docx.py",
-        "scripts/register_keywords.py",
-        "scripts/deliver_artifact.py",
-    }
-    script = ""
-    for part in parts[1:3]:
-        candidate = Path(part)
-        try:
-            relative = candidate.resolve().relative_to(Path.cwd().resolve())
-        except ValueError:
-            try:
-                relative = (cwd / candidate).resolve().relative_to(Path.cwd().resolve())
-            except ValueError:
-                continue
-        normalized = relative.as_posix()
-        if normalized in approved_scripts:
-            script = normalized
-            break
-    if not script:
-        foreign_target = next(
-            (
-                Path(part).resolve()
-                for part in parts
-                if part.startswith("/")
-                and _is_within(Path(part).resolve(), capability.application_root.parent)
-                and not _is_within(Path(part).resolve(), capability.application_root)
-            ),
+    resolved_executable = _resolve_executable(executable, cwd)
+    command_executable = _resolve_executable(parts[0], cwd) if parts else None
+    if (
+        len(parts) < 2
+        or resolved_executable is None
+        or command_executable != resolved_executable
+    ):
+        _reject_subprocess(
+            capability,
             Path(executable or "subprocess"),
+            f"cell capability does not authorize subprocess: {executable or command}",
         )
-        _record_violation(capability, foreign_target, "subprocess.Popen")
-        raise CapabilityViolation(
-            f"cell capability does not authorize subprocess: {executable or command}"
+
+    script = Path(parts[1])
+    script = script.resolve() if script.is_absolute() else (cwd / script).resolve()
+    python_executable = Path(sys.executable).resolve()
+    node_name = shutil.which("node")
+    node_executable = Path(node_name).resolve() if node_name else None
+    canonical_scripts = {
+        "generate": (ROOT / "scripts/docx/generate_custom_cv.js").resolve(),
+        "validate": (ROOT / "scripts/docx/validate_docx.py").resolve(),
+        "register": (ROOT / "scripts/register_keywords.py").resolve(),
+        "deliver": (ROOT / "scripts/deliver_artifact.py").resolve(),
+    }
+
+    if script == canonical_scripts["generate"] and resolved_executable == node_executable:
+        parsed = _require_option_pairs(
+            capability,
+            parts,
+            cwd=cwd,
+            allowed={
+                "--content": "read_path",
+                "--output-dir": "write_path",
+                "--application-id": "literal",
+            },
         )
-    for part in parts:
-        if part.startswith("-") or not (part.startswith("/") or "/" in part):
-            continue
-        target = Path(part)
-        target = target.resolve() if target.is_absolute() else (cwd / target).resolve()
-        if _is_within(target, capability.application_root.parent) and not (
-            any(_is_within(target, allowed) for allowed in capability.read_paths)
-            or any(_is_within(target, allowed) for allowed in capability.write_paths)
-        ):
-            _record_violation(capability, target, "subprocess.Popen")
-            raise CapabilityViolation(
-                f"cell capability subprocess path is not allowed: {target}"
+        if set(parsed) != {"--content", "--output-dir", "--application-id"} or parsed[
+            "--application-id"
+        ] != capability.application_root.name:
+            _reject_subprocess(
+                capability,
+                script,
+                "cell capability rejected the canonical CV renderer arguments",
             )
+        return
+
+    if script == canonical_scripts["validate"] and resolved_executable == python_executable:
+        if len(parts) != 3:
+            _reject_subprocess(
+                capability, script, "cell capability rejected DOCX validator arguments"
+            )
+        _subprocess_path(capability, parts[2], cwd, writable=False)
+        return
+
+    if script == canonical_scripts["register"] and resolved_executable == python_executable:
+        parsed = _require_option_pairs(
+            capability,
+            parts,
+            cwd=cwd,
+            allowed={
+                "--fit-map": "read_path",
+                "--cv": "read_path",
+                "--registry": "write_path",
+                "--translation-candidates": "write_path",
+            },
+        )
+        required = {"--fit-map", "--cv", "--registry", "--translation-candidates"}
+        if set(parsed) != required:
+            _reject_subprocess(
+                capability,
+                script,
+                "cell capability requires the complete canonical keyword registration schema",
+            )
+        return
+
+    if script == canonical_scripts["deliver"] and resolved_executable == python_executable:
+        parsed = _require_option_pairs(
+            capability,
+            parts,
+            cwd=cwd,
+            allowed={
+                "--file": "read_path",
+                "--remote": "literal",
+                "--folder": "literal",
+            },
+        )
+        required = {"--file", "--remote", "--folder"}
+        folder = parsed.get("--folder", "")
+        if (
+            set(parsed) != required
+            or not parsed.get("--remote")
+            or (
+                folder != "01_armel/Curriculos/personalizados"
+                and not folder.startswith("01_armel/Curriculos/personalizados/")
+            )
+        ):
+            _reject_subprocess(
+                capability, script, "cell capability rejected delivery arguments"
+            )
+        return
+
+    _reject_subprocess(
+        capability,
+        script if len(parts) > 1 else Path(executable or "subprocess"),
+        f"cell capability does not authorize subprocess: {executable or command}",
+    )
+
+
+def _audit_link(
+    capability: CapabilitySet, args: tuple[object, ...], *, symbolic: bool
+) -> None:
+    if len(args) < 2:
+        raise CapabilityViolation("cell capability cannot authorize incomplete link mutation")
+    source, destination = Path(args[0]), Path(args[1])
+    try:
+        capability.assert_writable(destination)
+        if symbolic and not source.is_absolute():
+            source = destination.parent / source
+        try:
+            capability.assert_readable(source)
+        except CapabilityViolation:
+            capability.assert_writable(source)
+    except CapabilityViolation:
+        target = destination
+        try:
+            capability.assert_writable(destination)
+        except CapabilityViolation:
+            pass
+        else:
+            target = source
+        _record_violation(
+            capability, target, "os.symlink" if symbolic else "os.link"
+        )
+        raise
 
 
 def _record_violation(

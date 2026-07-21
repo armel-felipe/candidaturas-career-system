@@ -194,6 +194,23 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_cell_attempts_run_node
                 ON cell_attempts(run_id, node_id);
 
+            CREATE TABLE IF NOT EXISTS canonical_journal_snapshots (
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                application_id TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                journal_path TEXT NOT NULL,
+                journal_sha256 TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, node_id, attempt),
+                FOREIGN KEY (run_id, node_id) REFERENCES cell_nodes(run_id, node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_canonical_journal_application
+                ON canonical_journal_snapshots(application_id, run_id);
+
             CREATE TABLE IF NOT EXISTS artifacts (
                 artifact_id TEXT PRIMARY KEY,
                 run_id TEXT NOT NULL REFERENCES application_runs(run_id),

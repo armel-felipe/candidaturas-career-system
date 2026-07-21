@@ -231,6 +231,140 @@ def test_executor_rejects_relative_foreign_path_through_approved_subprocess(tmp_
     database.close()
 
 
+def test_executor_rejects_approved_script_name_hidden_behind_unapproved_executable(
+    tmp_path,
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    app_a = paths_for("app-a", root=root)
+    app_a.app_dir.mkdir(parents=True)
+    app_a.job_description.write_text("Operations leadership " * 30, encoding="utf-8")
+
+    def malicious_handler(_context):
+        subprocess.run(
+            ["/usr/bin/printf", "scripts/register_keywords.py"], check=False
+        )
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"normalize_job": malicious_handler},
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    assert result.status == "cancelled"
+    assert "subprocess" in result.blocker
+    database.close()
+
+
+def test_executor_rejects_embedded_foreign_registry_option(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    app_a = paths_for("app-a", root=root)
+    app_b = paths_for("app-b", root=root)
+    app_a.app_dir.mkdir(parents=True)
+    app_b.app_dir.mkdir(parents=True)
+    app_a.job_description.write_text("Operations leadership " * 30, encoding="utf-8")
+    foreign_registry = app_b.app_dir / "breach.json"
+    embedded_registry = os.path.relpath(foreign_registry, Path.cwd())
+
+    def malicious_handler(context):
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/register_keywords.py",
+                "--fit-map",
+                str(context.paths.job_description),
+                f"--registry={embedded_registry}",
+            ],
+            check=False,
+        )
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"normalize_job": malicious_handler},
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    assert result.status == "cancelled"
+    assert not foreign_registry.exists()
+    assert any(
+        item["event"] == "subprocess.Popen"
+        for item in recorded_capability_violations()
+    )
+    database.close()
+
+
+def test_executor_rejects_foreign_symlink_creation_and_records_target(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    app_a = paths_for("app-a", root=root)
+    app_b = paths_for("app-b", root=root)
+    app_a.app_dir.mkdir(parents=True)
+    app_b.app_dir.mkdir(parents=True)
+    app_a.job_description.write_text("Operations leadership " * 30, encoding="utf-8")
+    foreign_link = app_b.app_dir / "foreign-link"
+
+    def malicious_handler(context):
+        os.symlink(context.paths.job_description, foreign_link)
+        return CellOutput(
+            artifacts={
+                "job_normalized.json": "{}",
+                "handover_summary.json": "{}",
+                "evidence_index.json": "{}",
+            }
+        )
+
+    executor = CellExecutor(
+        database,
+        applications_root=root,
+        handlers={"normalize_job": malicious_handler},
+        validators={"context:validate": _passing_validator},
+    )
+    plan = executor.plan("app-a", {"cv"})
+
+    result = next(
+        item for item in executor.run_ready(plan.run_id) if item.node_id == "normalize_job"
+    )
+
+    assert result.status == "cancelled"
+    assert not foreign_link.exists()
+    assert any(
+        item["event"] == "os.symlink"
+        and item["target"] == str(foreign_link.resolve())
+        for item in recorded_capability_violations()
+    )
+    database.close()
+
+
 def test_canonical_journal_rejects_foreign_restore_target(tmp_path):
     database = Database(tmp_path / "career.db")
     database.init_schema()
@@ -661,6 +795,45 @@ def test_canonical_commit_journal_recovers_process_death_before_db_commit(
     database.close()
 
 
+def test_canonical_journal_tampering_is_quarantined_without_deleting_source(
+    tmp_path,
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    paths = paths_for("app-a", root=root)
+    paths.app_dir.mkdir(parents=True)
+    executor = CellExecutor(database, applications_root=root)
+    plan = executor.plan("app-a", {"cv"})
+    _loaded_plan, paths = executor._load_run(plan.run_id)
+    paths.job_description.write_text("authoritative old source", encoding="utf-8")
+    paths.source_metadata.write_text('{"source": "old"}', encoding="utf-8")
+    journal = executor._begin_canonical_journal(
+        paths, plan.run_id, "capture_source", 1
+    )
+    paths.job_description.write_text("new source must be preserved", encoding="utf-8")
+
+    payload = json.loads(journal.read_text(encoding="utf-8"))
+    source_entry = next(
+        item
+        for item in payload["entries"]
+        if item["path"] == str(paths.job_description.resolve())
+    )
+    source_entry.clear()
+    source_entry.update(
+        {"path": str(paths.job_description.resolve()), "kind": "missing"}
+    )
+    journal.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="journal.*integrity|snapshot.*projection"):
+        executor._restore_canonical_journal(journal)
+
+    assert paths.job_description.read_text(encoding="utf-8") == "new source must be preserved"
+    assert not journal.exists()
+    assert list(journal.parent.glob("canonical_commit_journal.quarantined.*.json"))
+    database.close()
+
+
 def test_finalize_is_idempotent_and_preserves_completed_manifest(tmp_path, monkeypatch):
     database = Database(tmp_path / "career.db")
     database.init_schema()
@@ -700,6 +873,63 @@ def test_finalize_is_idempotent_and_preserves_completed_manifest(tmp_path, monke
     recovered = executor.finalize(plan.run_id)
     assert recovered.manifest["status"] == "completed"
     assert recovered.path.is_file()
+    database.close()
+
+
+def test_finalize_rebuilds_completed_manifest_with_foreign_artifact_path(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    root = tmp_path / "applications"
+    paths = paths_for("app-a", root=root)
+    foreign = paths_for("app-b", root=root)
+    paths.app_dir.mkdir(parents=True)
+    foreign.app_dir.mkdir(parents=True)
+    foreign_artifact = foreign.app_dir / "foreign.docx"
+    foreign_artifact.write_bytes(b"foreign")
+    executor = CellExecutor(database, applications_root=root)
+    plan = executor.plan("app-a", {"cv"})
+    for node in plan.nodes:
+        executor.fail(plan.run_id, node.node_id, "terminal fixture")
+    database.execute(
+        "UPDATE application_runs SET status = 'completed' WHERE run_id = ?",
+        (plan.run_id,),
+    )
+    completion = paths.app_dir / "runs" / plan.run_id / "run_completion_manifest.json"
+    completion.parent.mkdir(parents=True, exist_ok=True)
+    completion.write_text(
+        json.dumps(
+            {
+                "kind": "run_completion_manifest",
+                "application_id": "app-a",
+                "run_id": plan.run_id,
+                "status": "completed",
+                "validated_artifacts": [
+                    {
+                        "application_id": "app-b",
+                        "run_id": plan.run_id,
+                        "node_id": "render_cv_pt",
+                        "artifact_name": "cv.docx",
+                        "path": str(foreign_artifact),
+                    }
+                ],
+                "blocked_nodes": [],
+                "completed_at": "2026-07-21T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recovered = executor.finalize(plan.run_id)
+
+    assert recovered.manifest["status"] == "blocked"
+    assert all(
+        item.get("application_id") == "app-a"
+        for item in recovered.manifest["validated_artifacts"]
+    )
+    assert str(foreign_artifact) not in recovered.path.read_text(encoding="utf-8")
+    assert database.fetch_one(
+        "SELECT status FROM application_runs WHERE run_id = ?", (plan.run_id,)
+    ) == {"status": "blocked"}
     database.close()
 
 

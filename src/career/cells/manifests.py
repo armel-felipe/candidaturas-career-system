@@ -388,17 +388,7 @@ class ManifestStore:
         supplied_blockers = [
             self._persisted_blocked_node(item, run_id) for item in blocked_nodes
         ]
-        plan_nodes = self._load_run_plan_nodes(run_id)
-        terminal_attempts = self._load_terminal_attempts(run_id, plan_nodes)
-        artifacts = self._discover_validated_artifacts(run_id, terminal_attempts)
-        blockers = [
-            self._persisted_blocked_node(
-                {"node_id": node_id, "attempt": record.manifest["attempt"]},
-                run_id,
-            )
-            for node_id, record in terminal_attempts.items()
-            if record.manifest.get("status") == "blocked"
-        ]
+        artifacts, blockers = self._authoritative_completion_projection(run_id)
         discovered_artifact_paths = {
             item["manifest_path"] for item in artifacts
         }
@@ -429,6 +419,48 @@ class ManifestStore:
         )
         write_json(manifest_path, manifest)
         return RunCompletion(path=manifest_path, manifest=manifest)
+
+    def validate_run_completion(
+        self, run_id: str, persisted: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Validate a completion receipt against current authoritative manifests."""
+        if not isinstance(persisted, Mapping):
+            raise ValueError("run completion manifest must be a mapping")
+        artifacts, blockers = self._authoritative_completion_projection(run_id)
+        expected = {
+            "kind": "run_completion_manifest",
+            "application_id": self.paths.application_id,
+            "run_id": run_id,
+            "validated_artifacts": artifacts,
+            "blocked_nodes": blockers,
+            "status": "blocked" if blockers else "completed",
+        }
+        for field, value in expected.items():
+            if persisted.get(field) != value:
+                raise ValueError(
+                    f"run completion manifest does not match authoritative projection: {field}"
+                )
+        if not str(persisted.get("completed_at") or ""):
+            raise ValueError("run completion manifest is missing completed_at")
+        if set(persisted) != {*expected, "completed_at"}:
+            raise ValueError("run completion manifest has unexpected fields")
+        return dict(persisted)
+
+    def _authoritative_completion_projection(
+        self, run_id: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        plan_nodes = self._load_run_plan_nodes(run_id)
+        terminal_attempts = self._load_terminal_attempts(run_id, plan_nodes)
+        artifacts = self._discover_validated_artifacts(run_id, terminal_attempts)
+        blockers = [
+            self._persisted_blocked_node(
+                {"node_id": node_id, "attempt": record.manifest["attempt"]},
+                run_id,
+            )
+            for node_id, record in terminal_attempts.items()
+            if record.manifest.get("status") == "blocked"
+        ]
+        return artifacts, blockers
 
     def _load_or_begin_attempt(
         self,

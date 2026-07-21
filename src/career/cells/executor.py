@@ -446,22 +446,26 @@ class CellExecutor:
                     if completion_path.is_file():
                         try:
                             persisted = read_json(completion_path)
-                        except Exception:
-                            persisted = {}
-                        if (
-                            persisted.get("kind") == "run_completion_manifest"
-                            and persisted.get("application_id") == paths.application_id
-                            and persisted.get("run_id") == run_id
-                            and persisted.get("status") == "completed"
-                        ):
-                            return RunCompletion(
-                                path=completion_path, manifest=dict(persisted)
+                            validated = ManifestStore(paths).validate_run_completion(
+                                run_id, persisted
                             )
-                    return ManifestStore(paths).finish_run(
+                        except Exception:
+                            validated = None
+                        if validated is not None:
+                            return RunCompletion(
+                                path=completion_path, manifest=dict(validated)
+                            )
+                    rebuilt = ManifestStore(paths).finish_run(
                         run_id,
                         validated_artifacts=(),
                         blocked_nodes=(),
                     )
+                    conn.execute(
+                        "UPDATE application_runs SET status = ?, updated_at = ? "
+                        "WHERE run_id = ?",
+                        (rebuilt.manifest["status"], now, run_id),
+                    )
+                    return rebuilt
                 completion = ManifestStore(paths).finish_run(
                     run_id,
                     validated_artifacts=(),
@@ -899,7 +903,9 @@ class CellExecutor:
                             {item.node_id for item in plan.nodes},
                         )
                 if canonical_journal is not None:
-                    canonical_journal.unlink(missing_ok=True)
+                    self._clear_canonical_journal(
+                        canonical_journal, plan.run_id, node.node_id, attempt
+                    )
             except Exception as exc:
                 if canonical_journal is not None and canonical_journal.is_file():
                     self._restore_canonical_journal(canonical_journal)
@@ -1010,24 +1016,33 @@ class CellExecutor:
             resolved = target.resolve()
             if resolved.is_dir():
                 files = sorted(path for path in resolved.rglob("*") if path.is_file())
+                encoded_files = {
+                    str(path.relative_to(resolved)): base64.b64encode(
+                        path.read_bytes()
+                    ).decode("ascii")
+                    for path in files
+                }
                 entries.append(
                     {
                         "path": str(resolved),
                         "kind": "directory",
-                        "files": {
-                            str(path.relative_to(resolved)): base64.b64encode(
-                                path.read_bytes()
-                            ).decode("ascii")
-                            for path in files
+                        "files": encoded_files,
+                        "file_sha256": {
+                            relative: hashlib.sha256(
+                                base64.b64decode(encoded)
+                            ).hexdigest()
+                            for relative, encoded in encoded_files.items()
                         },
                     }
                 )
             elif resolved.is_file():
+                content = resolved.read_bytes()
                 entries.append(
                     {
                         "path": str(resolved),
                         "kind": "file",
-                        "content": base64.b64encode(resolved.read_bytes()).decode("ascii"),
+                        "content": base64.b64encode(content).decode("ascii"),
+                        "content_sha256": hashlib.sha256(content).hexdigest(),
                     }
                 )
             else:
@@ -1038,24 +1053,52 @@ class CellExecutor:
             / str(attempt)
             / "canonical_commit_journal.json"
         )
-        write_json(
-            journal,
-            {
-                "kind": "canonical_commit_journal",
-                "application_id": paths.application_id,
-                "run_id": run_id,
-                "node_id": node_id,
-                "attempt": attempt,
-                "state": "prepared",
-                "entries": entries,
-                "created_at": utc_now_iso(),
-            },
+        operation = {
+            "capture_source": "restore_job_description_and_source_metadata",
+            "normalize_job": "restore_normalized_derived_projection",
+        }.get(node_id)
+        if operation is None:
+            raise ValueError(f"canonical journal is not supported for node: {node_id}")
+        payload = {
+            "kind": "canonical_commit_journal",
+            "application_id": paths.application_id,
+            "run_id": run_id,
+            "node_id": node_id,
+            "attempt": attempt,
+            "operation": operation,
+            "state": "prepared",
+            "entries": entries,
+            "created_at": utc_now_iso(),
+        }
+        write_json(journal, payload)
+        snapshot_json = json.dumps(
+            entries, sort_keys=True, separators=(",", ":")
+        )
+        self.database.execute(
+            """INSERT OR REPLACE INTO canonical_journal_snapshots
+               (run_id, node_id, attempt, application_id, operation, journal_path,
+                journal_sha256, snapshot_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                run_id,
+                node_id,
+                attempt,
+                paths.application_id,
+                operation,
+                str(journal.resolve()),
+                hashlib.sha256(journal.read_bytes()).hexdigest(),
+                snapshot_json,
+                utc_now_iso(),
+            ),
         )
         return journal
 
-    @staticmethod
-    def _restore_canonical_journal(journal: Path) -> None:
-        payload = CellExecutor._validate_canonical_journal(journal)
+    def _restore_canonical_journal(self, journal: Path) -> None:
+        try:
+            payload = self._validate_canonical_journal(journal)
+        except Exception:
+            self._quarantine_canonical_journal(journal)
+            raise
         for entry in payload.get("entries", []):
             target = Path(str(entry["path"])).resolve()
             kind = entry.get("kind")
@@ -1088,10 +1131,14 @@ class CellExecutor:
                         elif current.is_dir():
                             current.rmdir()
                     target.rmdir()
-        journal.unlink(missing_ok=True)
+        self._clear_canonical_journal(
+            journal,
+            str(payload["run_id"]),
+            str(payload["node_id"]),
+            int(payload["attempt"]),
+        )
 
-    @staticmethod
-    def _validate_canonical_journal(journal: Path) -> dict[str, Any]:
+    def _validate_canonical_journal(self, journal: Path) -> dict[str, Any]:
         journal = Path(journal).resolve()
         payload = read_json(journal)
         if payload.get("kind") != "canonical_commit_journal":
@@ -1099,7 +1146,7 @@ class CellExecutor:
         try:
             attempt = int(journal.parent.name)
             node_id = journal.parent.parent.name
-            run_id = journal.parent.parent.parent.name
+            path_run_id = journal.parent.parent.parent.name
             cells_dir = journal.parent.parent.parent.parent
             app_root = cells_dir.parent
         except (IndexError, ValueError) as exc:
@@ -1107,15 +1154,23 @@ class CellExecutor:
         if cells_dir.name != "cells" or journal.name != "canonical_commit_journal.json":
             raise ValueError("canonical journal path is invalid")
         application_id = str(payload.get("application_id") or "")
+        run_id = str(payload.get("run_id") or "")
         expected_paths = paths_for(application_id, root=app_root.parent)
         if expected_paths.app_dir.resolve() != app_root.resolve():
             raise ValueError("canonical journal application path mismatch")
         if (
-            payload.get("run_id") != run_id
+            not run_id
+            or run_id != path_run_id
             or payload.get("node_id") != node_id
             or payload.get("attempt") != attempt
         ):
             raise ValueError("canonical journal identity mismatch")
+        expected_operation = {
+            "capture_source": "restore_job_description_and_source_metadata",
+            "normalize_job": "restore_normalized_derived_projection",
+        }.get(node_id)
+        if payload.get("operation") != expected_operation:
+            raise ValueError("canonical journal intended operation mismatch")
         expected_targets = {
             str(path.resolve())
             for path in CellExecutor._canonical_targets(expected_paths, node_id)
@@ -1129,7 +1184,93 @@ class CellExecutor:
             raise ValueError("canonical journal targets do not match the cell contract")
         if len(entries) != len(expected_targets):
             raise ValueError("canonical journal has duplicate or missing targets")
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                raise ValueError("canonical journal snapshot projection is invalid")
+            kind = entry.get("kind")
+            if kind not in {"missing", "file", "directory"}:
+                raise ValueError("canonical journal snapshot kind is invalid")
+            if kind == "file":
+                try:
+                    content = base64.b64decode(
+                        str(entry["content"]), validate=True
+                    )
+                except Exception as exc:
+                    raise ValueError(
+                        "canonical journal snapshot file content is invalid"
+                    ) from exc
+                if hashlib.sha256(content).hexdigest() != entry.get("content_sha256"):
+                    raise ValueError("canonical journal snapshot file hash mismatch")
+            elif kind == "directory":
+                files = entry.get("files")
+                hashes = entry.get("file_sha256")
+                if not isinstance(files, Mapping) or not isinstance(hashes, Mapping):
+                    raise ValueError(
+                        "canonical journal directory snapshot projection is invalid"
+                    )
+                if set(files) != set(hashes):
+                    raise ValueError("canonical journal directory snapshot hash mismatch")
+                for relative, encoded in files.items():
+                    relative_path = Path(str(relative))
+                    if relative_path.is_absolute() or ".." in relative_path.parts:
+                        raise ValueError(
+                            "canonical journal directory snapshot path is invalid"
+                        )
+                    try:
+                        content = base64.b64decode(str(encoded), validate=True)
+                    except Exception as exc:
+                        raise ValueError(
+                            "canonical journal directory snapshot content is invalid"
+                        ) from exc
+                    if hashlib.sha256(content).hexdigest() != hashes.get(relative):
+                        raise ValueError(
+                            "canonical journal directory snapshot hash mismatch"
+                        )
+            elif set(entry) != {"path", "kind"}:
+                raise ValueError("canonical journal missing snapshot projection is invalid")
+        authority = self.database.fetch_one(
+            """SELECT application_id, operation, journal_path, journal_sha256,
+                      snapshot_json
+               FROM canonical_journal_snapshots
+               WHERE run_id = ? AND node_id = ? AND attempt = ?""",
+            (run_id, node_id, attempt),
+        )
+        if authority is None:
+            raise ValueError("canonical journal has no authoritative snapshot projection")
+        canonical_snapshot = json.dumps(
+            entries, sort_keys=True, separators=(",", ":")
+        )
+        if (
+            authority["application_id"] != application_id
+            or authority["operation"] != expected_operation
+            or Path(str(authority["journal_path"])).resolve() != journal
+            or authority["journal_sha256"]
+            != hashlib.sha256(journal.read_bytes()).hexdigest()
+            or authority["snapshot_json"] != canonical_snapshot
+        ):
+            raise ValueError("canonical journal integrity does not match snapshot projection")
         return dict(payload)
+
+    def _clear_canonical_journal(
+        self, journal: Path, run_id: str, node_id: str, attempt: int
+    ) -> None:
+        Path(journal).unlink(missing_ok=True)
+        self.database.execute(
+            "DELETE FROM canonical_journal_snapshots "
+            "WHERE run_id = ? AND node_id = ? AND attempt = ?",
+            (run_id, node_id, attempt),
+        )
+
+    @staticmethod
+    def _quarantine_canonical_journal(journal: Path) -> Path | None:
+        journal = Path(journal)
+        if not journal.exists():
+            return None
+        quarantine = journal.with_name(
+            f"canonical_commit_journal.quarantined.{uuid4().hex}.json"
+        )
+        journal.replace(quarantine)
+        return quarantine
 
     def _recover_canonical_journals(
         self, paths: ApplicationPaths, run_id: str
@@ -1144,7 +1285,12 @@ class CellExecutor:
                     (run_id, payload.get("node_id"), payload.get("attempt")),
                 )
                 if row and row.get("status") == "validated":
-                    journal.unlink(missing_ok=True)
+                    self._clear_canonical_journal(
+                        journal,
+                        str(payload["run_id"]),
+                        str(payload["node_id"]),
+                        int(payload["attempt"]),
+                    )
                     continue
                 record = ManifestStore(paths)._load_attempt(
                     str(payload["node_id"]), int(payload["attempt"])
@@ -1166,6 +1312,7 @@ class CellExecutor:
                     )
                 self._restore_canonical_journal(journal)
             except Exception as exc:
+                self._quarantine_canonical_journal(journal)
                 raise RuntimeError(
                     f"canonical commit recovery failed for {journal}: {exc}"
                 ) from exc

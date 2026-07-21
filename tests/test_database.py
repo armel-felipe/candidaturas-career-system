@@ -22,6 +22,7 @@ def test_database_creates_schema():
             "applications",
             "artifact_dependencies",
             "artifacts",
+            "canonical_journal_snapshots",
             "cell_attempts",
             "cell_nodes",
             "keyword_registry",
@@ -69,7 +70,7 @@ def test_database_idempotent_schema():
         tables = db.fetch_all(
             "SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence' ORDER BY name"
         )
-        assert len(tables) == 15
+        assert len(tables) == 16
 
         db.close()
 
