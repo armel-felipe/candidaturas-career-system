@@ -5,15 +5,21 @@ import json
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import migrate_cellular_runs as migration_module  # noqa: E402
 from migrate_cellular_runs import migrate_application  # noqa: E402
 
 from career.cells.executor import CellExecutor  # noqa: E402
+from career.services import review as review_service  # noqa: E402
 from career.services.database import Database  # noqa: E402
+from career.utils import write_json  # noqa: E402
 
 
 def _sha256(path: Path) -> str:
@@ -240,3 +246,120 @@ def test_migration_manifest_is_idempotent_immutable_and_hashes_legacy_sources(tm
     assert all(
         (legacy / node["manifest_path"]).is_file() for node in manifest["nodes"]
     )
+
+
+def test_migration_reconciles_deleted_control_database_from_existing_receipt(tmp_path):
+    legacy = tmp_path / "applications" / "app-1"
+    _seed_legacy_application(legacy)
+    database_path = tmp_path / "career.db"
+    first = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=database_path,
+    )
+    database_path.unlink()
+
+    repaired = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=database_path,
+    )
+
+    assert repaired["status"] == "reconciled"
+    database = Database(database_path)
+    database.init_schema()
+    try:
+        assert database.fetch_one(
+            "SELECT application_id FROM application_runs WHERE run_id = ?",
+            (first["run_id"],),
+        ) == {"application_id": "app-1"}
+    finally:
+        database.close()
+
+
+def test_migration_retries_deterministically_after_crash_before_db_persist(
+    tmp_path, monkeypatch
+):
+    legacy = tmp_path / "applications" / "app-1"
+    _seed_legacy_application(legacy)
+    database_path = tmp_path / "career.db"
+    original = migration_module._persist_database_state
+    calls = 0
+
+    def crash_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("simulated crash before DB persistence")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(migration_module, "_persist_database_state", crash_once)
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        migrate_application(
+            legacy,
+            application_id="app-1",
+            database_path=database_path,
+        )
+    recovered = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=database_path,
+    )
+
+    assert recovered["status"] == "migrated"
+    assert calls == 2
+    assert Path(recovered["manifest_path"]).is_file()
+
+
+def test_migration_accepts_hash_chain_written_by_legacy_approval_service(
+    tmp_path, monkeypatch
+):
+    legacy = tmp_path / "applications" / "app-1"
+    _seed_legacy_application(legacy)
+    docx_path = legacy / "legacy_cv.docx"
+    _write_docx(docx_path)
+    registry_path = legacy / "keyword_ats_registry.json"
+    write_json(registry_path, {"keywords": []})
+    review_path = legacy / "cv_review_report.json"
+    polish_path = legacy / "polish_review.json"
+
+    monkeypatch.setattr(
+        review_service.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="", stderr=""
+        ),
+    )
+
+    def objective_review(artifact, fit_map, registry, report, **_kwargs):
+        payload = {
+            "approved": True,
+            "approved_for_delivery": True,
+            "artifact_path": str(artifact),
+            "blockers": [],
+            "warnings": [],
+            "top8_keywords": [],
+            "totals": {},
+        }
+        write_json(report, payload)
+        return payload
+
+    monkeypatch.setattr(review_service, "review_cv", objective_review)
+    review_service.approve_cv(
+        docx_path,
+        legacy / "fit_map.json",
+        registry_path,
+        review_path,
+        polish_path,
+    )
+
+    result = migrate_application(
+        legacy,
+        application_id="app-1",
+        database_path=tmp_path / "career.db",
+    )
+
+    assert result["imported_nodes"]["render_cv"] == "validated"
+    assert result["imported_nodes"]["review_cv"] == "validated"
+    assert not (legacy / "approved_cv_manifest.json").exists()
