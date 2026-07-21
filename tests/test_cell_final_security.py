@@ -116,6 +116,26 @@ def test_canonical_journal_rejects_symlinked_projection_before_capture_and_resto
     database.close()
 
 
+def test_canonical_target_safety_rejects_symlinked_applications_root_ancestor(
+    tmp_path,
+):
+    real_parent = tmp_path / "real-parent"
+    real_root = real_parent / "applications"
+    real_app = paths_for("app-a", root=real_root)
+    real_app.app_dir.mkdir(parents=True)
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    linked_app = paths_for("app-a", root=linked_parent / "applications")
+
+    with pytest.raises(ValueError, match="symlink|application directory"):
+        CellExecutor._assert_canonical_target_safe(
+            linked_app,
+            linked_app.job_description,
+        )
+
+    assert not real_app.job_description.exists()
+
+
 def test_cv_review_command_requires_scoped_translation_registry(
     tmp_path, monkeypatch
 ):
@@ -183,6 +203,51 @@ def test_keyword_registration_cli_requires_translation_registry(tmp_path):
 
     assert result.returncode == 2
     assert "--translation-registry" in result.stderr
+
+
+def test_mandatory_keyword_registration_documentation_names_translation_registry():
+    documented_callers = (
+        ".agents/skills/career-fit-analysis/SKILL.md",
+        ".agents/skills/cv-generator/SKILL.md",
+        ".agents/skills/output-reviewer/SKILL.md",
+        ".agents/skills/unified-job-analysis/SKILL.md",
+        ".agents/skills/career-system/references/keyword_ats_registry.md",
+        "src/career/services/fit_map.py",
+        "src/career/services/agent_guard.py",
+        "src/career/services/harness_supervisor.py",
+    )
+
+    missing: list[str] = []
+    for relative in documented_callers:
+        for line_number, line in enumerate(
+            (ROOT / relative).read_text(encoding="utf-8").splitlines(),
+            start=1,
+        ):
+            if (
+                "scripts/register_keywords.py" in line
+                and "--fit-map" in line
+                and "--translation-registry" not in line
+            ):
+                missing.append(f"{relative}:{line_number}")
+
+    assert missing == []
+
+
+def test_mandatory_delivery_documentation_and_npm_alias_name_report_path():
+    rclone_doc = (ROOT / "RCLONE_ONEDRIVE_DELIVERY.md").read_text(
+        encoding="utf-8"
+    )
+    undocumented = [
+        line
+        for line in rclone_doc.splitlines()
+        if "npm run deliver:artifact" in line and "--report" not in line
+    ]
+    package_scripts = json.loads(
+        (ROOT / "package.json").read_text(encoding="utf-8")
+    )["scripts"]
+
+    assert undocumented == []
+    assert "--report" in package_scripts["deliver:artifact"]
 
 
 def test_delivery_request_and_canonical_command_use_scoped_report(tmp_path, monkeypatch):

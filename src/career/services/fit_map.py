@@ -355,7 +355,7 @@ def status(
     elif not fit_map_job_match:
         next_step = "npm run fit-map:finalize"
     elif not keyword_registration.get("registered"):
-        next_step = "python scripts/register_keywords.py --fit-map .career-state/fit_map.json"
+        next_step = "python scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json"
     else:
         next_step = "análise concluída"
 
@@ -420,7 +420,7 @@ def resume_guidance(
             "instruction": "Canonize, pontue e valide o draft ja preenchido.",
             "command": "npm run fit-map:finalize",
         },
-        "python scripts/register_keywords.py --fit-map .career-state/fit_map.json": {
+        "python scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json": {
             "action": "register_keywords",
             "instruction": "Registre as keywords ATS do FIT_MAP validado.",
             "command": "npm run keywords:register",

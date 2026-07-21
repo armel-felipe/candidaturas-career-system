@@ -212,8 +212,8 @@ Checklist de polimento obrigatório:
 
 Se o polimento alterar o texto do CV:
 → regenerar o DOCX final em `outputs/`
-→ rodar `python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv_final>.docx`
-→ rodar novamente `python scripts/review_output.py ...`
+→ rodar `python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv_final>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json`
+→ rodar novamente `python scripts/review_output.py --kind cv --artifact outputs/<cv_final>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json`
 → repetir até `approved_for_delivery=true`, zero blockers, e texto humano.
 
 Quando o gate reprovar top 8 por `missing_unexplained` em CV PT-BR:

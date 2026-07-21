@@ -82,13 +82,13 @@ rclone lsf "onedrive:01_armel/Curriculos/personalizados"
 Teste sem enviar de verdade:
 
 ```bash
-npm run deliver:artifact -- --file outputs/<arquivo>.docx --dry-run
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --report outputs/_tmp/delivery_report.json --dry-run
 ```
 
 Enviar de verdade:
 
 ```bash
-npm run deliver:artifact -- --file outputs/<arquivo>.docx
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --report outputs/_tmp/delivery_report.json
 ```
 
 O relatório fica em:
@@ -106,7 +106,7 @@ Status esperados:
 ## Comando com subpasta permitida
 
 ```bash
-npm run deliver:artifact -- --file outputs/<arquivo>.docx --folder "01_armel/Curriculos/personalizados/2026_06"
+npm run deliver:artifact -- --file outputs/<arquivo>.docx --folder "01_armel/Curriculos/personalizados/2026_06" --report outputs/_tmp/delivery_report.json
 ```
 
 ## Regra operacional
@@ -121,7 +121,7 @@ Para CV:
 4. Só depois enviar:
 
 ```bash
-npm run deliver:artifact -- --file outputs/<cv>.docx
+npm run deliver:artifact -- --file outputs/<cv>.docx --report outputs/_tmp/delivery_report.json
 ```
 
 ## O que vai para GitHub

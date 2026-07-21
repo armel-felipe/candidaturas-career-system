@@ -25,13 +25,13 @@ Run it again after every generated CV, passing the DOCX path, so the system can 
 Recommended command:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<generated_cv>.docx
+python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<generated_cv>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 If there is no CV yet:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json
+python scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 ## Status Rules

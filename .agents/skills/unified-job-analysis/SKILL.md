@@ -85,7 +85,7 @@ python3 scripts/validate_fit_map_draft.py
 python3 scripts/build_fit_map.py --draft .career-state/fit_map.draft.json
 python3 scripts/score_fit_map.py --input .career-state/fit_map.json --output .career-state/fit_map.json
 python3 scripts/validate_fit_map.py
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Se qualquer passo falhar: corrigir o draft e reexecutar a partir do passo que falhou.

@@ -602,7 +602,7 @@ Regra de qualidade do estado salvo: `FIT_MAP valid` só tem valor operacional se
 Após canonizar, salvar e validar `.career-state/fit_map.json`, atualizar o registro persistente de keywords:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json
+python scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Esse registro alimenta CVs futuros e a adaptação do LinkedIn. Ele não autoriza usar keywords sem evidência; gaps continuam gaps.

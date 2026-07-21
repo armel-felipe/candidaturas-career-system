@@ -725,7 +725,7 @@ Regra de housekeeping:
 Atualizar o registro persistente de keywords com o DOCX final em `outputs/`:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv <workspace>/outputs/felipe_armel_cv_[escopo].docx
+python scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv <workspace>/outputs/felipe_armel_cv_[escopo].docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Esse passo marca quais keywords apareceram como string exata no CV, quais ficaram faltando e quais devem alimentar bullets futuros do LinkedIn.

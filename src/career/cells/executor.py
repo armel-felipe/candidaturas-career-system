@@ -1015,9 +1015,14 @@ class CellExecutor:
             relative = candidate.relative_to(app_dir)
         except ValueError as exc:
             raise ValueError(f"{label} leaves the application directory") from exc
+        current = Path(app_dir.anchor)
+        for part in app_dir.parts[1:]:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError(
+                    f"{label} uses a symlinked application directory: {current}"
+                )
         current = app_dir
-        if current.is_symlink():
-            raise ValueError(f"{label} uses a symlinked application directory")
         for part in relative.parts:
             current = current / part
             if current.is_symlink():

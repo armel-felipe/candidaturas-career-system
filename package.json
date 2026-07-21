@@ -121,7 +121,7 @@
     "gmail:auth": "./scripts/python.sh scripts/gmail_auth.py",
     "gmail:review": "./scripts/python.sh scripts/review_email_text.py",
     "gmail:draft": "./scripts/python.sh scripts/create_gmail_draft.py",
-    "deliver:artifact": "./scripts/python.sh scripts/deliver_artifact.py",
+    "deliver:artifact": "./scripts/python.sh scripts/deliver_artifact.py --report outputs/_tmp/delivery_report.json",
     "runtime:check": "sh scripts/runtime_check.sh",
     "runtime:diagnose": "./scripts/python.sh scripts/career_cli.py project diagnose-runtime",
     "workflow:summary": "./scripts/python.sh scripts/career_cli.py workflow summary",

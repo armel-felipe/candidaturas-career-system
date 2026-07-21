@@ -706,7 +706,7 @@ class HarnessSupervisor:
             summary = fit_map_service.payload_summary(fit_map_path)
             quality = fit_map_service.quality_report(fit_map_path)
             registry = fit_map_service.registry_summary()
-            return {"status": "completed", "commands_executed": ["fit_map.validate_draft", "fit_map.build", "fit_map.score", "fit_map.validate", "scripts/register_keywords.py --fit-map .career-state/fit_map.json"], "results": results, "summary": {"cargo": summary.get("cargo"), "empresa": summary.get("empresa"), "nota_final": summary.get("nota_final"), "keyword_registration": registry.get("registered"), "quality_status": quality.get("status")}}
+            return {"status": "completed", "commands_executed": ["fit_map.validate_draft", "fit_map.build", "fit_map.score", "fit_map.validate", "scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json"], "results": results, "summary": {"cargo": summary.get("cargo"), "empresa": summary.get("empresa"), "nota_final": summary.get("nota_final"), "keyword_registration": registry.get("registered"), "quality_status": quality.get("status")}}
         except Exception as exc:
             return {"status": "blocked", "blocker_reason": "fit_map_finalize_failed", "error": str(exc)}
 

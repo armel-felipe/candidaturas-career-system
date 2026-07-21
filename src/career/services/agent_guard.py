@@ -127,7 +127,7 @@ def guard(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
             "must_not_continue_with": FORBIDDEN_ACTIONS,
             "fit_map_guard": fit_guard,
         }
-    if next_step == "python scripts/register_keywords.py --fit-map .career-state/fit_map.json":
+    if next_step == "python scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json":
         return {
             "status": "ok",
             "active_intake": active,
