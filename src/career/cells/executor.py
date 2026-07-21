@@ -374,13 +374,12 @@ class CellExecutor:
                     lease_seconds=self.lease_seconds,
                 )
                 if not lock["acquired"]:
-                    return self._block_reserved(
+                    return self._defer_reserved(
                         paths,
                         node,
                         reservation,
                         f"resource_busy:{resource}",
-                        (),
-                        (),
+                        attempt_record,
                     )
                 acquired_resources.append(lock)
 
@@ -760,6 +759,44 @@ class CellExecutor:
             attempt=attempt,
             status="blocked",
             manifest_path=record.path,
+            blocker=str(reason),
+        )
+
+    def _defer_reserved(
+        self,
+        paths: ApplicationPaths,
+        node: NodePlan,
+        reservation: Mapping[str, Any],
+        reason: str,
+        attempt_record,
+    ) -> CellExecutionResult:
+        attempt = int(reservation["attempt"])
+        run_id = str(reservation["run_id"])
+        deferred = self.store.defer_attempt(
+            run_id,
+            node.node_id,
+            attempt,
+            self.worker_id,
+            reason=reason,
+        )
+        if not deferred["deferred"]:
+            raise RuntimeError(
+                f"stale or unowned cell attempt: {run_id}/{node.node_id}/{attempt}"
+            )
+        manifest = dict(read_json(attempt_record.path))
+        manifest["status"] = "cancelled"
+        manifest["blocker"] = {
+            "reason": str(reason),
+            "repair_scope": node.repair_scope,
+        }
+        manifest["finished_at"] = utc_now_iso()
+        write_json(attempt_record.path, manifest)
+        return CellExecutionResult(
+            run_id=run_id,
+            node_id=node.node_id,
+            attempt=attempt,
+            status="deferred",
+            manifest_path=attempt_record.path,
             blocker=str(reason),
         )
 

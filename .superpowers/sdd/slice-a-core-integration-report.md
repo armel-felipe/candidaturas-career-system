@@ -64,3 +64,66 @@ pytest -q
 ## Commit
 
 Implementation commit SHA: e6e7a0a
+
+## Important findings repair — 2026-07-20
+
+### RED
+
+The Slice A integration gate was extended before production changes. The
+focused run failed in the two intended places:
+
+```text
+assert pre_finalize_inspection["status"] == persisted_before_finalize
+E AssertionError: assert 'completed' == 'planned'
+
+assert deferred[0].status == "deferred"
+E AssertionError: assert 'blocked' == 'deferred'
+```
+
+This proved that CLI inspection could infer false completion before persisted
+finalization, and that transient contention on the declared `notion-write`
+resource was converted into a terminal blocker rather than serialization.
+
+### Changes and coverage
+
+- `inspect-run` now reports the authoritative persisted
+  `application_runs.status`; node reservation persists `running`, terminal
+  failure persists `blocked`, and only successful finalization persists
+  `completed`.
+- Resource contention now cancels the owned transient attempt with a bounded
+  metadata-only receipt and returns the node to `planned`. Independent
+  non-resource nodes for both applications continue while `notion-write` is
+  held, and the Notion node retries after release.
+- Finalization is tested negatively in both required modes: arbitrary files
+  without persisted attempts are rejected, and a terminal failed validator
+  produces a blocked completion rather than a completed run.
+- A repaired `analyze_fit` publication is tested to produce a distinct
+  revision and path while preserving the original artifact and manifest bytes.
+- CLI inspection status is compared directly with the matching persisted
+  `application_runs` row before and after finalization.
+- All paths and payloads remain application-scoped. SQLite continues to store
+  metadata/receipts only; artifact contents remain in the application data
+  plane.
+
+### Verification
+
+Focused integration:
+
+```text
+pytest -q tests/test_slice_a_core_integration.py
+3 passed in 0.31s
+```
+
+Related cellular suites:
+
+```text
+pytest -q tests/test_cell_store.py tests/test_cell_executor.py tests/test_cell_manifests.py tests/test_cell_cli.py tests/test_slice_a_core_integration.py
+81 passed in 1.05s
+```
+
+Full suite:
+
+```text
+pytest -q
+160 passed in 3.05s
+```

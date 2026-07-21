@@ -1037,7 +1037,17 @@ def main(argv: list[str] | None = None) -> int:
                     executor.repair(args.run_id, args.node, args.reason)
                     _dump(_cell_run_payload(executor, args.run_id, status="repairing"))
                     return 0
-                _dump(_cell_run_payload(executor, args.run_id))
+                persisted_run = database.fetch_one(
+                    "SELECT status FROM application_runs WHERE run_id = ?",
+                    (args.run_id,),
+                )
+                if persisted_run is None:
+                    raise KeyError(f"unknown application run: {args.run_id}")
+                _dump(
+                    _cell_run_payload(
+                        executor, args.run_id, status=str(persisted_run["status"])
+                    )
+                )
                 return 0
             except (KeyError, RuntimeError, ValueError) as exc:
                 _dump_error(exc)

@@ -136,6 +136,10 @@ class CellStore:
                    VALUES (?, ?, ?, ?, 'reserved', ?)""",
                 (run_id, node_id, attempt, worker_id, now),
             )
+            conn.execute(
+                "UPDATE application_runs SET status = 'running', updated_at = ? WHERE run_id = ?",
+                (now, run_id),
+            )
 
         return {
             "status": "reserved",
@@ -207,6 +211,56 @@ class CellStore:
                     (now, receipt, run_id, node_id, attempt, worker_id),
                 )
         return {"cancelled": cancelled, "run_id": run_id, "node_id": node_id, "attempt": attempt}
+
+    def defer_attempt(
+        self,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        worker_id: str,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Return an owned attempt to planned state after transient contention."""
+        now = self._now()
+        receipt = self._receipt_json(
+            "cancelled",
+            {
+                "status": "cancelled",
+                "paths": [],
+                "hashes": {},
+                "metadata": {"reason": str(reason)[: self._MAX_METADATA_STRING_LENGTH]},
+            },
+        )
+        with self.database.transaction(immediate=True) as conn:
+            deferred = conn.execute(
+                """UPDATE cell_nodes
+                   SET status = 'planned', reserved_by = NULL,
+                       reservation_expires_at = NULL, updated_at = ?
+                   WHERE run_id = ? AND node_id = ? AND latest_attempt = ?
+                     AND reserved_by = ? AND status IN ('reserved', 'running')
+                     AND reservation_expires_at > ?""",
+                (now, run_id, node_id, attempt, worker_id, now),
+            ).rowcount == 1
+            if deferred:
+                attempt_updated = conn.execute(
+                    """UPDATE cell_attempts
+                       SET status = 'cancelled', finished_at = ?, detail_json = ?
+                       WHERE run_id = ? AND node_id = ? AND attempt = ?
+                         AND worker_id = ? AND status IN ('reserved', 'running')
+                         AND finished_at IS NULL""",
+                    (now, receipt, run_id, node_id, attempt, worker_id),
+                ).rowcount
+                if attempt_updated != 1:
+                    raise RuntimeError(
+                        f"stale or unowned cell attempt: {run_id}/{node_id}/{attempt}"
+                    )
+        return {
+            "deferred": deferred,
+            "run_id": run_id,
+            "node_id": node_id,
+            "attempt": attempt,
+        }
 
     def finish_attempt(
         self,
@@ -280,6 +334,11 @@ class CellStore:
                         artifact["input_hash"],
                         now,
                     ),
+                )
+            if status == "blocked":
+                conn.execute(
+                    "UPDATE application_runs SET status = 'blocked', updated_at = ? WHERE run_id = ?",
+                    (now, run_id),
                 )
 
         return {"run_id": run_id, "node_id": node_id, "attempt": attempt, "status": status}
