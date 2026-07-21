@@ -1551,15 +1551,31 @@ class CellExecutor:
         reason: str,
     ) -> None:
         node_id = node.node_id
-        row = self.database.fetch_one(
-            "SELECT latest_attempt FROM cell_nodes WHERE run_id = ? AND node_id = ?",
-            (run_id, node_id),
-        )
-        if row is None:
-            raise KeyError(f"unknown cell node: {run_id}/{node_id}")
-        attempt = max(1, int(row["latest_attempt"]))
+        if self.workspace_fence_token is None:
+            raise ValueError("workspace fence token is required for terminal commit")
         now = utc_now_iso()
         with self.database.transaction(immediate=True) as conn:
+            workspace_owned = conn.execute(
+                """SELECT 1 FROM workspace_leases
+                   WHERE lease_name = 'authoritative-workspace'
+                     AND worker_id = ? AND lease_epoch = ?
+                     AND expires_at > ?""",
+                (
+                    self.workspace_owner,
+                    int(self.workspace_fence_token),
+                    now,
+                ),
+            ).fetchone()
+            if workspace_owned is None:
+                raise RuntimeError("stale authoritative workspace lease")
+            row = conn.execute(
+                "SELECT latest_attempt FROM cell_nodes "
+                "WHERE run_id = ? AND node_id = ?",
+                (run_id, node_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown cell node: {run_id}/{node_id}")
+            attempt = max(1, int(row["latest_attempt"]))
             if int(row["latest_attempt"]) == 0:
                 conn.execute(
                     """INSERT INTO cell_attempts
@@ -1614,32 +1630,32 @@ class CellExecutor:
                    WHERE run_id = ? AND node_id = ?""",
                 (status, attempt, now, run_id, node_id),
             )
-        manifest_path = paths.cells_dir / node_id / str(attempt) / "manifest.json"
-        if manifest_path.is_file():
-            manifest = dict(read_json(manifest_path))
-        else:
-            record = ManifestStore(paths).begin_attempt(
-                node_id,
-                attempt,
-                run_id=run_id,
-                contract_version=node.contract_version,
-                read_paths=(),
-                write_paths=(
-                    paths.cells_dir / node_id / str(attempt) / "staging",
-                    paths.reviews_dir,
-                ),
-                context={"repair_scope": node.repair_scope, "synthetic": True},
-                status=status,
-            )
-            manifest = dict(record.manifest)
-        manifest["status"] = status
-        manifest["finished_at"] = now
-        if status == "blocked":
-            manifest["blocker"] = {
-                "reason": reason,
-                "repair_scope": node.repair_scope,
-            }
-        write_json(manifest_path, manifest)
+            manifest_path = paths.cells_dir / node_id / str(attempt) / "manifest.json"
+            if manifest_path.is_file():
+                manifest = dict(read_json(manifest_path))
+            else:
+                record = ManifestStore(paths).begin_attempt(
+                    node_id,
+                    attempt,
+                    run_id=run_id,
+                    contract_version=node.contract_version,
+                    read_paths=(),
+                    write_paths=(
+                        paths.cells_dir / node_id / str(attempt) / "staging",
+                        paths.reviews_dir,
+                    ),
+                    context={"repair_scope": node.repair_scope, "synthetic": True},
+                    status=status,
+                )
+                manifest = dict(record.manifest)
+            manifest["status"] = status
+            manifest["finished_at"] = now
+            if status == "blocked":
+                manifest["blocker"] = {
+                    "reason": reason,
+                    "repair_scope": node.repair_scope,
+                }
+            write_json(manifest_path, manifest)
 
     def _failed_validator_report(
         self, context: CellExecutionContext, reason: str

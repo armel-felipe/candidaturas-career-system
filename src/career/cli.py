@@ -1125,6 +1125,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "provision-authority-ledger":
             control_database = Database()
             try:
+                control_database.prepare_authority_ledger_provisioning()
                 ledger = control_database.provision_authority_ledger(
                     expected_control_db_id=args.control_db_id,
                     provisioned_by=args.owner,

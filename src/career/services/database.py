@@ -48,6 +48,18 @@ class Database:
         return self._conn
 
     def init_schema(self) -> None:
+        self._initialize_schema(verify_authority_ledger=True)
+
+    def prepare_authority_ledger_provisioning(self) -> None:
+        """Upgrade the local schema without fabricating or verifying a ledger.
+
+        The explicit provisioning command uses this migration path before it
+        creates the one shared authority ledger. Normal schema initialization
+        continues to fail closed when a configured ledger is absent.
+        """
+        self._initialize_schema(verify_authority_ledger=False)
+
+    def _initialize_schema(self, *, verify_authority_ledger: bool) -> None:
         conn = self.get_connection()
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS applications (
@@ -328,7 +340,8 @@ class Database:
             (storage_identity,),
         )
         conn.commit()
-        self._verify_configured_authority_ledger()
+        if verify_authority_ledger:
+            self._verify_configured_authority_ledger()
 
     def control_db_identity(self) -> str:
         row = self.fetch_one(

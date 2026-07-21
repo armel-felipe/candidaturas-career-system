@@ -376,6 +376,46 @@ def test_provision_authority_ledger_cli_is_explicit_and_verifiable(
     bound.close()
 
 
+def test_provision_authority_ledger_cli_upgrades_a_pre_ledger_database(
+    tmp_path, monkeypatch, capsys
+):
+    database_path = tmp_path / "source" / "career.db"
+    authority_ledger = tmp_path / "shared-control" / "workspace-authority.json"
+    legacy = Database(database_path)
+    legacy.init_schema()
+    control_db_id = legacy.control_db_identity()
+    legacy.execute(
+        "ALTER TABLE workspace_authority DROP COLUMN authority_ledger_id"
+    )
+    legacy.close()
+    bound = Database(database_path, authority_ledger_path=authority_ledger)
+    monkeypatch.setattr(cli, "Database", lambda *args, **kwargs: bound)
+
+    exit_code = cli.main(
+        [
+            "applications",
+            "provision-authority-ledger",
+            "--control-db-id",
+            control_db_id,
+            "--owner",
+            "macbook",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    columns = {
+        row["name"]
+        for row in bound.fetch_all("PRAGMA table_info(workspace_authority)")
+    }
+    assert exit_code == 0
+    assert payload["status"] == "provisioned"
+    assert payload["control_db_id"] == control_db_id
+    assert payload["ledger_id"].startswith("ledger_")
+    assert "authority_ledger_id" in columns
+    assert authority_ledger.is_file()
+    bound.close()
+
+
 def test_cellular_heartbeat_validates_authority_before_maintenance_or_queue(
     tmp_path, monkeypatch
 ):
@@ -1431,6 +1471,62 @@ def test_handoff_fences_manual_terminal_manifest_and_database_commit(
     ) == {"status": "planned"}
     assert not (paths.cells_dir / "normalize_job" / "1" / "manifest.json").exists()
     source.close()
+
+
+@pytest.mark.parametrize("terminal_status", ["validated", "blocked", "cancelled"])
+def test_workspace_lease_epoch_takeover_fences_every_manual_terminal_commit(
+    tmp_path, terminal_status
+):
+    database = Database(tmp_path / terminal_status / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / terminal_status / "applications"
+    paths = applications_v2.paths_for("app-a", root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("Lead operations.\n", encoding="utf-8")
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        workspace_owner="epoch-one-owner",
+    )
+    plan = executor.plan("app-a", {"cv"})
+    epoch_one = executor.workspace_fence_token
+    database.execute(
+        "UPDATE workspace_leases SET expires_at = ? WHERE lease_name = ?",
+        (
+            (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+            WorkspaceLease.LEASE_NAME,
+        ),
+    )
+    successor = WorkspaceLease(
+        database,
+        expected_control_db_id=executor.workspace_lease.control_db_id,
+    )
+
+    assert successor.acquire("epoch-two-owner", ttl_seconds=60) is True
+    assert epoch_one is not None
+    assert successor.fence_token == epoch_one + 1
+
+    with pytest.raises(RuntimeError, match="stale authoritative workspace lease"):
+        executor._set_manual_terminal(
+            plan.run_id,
+            paths,
+            "normalize_job",
+            terminal_status,
+            "stale epoch one terminal",
+        )
+
+    assert database.fetch_one(
+        "SELECT status, latest_attempt FROM cell_nodes "
+        "WHERE run_id = ? AND node_id = 'normalize_job'",
+        (plan.run_id,),
+    ) == {"status": "planned", "latest_attempt": 0}
+    assert database.fetch_one(
+        "SELECT status FROM cell_attempts "
+        "WHERE run_id = ? AND node_id = 'normalize_job'",
+        (plan.run_id,),
+    ) is None
+    assert not (paths.cells_dir / "normalize_job" / "1" / "manifest.json").exists()
+    database.close()
 
 
 def test_lease_epoch_transfer_during_finalization_cannot_commit_or_publish(
