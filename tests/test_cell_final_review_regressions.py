@@ -300,3 +300,72 @@ def test_completed_source_has_durable_cross_run_receipt_and_is_not_redelivered(
     )
     assert receipt["job_fingerprint"] == fingerprint
     assert receipt["delivery"]["artifact_sha256"] == "cv-sha"
+
+
+def test_completed_manifest_recovers_cross_run_receipt_before_new_plan(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    app = {
+        "record_id": 101,
+        "page_id": "page-a",
+        "status": "Fila Agente",
+        "description": "Operations leadership and planning. " * 30,
+    }
+    paths = applications_v2._ensure_cellular_application(app, applications_root=v2_dir)
+    fingerprint = applications_v2.sha256_file(paths.job_description)
+    run_id = "run-completed"
+    handover = paths.app_dir / "artifacts" / run_id / "handover.json"
+    delivery = paths.app_dir / "artifacts" / run_id / "delivery.json"
+    handover.parent.mkdir(parents=True)
+    handover.write_text(json.dumps({"job_fingerprint": fingerprint}), encoding="utf-8")
+    delivery.write_text(
+        json.dumps(
+            {
+                "operation": "cv_delivery",
+                "delivery_id": "delivery-1",
+                "response_hash": "response-sha",
+            }
+        ),
+        encoding="utf-8",
+    )
+    completion = paths.app_dir / "runs" / run_id / "run_completion_manifest.json"
+    completion.parent.mkdir(parents=True)
+    completion.write_text(
+        json.dumps(
+            {
+                "kind": "run_completion_manifest",
+                "application_id": "101",
+                "run_id": run_id,
+                "status": "completed",
+                "validated_artifacts": [
+                    {
+                        "node_id": "normalize_job",
+                        "artifact_name": "handover_summary.json",
+                        "path": str(handover),
+                    },
+                    {
+                        "node_id": "deliver_cv",
+                        "artifact_name": "cv_delivery_receipt.json",
+                        "path": str(delivery),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tracker_calls: list[str] = []
+
+    recovered = applications_v2._recover_completed_cellular_receipt(
+        app,
+        paths=paths,
+        job_fingerprint=fingerprint,
+        success_status="Aplicação andamento",
+        update_tracker=lambda status: tracker_calls.append(status),
+    )
+
+    assert recovered["status"] == "completed"
+    assert recovered["run_id"] == run_id
+    assert recovered["delivery"]["delivery_id"] == "delivery-1"
+    assert tracker_calls == ["Aplicação andamento"]
