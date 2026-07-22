@@ -5,6 +5,12 @@ em `Candidaturas` representa uma vaga. Descrições completas, análises,
 evidências, CVs e cartas permanecem no computador, em pastas identificadas
 pelo mesmo `id_candidatura`.
 
+Suas conquistas verificadas não são digitadas no Sheets: elas pertencem a
+`perfil/autoconhecimento.md`, no bloco **Experiências verificadas** e no
+**Banco de histórias**. Para uma vaga específica, o harness referencia essas
+evidências e grava apenas o resumo e os caminhos de arquivo no tracker. Veja
+[o modelo de perfil](templates/autoconhecimento.md) antes de registrar vagas.
+
 ## Criar a planilha
 
 1. Crie uma planilha vazia na sua conta Google pessoal: `Tracker de candidaturas`.
@@ -78,13 +84,14 @@ verificação de cada um:
 6. Execute o comando de autorização que o harness gerar. O navegador abrirá
    para você conceder acesso à sua própria planilha. O token local também deve
    ficar ignorado pelo Git.
-7. Crie uma planilha de teste e permita que o harness escreva uma única linha
-   `TESTE_OAUTH_OK`; confirme no navegador e depois apague essa linha.
+7. Na aba `Logs` da própria planilha, permita que o harness escreva uma única
+   linha cujo `detalhe_curto` seja `TESTE_OAUTH_OK`; confirme no navegador e
+   depois apague essa linha.
 
 ## Critérios de conexão aprovada
 
 - O harness lê o título da planilha correta.
-- O harness cria e remove a linha de teste somente na aba de teste.
+- O harness cria e remove a linha de teste somente na aba `Logs`.
 - `git status` não mostra `credentials.json`, token ou pasta de navegador.
 - O tracker real continua editável pela sua conta Google no navegador.
 

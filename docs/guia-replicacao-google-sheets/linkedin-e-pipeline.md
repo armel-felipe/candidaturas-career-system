@@ -13,7 +13,8 @@ for possível, cole a descrição da vaga ou registre-a manualmente no tracker.
 2. Peça ao harness para abrir a página de vagas salvas usando automação local
    compatível com sessão persistente, como Playwright.
 3. Para cada vaga encontrada, registre no Sheets: empresa, cargo, URL,
-   `fonte=linkedin_salva`, localidade, data observada e `etapa=capturada`.
+   `fonte=linkedin_salva`, localidade, `criada_em` como data/hora observada e
+   `etapa=capturada`.
 4. Gere `id_candidatura` sequencial. Nunca reutilize um ID.
 5. Selecione uma linha pelo ID. Só então extraia o texto e salve em
    `inbox/job_descriptions/<id_candidatura>.md`.

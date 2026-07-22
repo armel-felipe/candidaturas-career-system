@@ -52,7 +52,8 @@ repositório público.
 
 1. `git --version`, `node --version` e `python --version` retornam versões.
 2. O projeto existe no caminho acima e o `.gitignore` contém os segredos.
-3. O OAuth lê o título de uma planilha de teste e cria/remove `TESTE_OAUTH_OK`.
+3. O OAuth lê o título do tracker e cria/remove `TESTE_OAUTH_OK` somente em
+   `Logs`.
 4. A planilha contém abas e cabeçalhos descritos em `google-sheets.md`.
 5. O harness cria uma candidatura fictícia `APP-00001` sem gerar CV nem tocar
    no LinkedIn.

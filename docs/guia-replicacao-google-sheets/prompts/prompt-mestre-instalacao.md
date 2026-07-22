@@ -51,7 +51,7 @@ E. Para conectar o Sheets, oriente-me pela criação de OAuth tipo Aplicativo
    para computador no Google Cloud, habilitando Google Sheets API e Google
    Drive API. Salve as credenciais e token somente em state\google-oauth,
    ignorados pelo Git. Faça uma leitura e escrita de teste na planilha e remova
-   a linha de teste depois da confirmação.
+   uma linha TESTE_OAUTH_OK na aba Logs e remova-a depois da confirmação.
 F. Crie uma candidatura fictícia APP-00001 e registre um log de teste. Não
    gere CV nem acesse LinkedIn nesta etapa.
 

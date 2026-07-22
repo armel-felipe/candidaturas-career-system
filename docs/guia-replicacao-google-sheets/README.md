@@ -5,6 +5,11 @@ montar, no Windows, um sistema local de candidaturas. O tracker é uma planilha
 Google pessoal; descrições de vaga, evidências e documentos ficam em arquivos
 locais, onde podem ser versionados e revisados.
 
+Neste guia, **harness** é a ferramenta de IA que você prefere usar — ChatGPT
+Work, Codex, Claude Code ou Gemini — quando ela consegue ler arquivos e, para
+instalação/LinkedIn, executar comandos no seu computador. Ela executa o fluxo;
+você continua sendo dono dos fatos profissionais, das credenciais e do envio.
+
 ## O que este guia constrói
 
 - Um projeto em `%USERPROFILE%\Documents\SistemaCandidaturas`.
@@ -18,7 +23,7 @@ locais, onde podem ser versionados e revisados.
 Você terá uma linha por vaga no Sheets e uma pasta por candidatura no projeto
 local. A planilha responde “o que fazer agora”; os arquivos respondem “em que
 evidência isso se baseia”. Aplicar para a vaga continua sendo uma decisão e
-ação manual sua.
+ação manual sua: o harness não preenche nem submete formulários de candidatura.
 
 ## Antes de começar
 
@@ -28,12 +33,17 @@ ação manual sua.
 
 ## Roteiro de implantação
 
-1. Copie e envie o [prompt-mestre de instalação](prompts/prompt-mestre-instalacao.md).
-2. Siga as [adaptações por harness](prompts/adaptacoes-por-harness.md).
-3. Importe os modelos `candidaturas.csv` e `listas.csv` em uma planilha nova.
-4. Faça o teste de leitura/escrita do Google antes de registrar uma vaga real.
-5. Use o fluxo de [LinkedIn e pipeline](linkedin-e-pipeline.md), ou cole a
-   descrição de uma vaga no harness.
+1. Preencha [o modelo de autoconhecimento](templates/autoconhecimento.md).
+2. Copie e envie o [prompt-mestre de instalação](prompts/prompt-mestre-instalacao.md).
+3. Siga as [adaptações por harness](prompts/adaptacoes-por-harness.md) e os
+   pré-requisitos de [instalação no Windows](instalacao-windows.md).
+4. Importe `candidaturas.csv` e `listas.csv`, configure OAuth e execute o teste
+   descrito em [Google Sheets](google-sheets.md).
+5. Importe vagas salvas ou cole uma descrição conforme
+   [LinkedIn e pipeline](linkedin-e-pipeline.md).
+6. Analise a vaga, decida manualmente, gere materiais e revise com os prompts
+   de [operação diária](prompts/operacao-diaria.md).
+7. Antes do primeiro uso real, conclua o [checklist final](checklist-final.md).
 
 ## Como operar no dia a dia
 
