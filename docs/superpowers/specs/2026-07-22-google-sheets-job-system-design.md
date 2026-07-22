@@ -94,6 +94,70 @@ e `Logs`. A aba Candidaturas guarda metadados e ponteiros, não cópias grandes
 ou credenciais. Acesso via OAuth local; segredos e tokens permanecem ignorados
 pelo Git.
 
+#### Aba `Candidaturas`: uma linha por vaga
+
+| Coluna | Tipo | Por que existe | Atualização |
+| --- | --- | --- | --- |
+| `id_candidatura` | texto imutável (`APP-00001`) | Chave estável para ligar planilha, pasta local e logs, mesmo se cargo ou empresa mudarem. | Harness na criação. |
+| `criada_em` | data/hora ISO | Permite medir tempo de ciclo e auditar origem. | Harness na criação. |
+| `atualizada_em` | data/hora ISO | Mostra se o registro está parado. | Harness em alterações. |
+| `empresa` | texto | Campo-base para busca, agrupamento e nome de artefatos. | Harness, confirmação humana se ambíguo. |
+| `cargo` | texto | Identifica o alvo da análise e do CV. | Harness, confirmação humana se ambíguo. |
+| `url_vaga` | URL | Permite voltar à fonte sem depender de memória do agente. | Harness ou pessoa. |
+| `fonte` | lista | Distingue LinkedIn salva, LinkedIn direta, indicação, site da empresa, Gupy etc. | Harness. |
+| `localidade` | texto | Apoia filtros de presencial/híbrido/remoto. | Harness quando disponível. |
+| `regime_trabalho` | lista | Registra remoto, híbrido, presencial ou não informado. | Harness quando disponível. |
+| `descricao_arquivo` | caminho relativo | Ponteiro para a cópia local da descrição, que preserva texto integral e versão. | Harness. |
+| `descricao_hash` | texto | Detecta se a vaga foi alterada desde a análise. | Harness. |
+| `idioma_vaga` | lista | Determina idioma do CV e da carta. | Harness com validação. |
+| `fit_score` | número 0–100 | Prioriza a fila; nunca substitui a leitura qualitativa. | Harness após análise. |
+| `fit_resumo` | texto curto | Explica a recomendação sem armazenar o FIT_MAP inteiro. | Harness. |
+| `gaps_declarados` | texto curto | Separa lacunas reais de ausência de análise e impede invenção para cobri-las. | Harness após análise. |
+| `decisao` | lista | Registra `prosseguir`, `pausar` ou `descartar`; a escolha é humana. | Pessoa. |
+| `etapa` | lista controlada | Controla o fluxo: `capturada`, `descricao_validada`, `analisada`, `artefatos_em_rascunho`, `revisao_pendente`, `pronta_para_aplicacao`, `aplicada`, `encerrada`. | Harness até pronta; pessoa para aplicada/encerrada. |
+| `proxima_acao` | texto curto | Torna a fila acionável sem reler todo o histórico. | Harness. |
+| `prazo` | data | Evita perder janelas de candidatura. | Harness quando explícito; pessoa confirma. |
+| `cv_arquivo` | caminho relativo/URL | Aponta para o CV final revisado, sem subir binário à planilha. | Harness após aprovação. |
+| `carta_arquivo` | caminho relativo/URL | Faz o mesmo para a carta, se houver. | Harness após revisão. |
+| `pasta_artefatos` | caminho relativo | Permite recuperação e auditoria por candidatura. | Harness na criação. |
+| `observacoes_humanas` | texto | Espaço exclusivo para contexto que o agente não deve sobrescrever. | Pessoa. |
+| `ultimo_erro` | texto curto | Expõe bloqueios acionáveis, sem esconder falhas. | Harness, limpo somente após resolução. |
+
+Campos longos, como descrição integral, FIT_MAP, CV e carta, não vivem em
+células: isso evita limites de tamanho, perda de formatação, duplicação e
+conflitos de edição. A planilha mantém ponteiros e resumos; o projeto local
+guarda as versões completas.
+
+#### Aba `Listas`: vocabulários e validações
+
+Contém as listas permitidas para `fonte`, `regime_trabalho`, `idioma_vaga`,
+`decisao` e `etapa`. O harness usa validação de dados no Sheets, em vez de
+texto livre, para que filtros, métricas e automações não quebrem por variantes
+como “Aplicado”, “aplicada” ou “enviei”.
+
+#### Aba `Config`: referência não secreta
+
+Guarda `spreadsheet_id`, timezone, idioma padrão, pasta raiz local e opções de
+comportamento. Não armazena `client_secret`, tokens OAuth, senhas ou cookies.
+Esses dados ficam apenas em arquivos locais ignorados pelo Git.
+
+#### Aba `Métricas`: visão derivada, não edição manual
+
+Usa fórmulas/queries sobre `Candidaturas` para mostrar vagas por etapa, taxa de
+avanço, idade média da fila, empresas recorrentes e distribuição de fit. A aba
+não é fonte de verdade: assim não há divergência entre dashboard e registros.
+
+#### Aba `Logs`: trilha de auditoria
+
+Colunas `timestamp`, `id_candidatura`, `acao`, `resultado`, `detalhe_curto` e
+`run_id`. Registra criação, sincronização, análise, geração, falha e retomada.
+É especialmente útil quando diferentes harnesses forem usados no mesmo
+projeto.
+
+Regras de escrita: o harness atualiza apenas colunas de sua responsabilidade,
+nunca apaga `observacoes_humanas`, nunca altera `decisao` sem comando explícito
+e inclui `run_id` em qualquer operação que mude dados.
+
 ### LinkedIn
 
 Playwright abre o navegador local persistente. O usuário autentica quando
