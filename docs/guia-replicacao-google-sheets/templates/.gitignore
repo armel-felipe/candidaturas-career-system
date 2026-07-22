@@ -1,0 +1,9 @@
+.env
+credentials.json
+token.json
+tokens/
+playwright/.auth/
+browser-profile/
+outputs/
+perfil/
+inbox/
