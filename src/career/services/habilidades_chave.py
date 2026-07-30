@@ -80,7 +80,7 @@ REQUIRED_REFERENCES = [
 ITEM_RE = re.compile(
     r"(?ms)^\s*(\d+)\.\s+Habilidade:\s*(?P<habilidade>.+?)\s*^Cargo:\s*(?P<cargo>.+?)\s*^Empresa:\s*(?P<empresa>.+?)\s*^História\s*\((?P<count>\d+)\s+caracteres\):\s*(?P<historia>.*?)(?=^\s*\d+\.\s+Habilidade:|\Z)"
 )
-SOURCE_RE = re.compile(r"\(Fonte:\s*autoconhecimento\.md:linhas\s+\d+-\d+\)")
+SOURCE_RE = re.compile(r"\(Fonte:\s*autoconhecimento\.md:linhas\s+\d+-\d+(?:,\s*\d+)*\)")
 
 
 def _catalog_path(mode: str) -> Path:

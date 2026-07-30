@@ -1242,6 +1242,9 @@ def _validate_cv_content_contract(paths: dict[str, Path]) -> None:
     summary = str(payload.get("summary") or payload.get("resumo") or "").strip()
     if not summary:
         raise ValidationFailure("cv_content.json must include a non-empty summary/resumo.")
+    from career.services import cv_content as cv_content_service
+
+    cv_content_service.validate_positioning_contract(payload)
     consolidated_markers = [
         "head e diretor",
         "head + diretor",

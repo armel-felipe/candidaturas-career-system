@@ -21,6 +21,15 @@
       ],
       "usage_notes": "Em EN CV: 'A/B tests', 'A/B testing', 'experimentation' cobrem A/B Testing."
     },
+    "strategic_sourcing": {
+      "canonical_keyword": "Strategic Sourcing",
+      "pt_br_preferred": "sourcing estratégico",
+      "pt_br_alternatives": [
+        "abastecimento estratégico"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "No Brasil, 'sourcing estratégico' costuma soar mais natural do que tradução literal."
+    },
     "budget_control": {
       "canonical_keyword": "Budget Control",
       "pt_br_preferred": "controle orçamentário",
@@ -35,7 +44,8 @@
       "pt_br_preferred": "gestão orçamentária",
       "pt_br_alternatives": [
         "budget",
-        "gestão de budget"
+        "gestão de budget",
+        "orçamento"
       ],
       "accepted_variants": [],
       "usage_notes": ""
@@ -128,10 +138,17 @@
       "canonical_keyword": "Cost Reduction",
       "pt_br_preferred": "redução de custos",
       "pt_br_alternatives": [
+        "redução de custo",
+        "economia",
+        "saving",
         "otimização de custos"
       ],
-      "accepted_variants": [],
-      "usage_notes": ""
+      "accepted_variants": [
+        "cost savings",
+        "redução de despesas",
+        "eficiência de custos"
+      ],
+      "usage_notes": "Em CV PT-BR, 'redução de custos' cobre Cost Reduction."
     },
     "cross_functional_leadership": {
       "canonical_keyword": "Cross-Functional Leadership",
@@ -1057,14 +1074,16 @@
       "canonical_keyword": "SLA Management",
       "pt_br_preferred": "gestão de SLA",
       "pt_br_alternatives": [
-        "gestão de SLAs",
-        "gestão de nível de serviço",
-        "cumprimento dos SLAs"
+        "SLA",
+        "acordo de nível de serviço",
+        "nível de serviço"
       ],
       "accepted_variants": [
+        "service level agreement",
+        "SLAs",
         "SLA"
       ],
-      "usage_notes": "SLA é sigla natural em PT-BR; a cobertura deve aparecer ligada a gestão, cumprimento ou nível de serviço."
+      "usage_notes": "Em CV PT-BR, 'SLA' e 'nível de serviço' cobrem SLA Management."
     },
     "sla_nivel_de_servico": {
       "canonical_keyword": "SLA / Nível de Serviço",
@@ -1120,15 +1139,6 @@
       "pt_br_alternatives": [],
       "accepted_variants": [],
       "usage_notes": "Em CV PT-BR, usar 'Planejamento Estratégico' ou 'planejamento estratégico' é equivalente aceito."
-    },
-    "strategic_sourcing": {
-      "canonical_keyword": "Strategic Sourcing",
-      "pt_br_preferred": "sourcing estratégico",
-      "pt_br_alternatives": [
-        "abastecimento estratégico"
-      ],
-      "accepted_variants": [],
-      "usage_notes": "No Brasil, 'sourcing estratégico' costuma soar mais natural do que tradução literal."
     },
     "supply_chain_management": {
       "canonical_keyword": "Supply Chain Management",
@@ -1236,6 +1246,292 @@
       ],
       "accepted_variants": [],
       "usage_notes": "Em CV PT-BR, 'inteligência competitiva' é equivalente canônico."
+    },
+    "forecasting": {
+      "canonical_keyword": "Forecasting",
+      "pt_br_preferred": "forecast",
+      "pt_br_alternatives": [
+        "previsão de demanda",
+        "rolling forecast",
+        "forecast de público",
+        "planejamento de demanda"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'forecast' e 'rolling forecast' são termos naturais de mercado."
+    },
+    "modelagem_de_cenarios": {
+      "canonical_keyword": "Modelagem de Cenários",
+      "pt_br_preferred": "modelagem de cenários",
+      "pt_br_alternatives": [
+        "simulador de cenários",
+        "análise de cenários",
+        "simulação de cenários",
+        "avaliação de cenários"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'simulador de cenários' e 'análise de cenários' cobrem Modelagem de Cenários."
+    },
+    "inteligencia_de_mercado": {
+      "canonical_keyword": "Inteligência de Mercado",
+      "pt_br_preferred": "inteligência de mercado",
+      "pt_br_alternatives": [
+        "inteligência comercial",
+        "análise de mercado",
+        "inteligência competitiva"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'inteligência comercial' e 'inteligência de mercado' são equivalentes aceitos."
+    },
+    "budget_management_pt": {
+      "canonical_keyword": "Budget Management",
+      "pt_br_preferred": "gestão orçamentária",
+      "pt_br_alternatives": [
+        "orçamento",
+        "budget",
+        "gestão de budget",
+        "orçamento de R\\$300MM"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'orçamento' e 'budget' são termos naturais que cobrem Budget Management."
+    },
+    "excel_avancado": {
+      "canonical_keyword": "Excel Avançado",
+      "pt_br_preferred": "Excel avançado",
+      "pt_br_alternatives": [
+        "Excel VBA",
+        "Excel",
+        "VBA"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'Excel VBA' e 'Excel' cobrem Excel Avançado."
+    },
+    "customer_support_strategy": {
+      "canonical_keyword": "Customer Support Strategy",
+      "pt_br_preferred": "estratégia de suporte ao cliente",
+      "pt_br_alternatives": [
+        "estratégia de customer support",
+        "estratégia de atendimento",
+        "suporte ao cliente"
+      ],
+      "accepted_variants": [
+        "Customer Support",
+        "Support Strategy",
+        "suporte",
+        "atendimento ao cliente"
+      ],
+      "usage_notes": "Em CV PT-BR, 'estratégia de suporte ao cliente' e 'suporte ao cliente' cobrem Customer Support Strategy."
+    },
+    "service_management": {
+      "canonical_keyword": "Service Management",
+      "pt_br_preferred": "gestão de serviços",
+      "pt_br_alternatives": [
+        "gestão de service desk",
+        "service management"
+      ],
+      "accepted_variants": [
+        "IT Service Management",
+        "gestão de TI",
+        "service desk"
+      ],
+      "usage_notes": "Em CV PT-BR, 'gestão de serviços' cobre Service Management."
+    },
+    "csat_nps": {
+      "canonical_keyword": "CSAT / NPS",
+      "pt_br_preferred": "CSAT e NPS",
+      "pt_br_alternatives": [
+        "satisfação do cliente",
+        "CSAT",
+        "NPS",
+        "Net Promoter Score"
+      ],
+      "accepted_variants": [
+        "customer satisfaction",
+        "CSAT/NPS",
+        "satisfação"
+      ],
+      "usage_notes": "Em CV PT-BR, 'CSAT' e 'NPS' e 'satisfação do cliente' cobrem CSAT/NPS."
+    },
+    "ai_driven_support": {
+      "canonical_keyword": "AI-driven Support",
+      "pt_br_preferred": "suporte com IA",
+      "pt_br_alternatives": [
+        "atendimento com inteligência artificial",
+        "automação com IA",
+        "IA no atendimento"
+      ],
+      "accepted_variants": [
+        "AI support",
+        "inteligência artificial",
+        "chatbot",
+        "IA humanizada"
+      ],
+      "usage_notes": "Em CV PT-BR, 'suporte com IA' e 'automação com IA' cobrem AI-driven Support."
+    },
+    "self_service_automation": {
+      "canonical_keyword": "Self-Service Automation",
+      "pt_br_preferred": "automação de autoatendimento",
+      "pt_br_alternatives": [
+        "self-service",
+        "autoatendimento",
+        "canais digitais de atendimento"
+      ],
+      "accepted_variants": [
+        "self service",
+        "WhatsApp",
+        "chatbot",
+        "portal de autoatendimento"
+      ],
+      "usage_notes": "Em CV PT-BR, 'autoatendimento' e 'self-service' cobrem Self-Service Automation."
+    },
+    "technical_escalation_management": {
+      "canonical_keyword": "Technical Escalation Management",
+      "pt_br_preferred": "gestão de escalonamentos técnicos",
+      "pt_br_alternatives": [
+        "escalonamento técnico",
+        "escalonamentos",
+        "gestão de incidentes"
+      ],
+      "accepted_variants": [
+        "technical escalation",
+        "escalation management",
+        "escalonamento"
+      ],
+      "usage_notes": "Em CV PT-BR, 'gestão de escalonamentos técnicos' cobre Technical Escalation Management."
+    },
+    "root_cause_analysis": {
+      "canonical_keyword": "Root Cause Analysis",
+      "pt_br_preferred": "análise de causa raiz",
+      "pt_br_alternatives": [
+        "RCA",
+        "análise de causa raiz",
+        "investigação de bugs"
+      ],
+      "accepted_variants": [
+        "root cause",
+        "causa raiz",
+        "RCA"
+      ],
+      "usage_notes": "Em CV PT-BR, 'análise de causa raiz' e 'RCA' cobrem Root Cause Analysis."
+    },
+    "support_team_leadership": {
+      "canonical_keyword": "Support Team Leadership",
+      "pt_br_preferred": "liderança de equipe de suporte",
+      "pt_br_alternatives": [
+        "gestão de time de suporte",
+        "liderança de suporte",
+        "equipe de atendimento"
+      ],
+      "accepted_variants": [
+        "team leadership",
+        "liderança de equipe",
+        "gestão de pessoas"
+      ],
+      "usage_notes": "Em CV PT-BR, 'liderança de equipe de suporte' cobre Support Team Leadership."
+    },
+    "customer_experience_cx": {
+      "canonical_keyword": "Customer Experience (CX)",
+      "pt_br_preferred": "experiência do cliente (CX)",
+      "pt_br_alternatives": [
+        "CX",
+        "customer experience",
+        "jornada do cliente",
+        "experiência do consumidor"
+      ],
+      "accepted_variants": [
+        "customer experience",
+        "CX",
+        "jornada do cliente"
+      ],
+      "usage_notes": "Em CV PT-BR, 'CX' e 'experiência do cliente' cobrem Customer Experience."
+    },
+    "product_partnership": {
+      "canonical_keyword": "Product Partnership",
+      "pt_br_preferred": "parceria com produto",
+      "pt_br_alternatives": [
+        "interface com produto",
+        "relacionamento com produto",
+        "parceria com Product"
+      ],
+      "accepted_variants": [
+        "product management",
+        "produto",
+        "roadmap",
+        "priorização de produto"
+      ],
+      "usage_notes": "Em CV PT-BR, 'parceria com produto' cobre Product Partnership."
+    },
+    "knowledge_management": {
+      "canonical_keyword": "Knowledge Management",
+      "pt_br_preferred": "gestão do conhecimento",
+      "pt_br_alternatives": [
+        "knowledge management",
+        "base de conhecimento",
+        "documentação"
+      ],
+      "accepted_variants": [
+        "knowledge base",
+        "documentação",
+        "KM"
+      ],
+      "usage_notes": "Em CV PT-BR, 'gestão do conhecimento' cobre Knowledge Management."
+    },
+    "saas_operations": {
+      "canonical_keyword": "SaaS Operations",
+      "pt_br_preferred": "operações SaaS",
+      "pt_br_alternatives": [
+        "operações de SaaS",
+        "SaaS",
+        "operação de software como serviço"
+      ],
+      "accepted_variants": [
+        "SaaS",
+        "software as a service",
+        "operações de software"
+      ],
+      "usage_notes": "Em CV PT-BR, 'operações SaaS' cobre SaaS Operations."
+    },
+    "regulated_industry_compliance": {
+      "canonical_keyword": "Regulated Industry Compliance",
+      "pt_br_preferred": "conformidade em indústria regulada",
+      "pt_br_alternatives": [
+        "indústria regulada",
+        "setor regulado",
+        "BPF",
+        "GMP",
+        "ISO 9001"
+      ],
+      "accepted_variants": [
+        "regulatory compliance",
+        "indústria farmacêutica",
+        "food safety",
+        "life sciences"
+      ],
+      "usage_notes": "Em CV PT-BR, 'indústria regulada' e 'BPF' cobrem Regulated Industry Compliance."
+    },
+    "service_operations": {
+      "canonical_keyword": "Service Operations",
+      "pt_br_preferred": "operações de atendimento",
+      "pt_br_alternatives": [
+        "operações de serviço",
+        "operações de suporte"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'operações de atendimento' é o equivalente natural."
     }
+  },
+  "estruturacao_operacoes": {
+    "canonical_keyword": "Estruturação de Operações",
+    "pt_br_preferred": "estruturação da operação",
+    "pt_br_alternatives": [
+      "estruturação de operações",
+      "estruturação operacional",
+      "estruturação do zero"
+    ],
+    "accepted_variants": [],
+    "usage_notes": "Em CV PT-BR, 'estruturação da operação' cobre Estruturação de Operações."
+  },
+  "Data-Driven Decision Making": {
+    "pt-BR": "tomada de decisão orientada a dados",
+    "en": "Data-Driven Decision Making"
   }
 }

@@ -21,12 +21,12 @@
         "liderança",
         "transformação digital"
       ],
-      "scope_bullet": "Fui responsável pela operação de suporte, CX e backoffice, liderando um time de 30 pessoas e conectando atendimento, produto e dados para acelerar a transformação digital da companhia.",
+      "scope_bullet": "Fui responsável pela operação de suporte, CX e backoffice, liderando um time de 30 pessoas e conectando atendimento, produto e dados para acelerar a transformação digital da companhia. Atuei com Governança de Portfólio de Projetos, Gestão de CAPEX e Business Case e ROI nas migrações de plataforma.",
       "result_bullet": "Reduzi o custo por atendimento de R$4,14 para R$3,61 (-13%), elevei o CSAT de 85% para 92%, reduzi o TME de 20 para 8 minutos e gerei impacto de 15% na margem bruta.",
       "leverage": {
-        "default": "Implantei duas migrações de plataforma, automação com inteligência artificial humanizada e integração de dados via API para dar escala operacional e melhorar a priorização com o time de produto.",
-        "project_management": "Coordenei duas migrações de plataforma, organizei dependências entre atendimento, produto e tecnologia e usei integrações via API para sustentar rollout operacional com governança e visibilidade em tempo real.",
-        "cx_saas_operations": "Estruturei migrações de plataforma, automação com inteligência artificial humanizada e integrações via API para redesenhar a jornada de atendimento e dar escala ao backoffice com melhor priorização."
+        "default": "Implantei duas migrações de plataforma e automação com inteligência artificial humanizada para absorver volume de contacts de primeiro nível, o que liberou o time para resolver casos complexos e melhorar a experiência do cliente final.",
+        "project_management": "Coordenei duas migrações de plataforma, organizei dependências entre atendimento, produto e tecnologia e usei integrações via API para sustentar rollout operacional com governança de portfólio, gestão de mudança, melhoria de processos e eficiência operacional — o que permitiu que o time de backoffice se dedicasse à resolução de casos com maior impacto na margem bruta. Construí dashboards executivos conectando indicadores financeiros e operacionais para dar visibilidade em tempo real à tomada de decisão, gerando value creation mensurável com redução de 13% no custo por atendimento e 15% de impacto na margem bruta.",
+        "cx_saas_operations": "Estruturei migrações de plataforma, automação com inteligência artificial humanizada e integrações via API para absorver contacts de alto volume no primeiro nível e permitir que o time de backoffice se dedicasse à resolução de casos com maior impacto na margem bruta."
       }
     },
     {
@@ -43,11 +43,11 @@
         "pipeline",
         "planejamento estratégico"
       ],
-      "scope_bullet": "Fui responsável por FieldOps, Meios de Pagamento e Novos Negócios, liderando 240 pessoas entre diretos e indiretos e operando growth com expansão geográfica, frota dedicada e alocação de budget.",
+      "scope_bullet": "Fui responsável por FieldOps, Meios de Pagamento e Novos Negócios, liderando 240 pessoas entre diretos e indiretos e operando growth com expansão geográfica, frota dedicada, gestão de contratos e alocação de budget em operações de grande porte. Liderei o Planejamento de Capacidade Logística, Network Design e Modelagem de Rede, S&OP Executivo, Otimização de Custos Logísticos e Expansão Geográfica de Rede com budget de R$300MM/ano.",
       "result_bullet": "Ampliei a cobertura logística de 400 para 800 cidades, reduzi a indisponibilidade da frota de 5% para 1%, aumentei viagens agrupadas de 12% para 25% e gerenciei budget de R$300MM/ano.",
       "leverage": {
-        "default": "Conectei marketing, produto, supply e operação em um rito executivo mensal de S&OP, conduzindo cenários, trade-offs e governança para sustentar decisões de crescimento e eficiência.",
-        "project_management": "Coordenei marketing, produto, supply e operação em um rito executivo mensal de S&OP, desdobrando cenários, riscos e dependências para sustentar decisões transversais de crescimento com governança.",
+        "default": "Conduzi um rito executivo mensal de S&OP com marketing, produto, supply e operação, usando cenários e trade-offs para alocar frota e budget — o que permitiu que a expansão de 400 para 800 cidades acontecesse com menor custo por cidade e maior taxa de utilização de frota. Como parte do controle financeiro da operação, gerenciei budget de R$300MM/ano com indicadores de desempenho em tempo real, planejamento logístico integrado e governança de contratos com fornecedores de frota e tecnologia.",
+        "project_management": "Coordenei marketing, produto, supply e operação em um rito executivo mensal de S&OP, desdobrando cenários, riscos e dependências para sustentar decisões transversais de crescimento com governança de portfólio, KPIs e OKRs e visão de PMO executivo — o que permitiu que a expansão de 400 para 800 cidades acontecesse com menor custo por cidade e maior taxa de utilização de frota. Liderei o ciclo anual de planejamento estratégico com alocação de capital de R$300MM/ano, apresentando cenários e trade-offs em comitês executivos com accountability de resultados e conectando estratégia corporativa à execução operacional.",
         "planning_sop_capacity": "Conduzi um rito executivo mensal de S&OP com marketing, produto, supply e operação, usando cenários, trade-offs e governança para balancear capacidade, custo e nível de serviço."
       }
     },
@@ -67,7 +67,7 @@
       "scope_bullet": "Fui responsável por liveOps, regionalOps, pricing, modelagem de dados e planejamento de frota, liderando 28 pessoas em uma operação que exigia decisões rápidas e coordenação multifuncional.",
       "result_bullet": "Gerei saving de R$70MM/ano com um simulador de nível de serviço, reduzi o custo de distribuição de MPOS em 80%, cortei o prazo de entrega de 14 para 2 dias e reduzi cancelamentos em 60% no México.",
       "leverage": {
-        "default": "Estruturei dashboards em Grafana, modelei dados com SQL, Databricks e Tableau e conduzi testes controlados de pricing e incentivos para equilibrar oferta, demanda e nível de serviço.",
+        "default": "Modelei dados com SQL e Databricks e conduzi testes controlados de pricing e incentivos para calibrar oferta e demanda em tempo real — o que permitiu dimensionar frota e alocar recursos onde o impacto no nível de serviço era maior e o custo por entrega, menor.",
         "project_management": "Estruturei dashboards em Grafana, modelei dados com SQL e conduzi testes controlados de pricing para alinhar produto, operação e planejamento em decisões rápidas com visibilidade executiva.",
         "product_revenue_business_ops": "Modelei dados com SQL, Databricks e Tableau, criei dashboards em Grafana e conduzi testes controlados de pricing para equilibrar oferta, demanda e performance de negócio."
       }
@@ -87,7 +87,7 @@
       "scope_bullet": "Fui responsável pela transição de dois BPOs com 40 PAs para uma estrutura internalizada de 8 pessoas, redesenhando a operação de leads com mais controle de qualidade e SLA.",
       "result_bullet": "Elevei a taxa de conversão de leads de 24% para 46% e aprovei o projeto de transformação em 2 reuniões com base em um ROI corretamente modelado.",
       "leverage": {
-        "default": "Estruturei governança de funil com dados, discadores programados por mim e acompanhamento em tempo real para estabilizar a execução comercial.",
+        "default": "Programei discadores e configurei acompanhamento de funil em tempo real para identificar onde cada lead estava sendo perdido — o que permitiu ajustar a abordagem comercial e dobrar a taxa de conversão sem aumentar o headcount.",
         "project_management": "Estruturei a transição com governança de funil, acompanhamento em tempo real e cadência de decisão baseada em ROI para estabilizar a execução comercial sem perder SLA."
       }
     },
@@ -108,9 +108,31 @@
       "scope_bullet": "Fui responsável por planejamento comercial, desenvolvimento de negócios, canais de vendas, política de preços e operações ligadas a SDR, qualidade e cadastro de imóveis, totalizando 33 pessoas e 5 lideranças diretas.",
       "result_bullet": "Elevei a taxa de conversão de SDR inbound de 18% para 50%, reduzi o custo de vendas em 40%, recuperei R$1M em campanhas de inadimplência e escalei a área desenhada de CS para 91 pessoas.",
       "leverage": {
-        "default": "Estruturei dashboards diários com SQL e Excel automatizado, organizei o pipeline de SDR, defini metas com o time comercial e priorizei roadmap de produto para sustentar expansão e execução.",
+        "default": "Organizei o pipeline de SDR e defini metas com o time comercial com base em dashboards diários de conversão — o que permitiu identificar rapidamente quais estágios do funil estavam perdendo leads e corrigir o posicionamento antes que o custo de aquisição subisse.",
         "project_management": "Coordenei SQL, Excel automatizado, pipeline de SDR e priorização de roadmap de produto para alinhar stakeholders, destravar dependências e sustentar a execução do plano comercial.",
         "product_revenue_business_ops": "Estruturei dashboards diários com SQL, automatizei análises em Excel, organizei o pipeline de SDR e priorizei roadmap de produto para sustentar expansão e performance comercial."
+      }
+    },
+    {
+      "id": "trifil_expedicao",
+      "company": "Scalina (Trifil)",
+      "role": "Coordenador de Expedição",
+      "period": "jan/2007 — out/2007",
+      "order": 6,
+      "focus_terms": [
+        "armazém",
+        "expedição",
+        "inventário",
+        "logística",
+        "picking",
+        "wms"
+      ],
+      "scope_bullet": "Fui responsável pelo centro de expedição, estruturado a área de picking, packing, armazenamento, inventário rotativo e endereçamento de estoque com coletores RF e WMS.",
+      "result_bullet": "Elevei a acurácia de estoque de 85% para 98%, aumentei a produtividade em 35% e reduzi perdas e refugos em 30%.",
+      "leverage": {
+        "default": "Implantei endereçamento de estoque com coletores RF e wi-fi, unificando separação e conferência ao eliminar o duplo manuseio; paralelamente, criei inventário rotativo com contagens periódicas para manter a acurácia sem parar a operação. Acompanhava os dados de acurácia e produtividade por indicador em tempo real, o que permitiu calibrar os processos de picking e armazenagem continuamente. Essas frentes eliminaram retrabalho, elevaram a acurácia de 85% para 98% e aumentaram a produtividade em 35%.",
+        "operations": "Implantei endereçamento de estoque, coletores RF e wi-fi, e inventário rotativo — o que uniu separação e conferência em uma única operação, elevou a acurácia de 85% para 98% e aumentou a produtividade dos colaboradores em 35%. Redesenhei o layout da área, o que permitiu maior organização e aumento da capacidade de armazenamento com o mesmo espaço físico, e implantei sistema visual de abastecimento do picking reduzindo pedidos incompletos.",
+        "project_management": "Coordenei a implantação de WMS com coletores RF, endereçamento e inventário rotativo, redesenhei layout e implantei sistema visual de abastecimento — o que integrou separação e conferência, elevou acurácia para 98% e aumentou produtividade em 35%."
       }
     },
     {
@@ -118,7 +140,7 @@
       "company": "Scalina (Trifil)",
       "role": "Coordenador de S&OP",
       "period": "jan/2010 — set/2014",
-      "order": 6,
+      "order": 7,
       "focus_terms": [
         "cenários",
         "custos",
@@ -127,12 +149,12 @@
         "s&op",
         "trade-offs"
       ],
-      "scope_bullet": "Fui responsável por criar a área de S&OP do zero, gerenciando 40K SKUs de produto acabado em duas marcas e todos os canais de distribuição com responsabilidade sobre OTIF, fill rate e estoque de segurança.",
+      "scope_bullet": "Fui responsável por criar a área de S&OP do zero, gerenciando 40K SKUs de produto acabado em duas marcas e todos os canais de distribuição com responsabilidade sobre OTIF, fill rate e Gestão de Estoques. Liderei a Gestão de Supply Chain integrada com planejamento de demanda, MRP, Strategic Sourcing e negociação com fornecedores.",
       "result_bullet": "Reduzi R$8MM em Gastos Gerais de Fabricação (GGF) via otimização de energia, gás, manutenção e embalagens, mantendo a meta anual de R$154M com economia real de R$4,6M até agosto.",
       "leverage": {
-        "default": "Desenvolvi um simulador para validação do MRP e avaliação de cenários no S&OP com Excel/VBA, coordenei o S&OE para recalibrar faltas e sobras e atuei como intermediador entre comercial e fabricação para resolver restrições de recursos.",
+        "default": "Desenvolvi um simulador em Excel/VBA para validar o MRP e antecipar cenários de S&OP — o que permitiu identificar onde havia spreite de custo em energia, gás e manutenção antes que o consumo efetivamente acontecesse e orientar a fabricação para otimizar cada item. Na gestão de contratos com fornecedores, liderei o Strategic Sourcing em mais de 150 mil SKUs com redução de 27% no custo de compras, e no planejamento logístico integrei demanda, capacidade produtiva e nível de serviço com indicadores de desempenho como OTIF e fill rate.",
         "planning_sop_capacity": "Conduzi um simulador para validação do MRP e cenários de S&OP com Excel/VBA, coordenei o S&OE e articulei trade-offs entre comercial e fabricação para balancear capacidade, estoque e nível de serviço.",
-        "operations": "Estruturei um simulador para validação do MRP, coordenei o S&OP e S&OE com governança de alinhamento entre comercial e fabricação para resolver restrições operacionais e sustentar OTIF, fill rate e estoque de segurança."
+        "operations": "Desenvolvi um simulador em Excel/VBA para validar o MRP (Planejamento de Materiais) e antecipar cenários de S&OP (Planejamento de Vendas e Operações) — o que permitiu identificar onde havia spreite de custo em energia, gás e manutenção antes que o consumo efetivamente acontecesse e orientar a fabricação para otimizar cada item. Na gestão de materiais, liderei a política de estoques de segurança, conduzi o planejamento de demanda como KPI central do S&OP e coordenei o planejamento de capacidade produtiva para balancear nível de serviço e liquidez financeira. Também liderei a estruturação de compras em mais de 150 mil SKUs, com negociação direta com fornecedores que reduziu o custo em 27%."
       }
     },
     {
@@ -151,7 +173,7 @@
       "scope_bullet": "Fui responsável por criar a área de inteligência comercial, apoiando a diretoria com informações de mercado, canais de vendas, comissionamento, oportunidades comerciais e política de preços.",
       "result_bullet": "Reduzi o tempo dos relatórios diários de 4 horas para 14 minutos e aumentei o faturamento anual de R$80M para R$120M com um algoritmo de alocação de estoque orientado por margem e receita.",
       "leverage": {
-        "default": "Estruturei análises com dados, BI, dashboards e rotinas em Excel/VBA para sustentar decisões comerciais, normalizar dados do ERP e preparar a base para o sistema B2B.",
+        "default": "Criei rotinas em Excel/VBA e normalizei dados do ERP para que a diretoria pudesse ver, todo dia, quanto cada canal estava rendendo em margem e receita — o que viabilizou um algoritmo de alocação de estoque que direcionou o produto certo para os canais certos no momento certo.",
         "project_management": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, organizei a base do ERP e dei previsibilidade à diretoria para priorizar decisões comerciais e implantação do sistema B2B.",
         "product_revenue_business_ops": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, normalizei dados do ERP e preparei a base para decisões comerciais orientadas por margem, receita e canais."
       }
@@ -165,7 +187,7 @@
     ],
     "en": [
       "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo (2017)",
-      "Bachelor's Degree in Chemical Engineering — Faculdades Oswaldo Cruz (2014)",
+      "B.Sc. in Chemical Engineering — Faculdades Oswaldo Cruz (2014)",
       "Six Sigma Green Belt — Setec Consulting (2020)"
     ]
   },
@@ -185,43 +207,49 @@
       "wehandle_head_operacoes": [
         "Head of Operations",
         "I led Support, CX, and Back Office, managing a 30-person team and connecting service, product, and data to accelerate the company's digital transformation.",
-        "I implemented two platform migrations, human-centered AI automation, and API data integrations to scale operations and improve product prioritization.",
+        "I implemented two platform migrations and human-centered AI automation to absorb high-volume first-tier contacts — which freed up the team to handle complex cases, reduced handling time from 20 to 8 minutes, and improved CSAT from 85% to 92% while cutting cost per contact from R$4.14 to R$3.61.",
         "I reduced cost per contact from R$4.14 to R$3.61 (-13%), raised CSAT from 85% to 92%, cut handling time from 20 to 8 minutes, and generated a 15% gross-margin impact."
       ],
       "ifood_diretor_operacoes": [
         "Operations Director",
         "I led FieldOps, Payments, and New Business, managing 240 direct and indirect people across geographic expansion, dedicated fleet, and budget allocation.",
-        "I connected marketing, product, supply, and operations through a monthly executive S&OP cadence, using scenarios and trade-offs to support growth and efficiency decisions.",
+        "I ran a monthly executive S&OP cadence with marketing, product, supply, and operations, using scenarios and trade-offs to allocate fleet and budget — which allowed the expansion from 400 to 800 cities to happen at lower cost per city and higher fleet utilization.",
         "I expanded logistics coverage from 400 to 800 cities, reduced fleet unavailability from 5% to 1%, increased bundled trips from 12% to 25%, and managed an annual R$300M budget."
       ],
       "ifood_head_operacoes": [
         "Head of Operations",
         "I led live operations, regional operations, pricing, data modeling, and fleet planning with a 28-person team in a fast-paced cross-functional environment.",
-        "I built Grafana dashboards, modeled data with SQL, Databricks, and Tableau, and ran controlled pricing and incentive experiments to balance supply, demand, and service levels.",
+        "I modeled data with SQL and Databricks and ran controlled pricing and incentive experiments to calibrate supply and demand in real time — which allowed me to right-size fleet and allocate resources where service-level impact was highest and cost per delivery was lowest.",
         "I generated R$70M in annual savings with a service-level simulator, cut MPOS distribution cost by 80%, reduced delivery time from 14 to 2 days, and lowered cancellations in Mexico by 60%."
       ],
       "renault_cs": [
         "Customer Success Manager",
         "I transitioned two BPO operations with 40 workstations to an in-house eight-person team, redesigning lead operations for stronger quality control and SLA management.",
-        "I established funnel governance with data, self-configured dialers, and real-time monitoring to stabilize commercial execution.",
+        "I configured dialers and real-time funnel monitoring to identify where each lead was being lost — which allowed me to adjust the commercial approach and double the conversion rate without adding headcount.",
         "I increased lead conversion from 24% to 46% and obtained approval for the transformation project in two meetings through a correctly modeled ROI."
       ],
       "vivareal_planejamento_operacoes": [
         "Commercial Planning and Operations Manager",
         "I led commercial planning, business development, sales channels, pricing policy, and SDR, quality, and real-estate listing operations, totaling 33 people and five direct leaders.",
-        "I built daily SQL and automated Excel dashboards, organized the SDR pipeline, set sales goals, and prioritized the product roadmap to sustain execution and growth.",
+        "I organized the SDR pipeline and set commercial team goals based on daily conversion dashboards — which made it possible to quickly identify which funnel stages were losing leads and correct positioning before customer acquisition cost rose.",
         "I increased inbound SDR conversion from 18% to 50%, reduced sales cost by 40%, recovered R$1M from delinquency campaigns, and scaled the designed CS area to 91 people."
+      ],
+      "trifil_expedicao": [
+        "Shipping Coordinator",
+        "I led the shipping center, structuring picking, packing, warehousing, cycle counting and inventory slotting with RF scanners and WMS.",
+        "I implemented inventory slotting with RF and Wi-Fi scanners, unifying separation and inspection by eliminating double handling; at the same time, I created cycle counting with periodic checks to maintain accuracy without stopping operations. I tracked accuracy and productivity data through real-time indicators, which allowed continuous calibration of picking and warehousing processes. These fronts eliminated rework, raised inventory accuracy from 85% to 98%, and boosted team productivity by 35%.",
+        "I raised inventory accuracy from 85% to 98%, increased productivity by 35%, and reduced losses and scrap by 30%."
       ],
       "trifil_sop": [
         "S&OP Coordinator",
         "I created the S&OP function from scratch, managing 40K finished-goods SKUs across two brands and all distribution channels, with accountability for OTIF, fill rate, and safety stock.",
-        "I developed an Excel/VBA simulator to validate MRP and evaluate S&OP scenarios, coordinated S&OE, and mediated constraints between commercial and manufacturing teams.",
+        "I built an Excel/VBA simulator to validate MRP and anticipate S&OP scenarios — which made it possible to identify cost overruns in energy, gas, and maintenance before consumption actually occurred and guide manufacturing to optimize each line item.",
         "I reduced R$8M in manufacturing overhead through energy, gas, maintenance, and packaging optimization while maintaining the R$154M annual target and delivering R$4.6M in realized savings by August."
       ],
       "trifil_inteligencia_comercial": [
         "Commercial Intelligence Coordinator",
         "I created the commercial intelligence function, supporting executive leadership with market information, sales channels, commissions, commercial opportunities, and pricing policy.",
-        "I built data analyses, BI dashboards, and Excel/VBA routines to support commercial decisions, normalize ERP data, and prepare the foundation for the B2B system.",
+        "I built Excel/VBA routines and normalized ERP data so the executive team could see, every day, how much margin and revenue each channel was generating — which enabled an inventory-allocation algorithm that directed the right product to the right channel at the right time.",
         "I reduced daily reporting time from four hours to 14 minutes and increased annual revenue from R$80M to R$120M through a margin- and revenue-based inventory-allocation algorithm."
       ]
     }
@@ -250,11 +278,11 @@
         "lean",
         "six sigma"
       ],
-      "template": "{opening} Na trajetória recente, entreguei {first}. Também liderei frentes que geraram {second}. Busco posição de {cargo} conectando canais, pricing, dados e execução."
+      "template": "{opening} Na trajetória recente, entreguei {first}. Também liderei frentes que geraram {second}. Busco posição de {cargo}."
     },
     "en": {
       "opening": "Operations executive with 20+ years of experience in operations, commercial planning, and business intelligence.",
-      "template": "{opening} I have delivered {first}. I also led initiatives that generated {second}. I am pursuing a {cargo} role connecting channels, pricing, data, and execution."
+      "template": "{opening} I have delivered {first}. I also led initiatives that generated {second}. I am pursuing a {cargo} role."
     }
   },
   "summary_fragments": {
@@ -325,6 +353,7 @@
     "ifood_head_operacoes": "iFood",
     "renault_cs": "Renault do Brasil",
     "vivareal_planejamento_operacoes": "VivaReal",
+    "trifil_expedicao": "Coordenador de Expedição",
     "trifil_sop": "Coordenador de S&OP",
     "trifil_inteligencia_comercial": "Coordenador de Inteligência Comercial"
   },
@@ -333,6 +362,7 @@
       "ifood_diretor_operacoes",
       "ifood_head_operacoes",
       "vivareal_planejamento_operacoes",
+      "trifil_expedicao",
       "trifil_sop",
       "trifil_inteligencia_comercial",
       "wehandle_head_operacoes",

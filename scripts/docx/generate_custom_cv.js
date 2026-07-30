@@ -128,7 +128,7 @@ function assertNonEmptyArray(value, field) {
 function experienceEndKey(period) {
   const value = String(period || "").trim();
   if (/\b(present|current|atual)\b/i.test(value)) return Number.MAX_SAFE_INTEGER;
-  const months = { jan: 1, janeiro: 1, january: 1, feb: 2, fev: 2, fevereiro: 2, mar: 3, march: 3, março: 3, abr: 4, april: 4, may: 5, maio: 5, jun: 6, junho: 6, june: 6, jul: 7, julho: 7, july: 7, aug: 8, ago: 8, agosto: 8, september: 9, set: 9, setembro: 9, sep: 9, oct: 10, out: 10, outubro: 10, nov: 11, novembro: 11, dec: 12, dez: 12, dezembro: 12 };
+  const months = { jan: 1, janeiro: 1, january: 1, feb: 2, fev: 2, fevereiro: 2, mar: 3, march: 3, março: 3, apr: 4, abr: 4, april: 4, may: 5, maio: 5, jun: 6, junho: 6, june: 6, jul: 7, julho: 7, july: 7, aug: 8, ago: 8, agosto: 8, september: 9, set: 9, setembro: 9, sep: 9, oct: 10, out: 10, outubro: 10, nov: 11, novembro: 11, dec: 12, dez: 12, dezembro: 12 };
   const matches = [...value.toLowerCase().matchAll(/([a-zç]+)\/?\s*(\d{4})/g)];
   const last = matches.at(-1);
   if (!last || !months[last[1]]) throw new Error(`Unable to parse experience period: ${value}`);

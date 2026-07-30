@@ -33,6 +33,18 @@ Quando esta skill for acionada no fluxo manual/local fora do heartbeat:
 - valide o contrato com `npm run cv:validate-content`;
 - só então renderize o DOCX com `npm run cv:docx`.
 
+## GATE DE IDIOMA DO CV (obrigatório antes de `cv:docx`)
+
+Vaga em inglês **NUNCA** pode gerar CV em português. Antes de cada `npm run cv:docx`:
+
+1. **Detectar idioma da descrição**: se a descrição em `inbox/job_descriptions/<slug>.md` for predominantemente em inglês (heurística simples: presença de "the", "and", "experience", "responsibilities", "requirements" no primeiro parágrafo), a vaga é EN.
+2. **Verificar fit_map**: rodar `jq '.idioma // "pt-BR"' .career-state/fit_map.json`. Se vaga é EN e o valor não é "en" (ou variante), setar `fit_map.json["idioma"] = "en"` antes de continuar.
+3. **Verificar cv_content**: rodar `jq '.metadata.language // "missing"' .career-state/cv_content.json`. Se vaga é EN e o valor não é "en", **NÃO** prosseguir — apagar `cv_content.json` e rerodar `npm run cv:build-content` para que o serviço materialize as views `experiences` (EN) e `experiencias` (PT) com base no `fit_map.idioma` correto.
+4. **Verificar sufixo `_en`**: `output_name` em `cv_content.json` deve terminar com `_en.docx` quando a vaga for EN. Validar com `echo "$OUTPUT_NAME" | grep -qE "_en\.docx$"`.
+5. **Verificar conteúdo do DOCX final** após `cv:docx`: rodar `unzip -p outputs/<cv>_en.docx word/document.xml | grep -ic "fui responsável\|gerenciei\|liderei\|conduzi\|conectei"`. Se contagem > 0, **BLOQUEAR** entrega. As afinações de bullets DEVEM ser aplicadas em **ambos** os arrays `experiencias` (PT) e `experiences` (EN) — o `node generate_custom_cv.js` lê `experiences[].bullets[].text` quando `metadata.language = "en"`.
+
+Esse gate existe porque o serviço `_cv_language(fit_map)` em `src/career/services/cv_content.py` retorna "en" **apenas** se `fit_map["idioma"]` começar com "en". Sem o campo, o default é "pt-BR", o que faz o CV sair em português mesmo para vaga em inglês.
+
 Gera o CV de Felipe Armel em DOCX ou PDF, aderente a todas as regras do prompt v8, consumindo o FIT_MAP
 produzido pela career-fit-analysis.
 
@@ -352,6 +364,7 @@ Em CV em português:
 ### Formação
 - 1 bullet por formação, mais recente primeiro
 - BSP: usar somente ano de conclusão, nunca faixa. Em português: "MBA Corporate Strategy — BSP Business School São Paulo (2017)". Em inglês: "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo (2017)"
+- **Engenharia Química em CV inglês (`_en`):** usar sempre `"B.Sc. in Chemical Engineering — Faculdades Oswaldo Cruz (2014)"`. Nunca usar `"Chemical Engineering"` sem o título acadêmico. A forma canônica está em `.agents/skills/career-system/references/candidate_cv_facts.json`.
 - Incluir apenas o que agrega credibilidade para a vaga
 
 ### Stack Técnica

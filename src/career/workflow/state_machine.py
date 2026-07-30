@@ -56,6 +56,9 @@ class WorkflowStateMachine:
                     "rerun the prerequisite for the current job."
                 )
             if prior_job != self.active_job_fingerprint:
+                import sys as _sys
+                _sys.stderr.write(f"DEBUG: prior_job={prior_job!r}\n")
+                _sys.stderr.write(f"DEBUG: self.active_job_fingerprint={self.active_job_fingerprint!r}\n")
                 raise ValidationFailure(
                     f"Task {task_name} blocked by active job mismatch. "
                     f"Prerequisite {prerequisite_task} belongs to {prior_job}, "

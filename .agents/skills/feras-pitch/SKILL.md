@@ -90,18 +90,30 @@ Exemplos de âncora por tipo de vaga:
 
 ### Pitch oral (~2 minutos)
 - Abertura: direta, sem fórmula — começar pelo que é relevante para o interlocutor, não por protocolo
-  - Exemplos defensáveis: apresentar formação + contexto de carreira em 1 frase, ou já entrar na experiência mais relevante
+  - Exemplos defensáveis: "Sou engenheiro químico com MBA..." (primeira pessoa, natural) ou já entrar na experiência mais relevante
   - Nunca usar "Como você deve ter visto no meu LinkedIn" — artificial e desnecessário
+  - **Nunca abrir com justificativa ou desculpa** ("Sei que não sou de vendas", "Meu perfil é de operações") — isso soa como fragilidade e não gera venda. Posicione pelas entregas, não pelos gaps.
 - Fechamento: referência a ambição e família quando o contexto permitir — nunca forçar se soar artificial
 - Tom: primeira pessoa, factual, narrativo — nunca lista de conquistas, nunca frases de efeito
 - Regra de ouro de tom: um executivo sênior conta o que fez com precisão e confiança. O resultado fala por si. Sem autoproclamação, sem linguagem de coach.
+- **Tom anti-IA:** evitar construções formais demais. Preferir:
+  - "Sou engenheiro químico com..." em vez de "Engenheiro Químico com..."
+  - "Tecnologia e marketplace têm dinâmica B2B complexa — e isso me posiciona para..." em vez de "Tecnologia e marketplace têm dinâmica B2B tão complexa quanto qualquer segmento — é esse histórico que me posiciona para..."
+  - Frases curtas, diretas, sem gerundismo ou conectivos rebuscados
 - Entrega obrigatória em **duas camadas**:
   1. `FERAS estruturado` — com `F`, `E`, `R`, `A`, `S` separados para inspeção lógica.
   2. `Pitch fluido para fala/leitura` — em parágrafos naturais, sem rótulos `F/E/R/A/S`, sem barras, sem sensação de checklist.
 - A versão fluida deve conectar as partes com transições reais entre formação, trajetória, resultado, aderência e motivação. Ela precisa soar falável, não como colagem de bullet points.
+- **A versão fluida é um texto único** — sem blockquotes (`>`), sem separadores visuais, sem estrutura de tópicos exposta.
 - Estrutura: F (1 frase) → E (2–3 frases contexto + escopo) → R (2 resultados com número) →
   A (1–2 frases nomeando empresa) → S (1–2 frases, fechar com ambição/família quando couber)
-- Keywords: incorporar naturalmente **3 a 5 keywords de maior valor** do FIT_MAP, priorizando termos ligados a requisitos críticos da vaga. Não tentar cobrir tudo; naturalidade e defensabilidade prevalecem sobre volume.
+- **Keywords: incorporar naturalmente todas as 15 keywords do FIT_MAP** quando possível, não apenas 3–5. Cada keyword deve vir acompanhada da história/experiência que a sustenta (do `keywords_habilidade_ats` do FIT_MAP, campo `experiencia_alvo`). A ordem de aparição deve seguir a fluência narrativa, não a prioridade numérica. Se alguma keyword não couber sem forçar, omitir e justificar na auditoria.
+- **Contorno de objeções:** quando houver gaps fortes mapeados no FIT_MAP, **não os nomeie como fragilidade**. Em vez de explicar o que falta, posicione o que você entrega com evidência. A objeção se resolve pelo peso das entregas, não pela justificativa verbal.
+  - **Regra absoluta para respostas a objeções:** nunca começar com "Não tenho experiência em [gap]" — isso valida a objeção antes de qualquer defesa. Em vez disso, abra com o que você tem: "Minha carreira foi construída em [setor com complexidade equivalente]..." e então apresente as entregas que importam para o cargo.
+  - **Padrão de fechamento de posicionamento:** substituir frases genéricas como "O que um Head Comercial precisa — [lista] — é o que entrego, independente do segmento" por um fechamento que nomeie a empresa e o que você agrega:
+    - ✅ "Busco posicionamento como Head Comercial por agregar [2-3 keywords principais] que acredito que somam às necessidades da [empresa]."
+    - ❌ "O que um Head Comercial precisa — gestão de funil, pipeline, forecast — é o que entrego, independente do segmento."
+  - **Tom de fechamento:** direto, confiante, sem soar como definição de dicionário. O fechamento deve conectar suas entregas ao contexto da empresa, não soar como uma lista de requisitos genérica.
 - Auditoria obrigatória ao final:
   - `Keywords incorporadas naturalmente` — listar as keywords realmente refletidas no texto.
   - `Keywords relevantes não usadas` — listar as principais omitidas e justificar brevemente por que ficaram fora do FERAS.

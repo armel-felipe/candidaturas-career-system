@@ -142,6 +142,10 @@ Regras:
 - o idioma do CV segue o idioma da descrição da vaga: descrição em inglês gera CV em inglês; descrição em português gera CV em português
 - CV de vaga em inglês usa sufixo obrigatório `_en` antes da extensão e texto visível em inglês
 - CV de vaga em português não usa sufixo `_en` e texto visível em português
+- **Gate objetivo de idioma do CV (obrigatório antes do `cv:docx`)**: rodar `jq '.metadata.language // "missing"' .career-state/cv_content.json` — se a descrição da vaga está em EN e o campo retornar `missing` ou `pt-BR`, BLOQUEAR e ajustar `fit_map.json["idioma"] = "en"` antes de prosseguir
+- **Validação cruzada idioma EN/PT**: quando a vaga é EN, abrir o DOCX final com `unzip -p outputs/<cv>.docx word/document.xml | grep -ic "fui responsável\|gerenciei\|liderei\|conduzi\|conectei"`. Se contagem > 0, BLOQUEAR entrega e regenerar com `fit_map.json["idioma"] = "en"` + `cv:build-content` (ou ajuste direto dos campos `experiences[].bullets[].text`)
+- **Sufixo `_en` no `output_name`**: `output_name` em `cv_content.json` deve terminar com `_en.docx` quando a vaga for EN. Validar com `echo $CV | grep -q "_en\.docx$"` antes de `cv:deliver`
+- **Bug conhecido documentado**: o `cv:build-content` separa os campos em `experiencias` (PT) e `experiences` (EN). Afinações manuais de bullets DEVEM ser aplicadas em AMBOS os arrays (especialmente em `experiences[].bullets[].text` que é o que o `node generate_custom_cv.js` lê quando `metadata.language = "en"`). Aplicar em `experiencias` e não propagar para `experiences` resulta em DOCX sem as keywords afinaadas
 - `review_output.py` só pode rodar depois de `register_keywords.py --cv`
 - se `review_output.py` não rodar, falhar, ou retornar `approved_for_delivery=false`, o CV não pode ser considerado aprovado nem entregue
 - o gate do CV decide por blockers e warnings: blockers impedem entrega; warnings não impedem entrega sozinhos
@@ -312,6 +316,7 @@ Use as referências nesta ordem:
 5. `.agents/skills/habilidades-chave/references/habilidades_mercado_livre.json` para listas derivadas de catálogos externos. `habilidades_gupy.json` somente para Gupy — lista oficial de 30 habilidades selecionáveis. Nunca usar habilidade fora da fonte ativa do modo selecionado e nunca normalizar o texto de um catálogo para parecer o do outro.
 6. `competencias_matrix.json` e `competencias_por_experiencia.json` para comparativos de competências e análises de fit por cargo quando solicitado. `competencias_linkedin.json` para gestão das habilidades do perfil LinkedIn.
 7. `keyword_ats_registry.json` como artefato técnico local para gate, reviewer e estatística operacional da vaga.
+8. `catalogo_resultados_chave.json` para selecionar o caso de posicionamento de CV personalizado a partir do FIT_MAP e da descrição da vaga. `resultado_chave` não é fonte de alegação do candidato: é somente sinal de ranking e não pode ser emitido como resultado, bullet ou evidência.
 
 Nenhum número, ferramenta, experiência, idioma, certificação ou escopo pode ser inventado.
 

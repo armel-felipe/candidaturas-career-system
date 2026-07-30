@@ -36,6 +36,9 @@ class Task:
 def _state_machine(state_store: WorkflowStateStore) -> WorkflowStateMachine:
     payload = state_store.load()
     active_job = _infer_active_job(state_store) or {}
+    import sys as _sys
+    _sys.stderr.write(f"DEBUG _state_machine: active_job={active_job}\n")
+    _sys.stderr.write(f"DEBUG _state_machine: active_job.get('fingerprint')={active_job.get('fingerprint')!r}\n")
     return WorkflowStateMachine(
         set(payload.get("completed_states", [])),
         payload.get("fingerprints", {}),

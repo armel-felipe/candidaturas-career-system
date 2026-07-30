@@ -11,6 +11,7 @@ from typing import Any
 
 from career.paths import CAREER_STATE, ROOT
 from career.services import applications_v2 as applications_v2_service
+from career.services import cv_positioning
 from career.services import derived_context as derived_context_service
 from career.cells.capabilities import (
     canonical_node_executable,
@@ -261,7 +262,15 @@ def _build_cv_payload(
     top8 = _top8_keywords(fit_map)
     coverage = _build_ats_coverage(selected_with_bullets, top8)
     summary_inputs = bounded_summary_inputs(fit_map)
-    summary_text, summary_support = _build_summary(selected_with_bullets, summary_inputs, language="en" if is_en else "pt-BR")
+    positioning = cv_positioning.select_positioning(
+        fit_map, active.job_description_path.read_text(encoding="utf-8")
+    )
+    summary_text, summary_support = _build_summary(
+        selected_with_bullets,
+        summary_inputs,
+        positioning=positioning,
+        language="en" if is_en else "pt-BR",
+    )
     education_list = _facts_education("en" if is_en else "pt-BR")
     candidate = _candidate_contact_facts()
     payload = {
@@ -325,7 +334,14 @@ def _build_cv_payload(
         "stack": _facts_stack(),
         "ats_keyword_coverage": coverage,
         "summary_support": summary_support,
+        "positioning": positioning,
     }
+    if positioning is not None:
+        payload["positioning_support"] = {
+            "catalog_entry_id": positioning["catalog_entry_id"],
+            "caso": positioning["caso"],
+            "evidence_id": "",
+        }
     _attach_canonical_provenance(payload)
     return payload
 
@@ -517,7 +533,13 @@ def _best_bullet_index(bullets: list[str], keyword: str) -> int:
     return 0
 
 
-def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any], *, language: str = "pt-BR") -> tuple[str, list[dict[str, Any]]]:
+def _build_summary(
+    selected: list[dict[str, Any]],
+    fit_map: dict[str, Any],
+    *,
+    positioning: dict[str, Any] | None = None,
+    language: str = "pt-BR",
+) -> tuple[str, list[dict[str, Any]]]:
     cargo = str(fit_map.get("cargo") or "a vaga")
     support_pairs = _summary_support_pairs(selected, language=language)
     supports = [
@@ -535,14 +557,25 @@ def _build_summary(selected: list[dict[str, Any]], fit_map: dict[str, Any], *, l
         }
         for fragment, exp_index, bullet_index in support_pairs
     ]
-    profile = load_canonical_cv_facts()["summary_profiles"][language]
-    opening = profile.get("opening") or _summary_opening(fit_map)
-    summary = str(profile["template"]).format(
-        opening=opening,
-        first=supports[0]["summary_fragment"],
-        second=supports[1]["summary_fragment"],
-        cargo=cargo,
-    )
+    if language == "pt-BR" and positioning is not None:
+        focus = str(fit_map.get("dor_central") or "operações, planejamento e transformação de negócios").strip().rstrip(".")
+        opening = f"Atuo há mais de 20 anos em operações, planejamento e transformação de negócios, com foco em {focus}."
+        proof = f"Na trajetória recente, liderei {supports[0]['summary_fragment']}. Também conduzi {supports[1]['summary_fragment']}."
+        case = str(positioning["caso"]).strip().rstrip(".")
+        used_terms = cv_positioning.normalize_tokens(f"{opening} {proof}")
+        direction = ""
+        if not cv_positioning.normalize_tokens(case).issubset(used_terms):
+            direction = f"Busco uma posição em que eu possa {case[:1].lower()}{case[1:]}."
+        summary = " ".join(part for part in (opening, proof, direction) if part)
+    else:
+        profile = load_canonical_cv_facts()["summary_profiles"][language]
+        opening = profile.get("opening") or _summary_opening(fit_map)
+        summary = str(profile["template"]).format(
+            opening=opening,
+            first=supports[0]["summary_fragment"],
+            second=supports[1]["summary_fragment"],
+            cargo=cargo,
+        )
     return summary, supports
 
 
@@ -651,6 +684,8 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
         "profile": PROFILE_FACTS_PATH,
         "self_knowledge": SELF_KNOWLEDGE_PATH,
     }
+    if payload.get("positioning") is not None:
+        sources["positioning_catalog"] = cv_positioning.CATALOG_PATH
     catalog = {
         name: {"path": str(path), "sha256": sha256_file(path)}
         for name, path in sources.items()
@@ -675,7 +710,10 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
         # A claim can only be published when its locator resolves in the
         # revision-pinned canonical source.  The opaque ID protects callers
         # from treating labels as proof while preserving auditability.
-        if _normalize(locator.split("::", 1)[0]) not in source_text[source]:
+        if locator.startswith("catalog-entry:"):
+            if source != "positioning_catalog":
+                raise ValidationFailure("canonical catalog evidence source is invalid")
+        elif _normalize(locator.split("::", 1)[0]) not in source_text[source]:
             raise ValidationFailure(f"canonical evidence locator is absent: {source}/{kind}")
         item_id = evidence_id(source, kind, locator, value)
         excerpt = _source_excerpt(source_bytes[source].decode("utf-8"), locator)
@@ -733,6 +771,18 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
             _experience_source_locator(experience_id),
             support["defensible_evidence"],
         )
+    positioning = payload.get("positioning")
+    if isinstance(positioning, dict):
+        support = payload.get("positioning_support")
+        if not isinstance(support, dict):
+            raise ValidationFailure("positioning support is missing")
+        item_id = bind(
+            "positioning_catalog",
+            "positioning_catalog",
+            f"catalog-entry:{int(positioning['catalog_entry_id'])}",
+            positioning["caso"],
+        )
+        support["evidence_id"] = item_id
     education_evidence = []
     for index, _ in enumerate(payload["education"]):
         source, locator = _education_source_locator(index)
@@ -747,6 +797,8 @@ def _attach_canonical_provenance(payload: dict[str, Any]) -> None:
             for key, value in payload["candidate"].items()
         },
     }
+    if isinstance(positioning, dict):
+        payload["claim_provenance"]["positioning"] = payload["positioning_support"]["evidence_id"]
     payload["metadata"]["candidate_facts"] = {
         "revision": revision,
         "sources": catalog,
@@ -759,6 +811,45 @@ def bounded_summary_inputs(fit_map: dict[str, Any]) -> dict[str, Any]:
         key: fit_map.get(key)
         for key in ("cargo", "empresa", "dor_central", "keywords_vaga", "competencias_vaga", "keywords_habilidade_ats", "idioma")
     }
+
+
+def validate_positioning_contract(payload: dict[str, Any]) -> None:
+    positioning = payload.get("positioning")
+    if positioning is None:
+        return
+    if not isinstance(positioning, dict):
+        raise ValidationFailure("CV positioning is invalid")
+    required = ("catalog_entry_id", "area", "caso", "score", "matched_signals", "catalog_sha256")
+    if any(key not in positioning for key in required):
+        raise ValidationFailure("CV positioning is incomplete")
+    entries = cv_positioning.load_catalog()
+    entry = next((item for item in entries if item["id"] == positioning["catalog_entry_id"]), None)
+    if entry is None:
+        raise ValidationFailure("CV positioning catalog entry is missing")
+    if (
+        positioning["area"] != entry["area"]
+        or positioning["caso"] != entry["casos"]
+        or positioning["catalog_sha256"] != sha256_file(cv_positioning.CATALOG_PATH)
+    ):
+        raise ValidationFailure("CV positioning catalog binding is invalid")
+    support = payload.get("positioning_support")
+    claims = payload.get("claim_provenance") if isinstance(payload.get("claim_provenance"), dict) else {}
+    if (
+        not isinstance(support, dict)
+        or support.get("catalog_entry_id") != positioning["catalog_entry_id"]
+        or support.get("caso") != positioning["caso"]
+        or support.get("evidence_id") != claims.get("positioning")
+    ):
+        raise ValidationFailure("CV positioning support is invalid")
+    language = (payload.get("metadata") or {}).get("language")
+    summary = str(payload.get("summary") or payload.get("resumo") or "")
+    if language == "pt-BR" and not cv_positioning.normalize_tokens(positioning["caso"]).issubset(
+        cv_positioning.normalize_tokens(summary)
+    ):
+        raise ValidationFailure("CV positioning case is missing from summary")
+    result_key = str(entry["resultado_chave"])
+    if any(result_key in str(item.get("summary_fragment") or "") for item in payload.get("summary_support", [])):
+        raise ValidationFailure("CV positioning result key cannot support summary claims")
 
 
 def validate_canonical_provenance(
@@ -783,6 +874,8 @@ def validate_canonical_provenance(
         "profile": PROFILE_FACTS_PATH,
         "self_knowledge": SELF_KNOWLEDGE_PATH,
     }
+    if payload.get("positioning") is not None:
+        expected_sources["positioning_catalog"] = cv_positioning.CATALOG_PATH
     if set(sources) != set(expected_sources):
         raise ValidationFailure("CV canonical evidence sources are invalid")
     source_bytes: dict[str, bytes] = {}
@@ -811,7 +904,7 @@ def validate_canonical_provenance(
             or item.get("source_excerpt_sha256") != hashlib.sha256(expected_excerpt.encode("utf-8")).hexdigest()
             or item.get("source_value") != expected_excerpt
             or item.get("source_value_sha256") != hashlib.sha256(expected_excerpt.encode("utf-8")).hexdigest()
-            or _normalize(locator.split("::", 1)[0]) not in _normalize(source_path.read_text(encoding="utf-8"))
+            or (not locator.startswith("catalog-entry:") and _normalize(locator.split("::", 1)[0]) not in _normalize(source_path.read_text(encoding="utf-8")))
         ):
             raise ValidationFailure("CV evidence locator cannot be resolved")
 
@@ -849,6 +942,8 @@ def validate_canonical_provenance(
         require(mapping.get("evidence_id"), "ats_evidence", mapping.get("defensible_evidence"))
     for item in payload.get("summary_support", []):
         require(item.get("evidence_id"), "summary_evidence", item.get("defensible_evidence"))
+    if payload.get("positioning") is not None:
+        require((payload.get("positioning_support") or {}).get("evidence_id"), "positioning_catalog", payload["positioning"].get("caso"))
     claims = payload.get("claim_provenance") if isinstance(payload.get("claim_provenance"), dict) else {}
     for item_id, value in zip(claims.get("education", []), payload.get("education", []), strict=True):
         require(item_id, "education", value)
@@ -857,11 +952,18 @@ def validate_canonical_provenance(
     require(claims.get("stack"), "technical_stack", payload.get("stack"))
     for key, value in payload.get("candidate", {}).items():
         require((claims.get("candidate") or {}).get(key), f"candidate_{key}", value)
+    validate_positioning_contract(payload)
     if not required or any(item not in evidence for item in required):
         raise ValidationFailure("CV evidence ID cannot be resolved against canonical facts")
 
 
 def _source_excerpt(source_text: str, locator: str) -> str:
+    if locator.startswith("catalog-entry:"):
+        entry_id = int(locator.split(":", 1)[1])
+        for entry in json.loads(source_text):
+            if isinstance(entry, dict) and entry.get("id") == entry_id:
+                return json.dumps({key: entry[key] for key in ("id", "area", "casos")}, ensure_ascii=False, sort_keys=True)
+        raise ValidationFailure("canonical positioning catalog entry is missing")
     token = _normalize(locator.split("::", 1)[0])
     for line in source_text.splitlines():
         if token and token in _normalize(line):
@@ -909,7 +1011,13 @@ def _validate_trusted_renderer_values(
         or (source_fit_map.is_file() and sha256_file(source_fit_map) != fit_map_sha256)
     ):
         raise ValidationFailure("CV canonical evidence FIT_MAP binding changed")
-    expected_summary, _support = _build_summary(materialized, summary_inputs, language=language)
+    job_description_path = Path(str(metadata.get("job_description_path") or ""))
+    if not job_description_path.is_file():
+        raise ValidationFailure("CV canonical evidence job description is missing")
+    expected_positioning = cv_positioning.select_positioning(fit_map, job_description_path.read_text(encoding="utf-8"))
+    if payload.get("positioning") != expected_positioning:
+        raise ValidationFailure("CV canonical evidence positioning changed")
+    expected_summary, _support = _build_summary(materialized, summary_inputs, positioning=expected_positioning, language=language)
     if payload.get("candidate") != expected_candidate or payload.get("stack") != _facts_stack():
         raise ValidationFailure("CV canonical evidence does not authorize rendered contact or stack")
     if language == "en":
