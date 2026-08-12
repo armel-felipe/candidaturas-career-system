@@ -1,0 +1,1185 @@
+{
+  "applications_with_description": 163,
+  "total_pages": 167,
+  "top_canonical_keywords": [
+    [
+      "TI",
+      145
+    ],
+    [
+      "Gerente",
+      90
+    ],
+    [
+      "Excel",
+      90
+    ],
+    [
+      "CAC",
+      85
+    ],
+    [
+      "eficiência",
+      78
+    ],
+    [
+      "eficiencia",
+      78
+    ],
+    [
+      "capacidade",
+      77
+    ],
+    [
+      "lideranca",
+      70
+    ],
+    [
+      "melhoria",
+      69
+    ],
+    [
+      "resultado",
+      68
+    ],
+    [
+      "Dados",
+      60
+    ],
+    [
+      "qualidade",
+      54
+    ],
+    [
+      "projetos",
+      54
+    ],
+    [
+      "logística",
+      52
+    ],
+    [
+      "KPIs",
+      50
+    ],
+    [
+      "operacao",
+      50
+    ],
+    [
+      "planejamento",
+      49
+    ],
+    [
+      "Melhoria Continua",
+      46
+    ],
+    [
+      "melhoria contínua",
+      46
+    ],
+    [
+      "tomada de decisao",
+      40
+    ],
+    [
+      "comunicacao",
+      40
+    ],
+    [
+      "escala",
+      39
+    ],
+    [
+      "SLA",
+      38
+    ],
+    [
+      "ERP",
+      37
+    ],
+    [
+      "tecnologia",
+      37
+    ],
+    [
+      "Financeiro",
+      37
+    ],
+    [
+      "graduacao",
+      37
+    ],
+    [
+      "Produtividade",
+      35
+    ],
+    [
+      "Transporte",
+      34
+    ],
+    [
+      "e-commerce",
+      33
+    ],
+    [
+      "governanca",
+      32
+    ],
+    [
+      "Gerente de Operações",
+      30
+    ],
+    [
+      "transformação",
+      30
+    ],
+    [
+      "Gerente de Operacoes",
+      30
+    ],
+    [
+      "visao estrategica",
+      30
+    ],
+    [
+      "metas",
+      30
+    ],
+    [
+      "delivery",
+      29
+    ],
+    [
+      "eficiência operacional",
+      28
+    ],
+    [
+      "Supply Chain",
+      26
+    ],
+    [
+      "English",
+      26
+    ],
+    [
+      "MBA",
+      26
+    ],
+    [
+      "cross-functional",
+      24
+    ],
+    [
+      "capacidade analitica",
+      23
+    ],
+    [
+      "integracao",
+      23
+    ],
+    [
+      "automação",
+      22
+    ],
+    [
+      "influência",
+      22
+    ],
+    [
+      "entregas",
+      21
+    ],
+    [
+      "Operacoes Logisticas",
+      20
+    ],
+    [
+      "Operações Logísticas",
+      20
+    ],
+    [
+      "Assistencia",
+      20
+    ],
+    [
+      "fornecedores",
+      19
+    ],
+    [
+      "seguranca",
+      19
+    ],
+    [
+      "orcamento",
+      19
+    ],
+    [
+      "compliance",
+      18
+    ],
+    [
+      "Lean",
+      17
+    ],
+    [
+      "indicadores de desempenho",
+      17
+    ],
+    [
+      "industria",
+      17
+    ],
+    [
+      "missao",
+      17
+    ],
+    [
+      "pricing",
+      17
+    ],
+    [
+      "rentabilidade",
+      16
+    ]
+  ],
+  "top_gupy_skills": [
+    [
+      "Liderança",
+      70
+    ],
+    [
+      "Planejamento",
+      49
+    ],
+    [
+      "Melhoria Contínua",
+      46
+    ],
+    [
+      "SQL",
+      30
+    ],
+    [
+      "Eficiência Operacional",
+      28
+    ],
+    [
+      "Gestão de Projetos",
+      15
+    ],
+    [
+      "Resolução de Problemas",
+      14
+    ],
+    [
+      "Python",
+      13
+    ],
+    [
+      "Gestão de Pessoas",
+      11
+    ],
+    [
+      "Customer Experience",
+      9
+    ],
+    [
+      "Planejamento Estratégico",
+      9
+    ],
+    [
+      "Negociação",
+      8
+    ],
+    [
+      "Automação de Processos",
+      6
+    ],
+    [
+      "Zendesk",
+      5
+    ],
+    [
+      "Tomada de Decisão Baseada em Dados",
+      5
+    ],
+    [
+      "Salesforce",
+      4
+    ],
+    [
+      "Gestão Operacional",
+      4
+    ],
+    [
+      "Inteligência Comercial",
+      4
+    ],
+    [
+      "Gestão de Performance",
+      4
+    ],
+    [
+      "Gestão de Stakeholders",
+      3
+    ],
+    [
+      "Planejamento Comercial",
+      3
+    ],
+    [
+      "Estratégia de Dados",
+      2
+    ],
+    [
+      "Gestão de Mudanças",
+      1
+    ],
+    [
+      "Modelagem de Processos",
+      1
+    ],
+    [
+      "BI (Business Intelligence)",
+      0
+    ],
+    [
+      "SCM (Supply Chain Management)",
+      0
+    ],
+    [
+      "Planejamento de Necessidades de Material (MRP)",
+      0
+    ],
+    [
+      "Modelagem de Dados",
+      0
+    ],
+    [
+      "S&OP (Sales and Operations Planning)",
+      0
+    ],
+    [
+      "KPIs de Times",
+      0
+    ]
+  ],
+  "pages": [
+    {
+      "title": "Gerente Senior de Operações",
+      "page_id": "3130003f-9481-800e-a05a-e60f7d4cc683",
+      "chars": 4925
+    },
+    {
+      "title": "Business Strategy Manager",
+      "page_id": "3130003f-9481-804f-8103-ec59862e1f59",
+      "chars": 2862
+    },
+    {
+      "title": "Strategy Manager ",
+      "page_id": "3130003f-9481-8054-81c9-e013f3407cd4",
+      "chars": 3808
+    },
+    {
+      "title": "Gerente de Melhoria Contínua e Processos Comerciais | Revenue Operations",
+      "page_id": "3130003f-9481-8064-8ee8-c3b09518da7e",
+      "chars": 2928
+    },
+    {
+      "title": "Director of Operations",
+      "page_id": "3130003f-9481-80a1-8448-e333197f10e5",
+      "chars": 47
+    },
+    {
+      "title": "99 - Gerente Sênior - Estratégia e Operações",
+      "page_id": "3130003f-9481-80b4-82cc-de0fc0d0dfa5",
+      "chars": 5543
+    },
+    {
+      "title": "Gerente Executivo Estratégia e Transformação | Corporativo-SP",
+      "page_id": "3130003f-9481-80f3-b95f-dedbe28d5e5d",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Operações | Logística ",
+      "page_id": "3140003f-9481-8065-b706-d0d48c801dd5",
+      "chars": 2150
+    },
+    {
+      "title": "Senior Manager - Delivery Strategy",
+      "page_id": "3160003f-9481-80db-9cae-e1ce27c7e651",
+      "chars": 47
+    },
+    {
+      "title": "Senior Manager - Delivery Strategy",
+      "page_id": "3160003f-9481-80ea-95eb-d548822d391a",
+      "chars": 3808
+    },
+    {
+      "title": "Strategic Operation Specialist \n",
+      "page_id": "3170003f-9481-808f-8152-f504a9467517",
+      "chars": 1390
+    },
+    {
+      "title": "Gerente Executivo de Inteligência Operacional",
+      "page_id": "3170003f-9481-80e9-8c05-e2047691af7f",
+      "chars": 4925
+    },
+    {
+      "title": "Gerente de Projetos Logísticos - Mercado Envios",
+      "page_id": "3180003f-9481-801a-a454-faef67b1b884",
+      "chars": 3043
+    },
+    {
+      "title": "Diretor CX ",
+      "page_id": "31a0003f-9481-80cb-b00f-e43e4adf6374",
+      "chars": 4664
+    },
+    {
+      "title": "Head de CX",
+      "page_id": "31e0003f-9481-80d5-aa9a-eff6e5289af8",
+      "chars": 2498
+    },
+    {
+      "title": "GERENTE EXECUTIVO DE OPERAÇÕES | INDÚSTRIA DE ALIMENTOS",
+      "page_id": "3200003f-9481-8013-b46d-d47792ac4782",
+      "chars": 3394
+    },
+    {
+      "title": "Business Analytics Manager Logistics Optimization",
+      "page_id": "3200003f-9481-806b-86c2-f1611b27db56",
+      "chars": 3182
+    },
+    {
+      "title": "Diretor de Performance Supply Chain",
+      "page_id": "3210003f-9481-805e-b119-d67f59d1a059",
+      "chars": 3914
+    },
+    {
+      "title": "Gerente de Projetos e Produtos Logísticos ",
+      "page_id": "3210003f-9481-80e9-bdff-ceab82f5951a",
+      "chars": 5288
+    },
+    {
+      "title": "Operations Manager",
+      "page_id": "3260003f-9481-8043-af35-ea9c03bcfc4d",
+      "chars": 5596
+    },
+    {
+      "title": "[Expert] Head de Atendimento",
+      "page_id": "3280003f-9481-8057-8b9e-f11fb5cfb5a7",
+      "chars": 5085
+    },
+    {
+      "title": "Gerente de Operações ",
+      "page_id": "32b0003f-9481-800c-b2c2-f4421b8730a4",
+      "chars": 47
+    },
+    {
+      "title": "Strategy and Operations Manager",
+      "page_id": "32b0003f-9481-8037-9660-d391f9010993",
+      "chars": 3954
+    },
+    {
+      "title": "Manager – Strategy & Planning (S&P)",
+      "page_id": "32d0003f-9481-8010-8811-e6b06a1fab6d",
+      "chars": 4271
+    },
+    {
+      "title": "Sales Operations Sr. Manager",
+      "page_id": "32d0003f-9481-80c7-8bf4-d720bc9b5290",
+      "chars": 4375
+    },
+    {
+      "title": "Head of Customer Success",
+      "page_id": "32e0003f-9481-8020-9578-d757869d4cac",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Melhoria continua (Mercado Envios)",
+      "page_id": "32e0003f-9481-8037-b4d7-f8ce306a64d2",
+      "chars": 3731
+    },
+    {
+      "title": "Strategy & Planning Associate, Global Intelligent Operations",
+      "page_id": "32e0003f-9481-8052-aadf-ea5e10d7daba",
+      "chars": 3702
+    },
+    {
+      "title": "Gerente Senior de CSM",
+      "page_id": "32e0003f-9481-8072-a277-ef3bce79ff15",
+      "chars": 77
+    },
+    {
+      "title": "Gerente Sênior de Produto & Pricing na empresa Cacau Show.",
+      "page_id": "32f0003f-9481-8003-95e9-d5363f214041",
+      "chars": 47
+    },
+    {
+      "title": "Diretor geral - StartUp Saas",
+      "page_id": "32f0003f-9481-8015-b307-d18a6df19461",
+      "chars": 47
+    },
+    {
+      "title": "Coordenador de Projetos e Processos - CX",
+      "page_id": "32f0003f-9481-802f-8029-e7831e2dea00",
+      "chars": 47
+    },
+    {
+      "title": "GERENTE DE PLANEJAMENTO SÊNIOR",
+      "page_id": "32f0003f-9481-806c-bd20-f50ed6a40352",
+      "chars": 2769
+    },
+    {
+      "title": "Diretor de Operações",
+      "page_id": "32f0003f-9481-8098-a8d1-e48528534435",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Eficiência Comercial e Operações",
+      "page_id": "32f0003f-9481-80b6-9438-ebf7a9f00d18",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Eficiência Comercial e Operações",
+      "page_id": "32f0003f-9481-80b6-9bee-f1f321878900",
+      "chars": 3586
+    },
+    {
+      "title": " Analista Sênior de Automação e Inteligência Logística - Mercado Envios",
+      "page_id": "3300003f-9481-8007-9e97-cf55057e88a9",
+      "chars": 4022
+    },
+    {
+      "title": "Sales Operations Senior Manager",
+      "page_id": "3300003f-9481-8017-9ce6-e9f904b8ebdc",
+      "chars": 6057
+    },
+    {
+      "title": "Head de Vertical Saude",
+      "page_id": "3300003f-9481-8035-9f3f-fedbe273442c",
+      "chars": 5588
+    },
+    {
+      "title": "Senior Manager, Operations",
+      "page_id": "3300003f-9481-8048-84bc-c3d4d560b7dc",
+      "chars": 2804
+    },
+    {
+      "title": "Head de Operações ",
+      "page_id": "3300003f-9481-80ac-942a-f38228cd18dd",
+      "chars": 1986
+    },
+    {
+      "title": "Manager - Strategy & Operations",
+      "page_id": "3300003f-9481-80b1-a9fe-ce1891c21ee8",
+      "chars": 3673
+    },
+    {
+      "title": "Gerente de Operações - Mercado Envios",
+      "page_id": "3300003f-9481-80b5-96f5-e2cd7887600d",
+      "chars": 3866
+    },
+    {
+      "title": "Head de Customer Success",
+      "page_id": "3300003f-9481-80d9-b753-de7b8b3070b0",
+      "chars": 3246
+    },
+    {
+      "title": "Gerente de Logistica - E-COMMERCE 3P",
+      "page_id": "3310003f-9481-800f-adc6-cf55905a36c9",
+      "chars": 2258
+    },
+    {
+      "title": "Gerente de Operações de Delivery",
+      "page_id": "3310003f-9481-8075-a592-cb982c724095",
+      "chars": 6119
+    },
+    {
+      "title": "Regional Manager - Warehousing",
+      "page_id": "3310003f-9481-80b3-aa85-cedb9adb70d8",
+      "chars": 47
+    },
+    {
+      "title": "Diretor de Atendimento",
+      "page_id": "3310003f-9481-80d6-a54d-d8b4d1bc88a2",
+      "chars": 2839
+    },
+    {
+      "title": "Diretor de Customer Success",
+      "page_id": "3310003f-9481-80e1-9cd3-d567d4825f3b",
+      "chars": 2116
+    },
+    {
+      "title": "Gerente de Area Torre Logistica",
+      "page_id": "3320003f-9481-805e-9f4e-ddb9dd367f30",
+      "chars": 2911
+    },
+    {
+      "title": "Gerente de Operações",
+      "page_id": "3320003f-9481-809f-b194-d4eef06481f8",
+      "chars": 2081
+    },
+    {
+      "title": "Gerente de Logistica e PCP",
+      "page_id": "3330003f-9481-800a-bba1-c55140b0b3f9",
+      "chars": 2462
+    },
+    {
+      "title": "Gerente / Diretor de Operações",
+      "page_id": "3330003f-9481-801a-b720-d1d3c79fcc17",
+      "chars": 3368
+    },
+    {
+      "title": "Sr. Manager, E-commerce Logistics",
+      "page_id": "3330003f-9481-8039-a075-e9d02bdd7e0a",
+      "chars": 47
+    },
+    {
+      "title": "HR Operations Manager",
+      "page_id": "3330003f-9481-8065-ba5f-f85362741073",
+      "chars": 3971
+    },
+    {
+      "title": "Gerente de Operações com Marcas\n",
+      "page_id": "3330003f-9481-808a-bcd2-d89020d8c36f",
+      "chars": 3350
+    },
+    {
+      "title": "Pricing Manager",
+      "page_id": "3330003f-9481-808f-804f-dc5ac1b55aee",
+      "chars": 3238
+    },
+    {
+      "title": "Coordenador de Planejamento Comercial",
+      "page_id": "3330003f-9481-80a5-a30a-c5aaa12bd6e3",
+      "chars": 3066
+    },
+    {
+      "title": "Diretor de Operações de Transporte e Distribuição",
+      "page_id": "3330003f-9481-80ae-9c83-fb7d8d8ef355",
+      "chars": 2535
+    },
+    {
+      "title": "Coordenador de Logistica",
+      "page_id": "3330003f-9481-80e8-9dc4-d53d33ae5cd6",
+      "chars": 1267
+    },
+    {
+      "title": "Product Operation Director",
+      "page_id": "3340003f-9481-8081-a145-d62d83062c32",
+      "chars": 2002
+    },
+    {
+      "title": "Customer Success Manager",
+      "page_id": "3340003f-9481-80c5-a79a-dcb05cd84221",
+      "chars": 6775
+    },
+    {
+      "title": "Head de Operações",
+      "page_id": "3350003f-9481-8020-b348-c448ee63264e",
+      "chars": 1399
+    },
+    {
+      "title": "Lider de Operações Logisticas",
+      "page_id": "3350003f-9481-808a-83cf-c4b2439bcde6",
+      "chars": 2476
+    },
+    {
+      "title": "Head de operações",
+      "page_id": "3350003f-9481-808f-95bb-fdac2691f4bd",
+      "chars": 3536
+    },
+    {
+      "title": "Gerente Senior de Operações",
+      "page_id": "3350003f-9481-8095-b8e5-d5c9b2851a8c",
+      "chars": 47
+    },
+    {
+      "title": "Diretor de Logistica",
+      "page_id": "3350003f-9481-80b8-a35c-f51af34b28f9",
+      "chars": 1179
+    },
+    {
+      "title": "Gerente de Operações Logística Ecommerce",
+      "page_id": "3350003f-9481-80cc-a690-f48841b7a39a",
+      "chars": 2418
+    },
+    {
+      "title": "Gerente de Área - Torre Logistica",
+      "page_id": "3350003f-9481-80f0-8659-df6e03d3226c",
+      "chars": 1754
+    },
+    {
+      "title": "Gerente de Processos Logísticos",
+      "page_id": "3360003f-9481-801e-abc4-e72ce0e8a3ad",
+      "chars": 4077
+    },
+    {
+      "title": "Gerente de Pricing",
+      "page_id": "3360003f-9481-802d-a8b4-d885c12790d4",
+      "chars": 3138
+    },
+    {
+      "title": "Cx Ops Manager",
+      "page_id": "3360003f-9481-8098-a889-cfe77f261b12",
+      "chars": 6726
+    },
+    {
+      "title": "Gerente de Customer Success Operations",
+      "page_id": "3370003f-9481-8060-a130-fd888062ca0f",
+      "chars": 5074
+    },
+    {
+      "title": "Gerente de Melhoria Continua",
+      "page_id": "3370003f-9481-809f-a75a-f43c6dc336af",
+      "chars": 3321
+    },
+    {
+      "title": "Gerente de Planejamento Estratégico| Planejamento",
+      "page_id": "3380003f-9481-807c-b2ae-fbb8f904ba83",
+      "chars": 850
+    },
+    {
+      "title": "Sales Operations Manager",
+      "page_id": "33a0003f-9481-8014-9c83-e504cdb004ad",
+      "chars": 3939
+    },
+    {
+      "title": "Gerente de Planejamento e Performance SR - Classfields LATAM",
+      "page_id": "33a0003f-9481-8027-99d4-d72eb431a8eb",
+      "chars": 4561
+    },
+    {
+      "title": "Amazon Flex Operations Manager, Amazon Flex",
+      "page_id": "33a0003f-9481-802c-afdd-c6e5db61db44",
+      "chars": 3429
+    },
+    {
+      "title": "COO em empresa confidencial",
+      "page_id": "33a0003f-9481-8032-aa43-c37002089e63",
+      "chars": 1498
+    },
+    {
+      "title": "Gerente de Inteligencia de Dados",
+      "page_id": "33a0003f-9481-803f-9d01-d6e968c09371",
+      "chars": 5017
+    },
+    {
+      "title": "Diretor de Operações",
+      "page_id": "33a0003f-9481-8048-8e89-d4e180924a52",
+      "chars": 1801
+    },
+    {
+      "title": "Gerente de Operações Sênior - Itaim Bibi / SP",
+      "page_id": "33a0003f-9481-8086-aa92-c83d0f72209e",
+      "chars": 3061
+    },
+    {
+      "title": "Director of Business Operations (Remote)",
+      "page_id": "33b0003f-9481-80ad-acab-c312d1b0ccb6",
+      "chars": 3621
+    },
+    {
+      "title": "Gerente de Operações Logísticas, Amazon Logistics",
+      "page_id": "33c0003f-9481-801c-bc1c-d413012d0d4b",
+      "chars": 4065
+    },
+    {
+      "title": "Gerente de Plataformas",
+      "page_id": "33c0003f-9481-8023-855b-ee89f7f9b64b",
+      "chars": 1920
+    },
+    {
+      "title": "Gerente de Customer Service",
+      "page_id": "33c0003f-9481-8043-8cdc-ee5a23f85f32",
+      "chars": 4612
+    },
+    {
+      "title": "Gerente de Operações e Projetos de E-Commerce",
+      "page_id": "33c0003f-9481-804c-ad85-c1574df14d2d",
+      "chars": 1497
+    },
+    {
+      "title": "Head de Operações Integradas e Comercial",
+      "page_id": "33c0003f-9481-8055-bba0-e04dfdc6d432",
+      "chars": 6436
+    },
+    {
+      "title": "Gerente de Projetos e Processos (Transformação de Negócios)",
+      "page_id": "33c0003f-9481-8080-a0bb-e505da5ee204",
+      "chars": 4226
+    },
+    {
+      "title": "Gerencia de OPerações (Ebu das Artes)",
+      "page_id": "33c0003f-9481-80e8-aaa7-fd5660d69102",
+      "chars": 3023
+    },
+    {
+      "title": "Operations Manager (Gerente de Operações)",
+      "page_id": "33c0003f-9481-80e8-af7f-d45e91ad0983",
+      "chars": 4496
+    },
+    {
+      "title": "Gerente de Operações ",
+      "page_id": "33f0003f-9481-8084-a4da-d0fcaa9034b1",
+      "chars": 1401
+    },
+    {
+      "title": "Gerente de Logística ",
+      "page_id": "33f0003f-9481-809c-86b8-e43157410a69",
+      "chars": 3350
+    },
+    {
+      "title": "Gerente de e-commerce",
+      "page_id": "3400003f-9481-8005-9388-fd0ff14c1bd7",
+      "chars": 3305
+    },
+    {
+      "title": "Gerente de Operações e Transporte",
+      "page_id": "3400003f-9481-801a-a7f5-db468f4895cf",
+      "chars": 1122
+    },
+    {
+      "title": "Gerente de Planejamento (Fertilizantes)",
+      "page_id": "3400003f-9481-8028-a4cb-edbb9c35d497",
+      "chars": 4509
+    },
+    {
+      "title": "Gerente de Planejamento Performance Comercial SR",
+      "page_id": "3400003f-9481-802e-bbe3-df56e4324652",
+      "chars": 2907
+    },
+    {
+      "title": "Superintendente de Inteligencia de Mercado e Planejamento",
+      "page_id": "3400003f-9481-80b9-b1ef-e0d6e9d26ddb",
+      "chars": 3909
+    },
+    {
+      "title": "Gerente de Planejamento Estratégico",
+      "page_id": "3410003f-9481-807c-9bbf-c17c8287f6df",
+      "chars": 4072
+    },
+    {
+      "title": "Gerente de Operações",
+      "page_id": "3420003f-9481-8024-b937-ca82b2a22877",
+      "chars": 2507
+    },
+    {
+      "title": "Vaga de Atendimento",
+      "page_id": "3420003f-9481-8054-a32a-d7d0b33a4398",
+      "chars": 1208
+    },
+    {
+      "title": "Gerente de Operações - Shipping",
+      "page_id": "3420003f-9481-80df-bcb0-c2d7e611bff6",
+      "chars": 4446
+    },
+    {
+      "title": "Gerente de Operações - Torre de Controle",
+      "page_id": "3450003f-9481-8019-9da4-e0d171646d13",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Operações - Atacado",
+      "page_id": "3450003f-9481-805e-9115-cb27a5e575bd",
+      "chars": 3750
+    },
+    {
+      "title": "Gerente de Planejamento Integrado - IBP",
+      "page_id": "3450003f-9481-8065-ae72-e53fb89763c7",
+      "chars": 5810
+    },
+    {
+      "title": "Gerente de Growth",
+      "page_id": "3450003f-9481-808e-995c-f93edaf938c0",
+      "chars": 4354
+    },
+    {
+      "title": "Diretor de Operações - COO",
+      "page_id": "3450003f-9481-8090-87a6-f4282477c7f6",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Planejamento de Capacidade e Demanda - Mercado Envios",
+      "page_id": "3450003f-9481-8097-9c2e-df46e131d64f",
+      "chars": 4090
+    },
+    {
+      "title": "Gerente de Operações - Meios de Pagamento",
+      "page_id": "3450003f-9481-80f7-99ac-c9262951fe97",
+      "chars": 1877
+    },
+    {
+      "title": "Gerente de Planejamento de Demanda",
+      "page_id": "3480003f-9481-8030-b494-f2d036d6bdf7",
+      "chars": 4260
+    },
+    {
+      "title": "Gerente de Estratégia Comercial",
+      "page_id": "3480003f-9481-8030-bc7f-cbfa39d9aa5e",
+      "chars": 4168
+    },
+    {
+      "title": "Gerente de Excelência Logistica",
+      "page_id": "3480003f-9481-8037-8516-f74bd1f092f4",
+      "chars": 3001
+    },
+    {
+      "title": "Commercial Planning Manager",
+      "page_id": "3480003f-9481-803f-8ab4-f7667550bd4e",
+      "chars": 4701
+    },
+    {
+      "title": "Gerente de Planejamento Logístico Sr.",
+      "page_id": "3480003f-9481-8060-8654-f612be9ac909",
+      "chars": 4693
+    },
+    {
+      "title": "Head de Operações",
+      "page_id": "3480003f-9481-80a4-821f-cddfe45da8aa",
+      "chars": 2054
+    },
+    {
+      "title": "Gerente de Operações",
+      "page_id": "3480003f-9481-80b4-b1f6-e0a730a0b331",
+      "chars": 5610
+    },
+    {
+      "title": "Capacity Planning Manager - First Mile, AMZL Capacity Planning",
+      "page_id": "3480003f-9481-80c5-b7f0-ddf9514ed564",
+      "chars": 4683
+    },
+    {
+      "title": "Coordenador de Inteligência de Negócios",
+      "page_id": "3480003f-9481-80e8-8d2c-ca50f5d468f5",
+      "chars": 2455
+    },
+    {
+      "title": "Gerente de Supply",
+      "page_id": "34a0003f-9481-80b1-9023-f890674f15e2",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Planejamento Estratégico",
+      "page_id": "34a0003f-9481-80bd-be8a-eab827ecc00c",
+      "chars": 47
+    },
+    {
+      "title": "Gerente Executivo de Projeto (PMO) Procurement / Sourcing / Supply Chain",
+      "page_id": "34a0003f-9481-80fc-ade7-f9a5a04a4f07",
+      "chars": 2710
+    },
+    {
+      "title": "Gerente de Novos Negócios",
+      "page_id": "34b0003f-9481-8019-a8da-fe70f6ec0cf3",
+      "chars": 3527
+    },
+    {
+      "title": "Gerente de Planejamento Supply Chain",
+      "page_id": "34b0003f-9481-805e-82cd-f63ef33006b9",
+      "chars": 1855
+    },
+    {
+      "title": "Gerente de Operações",
+      "page_id": "34b0003f-9481-8091-9f07-e53bf10c2cd8",
+      "chars": 908
+    },
+    {
+      "title": "CX Manager (BPO Governance)",
+      "page_id": "34b0003f-9481-80ca-a855-d2e19ac916ec",
+      "chars": 4777
+    },
+    {
+      "title": "National Logistics Manager",
+      "page_id": "34c0003f-9481-803a-b95d-c53bbadc9df7",
+      "chars": 3429
+    },
+    {
+      "title": "GERENTE CONTROLE E PLANEJAMENTO LOGÍSTICO",
+      "page_id": "34e0003f-9481-8032-b358-e13ef92babc4",
+      "chars": 3989
+    },
+    {
+      "title": "Gerente de Operações de E-commerce | Remoto",
+      "page_id": "34e0003f-9481-8043-9304-f9048ff91892",
+      "chars": 1340
+    },
+    {
+      "title": "Diretor(a) Administrativo | Gestão e Operações",
+      "page_id": "34e0003f-9481-8058-97cf-f6b3732f226a",
+      "chars": 1896
+    },
+    {
+      "title": "Gerente de Customer Experience JR",
+      "page_id": "34e0003f-9481-80d8-ac4f-ec76271b4c8d",
+      "chars": 2001
+    },
+    {
+      "title": "TikTok Shop - Head of Customer Experience and External Relations",
+      "page_id": "34f0003f-9481-801b-9d9f-d21b99080a99",
+      "chars": 5616
+    },
+    {
+      "title": "Head de Operações – Remoto",
+      "page_id": "34f0003f-9481-804b-b833-d2b67984e96a",
+      "chars": 1932
+    },
+    {
+      "title": "Diretor Executivo - CEO",
+      "page_id": "34f0003f-9481-80e3-aa34-d1d43c115252",
+      "chars": 3213
+    },
+    {
+      "title": "Gerente de Operações  CX",
+      "page_id": "34f0003f-9481-80fb-98c2-cba476afda7f",
+      "chars": 1496
+    },
+    {
+      "title": "Gerente de Pricing",
+      "page_id": "3500003f-9481-8008-88fb-e06bfbd1145d",
+      "chars": 47
+    },
+    {
+      "title": "SR Operations Manager",
+      "page_id": "3500003f-9481-801c-8cb8-e4b5fa06a8ae",
+      "chars": 2631
+    },
+    {
+      "title": "Merchant Operations Manager",
+      "page_id": "3500003f-9481-8020-bae3-ed4e3b99e6cb",
+      "chars": 3773
+    },
+    {
+      "title": "Diretor(a) de Operações",
+      "page_id": "3500003f-9481-8054-b171-f51d2442ea98",
+      "chars": 5642
+    },
+    {
+      "title": "Merchant Operations Manager",
+      "page_id": "3500003f-9481-805f-8a54-e1ac487051ef",
+      "chars": 3683
+    },
+    {
+      "title": "Diretor de Logística e Supply Chain",
+      "page_id": "3500003f-9481-80cd-8abb-c30e2d756077",
+      "chars": 2870
+    },
+    {
+      "title": "Integrated Business Planning Senior Manager",
+      "page_id": "3510003f-9481-8019-9a1b-fdf94335548d",
+      "chars": 4967
+    },
+    {
+      "title": "LB858: Manager Logistics",
+      "page_id": "3510003f-9481-802b-9efc-dae1bb42a19c",
+      "chars": 6570
+    },
+    {
+      "title": "Operations Manager Brasil",
+      "page_id": "3510003f-9481-8090-b036-f858e3445059",
+      "chars": 47
+    },
+    {
+      "title": "Gerente de Planejamento Comercial - Calçados",
+      "page_id": "3510003f-9481-80c2-b681-e8567e220c8d",
+      "chars": 2619
+    },
+    {
+      "title": "Gerencia de Transportes (Startup)",
+      "page_id": "3520003f-9481-8027-80c7-ccb3b4f08595",
+      "chars": 3724
+    },
+    {
+      "title": "Senior Operations Manager",
+      "page_id": "3520003f-9481-8041-91c3-c1ad884b72ea",
+      "chars": 3971
+    },
+    {
+      "title": "Head de Supply Chain",
+      "page_id": "3520003f-9481-804d-823e-fbdf7bba4dc0",
+      "chars": 1308
+    },
+    {
+      "title": "On-Time Delivery Experience & Capacity Strategy Expert",
+      "page_id": "3520003f-9481-8054-9408-c4004c46dbc9",
+      "chars": 2717
+    },
+    {
+      "title": "COO",
+      "page_id": "3520003f-9481-80cc-b568-ce52625f6cb2",
+      "chars": 2043
+    },
+    {
+      "title": "Freelance Supply Chain Consultant - AI Trainer",
+      "page_id": "3560003f-9481-8016-bf3e-fe94a7444548",
+      "chars": 3125
+    },
+    {
+      "title": "Gerente de Operações Logísticas",
+      "page_id": "3560003f-9481-801e-97c4-e77722771b15",
+      "chars": 3894
+    },
+    {
+      "title": "Gerente de Operações",
+      "page_id": "3560003f-9481-8022-b165-c6c00e08a245",
+      "chars": 47
+    },
+    {
+      "title": " Gerente de Operações",
+      "page_id": "3560003f-9481-80c2-8398-eff217b8f240",
+      "chars": 1633
+    },
+    {
+      "title": "Gerente Novos Negocios (Logistica -  Perfil Hunter)",
+      "page_id": "3560003f-9481-80dc-822e-e91e9c2857e1",
+      "chars": 2218
+    },
+    {
+      "title": "Gerente de Supply Chain",
+      "page_id": "3560003f-9481-80e3-a839-fa62b3b5c2fd",
+      "chars": 47
+    },
+    {
+      "title": "ADM - Gerente Senior de Supply Chain",
+      "page_id": "3560003f-9481-815a-81b4-d4634dafcded",
+      "chars": 2106
+    },
+    {
+      "title": "Shopee - Gerente de Operações Logísticas",
+      "page_id": "3560003f-9481-819a-b78f-f241a446077f",
+      "chars": 2352
+    },
+    {
+      "title": "Confidential Careers - Gerente de Operações - Transporte & Last Mile",
+      "page_id": "3560003f-9481-81f2-8881-e02dfac23807",
+      "chars": 2985
+    },
+    {
+      "title": "Mercado Livre - Gerente de Operacao Logistica - Mercado Envios",
+      "page_id": "3570003f-9481-8198-a92f-e50ecfb636c0",
+      "chars": 3918
+    },
+    {
+      "title": "Leadec - Gerente de Operacoes",
+      "page_id": "3570003f-9481-81c5-a939-c8111204b39f",
+      "chars": 2763
+    },
+    {
+      "title": "Pimp My Carroca - Gerencia Geral / Coordenacao Geral Operacional",
+      "page_id": "3580003f-9481-8143-be43-e6f3a657e577",
+      "chars": 3158
+    },
+    {
+      "title": "Einstein Hospital Israelita - Gerente Planejamento e Logistica",
+      "page_id": "3580003f-9481-8149-91e3-fec24955e640",
+      "chars": 3065
+    },
+    {
+      "title": "DHL Supply Chain - Gerencia Geral de Operacoes",
+      "page_id": "3580003f-9481-8199-be46-ef166c30e207",
+      "chars": 2029
+    }
+  ]
+}

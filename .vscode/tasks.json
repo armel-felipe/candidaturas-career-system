@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "career: validate structure",
+      "type": "shell",
+      "command": "npm run validate:structure",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "career: install git hook",
+      "type": "shell",
+      "command": "npm run hook:install",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "career: validate fit map",
+      "type": "shell",
+      "command": "npm run validate:fit-map",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "career: notion list",
+      "type": "shell",
+      "command": "npm run notion:list",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "career: notion templates",
+      "type": "shell",
+      "command": "npm run notion:templates",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

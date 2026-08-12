@@ -1,0 +1,158 @@
+{
+  "_meta": "Top competências por experiência, refinadas. Usar em comparativos de cargo e análise de fit quando o usuário pedir diagnóstico de competências.",
+  "_fonte": "competencias_prioritarias.xlsx → refin_1",
+  "_atualizado": "2026-05-04",
+  "experiencias": [
+    {
+      "experiencia": "Sanofi - Operator",
+      "competencias": [
+        "Quality Management",
+        "GMP Compliance",
+        "Process Discipline"
+      ]
+    },
+    {
+      "experiencia": "Nycomed - Quality",
+      "competencias": [
+        "Process Validation",
+        "Quality Assurance",
+        "Stability Analysis"
+      ]
+    },
+    {
+      "experiencia": "Essencis - Business Analyst",
+      "competencias": [
+        "M&A",
+        "Financial Modeling",
+        "Investment Analysis (NPV)",
+        "Strategic Evaluation"
+      ]
+    },
+    {
+      "experiencia": "Resinor - Quality Coordinator",
+      "competencias": [
+        "Quality Systems Leadership",
+        "Audit & Compliance",
+        "Metrology & Calibration",
+        "Documentation Control"
+      ]
+    },
+    {
+      "experiencia": "Pierre - Production Supervisor",
+      "competencias": [
+        "Team Leadership",
+        "Production Planning",
+        "Inventory Management",
+        "ERP Implementation",
+        "Productivity Improvement"
+      ]
+    },
+    {
+      "experiencia": "VitaLabor - Production Coordinator",
+      "competencias": [
+        "End-to-End Operations",
+        "Process Automation",
+        "Capacity Expansion",
+        "Supply Planning",
+        "Operational Turnaround"
+      ]
+    },
+    {
+      "experiencia": "Trifil - Process & Systems",
+      "competencias": [
+        "Process Optimization",
+        "Industrial Automation",
+        "KPI Management",
+        "Operational Efficiency",
+        "PDCA Implementation"
+      ]
+    },
+    {
+      "experiencia": "Trifil - Logistics",
+      "competencias": [
+        "Logistics Operations",
+        "Warehouse Optimization",
+        "Picking Automation",
+        "Distribution Planning"
+      ]
+    },
+    {
+      "experiencia": "Trifil - Materials",
+      "competencias": [
+        "Strategic Sourcing",
+        "Cost Optimization",
+        "Inventory Turnover",
+        "Supplier Negotiation"
+      ]
+    },
+    {
+      "experiencia": "Trifil - Commercial Intelligence",
+      "competencias": [
+        "Revenue Growth",
+        "Pricing Strategy",
+        "Commercial Analytics",
+        "Sales Intelligence",
+        "Margin Optimization"
+      ]
+    },
+    {
+      "experiencia": "Trifil - S&OP",
+      "competencias": [
+        "S&OP Leadership",
+        "Demand Planning",
+        "Scenario Simulation",
+        "Integrated Planning",
+        "GGF Cost Reduction"
+      ]
+    },
+    {
+      "experiencia": "VivaReal - Manager",
+      "competencias": [
+        "Customer Experience (CX)",
+        "Customer Success",
+        "Conversion Optimization",
+        "CRM Strategy",
+        "Marketplace Operations"
+      ]
+    },
+    {
+      "experiencia": "Renault - Customer Success Manager",
+      "competencias": [
+        "Sales Conversion",
+        "Lead Qualification",
+        "Funnel Optimization",
+        "BPO Insourcing"
+      ]
+    },
+    {
+      "experiencia": "iFood - Head of Operations",
+      "competencias": [
+        "Data-Driven Decision Making",
+        "Real-Time Operations",
+        "Fleet Optimization",
+        "Simulation Modeling",
+        "Operational Scalability"
+      ]
+    },
+    {
+      "experiencia": "iFood - Director of Operations",
+      "competencias": [
+        "Operations Leadership",
+        "Scalable Operations",
+        "Unit Economics",
+        "Platform Expansion",
+        "P&L Management"
+      ]
+    },
+    {
+      "experiencia": "Wehandle - Head of Operations",
+      "competencias": [
+        "AI-Driven Operations",
+        "Customer Retention",
+        "Cost Efficiency",
+        "Tech-enabled CX",
+        "Automation Strategy"
+      ]
+    }
+  ]
+}

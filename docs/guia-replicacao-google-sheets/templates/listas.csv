@@ -1,0 +1,9 @@
+fonte,regime_trabalho,idioma_vaga,decisao,etapa
+linkedin_salva,remoto,pt-BR,prosseguir,capturada
+linkedin_direta,hibrido,en,pausar,descricao_validada
+indicacao,presencial,outro,descartar,analisada
+site_empresa,nao_informado,,,artefatos_em_rascunho
+outro,,,,revisao_pendente
+,,,,pronta_para_aplicacao
+,,,,aplicada
+,,,,encerrada

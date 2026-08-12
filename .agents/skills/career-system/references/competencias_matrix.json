@@ -1,0 +1,693 @@
+{
+  "_meta": "Matriz de competências por experiência. evidencias = experiências onde a competência foi demonstrada (X na planilha original). ativo = competência validada para uso em CVs/análises.",
+  "_fonte": "competencias_amplo.xlsx → Planilha2",
+  "_atualizado": "2026-05-04",
+  "experiences": [
+    "Sanofi - Operador",
+    "Nycomed - Qualidade",
+    "Essencis - Negócios",
+    "Resinor - Qualidade",
+    "Pierre - Supervisor Produção",
+    "VitaLabor - Coord Produção",
+    "Trifil - Proc/Sistemas",
+    "Trifil - Expedição",
+    "Trifil - Materiais",
+    "Trifil - Inteligência Comercial",
+    "Trifil - S&OP",
+    "VivaReal - Gerente",
+    "Renault - CS",
+    "iFood - Head Ops",
+    "iFood - Diretor Ops",
+    "Wehandle - Head Ops"
+  ],
+  "competencias": [
+    {
+      "nome": "Revenue Growth",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Pricing Strategy",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Conversion Optimization",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Customer Retention",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Marketplace Operations",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Product Operations",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "New Business Development",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "Essencis - Negócios",
+        "Renault - CS",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Commercial Strategy",
+      "criterio": "P&L - Receita",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Cost Reduction",
+      "criterio": "P&L - Custo",
+      "evidencias": [
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Operational Efficiency",
+      "criterio": "P&L - Custo",
+      "evidencias": [
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Process Optimization",
+      "criterio": "P&L - Custo",
+      "evidencias": [
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Budgeting & Cost Control",
+      "criterio": "P&L - Custo",
+      "evidencias": [
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Profitability Analysis",
+      "criterio": "P&L - Custo",
+      "evidencias": [
+        "Essencis - Negócios",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Unit Economics",
+      "criterio": "P&L - Custo",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Scalable Operations",
+      "criterio": "Escala",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Operations Leadership",
+      "criterio": "Escala",
+      "evidencias": [
+        "Nycomed - Qualidade",
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Supply Chain Management",
+      "criterio": "Escala",
+      "evidencias": [
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - S&OP"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Logistics & Last Mile",
+      "criterio": "Escala",
+      "evidencias": [
+        "iFood - Head Ops",
+        "iFood - Diretor Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "S&OP",
+      "criterio": "Escala",
+      "evidencias": [
+        "Trifil - S&OP",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Demand Planning",
+      "criterio": "Escala",
+      "evidencias": [
+        "VitaLabor - Coord Produção",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Capacity Planning",
+      "criterio": "Escala",
+      "evidencias": [
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Expedição",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "3PL Management",
+      "criterio": "Escala",
+      "evidencias": [
+        "iFood - Head Ops",
+        "iFood - Diretor Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Customer Experience (CX)",
+      "criterio": "Experiência",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Customer Success",
+      "criterio": "Experiência",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "CRM Strategy",
+      "criterio": "Experiência",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Performance Management",
+      "criterio": "Experiência",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "KPI / OKR Management",
+      "criterio": "Experiência",
+      "evidencias": [
+        "Resinor - Qualidade",
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Continuous Improvement",
+      "criterio": "Experiência",
+      "evidencias": [
+        "Nycomed - Qualidade",
+        "Essencis - Negócios",
+        "Resinor - Qualidade",
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Change Management",
+      "criterio": "Experiência",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Stakeholder Management",
+      "criterio": "Experiência",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Team Leadership",
+      "criterio": "Experiência",
+      "evidencias": [
+        "Nycomed - Qualidade",
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Leadership of Leaders",
+      "criterio": "Experiência",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Data-Driven Decision Making",
+      "criterio": "Sistema",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Structured Problem Solving",
+      "criterio": "Sistema",
+      "evidencias": [
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Business Intelligence",
+      "criterio": "Sistema",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Advanced Analytics",
+      "criterio": "Sistema",
+      "evidencias": [
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Process Automation",
+      "criterio": "Sistema",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Data Architecture",
+      "criterio": "Sistema",
+      "evidencias": [],
+      "ativo": false
+    },
+    {
+      "nome": "Tech-enabled Operations",
+      "criterio": "Sistema",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "SQL",
+      "criterio": "Sistema",
+      "evidencias": [
+        "Trifil - Inteligência Comercial",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Python",
+      "criterio": null,
+      "evidencias": [
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Databricks",
+      "criterio": "Sistema",
+      "evidencias": [
+        "iFood - Head Ops",
+        "iFood - Diretor Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Sales Force Service Cloud",
+      "criterio": "Sistema",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Sales Force Sales Cloud",
+      "criterio": "Sistema",
+      "evidencias": [
+        "VivaReal - Gerente",
+        "Renault - CS"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "CX Platforms (Zendesk)",
+      "criterio": "Sistema",
+      "evidencias": [
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "M&A",
+      "criterio": "Outros",
+      "evidencias": [
+        "Essencis - Negócios",
+        "iFood - Diretor Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Strategic Planning",
+      "criterio": "Outros",
+      "evidencias": [
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Strategy Execution",
+      "criterio": "Outros",
+      "evidencias": [
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Financial Modeling",
+      "criterio": "Outros",
+      "evidencias": [
+        "Essencis - Negócios",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Risk Management",
+      "criterio": "Outros",
+      "evidencias": [
+        "Trifil - Materiais",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS",
+        "iFood - Head Ops",
+        "iFood - Diretor Ops",
+        "Wehandle - Head Ops"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "Quality Management",
+      "criterio": "Outros",
+      "evidencias": [
+        "Sanofi - Operador",
+        "Essencis - Negócios",
+        "Resinor - Qualidade"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "VBA",
+      "criterio": null,
+      "evidencias": [
+        "VitaLabor - Coord Produção",
+        "Trifil - Proc/Sistemas",
+        "Trifil - Expedição",
+        "Trifil - Materiais",
+        "Trifil - Inteligência Comercial",
+        "Trifil - S&OP",
+        "VivaReal - Gerente",
+        "Renault - CS"
+      ],
+      "ativo": true
+    },
+    {
+      "nome": "GMP",
+      "criterio": null,
+      "evidencias": [
+        "Sanofi - Operador",
+        "Nycomed - Qualidade",
+        "Pierre - Supervisor Produção",
+        "VitaLabor - Coord Produção"
+      ],
+      "ativo": true
+    }
+  ]
+}

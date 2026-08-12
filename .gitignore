@@ -7,27 +7,40 @@
 **/.env
 **/.env.*
 !**/.env.example
+.secrets/
 **/.secrets/
+.auth_token
 **/.auth_token
+.db_id
 **/.db_id
+*.token
+*.secret
 **/*token*.json
 **/*secret*.json
 **/*credentials*.json
 **/*oauth*.json
+credentials*.json
+token*.json
+oauth*.json
 *.pem
 *.key
 *.ppk
 
 # Agent/browser/runtime state
 .career-state/
+!.career-state/.gitkeep
 /state/
 /workspaces/
 /hermes/
+/.hermes/
 /playwright/
 /backups/
 **/browser/
 **/sessions/
 **/logs/
+sessions/
+inbox/
+inbox/notion/
 *.db
 *.sqlite
 *.sqlite3
@@ -40,8 +53,10 @@
 .venvs/
 **/.venv/
 **/.venv-test/
+node_modules/
 **/node_modules/
 **/__pycache__/
+__pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
@@ -62,7 +77,9 @@
 *.swp
 *.swo
 
-# Generated application data
+# Generated application data and artifacts
+outputs/
+outputs.local-before-onedrive-*/
 app/inbox/
 app/outputs/
 app/.career-state/
@@ -73,3 +90,9 @@ app/ollama-usage/
 app/scripts/generated/
 app/scripts/__pycache__/
 app/tests/__pycache__/
+scripts/generated/*.js
+
+# Local/legacy scratch files
+query.json
+teste_conexao.txt
+thhomas_case_apresentacao.txt
