@@ -1,0 +1,5 @@
+.env
+profiles/
+data/
+backups/
+*.tar.zst

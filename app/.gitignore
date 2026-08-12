@@ -1,0 +1,45 @@
+.env
+.env.*
+!.env.example
+.secrets/
+.auth_token
+.db_id
+.continue/
+.hermes/
+.worktrees/
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Local workflow state, browser sessions and caches
+.career-state/
+!.career-state/.gitkeep
+inbox/notion/
+inbox/
+sessions/
+.career-state/browser/
+.career-state/browser-gateway/
+
+# Generated artifacts and temporary outputs
+outputs/
+outputs
+outputs.local-before-onedrive-*/
+scripts/generated/*.js
+scripts/generated/*.js`
+
+# Secrets/tokens that should never be versioned
+*.token
+*.secret
+credentials*.json
+token*.json
+oauth*.json
+
+# macOS
+.DS_Store
+
+# Local/legacy scratch files
+query.json
+teste_conexao.txt
+thhomas_case_apresentacao.txt

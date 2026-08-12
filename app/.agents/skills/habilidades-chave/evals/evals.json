@@ -1,0 +1,23 @@
+{
+  "skill_name": "habilidades-chave",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analisa a vaga já carregada no FIT_MAP e traga 8 habilidades Mercado Livre, ranqueadas da mais relevante para a menos relevante, sem repetir as histórias.",
+      "expected_output": "Lista com 8 habilidades vindas do catálogo de Mercado Livre, cada uma com cargo, empresa e história única entre 500 e 700 caracteres.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Seleciona as 10 habilidades do Gupy para essa vaga e devolve no formato habilidade, cargo, empresa e história, sem repetir histórias.",
+      "expected_output": "Lista com exatamente 10 habilidades vindas de habilidades_gupy.json, ranqueadas e com histórias não repetidas.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Aplica pelo sistema: traz as habilidades do Gupy para essa vaga e também um resumo ATS entre 500 e 600 caracteres.",
+      "expected_output": "Lista com 10 habilidades no formato da skill e um resumo ATS consistente com o FIT_MAP e com os números validados do projeto.",
+      "files": []
+    }
+  ]
+}

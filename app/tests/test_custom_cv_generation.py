@@ -1,0 +1,161 @@
+import json
+import os
+import subprocess
+import zipfile
+from pathlib import Path
+from xml.etree import ElementTree
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parent.parent
+NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+
+def _experience(role: str, period: str) -> dict:
+    return {"role": role, "company": "Example Co.", "period": period, "bullets": ["Scope", "Action", "Result"]}
+
+
+def english_payload() -> dict:
+    return {
+        "metadata": {"language": "en", "application_id": "english-fixture"},
+        "output_name": "fixture_en.docx",
+        "candidate": {
+            "name": "Fixture English Name",
+            "location": "London, United Kingdom",
+            "linkedin": "linkedin.com/in/fixture-english",
+            "phone": "+44 20 0000 0000",
+            "email": "fixture.english@example.test",
+        },
+        "summary": "Operations leader with proven results.",
+        "experiences": [
+            _experience("Head of Operations", "May 2024 — Present"),
+            _experience("Operations Director", "Apr 2022 — Mar 2024"),
+            _experience("Operations Manager", "Jan 2018 — Mar 2022"),
+            _experience("Planning Manager", "Jan 2015 — Dec 2017"),
+        ],
+        "education": ["Bachelor's Degree in Chemical Engineering — Faculdades Oswaldo Cruz (2014)"],
+        "stack": "SQL · Python",
+        "languages": ["Portuguese — Native", "English — Advanced"],
+    }
+
+
+def portuguese_payload() -> dict:
+    return {
+        "metadata": {"language": "pt-BR", "application_id": "portuguese-fixture"},
+        "output_name": "fixture.docx",
+        "candidate": {
+            "name": "Nome de Teste",
+            "location": "Curitiba, PR",
+            "linkedin": "linkedin.com/in/fixture-portugues",
+            "phone": "+55 41 0000-0000",
+            "email": "fixture.portugues@example.test",
+        },
+        "resumo": "Líder de operações com resultados comprovados.",
+        "experiencias": [
+            {"cargo": "Head de Operações", "empresa": "Empresa Exemplo", "periodo": "maio/2024 — Atual", "bullets": ["Escopo", "Ação", "Resultado"]},
+            {"cargo": "Diretor de Operações", "empresa": "Empresa Exemplo", "periodo": "abr/2022 — mar/2024", "bullets": ["Escopo", "Ação", "Resultado"]},
+            {"cargo": "Gerente de Operações", "empresa": "Empresa Exemplo", "periodo": "jan/2018 — mar/2022", "bullets": ["Escopo", "Ação", "Resultado"]},
+            {"cargo": "Gerente de Planejamento", "empresa": "Empresa Exemplo", "periodo": "jan/2015 — dez/2017", "bullets": ["Escopo", "Ação", "Resultado"]},
+        ],
+        "formacao": ["Engenheiro Químico — Faculdades Oswaldo Cruz (2014)"],
+        "stack": "SQL · Python",
+        "idiomas": ["Português — Nativo", "Inglês — Avançado"],
+    }
+
+
+def render_cv(payload: dict, tmp_path: Path) -> str:
+    root = render_cv_document(payload, tmp_path)
+    return "\n".join(node.text or "" for node in root.findall(".//w:t", NS))
+
+
+def render_cv_document(payload: dict, tmp_path: Path) -> ElementTree.Element:
+    content_path = tmp_path / "cv_content.json"
+    content_path.write_text(json.dumps(payload), encoding="utf-8")
+    env = {**os.environ, "CAREER_CV_CONTENT": str(content_path), "CAREER_OUTPUTS": str(tmp_path)}
+    subprocess.run(["node", "scripts/docx/generate_custom_cv.js"], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+    with zipfile.ZipFile(tmp_path / payload["output_name"]) as docx:
+        root = ElementTree.fromstring(docx.read("word/document.xml"))
+    return root
+
+
+def test_english_cv_has_only_english_labels_and_canonical_degree(tmp_path):
+    text = render_cv(english_payload(), tmp_path)
+    assert "Education" in text
+    assert "Technical Stack" in text
+    assert "Languages" in text
+    assert "Formação" not in text
+    assert "Bachelor's Degree in Chemical Engineering — Faculdades Oswaldo Cruz (2014)" in text
+    assert "B.Sc." not in text
+    assert "May 2024 — Present" in text
+    assert "Fixture English Name" in text
+    assert "London, United Kingdom" in text
+    assert "linkedin.com/in/fixture-english" in text
+    assert "fixture.english@example.test" in text
+    assert "Felipe Armel Dias da Silva" not in text
+
+
+def test_portuguese_cv_is_not_misclassified_as_english(tmp_path):
+    text = render_cv(portuguese_payload(), tmp_path)
+    assert "Formação" in text
+    assert "Stack técnica" in text
+    assert "Idiomas" in text
+    assert "Education" not in text
+    assert "Nome de Teste" in text
+    assert "Curitiba, PR" in text
+
+
+def test_renderer_converts_markdown_bold_to_bold_docx_run(tmp_path):
+    payload = portuguese_payload()
+    payload["resumo"] = "Liderei **gestão de equipes** com resultados."
+
+    document = render_cv_document(payload, tmp_path)
+    text = "".join(node.text or "" for node in document.findall(".//w:t", NS))
+    runs = document.findall(".//w:r", NS)
+
+    assert "**" not in text
+    assert any(
+        run.find("w:rPr/w:b", NS) is not None
+        and "gestão de equipes" in "".join(node.text or "" for node in run.findall(".//w:t", NS))
+        for run in runs
+    )
+
+
+@pytest.mark.parametrize("field,value", [("education", []), ("stack", "  "), ("languages", [])])
+def test_renderer_rejects_blank_english_mandatory_sections(tmp_path, field, value):
+    payload = english_payload()
+    payload[field] = value
+    with pytest.raises(subprocess.CalledProcessError):
+        render_cv(payload, tmp_path)
+
+
+def test_renderer_rejects_ascending_experience_order(tmp_path):
+    payload = english_payload()
+    payload["experiences"] = list(reversed(payload["experiences"]))
+    with pytest.raises(subprocess.CalledProcessError):
+        render_cv(payload, tmp_path)
+
+
+def test_renderer_requires_explicit_output_filename(tmp_path):
+    payload = english_payload()
+    payload.pop("output_name")
+    content_path = tmp_path / "cv_content.json"
+    content_path.write_text(json.dumps(payload), encoding="utf-8")
+    env = {**os.environ, "CAREER_CV_CONTENT": str(content_path), "CAREER_OUTPUTS": str(tmp_path)}
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run(
+            ["node", "scripts/docx/generate_custom_cv.js"],
+            cwd=ROOT,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
+def test_renderer_applies_arial_theme(tmp_path):
+    payload = english_payload()
+    render_cv(payload, tmp_path)
+    with zipfile.ZipFile(tmp_path / payload["output_name"]) as docx:
+        theme = docx.read("word/theme/theme1.xml").decode("utf-8")
+    assert 'typeface="Arial"' in theme

@@ -1,0 +1,75 @@
+# Project source repository: never version local secrets or runtime state.
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/.secrets/
+**/.auth_token
+**/.db_id
+**/*token*.json
+**/*secret*.json
+**/*credentials*.json
+**/*oauth*.json
+*.pem
+*.key
+*.ppk
+
+# Agent/browser/runtime state
+.career-state/
+/state/
+/workspaces/
+/hermes/
+/playwright/
+/backups/
+**/browser/
+**/sessions/
+**/logs/
+*.db
+*.sqlite
+*.sqlite3
+*.db-*
+*.sqlite-*
+
+# Dependencies and generated environments
+.tools/
+.venv/
+.venvs/
+**/.venv/
+**/.venv-test/
+**/node_modules/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+**/.pytest_cache/
+.cache/
+**/.cache/
+
+# Local IDE and agent metadata
+.codex/
+**/.codex/
+.continue/
+**/.continue/
+.worktrees/
+**/.worktrees/
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Generated application data
+app/inbox/
+app/outputs/
+app/.career-state/
+app/.worktrees/
+app/.superpowers/
+app/.inbox/
+app/ollama-usage/
+app/scripts/generated/
+app/scripts/__pycache__/
+app/tests/__pycache__/
