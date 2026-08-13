@@ -262,7 +262,7 @@ class CellStore:
             updated = conn.execute(
                 """UPDATE cell_attempts SET status = 'running'
                    WHERE run_id = ? AND node_id = ? AND attempt = ?
-                     AND worker_id = ? AND status = 'reserved'
+                     AND worker_id = ? AND status IN ('reserved', 'running')
                      AND inputs_registered_at IS NOT NULL""",
                 (run_id, node_id, attempt, worker_id),
             ).rowcount
