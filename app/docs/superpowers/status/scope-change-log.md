@@ -40,6 +40,34 @@ enquanto não estiver `aprovado`.
 | `CHG-0001` | 2026-08-13 | `adição` | Adotar execução celular ancorada em dados, SQLite como autoridade e sessão nova por célula | `ARCH-01` a `ARCH-12` | `aprovado` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0002` | 2026-08-13 | `adição` | Criar matriz de conformidade e controle formal de mudanças de escopo | controle de governança | `aprovado` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0003` | 2026-08-13 | `implementação` | Executar Fase A: caminho explícito do control plane, registros bounded de runtime e diagnóstico Hermes read-only | `ARCH-02`, `ARCH-09`, `ARCH-10`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
+| `CHG-0004` | 2026-08-13 | `implementação` | Executar Fase B: persistir inputs, requests, handovers e recibos de validação no control plane celular | `ARCH-03`, `ARCH-04`, `ARCH-05`, `ARCH-08`, `ARCH-11`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
+
+### Escopo de CHG-0004
+
+- **Dentro:** tabelas SQLite e APIs para inputs, handovers, recibos e requests;
+  validação de hashes/dependências antes do handler; publicação final com
+  registro transacional; testes de falha e concorrência; evidência da matriz.
+- **Fora:** integração do gateway Telegram, migração dos bancos Hermes, execução
+  automática em produção e alteração da skill `processe-a-vaga`.
+- **Rollback:** desabilitar a integração do executor e preservar as tabelas novas
+  sem apagar registros; os manifests e artefatos existentes continuam legíveis.
+- **Plano:** [`2026-08-13-phase-b-cell-contract-persistence.md`](../plans/2026-08-13-phase-b-cell-contract-persistence.md).
+
+### Evidência de CHG-0004
+
+- Commit: working tree identificado antes do commit de integração; somente os
+  arquivos da Fase B e os três arquivos sujos preexistentes permanecem alterados.
+- Arquivos principais: `app/src/career/services/database.py`,
+  `app/src/career/services/cell_store.py`,
+  `app/src/career/services/agent_requests.py`,
+  `app/src/career/cells/executor.py` e respectivos testes.
+- Testes: `47 passed` no foco; `114 passed, 1 deselected` na regressão celular,
+  runtime e intake.
+- Runtime de fixture: request antes do handler; handover/receipts/artifacts e
+  estado `validated` registrados antes de liberar `normalize_job`.
+- Limitação: o gateway Telegram, o heartbeat externo e os processos Hermes ainda
+  não usam esse caminho; por isso as linhas de integração não foram marcadas
+  `verificado`.
 
 ### Evidência de CHG-0003
 

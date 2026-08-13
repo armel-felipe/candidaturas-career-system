@@ -29,6 +29,7 @@ from career.services.application_context import (
     paths_for,
     workspace_owner_from_env,
 )
+from career.services.agent_requests import CellRequestBuilder
 from career.services.cell_store import CellStore
 from career.services.database import Database
 from career.utils import read_json, utc_now_iso, write_json
@@ -95,6 +96,7 @@ class CellExecutor:
             raise ValueError("lease_seconds must be positive")
         self.database = database
         self.store = CellStore(database)
+        self.request_builder = CellRequestBuilder(database)
         self.applications_root = Path(applications_root or APPLICATIONS_DIR)
         self.handlers = dict(handlers or {})
         self.validators = dict(validators or {})
@@ -550,6 +552,18 @@ class CellExecutor:
                 attempt_record=attempt_record,
             )
         context = self._context_from_manifest(paths, node, attempt_record.path)
+        try:
+            self.store.validate_attempt_inputs(plan.run_id, node.node_id, attempt)
+        except Exception as exc:
+            return self._block_reserved(
+                paths,
+                node,
+                reservation,
+                f"input_validation_error:{type(exc).__name__}:{exc}",
+                (),
+                (),
+                attempt_record=attempt_record,
+            )
         acquired_resources: list[Mapping[str, Any]] = []
         keepalive_context = None
         authority_fence_context = None
@@ -610,6 +624,18 @@ class CellExecutor:
                 acquired_resources,
             )
             keepalive = keepalive_context.__enter__()
+            if not self.store.mark_attempt_running(
+                plan.run_id, node.node_id, attempt, self.worker_id
+            ):
+                return self._block_reserved(
+                    paths,
+                    node,
+                    reservation,
+                    "attempt_could_not_start",
+                    (),
+                    (),
+                    attempt_record=attempt_record,
+                )
             try:
                 with context.capabilities.enforce_writes():
                     output = handler(context)
@@ -753,9 +779,10 @@ class CellExecutor:
                     return self._cancel_stale_workspace_execution(
                         reservation, node, attempt_record.path
                     )
+            handover_path: Path | None = None
             if output.handover:
                 try:
-                    manifest_store.write_handover(
+                    handover_path = manifest_store.write_handover(
                         node.node_id, attempt, output.handover
                     )
                 except Exception as exc:
@@ -871,6 +898,12 @@ class CellExecutor:
                     workspace_owner=self.workspace_owner,
                     workspace_fence_token=self.workspace_fence_token,
                     resource_leases=acquired_resources,
+                    handover=output.handover,
+                    handover_path=str(handover_path) if handover_path else None,
+                    validation_receipts=(
+                        self._validation_receipt_mapping(item)
+                        for item in validator_results
+                    ),
                     published_artifacts=tuple(
                         {
                             "artifact_name": item.manifest["artifact_name"],
@@ -1710,6 +1743,13 @@ class CellExecutor:
                 raise RuntimeError(
                     f"attempt cannot execute from status: {manifest.get('status')}"
                 )
+            self.store.register_attempt_inputs(
+                run_id, node.node_id, attempt, inputs
+            )
+            request = self.request_builder.build(
+                run_id=run_id, node_id=node.node_id, attempt=attempt
+            )
+            self.request_builder.materialize(request, record.path.parent)
             manifest["inputs"] = store._normalize_inputs(inputs)
             manifest["capabilities"] = {
                 "read_paths": [str(store._target(path)) for path in read_paths],
@@ -1721,7 +1761,7 @@ class CellExecutor:
             manifest["inputs_materialized_at"] = utc_now_iso()
             write_json(record.path, manifest)
             return store._load_attempt(node.node_id, attempt)
-        return ManifestStore(paths).begin_attempt(
+        record = ManifestStore(paths).begin_attempt(
             node.node_id,
             attempt,
             run_id=run_id,
@@ -1732,6 +1772,12 @@ class CellExecutor:
             context={"repair_scope": node.repair_scope},
             status="reserved",
         )
+        self.store.register_attempt_inputs(run_id, node.node_id, attempt, inputs)
+        request = self.request_builder.build(
+            run_id=run_id, node_id=node.node_id, attempt=attempt
+        )
+        self.request_builder.materialize(request, record.path.parent)
+        return record
 
     def _load_or_begin_unmaterialized_attempt(
         self,
@@ -2255,6 +2301,13 @@ class CellExecutor:
             "report_path": str(result.report_path.resolve()),
             "executed_at": utc_now_iso(),
         }
+
+    @classmethod
+    def _validation_receipt_mapping(cls, result: ValidatorResult) -> dict[str, Any]:
+        mapping = cls._validator_mapping(result)
+        if result.report_path.is_file():
+            mapping["report_sha256"] = cls._sha256_file(result.report_path)
+        return mapping
 
     def _owned_ready_reservations(self, run_id: str) -> list[dict[str, Any]]:
         now = utc_now_iso()

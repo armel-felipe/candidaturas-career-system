@@ -6,6 +6,7 @@ import math
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -26,6 +27,11 @@ class CellStore:
     _MAX_METADATA_KEY_LENGTH = 64
     _MAX_METADATA_STRING_LENGTH = 256
     _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+    _MAX_INPUTS = 64
+    _MAX_INPUT_NAME_LENGTH = 128
+    _MAX_INPUT_STRING_LENGTH = 512
+    _MAX_HANDOVER_BYTES = 16 * 1024
+    _MAX_RECEIPT_DETAILS_BYTES = 4096
 
     def __init__(self, database: Database):
         self.database = database
@@ -178,6 +184,118 @@ class CellStore:
             "expires_at": expires_at if renewed else None,
         }
 
+    def register_attempt_inputs(
+        self,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        inputs: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Persist the immutable input references before cell execution."""
+        normalized = self._normalize_attempt_inputs(inputs)
+        with self.database.transaction(immediate=True) as conn:
+            active = conn.execute(
+                """SELECT status, inputs_registered_at FROM cell_attempts
+                   WHERE run_id = ? AND node_id = ? AND attempt = ?""",
+                (run_id, node_id, attempt),
+            ).fetchone()
+            if active is None:
+                raise KeyError(f"unknown cell attempt: {run_id}/{node_id}/{attempt}")
+            existing_rows = conn.execute(
+                """SELECT input_name, source_kind, source_node_id, source_attempt,
+                          source_id, version, path, content_hash, required
+                   FROM cell_inputs
+                   WHERE run_id = ? AND node_id = ? AND attempt = ?
+                   ORDER BY input_name""",
+                (run_id, node_id, attempt),
+            ).fetchall()
+            existing = [dict(row) for row in existing_rows]
+            rewrite_inputs = False
+            if active["inputs_registered_at"] is not None and existing != normalized:
+                if active["status"] != "reserved":
+                    raise ValueError("attempt inputs are immutable")
+                conn.execute(
+                    """DELETE FROM cell_inputs
+                       WHERE run_id = ? AND node_id = ? AND attempt = ?""",
+                    (run_id, node_id, attempt),
+                )
+                rewrite_inputs = True
+            if active["inputs_registered_at"] is None or rewrite_inputs:
+                now = self._now()
+                conn.executemany(
+                    """INSERT INTO cell_inputs
+                       (run_id, node_id, attempt, input_name, source_kind,
+                        source_node_id, source_attempt, source_id, version, path,
+                        content_hash, required, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    [
+                        (
+                            run_id,
+                            node_id,
+                            attempt,
+                            item["input_name"],
+                            item["source_kind"],
+                            item["source_node_id"],
+                            item["source_attempt"],
+                            item["source_id"],
+                            item["version"],
+                            item["path"],
+                            item["content_hash"],
+                            int(item["required"]),
+                            now,
+                        )
+                        for item in normalized
+                    ],
+                )
+                conn.execute(
+                    """UPDATE cell_attempts SET inputs_registered_at = ?
+                       WHERE run_id = ? AND node_id = ? AND attempt = ?""",
+                    (now, run_id, node_id, attempt),
+                )
+        return {"run_id": run_id, "node_id": node_id, "attempt": attempt, "count": len(normalized)}
+
+    def mark_attempt_running(
+        self, run_id: str, node_id: str, attempt: int, worker_id: str
+    ) -> bool:
+        """Freeze the prepared input set immediately before invoking a handler."""
+        with self.database.transaction(immediate=True) as conn:
+            updated = conn.execute(
+                """UPDATE cell_attempts SET status = 'running'
+                   WHERE run_id = ? AND node_id = ? AND attempt = ?
+                     AND worker_id = ? AND status = 'reserved'
+                     AND inputs_registered_at IS NOT NULL""",
+                (run_id, node_id, attempt, worker_id),
+            ).rowcount
+        return updated == 1
+
+    def validate_attempt_inputs(
+        self, run_id: str, node_id: str, attempt: int
+    ) -> dict[str, Any]:
+        """Verify registered input files still exist and retain their hashes."""
+        rows = self.database.fetch_all(
+            """SELECT input_name, path, content_hash, required
+               FROM cell_inputs
+               WHERE run_id = ? AND node_id = ? AND attempt = ?
+               ORDER BY input_name""",
+            (run_id, node_id, attempt),
+        )
+        problems: list[str] = []
+        for row in rows:
+            path_value = row.get("path")
+            if not path_value:
+                continue
+            path = Path(str(path_value))
+            if not path.is_file():
+                if row["required"]:
+                    problems.append(f"missing:{row['input_name']}")
+                continue
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest != row["content_hash"]:
+                problems.append(f"hash:{row['input_name']}")
+        if problems:
+            raise ValueError("input validation failed: " + ",".join(problems))
+        return {"valid": True, "count": len(rows)}
+
     def cancel_expired_reservation(
         self, run_id: str, node_id: str, attempt: int, worker_id: str
     ) -> dict[str, Any]:
@@ -275,6 +393,9 @@ class CellStore:
         workspace_fence_token: int | None = None,
         resource_leases: Iterable[Mapping[str, Any]] = (),
         published_artifacts: Iterable[Mapping[str, Any]] = (),
+        handover: Mapping[str, Any] | None = None,
+        handover_path: str | None = None,
+        validation_receipts: Iterable[Mapping[str, Any]] = (),
     ) -> dict[str, Any]:
         """Finish only the active attempt owned by ``worker_id``.
 
@@ -284,6 +405,12 @@ class CellStore:
         receipt_json = self._receipt_json(status, receipt)
         leases = tuple(resource_leases)
         artifacts = self._published_artifacts(status, receipt, published_artifacts)
+        handover_record = self._handover_record(
+            run_id, node_id, attempt, status, handover or {}, handover_path
+        )
+        validation_records = self._validation_records(
+            run_id, node_id, attempt, validation_receipts
+        )
 
         with self.database.authority_ledger_lock():
             if self.database.authority_ledger_path is not None:
@@ -358,6 +485,43 @@ class CellStore:
                             now,
                         ),
                     )
+                if handover_record is not None:
+                    conn.execute(
+                        """INSERT INTO cell_handovers
+                           (handover_id, run_id, node_id, attempt, status,
+                            payload_json, payload_hash, path, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            handover_record["handover_id"],
+                            run_id,
+                            node_id,
+                            attempt,
+                            status,
+                            handover_record["payload_json"],
+                            handover_record["payload_hash"],
+                            handover_record["path"],
+                            now,
+                        ),
+                    )
+                for item in validation_records:
+                    conn.execute(
+                        """INSERT INTO validation_receipts
+                           (receipt_id, run_id, node_id, attempt, validator,
+                            result, report_path, report_sha256, details_json, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            item["receipt_id"],
+                            run_id,
+                            node_id,
+                            attempt,
+                            item["validator"],
+                            item["result"],
+                            item["report_path"],
+                            item["report_sha256"],
+                            item["details_json"],
+                            now,
+                        ),
+                    )
                 if status == "blocked":
                     conn.execute(
                         "UPDATE application_runs SET status = 'blocked', updated_at = ? WHERE run_id = ?",
@@ -412,6 +576,123 @@ class CellStore:
                 }
             )
         return tuple(normalized)
+
+    @classmethod
+    def _normalize_attempt_inputs(
+        cls, inputs: Mapping[str, Any]
+    ) -> list[dict[str, Any]]:
+        if not isinstance(inputs, Mapping):
+            raise ValueError("attempt inputs must be a mapping")
+        if len(inputs) > cls._MAX_INPUTS:
+            raise ValueError("attempt inputs exceed maximum")
+        normalized: list[dict[str, Any]] = []
+        for raw_name, raw_value in inputs.items():
+            name = str(raw_name)
+            if not name or len(name) > cls._MAX_INPUT_NAME_LENGTH:
+                raise ValueError("input name is invalid")
+            if isinstance(raw_value, Path):
+                path = raw_value.resolve()
+                if not path.is_file():
+                    raise ValueError(f"input path is not a file: {path}")
+                value: Mapping[str, Any] = {"path": str(path)}
+            elif isinstance(raw_value, Mapping):
+                value = raw_value
+                path = Path(str(value["path"])).resolve() if value.get("path") else None
+            else:
+                raise ValueError(f"input {name} must be a path or mapping")
+            content_hash = str(value.get("sha256") or "")
+            if path is not None and not content_hash:
+                if not path.is_file():
+                    raise ValueError(f"input path is not a file: {path}")
+                content_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            if not cls._SHA256_RE.fullmatch(content_hash):
+                raise ValueError(f"input {name} requires a SHA-256 hash")
+            source_kind = str(value.get("source_kind") or "file")
+            if len(source_kind) > cls._MAX_INPUT_STRING_LENGTH:
+                raise ValueError("input source kind is too long")
+            source_node_id = value.get("node_id", value.get("source_node_id"))
+            source_attempt = value.get("attempt", value.get("source_attempt"))
+            if source_attempt is not None:
+                source_attempt = int(source_attempt)
+                if source_attempt <= 0:
+                    raise ValueError("input source attempt must be positive")
+            normalized.append(
+                {
+                    "input_name": name,
+                    "source_kind": source_kind,
+                    "source_node_id": str(source_node_id) if source_node_id is not None else None,
+                    "source_attempt": source_attempt,
+                    "source_id": str(value["source_id"]) if value.get("source_id") is not None else None,
+                    "version": str(value["version"]) if value.get("version") is not None else None,
+                    "path": str(path) if path is not None else None,
+                    "content_hash": content_hash,
+                    "required": bool(value.get("required", True)),
+                }
+            )
+        return sorted(normalized, key=lambda item: item["input_name"])
+
+    @classmethod
+    def _handover_record(
+        cls,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        status: str,
+        handover: Mapping[str, Any],
+        handover_path: str | None,
+    ) -> dict[str, Any] | None:
+        if status not in {"validated", "blocked", "repairing", "cancelled", "superseded"}:
+            return None
+        if not isinstance(handover, Mapping):
+            raise ValueError("handover must be a mapping")
+        for field, expected in (("run_id", run_id), ("node_id", node_id), ("attempt", attempt)):
+            if field in handover and str(handover[field]) != str(expected):
+                raise ValueError(f"handover {field} does not match attempt")
+        payload_json = cls._json(dict(handover))
+        if len(payload_json.encode("utf-8")) > cls._MAX_HANDOVER_BYTES:
+            raise ValueError("handover exceeds maximum size")
+        return {
+            "handover_id": uuid4().hex,
+            "payload_json": payload_json,
+            "payload_hash": hashlib.sha256(payload_json.encode("utf-8")).hexdigest(),
+            "path": str(handover_path) if handover_path else None,
+        }
+
+    @classmethod
+    def _validation_records(
+        cls,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        receipts: Iterable[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for raw in receipts:
+            if not isinstance(raw, Mapping):
+                raise ValueError("validation receipt must be a mapping")
+            validator = str(raw.get("validator") or raw.get("command") or "").strip()
+            result = str(raw.get("result") or "").strip()
+            if not validator or not result:
+                raise ValueError("validation receipt requires validator and result")
+            report_path = raw.get("report_path")
+            report_sha256 = raw.get("report_sha256")
+            if report_sha256 is not None and not cls._SHA256_RE.fullmatch(str(report_sha256)):
+                raise ValueError("validation receipt report hash is invalid")
+            details = raw.get("details", {})
+            details_json = cls._json(details)
+            if len(details_json.encode("utf-8")) > cls._MAX_RECEIPT_DETAILS_BYTES:
+                raise ValueError("validation receipt details exceed maximum size")
+            normalized.append(
+                {
+                    "receipt_id": uuid4().hex,
+                    "validator": validator,
+                    "result": result,
+                    "report_path": str(report_path) if report_path else None,
+                    "report_sha256": str(report_sha256) if report_sha256 else None,
+                    "details_json": details_json,
+                }
+            )
+        return normalized
 
     def acquire_resource_lock(
         self,

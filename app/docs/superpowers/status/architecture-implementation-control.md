@@ -46,16 +46,16 @@ gateway, o heartbeat ou os dois bots estão usando esse contrato.
 |---|---|---|---|---|
 | `ARCH-01` | Cada célula inicia sessão nova, sem `resume` | `desenhado` | `SubprocessAgentRunner` implementa runners novos | conectar o caminho Telegram/heartbeat ao runner celular |
 | `ARCH-02` | SQLite compartilhado é a autoridade operacional | `em validação` | `CAREER_CONTROL_DB_PATH` e mount comum foram configurados; control plane vazio provisionado em `/opt/agent-projects/candidaturas/control-plane/career.db` | autoridade/ledger e migração controlada ficam para fases posteriores |
-| `ARCH-03` | Inputs da tentativa são registrados antes do agente | `não iniciado` | requests e manifests existem em arquivos | criar persistência e guard de `cell_inputs` |
-| `ARCH-04` | Handover e outputs são publicados antes da liberação seguinte | `parcial` | `CellStore`, manifests e handover existem | execução real atual não registra tentativas/artefatos celulares |
-| `ARCH-05` | Request do agente é projeção compacta do estado persistido | `implementado não integrado` | `agent_requests.py` e requests versionados | provar que o gateway não injeta histórico ou skill monolítica |
+| `ARCH-03` | Inputs da tentativa são registrados antes do agente | `em validação` | `cell_inputs`, `inputs_registered_at`, `CellRequestBuilder` e guard de hash no `CellExecutor`; teste observa rows antes do handler | runner/gateway externo ainda não está integrado |
+| `ARCH-04` | Handover e outputs são publicados antes da liberação seguinte | `em validação` | `cell_handovers`, `validation_receipts` e commit final do `CellStore`; dependente só aparece pronto após `validated` | publicação filesystem + SQLite ainda precisa de runtime controlado fora da fixture |
+| `ARCH-05` | Request do agente é projeção compacta do estado persistido | `em validação` | `cell_requests`, `request.json`/`request.md`, hash e limite bounded usados pelo executor | `AgentRequestBuilder` legado e gateway Hermes ainda coexistem |
 | `ARCH-06` | Telegram é dispatcher fino | `divergente` | containers iniciam gateway Hermes direto | instalar e validar integração com Harness/CellExecutor |
 | `ARCH-07` | `processe-a-vaga` compila para células pequenas | `parcial` | contratos celulares já definem vários nós | impedir o uso direto da skill monolítica no caminho de produção |
-| `ARCH-08` | Limite de contexto bloqueia payload excessivo antes do runner | `não iniciado` | há compressão Hermes, não gate de admissão celular | implementar medição, limite e bloqueio pré-runner |
+| `ARCH-08` | Limite de contexto bloqueia payload excessivo antes do runner | `parcial` | `CellRequestBuilder` rejeita projeção acima de 128 KiB antes do handler e explicita alvo 12k/limite 32k | medição de tokens e limite no runner real ficam para integração/telemetria |
 | `ARCH-09` | Workers são substituíveis e consultam estado comum | `em validação` | caminho comum do control plane e APIs de registro existem; bancos Hermes e estados legados continuam separados | integrar todos os workers e retirar autoridade operacional dos perfis |
 | `ARCH-10` | Alterações de código têm registro, testes e impacto | `em validação` | matriz, change log, plano e commits de Fase A existem | aplicar gates automaticamente e registrar evidência de cada execução |
-| `ARCH-11` | Falhas bloqueiam ou reparam, sem sessão interminável | `parcial` | estados de célula e reparo existem no código | validar no caminho real e adicionar limite de repetição/contexto |
-| `ARCH-12` | Execução completa deixa trilha auditável no SQLite | `em validação` | control plane possui schema e tabelas de runtime; diagnóstico mede workers/runs/observações | execuções reais ainda não estão conectadas ao registro celular |
+| `ARCH-11` | Falhas bloqueiam ou reparam, sem sessão interminável | `em validação` | hash ausente/alterado, request oversized e handover inconsistente bloqueiam sem liberar dependentes; testes focados aprovados | limite de repetição/contexto no runner externo ainda não integrado |
+| `ARCH-12` | Execução completa deixa trilha auditável no SQLite | `em validação` | além das tabelas de runtime, Fase B registra inputs, requests, handovers, receipts e artifacts por tentativa | gateway e heartbeat reais ainda não estão conectados ao registro celular |
 
 ## Como atualizar a matriz
 
@@ -136,3 +136,14 @@ Os gateways atuais continuam fora do control plane por design de migração: o
 diagnóstico observa seus bancos privados, mas a integração que registrará cada
 execução real e os fará iniciar células novas ainda não foi promovida para
 `verificado`.
+
+## Evidência da Fase B
+
+| Verificação | Resultado |
+|---|---|
+| Testes focados de persistência e executor | `47 passed` em `test_cell_contract_persistence.py`, `test_database.py`, `test_cell_store.py` e `test_cell_executor.py` |
+| Regressão de células/intake/runtime | `114 passed, 1 deselected`; o caso isolado é o teste legado de aprovação CV bloqueado por `enquadramento.json` ausente |
+| Request pré-handler | fixture do executor consultou `cell_inputs` e `cell_requests` antes do handler; `request.json` e `request.md` materializados |
+| Commit final | fixture registrou `cell_handovers`, `validation_receipts` com SHA-256 do relatório, artefatos e `validated` na mesma transição; dependente ficou pronto depois |
+| Integridade | hash alterado, input vazio posteriormente ampliado, request acima do limite e handover com identidade errada foram rejeitados |
+| Limitações | não prova ainda gateway Telegram, runner externo, medição real de tokens ou produção nos dois bots |

@@ -197,6 +197,7 @@ class Database:
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 finished_at TEXT,
+                inputs_registered_at TEXT,
                 detail_json TEXT,
                 UNIQUE (run_id, node_id, attempt),
                 FOREIGN KEY (run_id, node_id) REFERENCES cell_nodes(run_id, node_id)
@@ -235,6 +236,80 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_artifacts_run_node
                 ON artifacts(run_id, node_id);
+
+            CREATE TABLE IF NOT EXISTS cell_inputs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                input_name TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                source_node_id TEXT,
+                source_attempt INTEGER,
+                source_id TEXT,
+                version TEXT,
+                path TEXT,
+                content_hash TEXT NOT NULL,
+                required INTEGER NOT NULL DEFAULT 1 CHECK (required IN (0, 1)),
+                created_at TEXT NOT NULL,
+                UNIQUE (run_id, node_id, attempt, input_name),
+                FOREIGN KEY (run_id, node_id) REFERENCES cell_nodes(run_id, node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cell_inputs_attempt
+                ON cell_inputs(run_id, node_id, attempt);
+
+            CREATE TABLE IF NOT EXISTS cell_handovers (
+                handover_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_hash TEXT NOT NULL,
+                path TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE (run_id, node_id, attempt),
+                FOREIGN KEY (run_id, node_id) REFERENCES cell_nodes(run_id, node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cell_handovers_run_node
+                ON cell_handovers(run_id, node_id, attempt);
+
+            CREATE TABLE IF NOT EXISTS validation_receipts (
+                receipt_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                validator TEXT NOT NULL,
+                result TEXT NOT NULL,
+                report_path TEXT,
+                report_sha256 TEXT,
+                details_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                UNIQUE (run_id, node_id, attempt, validator),
+                FOREIGN KEY (run_id, node_id) REFERENCES cell_nodes(run_id, node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_validation_receipts_attempt
+                ON validation_receipts(run_id, node_id, attempt);
+
+            CREATE TABLE IF NOT EXISTS cell_requests (
+                request_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                contract_version TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_hash TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE (run_id, node_id, attempt),
+                FOREIGN KEY (run_id, node_id) REFERENCES cell_nodes(run_id, node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cell_requests_run_node
+                ON cell_requests(run_id, node_id, attempt);
 
             CREATE TABLE IF NOT EXISTS resource_locks (
                 resource_name TEXT PRIMARY KEY,
@@ -364,6 +439,13 @@ class Database:
         }
         if "lease_id" not in resource_lock_columns:
             conn.execute("ALTER TABLE resource_locks ADD COLUMN lease_id TEXT")
+        cell_attempt_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(cell_attempts)")
+        }
+        if "inputs_registered_at" not in cell_attempt_columns:
+            conn.execute(
+                "ALTER TABLE cell_attempts ADD COLUMN inputs_registered_at TEXT"
+            )
         workspace_lease_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(workspace_leases)")
         }
