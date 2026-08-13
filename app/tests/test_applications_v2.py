@@ -53,6 +53,28 @@ def test_parallel_mode_status_requires_matching_control_database_id(tmp_path, mo
     assert ready["control_db_id"] == activated["control_db_id"]
 
 
+def test_parallel_mode_uses_explicit_shared_control_database_path(tmp_path, monkeypatch):
+    state_dir = tmp_path / ".career-state"
+    shared_path = tmp_path / "control-plane" / "career.db"
+    database = Database(shared_path)
+    database.init_schema()
+    expected_control_db_id = database.control_db_identity()
+    monkeypatch.setattr(applications_v2, "V2_DIR", state_dir / "applications_v2")
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(shared_path))
+
+    try:
+        activated = applications_v2.activate_local_parallel_mode(max_workers=2)
+        monkeypatch.setenv("CAREER_CONTROL_DB_ID", activated["control_db_id"])
+        ready = applications_v2.parallel_mode_status()
+    finally:
+        database.close()
+
+    assert ready["ready"] is True
+    assert activated["control_db_id"] == expected_control_db_id
+    assert ready["control_db_id"] == expected_control_db_id
+    assert not (state_dir / "career.db").exists()
+
+
 def test_cellular_heartbeat_requires_ready_parallel_runtime(monkeypatch):
     monkeypatch.setattr(
         applications_v2,

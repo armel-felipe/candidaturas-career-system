@@ -45,6 +45,12 @@ V2_CONFIG = V2_DIR / "config.json"
 V2_INDEX = V2_DIR / "index.json"
 V2_LOG_DIR = V2_DIR / "_logs"
 V2_MAINTENANCE_STATE = V2_DIR / "maintenance_state.json"
+
+
+def _control_database() -> Database:
+    """Resolve the shared control DB while preserving test/legacy path overrides."""
+    configured_path = str(os.environ.get("CAREER_CONTROL_DB_PATH") or "").strip()
+    return Database(configured_path or V2_DIR.parent / "career.db")
 NOTION_CACHE = ROOT / "inbox" / "notion" / "applications_cache.json"
 KEYWORD_REGISTRY = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
 TRANSLATION_REGISTRY = ROOT / ".agents/skills/career-system/references/keyword_translation_registry.json"
@@ -226,7 +232,7 @@ def activate_local_parallel_mode(*, max_workers: int = 2) -> dict[str, Any]:
     """Configure this single-host workspace for exactly two cellular workers."""
     if max_workers != 2:
         raise ValueError("local parallel mode requires exactly 2 workers")
-    database = Database(V2_DIR.parent / "career.db")
+    database = _control_database()
     try:
         database.init_schema()
         control_db_id = database.control_db_identity()
@@ -267,7 +273,7 @@ def parallel_mode_status() -> dict[str, Any]:
     if pipeline_mode != "cellular" or max_per_run != 2 or cellular_max_workers != 2:
         payload["blocker"] = "parallel_mode_not_activated"
         return payload
-    database_path = V2_DIR.parent / "career.db"
+    database_path = _control_database().db_path
     if not database_path.is_file():
         payload["blocker"] = "authoritative_control_database_missing"
         return payload
