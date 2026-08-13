@@ -65,6 +65,10 @@ enquanto não estiver `aprovado`.
   `app/src/career/cells/executor.py` e respectivos testes.
 - Testes: `47 passed` no foco; `114 passed, 1 deselected` na regressão celular,
   runtime e intake.
+- Suíte completa pós-commit: `344 passed, 15 failed`; as falhas abertas são
+  ambientais/contratuais conhecidas e não foram introduzidas pelos arquivos da
+  Fase B (Node.js ausente, `enquadramento.json` ausente e scripts Windows
+  preexistentes em `.venv-test`).
 - Runtime de fixture: request antes do handler; handover/receipts/artifacts e
   estado `validated` registrados antes de liberar `normalize_job`.
 - Limitação: o gateway Telegram, o heartbeat externo e os processos Hermes ainda

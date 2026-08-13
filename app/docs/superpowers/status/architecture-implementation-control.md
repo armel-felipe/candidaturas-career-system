@@ -146,4 +146,5 @@ execução real e os fará iniciar células novas ainda não foi promovida para
 | Request pré-handler | fixture do executor consultou `cell_inputs` e `cell_requests` antes do handler; `request.json` e `request.md` materializados |
 | Commit final | fixture registrou `cell_handovers`, `validation_receipts` com SHA-256 do relatório, artefatos e `validated` na mesma transição; dependente ficou pronto depois |
 | Integridade | hash alterado, input vazio posteriormente ampliado, request acima do limite e handover com identidade errada foram rejeitados |
+| Suíte completa pós-commit | `344 passed, 15 failed`; as falhas estão fora da Fase B: Node.js ausente, `enquadramento.json` ausente e scripts Windows preexistentes em `.venv-test` |
 | Limitações | não prova ainda gateway Telegram, runner externo, medição real de tokens ou produção nos dois bots |
