@@ -42,6 +42,7 @@ enquanto não estiver `aprovado`.
 | `CHG-0003` | 2026-08-13 | `implementação` | Executar Fase A: caminho explícito do control plane, registros bounded de runtime e diagnóstico Hermes read-only | `ARCH-02`, `ARCH-09`, `ARCH-10`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0004` | 2026-08-13 | `implementação` | Executar Fase B: persistir inputs, requests, handovers e recibos de validação no control plane celular | `ARCH-03`, `ARCH-04`, `ARCH-05`, `ARCH-08`, `ARCH-11`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0005` | 2026-08-13 | `implementação` | Executar Fase C: consolidar heartbeat, control plane e Harness com runner controlado de teste | `ARCH-01`, `ARCH-03`, `ARCH-05`, `ARCH-06`, `ARCH-08`, `ARCH-09`, `ARCH-11`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
+| `CHG-0006` | 2026-08-13 | `implementação` | Planejar canário de integração do `vagas_bot_01` com hook Hermes, Harness e execução celular | `ARCH-01`, `ARCH-02`, `ARCH-03`, `ARCH-06`, `ARCH-08`, `ARCH-09`, `ARCH-11`, `ARCH-12` | `aprovado` | `ARCH-DATA-ANCHORED-2026-08-13` |
 
 ### Escopo aprovado de CHG-0005
 
