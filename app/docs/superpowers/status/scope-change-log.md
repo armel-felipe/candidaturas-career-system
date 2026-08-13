@@ -55,8 +55,9 @@ enquanto não estiver `aprovado`.
 
 ### Evidência de CHG-0004
 
-- Commit: working tree identificado antes do commit de integração; somente os
-  arquivos da Fase B e os três arquivos sujos preexistentes permanecem alterados.
+- Commit: `6dd711b` (`feat: persist cellular execution contracts in sqlite`);
+  somente os arquivos da Fase B foram incluídos, e os três arquivos sujos
+  preexistentes permanecem fora do commit.
 - Arquivos principais: `app/src/career/services/database.py`,
   `app/src/career/services/cell_store.py`,
   `app/src/career/services/agent_requests.py`,
