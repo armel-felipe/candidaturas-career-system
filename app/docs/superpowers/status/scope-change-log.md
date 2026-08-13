@@ -55,9 +55,10 @@ enquanto não estiver `aprovado`.
 
 ### Evidência de CHG-0004
 
-- Commit: `6dd711b` (`feat: persist cellular execution contracts in sqlite`);
-  somente os arquivos da Fase B foram incluídos, e os três arquivos sujos
-  preexistentes permanecem fora do commit.
+- Commits: `6dd711b` (`feat: persist cellular execution contracts in sqlite`) e
+  `04b7dbb` (`fix: allow idempotent cellular attempt recovery`); somente os
+  arquivos da Fase B foram incluídos, e os três arquivos sujos preexistentes
+  permanecem fora dos commits.
 - Arquivos principais: `app/src/career/services/database.py`,
   `app/src/career/services/cell_store.py`,
   `app/src/career/services/agent_requests.py`,
