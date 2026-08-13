@@ -303,6 +303,61 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_artifact_dependencies_artifact_input
                 ON artifact_dependencies(artifact_id, input_hash);
+
+            CREATE TABLE IF NOT EXISTS runtime_workers (
+                worker_id TEXT PRIMARY KEY,
+                runtime TEXT NOT NULL,
+                profile_id TEXT,
+                host TEXT,
+                pid INTEGER,
+                status TEXT NOT NULL DEFAULT 'active',
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_workers_profile
+                ON runtime_workers(profile_id);
+
+            CREATE TABLE IF NOT EXISTS runtime_runs (
+                runtime_run_id TEXT PRIMARY KEY,
+                worker_id TEXT NOT NULL REFERENCES runtime_workers(worker_id),
+                run_id TEXT,
+                application_id TEXT,
+                node_id TEXT,
+                session_id TEXT,
+                source TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'running',
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                request_bytes INTEGER,
+                request_tokens INTEGER,
+                output_bytes INTEGER,
+                error TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_runs_worker_started
+                ON runtime_runs(worker_id, started_at);
+            CREATE INDEX IF NOT EXISTS idx_runtime_runs_application
+                ON runtime_runs(application_id, started_at);
+
+            CREATE TABLE IF NOT EXISTS runtime_observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                runtime_run_id TEXT NOT NULL REFERENCES runtime_runs(runtime_run_id),
+                observed_at TEXT NOT NULL,
+                context_tokens INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                tool_calls INTEGER,
+                history_messages INTEGER,
+                request_bytes INTEGER,
+                source TEXT NOT NULL DEFAULT '',
+                details_json TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_observations_run_time
+                ON runtime_observations(runtime_run_id, observed_at);
         """)
         resource_lock_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(resource_locks)")

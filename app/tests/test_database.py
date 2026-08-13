@@ -53,8 +53,11 @@ def test_database_creates_schema():
             "keyword_registry",
             "notion_cache",
             "profile_application_bindings",
-            "resource_locks",
-            "session_memory",
+                "resource_locks",
+                "runtime_observations",
+                "runtime_runs",
+                "runtime_workers",
+                "session_memory",
                 "workflow_events",
                 "workspace_authority",
                 "workspace_authority_handoffs",
@@ -96,7 +99,7 @@ def test_database_idempotent_schema():
         tables = db.fetch_all(
             "SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence' ORDER BY name"
         )
-        assert len(tables) == 17
+        assert len(tables) == 20
 
         db.close()
 
