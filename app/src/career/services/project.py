@@ -1,5 +1,7 @@
 from __future__ import annotations
+import os
 import platform
+import sqlite3
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,7 +36,7 @@ def diagnose_runtime() -> dict[str, Any]:
     macos_soffice = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
     soffice = shutil.which("libreoffice") or shutil.which("soffice") or (str(macos_soffice) if macos_soffice.exists() else None)
     payload = read_json(workflow_state) if workflow_state.exists() else {}
-    return {
+    diagnosis = {
         "platform": {
             "system": platform.system(),
             "release": platform.release(),
@@ -72,6 +74,164 @@ def diagnose_runtime() -> dict[str, Any]:
             for path in [keyword_registry, translation_candidates]
         ],
     }
+    diagnosis["control_plane"] = _control_plane_snapshot()
+    diagnosis["runtime_observability"] = _runtime_observability_snapshot(
+        diagnosis["control_plane"]
+    )
+    diagnosis["hermes_profiles"] = [
+        {
+            "profile_id": path.parent.name,
+            "state_db": str(path.resolve()),
+            **inspect_hermes_state_db(path),
+        }
+        for path in _hermes_state_db_paths()
+    ]
+    return diagnosis
+
+
+def inspect_hermes_state_db(path: Path) -> dict[str, Any]:
+    """Read aggregate Hermes session metrics without loading message bodies."""
+    path = Path(path)
+    if not path.is_file():
+        return {"status": "unavailable", "reason": "missing"}
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True, timeout=2)
+        connection.row_factory = sqlite3.Row
+        tables = {
+            str(row["name"])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        required = {"sessions", "messages"}
+        if not required.issubset(tables):
+            return {
+                "status": "unavailable",
+                "reason": "incompatible_schema",
+                "tables": sorted(tables),
+            }
+        session_count = int(connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0])
+        message_count = int(connection.execute("SELECT COUNT(*) FROM messages").fetchone()[0])
+        max_session_row = connection.execute(
+            """SELECT id AS session_id, message_count, tool_call_count,
+                      input_tokens, output_tokens, api_call_count
+               FROM sessions
+               ORDER BY message_count DESC, started_at DESC
+               LIMIT 1"""
+        ).fetchone()
+        max_session = dict(max_session_row) if max_session_row is not None else None
+        usage = {"input_tokens": 0, "output_tokens": 0, "api_call_count": 0}
+        if "session_model_usage" in tables:
+            usage_row = connection.execute(
+                """SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                          COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                          COALESCE(SUM(api_call_count), 0) AS api_call_count
+                   FROM session_model_usage"""
+            ).fetchone()
+            usage = {key: int(usage_row[key] or 0) for key in usage}
+        return {
+            "status": "ok",
+            "bytes": path.stat().st_size,
+            "session_count": session_count,
+            "message_count": message_count,
+            "max_session": max_session,
+            "usage": usage,
+        }
+    except (OSError, sqlite3.Error) as exc:
+        return {"status": "unavailable", "reason": type(exc).__name__}
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _hermes_state_db_paths() -> list[Path]:
+    root = Path(os.environ.get("CAREER_HERMES_ROOT") or (ROOT.parent / "hermes"))
+    if not root.is_dir():
+        return []
+    return sorted(
+        path for path in root.glob("vagas_bot_*/state.db") if path.is_file()
+    )
+
+
+def _control_plane_snapshot() -> dict[str, Any]:
+    configured_path = os.environ.get("CAREER_CONTROL_DB_PATH")
+    path = Path(configured_path or (CAREER_STATE / "career.db")).expanduser().resolve()
+    snapshot: dict[str, Any] = {
+        "path": str(path),
+        "configured": bool(configured_path),
+        "exists": path.is_file(),
+        "status": "missing" if not path.is_file() else "unavailable",
+        "control_db_id": None,
+        "schema_tables": [],
+    }
+    if not path.is_file():
+        return snapshot
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        connection.row_factory = sqlite3.Row
+        tables = sorted(
+            str(row["name"])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        )
+        snapshot["schema_tables"] = tables
+        if "workspace_authority" not in tables:
+            snapshot["status"] = "uninitialized"
+            return snapshot
+        authority = connection.execute(
+            """SELECT control_db_id, storage_identity, authority_epoch
+               FROM workspace_authority WHERE singleton_id = 1"""
+        ).fetchone()
+        if authority is None:
+            snapshot["status"] = "invalid"
+            return snapshot
+        snapshot.update(
+            {
+                "status": "ready",
+                "control_db_id": authority["control_db_id"],
+                "storage_identity": authority["storage_identity"],
+                "authority_epoch": authority["authority_epoch"],
+            }
+        )
+        return snapshot
+    except (OSError, sqlite3.Error) as exc:
+        snapshot["reason"] = type(exc).__name__
+        return snapshot
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _runtime_observability_snapshot(control_plane: dict[str, Any]) -> dict[str, Any]:
+    path = Path(str(control_plane["path"]))
+    result = {"worker_count": 0, "run_count": 0, "observation_count": 0}
+    if not path.is_file() or control_plane.get("status") != "ready":
+        return result
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        for table, key in (
+            ("runtime_workers", "worker_count"),
+            ("runtime_runs", "run_count"),
+            ("runtime_observations", "observation_count"),
+        ):
+            if table in tables:
+                result[key] = int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        return result
+    except (OSError, sqlite3.Error):
+        return result
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def local_strict_status() -> dict[str, Any]:
