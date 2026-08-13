@@ -35,11 +35,11 @@
 - `CellRequestBuilder.materialize(payload, target_dir) -> tuple[Path, Path]` materializes the SQLite projection without adding unpersisted JSON fields.
 - `_write_cellular_analyze_request(...)` returns files materialized from `cell_requests`, not a separately assembled payload.
 
-- [ ] **Step 1: Write the failing request-bridge tests**
+- [x] **Step 1: Write the failing request-bridge tests**
 
 Add tests proving a cellular request contains `cellular`, `application_id`, `run_id`, `node_id`, `attempt`, `manifest_path`, `read_allowlist`, and `write_allowlist`; the database payload hash matches the materialized JSON; and changing the JSON causes `load`/validation to fail.
 
-- [ ] **Step 2: Run the focused tests and confirm the expected failure**
+- [x] **Step 2: Run the focused tests and confirm the expected failure**
 
 Run:
 
@@ -49,13 +49,13 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_p
 
 Expected: FAIL because the builder has no cellular envelope/load contract and the heartbeat still assembles a parallel payload.
 
-- [ ] **Step 3: Implement the minimal builder and executor bridge**
+- [x] **Step 3: Implement the minimal builder and executor bridge**
 
 Extend the builder with a bounded cellular context, canonical JSON hashing, and `load`. During attempt materialization, pass the manifest-derived allowlists into the builder. Reject paths outside the workspace and reject cellular context that does not match the attempt identity.
 
 Change `_write_cellular_analyze_request` to open the authoritative control database, call `CellRequestBuilder.load`, materialize that payload, and render only textual operational guidance in Markdown. Do not mutate the persisted JSON after hashing.
 
-- [ ] **Step 4: Run the request-bridge tests and existing Phase B tests**
+- [x] **Step 4: Run the request-bridge tests and existing Phase B tests**
 
 Run:
 
@@ -65,7 +65,7 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_p
 
 Expected: all selected tests PASS.
 
-- [ ] **Step 5: Commit the request authority task**
+- [x] **Step 5: Commit the request authority task**
 
 ```bash
 git add app/src/career/services/agent_requests.py app/src/career/cells/executor.py app/src/career/services/applications_v2.py app/tests/test_phase_c_request_bridge.py
@@ -83,16 +83,16 @@ git commit -m "feat: route cellular requests through sqlite projection"
 - Create: `app/tests/test_cellular_runtime.py`
 
 **Interfaces:**
-- `CellularRuntime(database, root, worker_id, runtime="harness")` validates a persisted cellular request and owns one bounded `RuntimeControl` lifecycle.
-- `CellularRuntime.begin(request_payload) -> dict[str, Any]` returns `runtime_run_id`, `request_hash`, and `request_tokens`.
-- `CellularRuntime.observe(runtime_run_id, result, isolation) -> dict[str, Any]` records bounded metrics and no raw stdout.
-- `CellularRuntime.finish(runtime_run_id, status, error=None, output_bytes=None) -> dict[str, Any]` closes the runtime row.
+- `CellularRuntime(database, root, worker_id)` validates a persisted cellular request and owns one bounded `RuntimeControl` lifecycle.
+- `CellularRuntime.begin(request_json, request_payload) -> dict[str, Any]` returns `runtime_run_id`, `request_hash`, and `request_tokens`.
+- `CellularRuntime.observe(runtime_run_id, returncode, stdout, stderr, isolation_status) -> dict[str, Any]` records bounded metrics and no raw stdout in SQLite.
+- `CellularRuntime.finish(runtime_run_id, status, error=None, stdout="", stderr="") -> dict[str, Any]` closes the runtime row.
 
-- [ ] **Step 1: Write failing runtime-session tests**
+- [x] **Step 1: Write failing runtime-session tests**
 
 Test that a valid persisted request starts one `runtime_runs` row, a request hash mismatch is rejected before the runner, the result creates one bounded observation, and a nonzero runner result finishes as `failed` without changing the cellular node status.
 
-- [ ] **Step 2: Run the tests and verify the expected failure**
+- [x] **Step 2: Run the tests and verify the expected failure**
 
 Run:
 
@@ -102,15 +102,15 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_c
 
 Expected: FAIL because the runtime bridge and Harness integration do not exist.
 
-- [ ] **Step 3: Implement the runtime bridge**
+- [x] **Step 3: Implement the runtime bridge**
 
 Use the existing `RuntimeControl` APIs. Derive request bytes from the persisted request file, estimate request tokens conservatively as `ceil(bytes / 4)`, register a worker with bounded metadata, record one pre-run observation and one post-run observation, and map statuses to `completed`, `failed`, or `blocked`. Never store stdout/stderr bodies in SQLite.
 
-- [ ] **Step 4: Integrate validation into `HarnessSupervisor.run_application_stage`**
+- [x] **Step 4: Integrate validation into `HarnessSupervisor.run_application_stage`**
 
 Before constructing or running the subprocess, open the authoritative `.career-state/career.db`, validate the request against `cell_requests`, validate the application/run/node/attempt identity and allowlists, and call `CellularRuntime.begin`. After `HarnessRun.inspect`, record isolation and finish the runtime row. If validation fails, do not invoke `runner.run`.
 
-- [ ] **Step 5: Run runtime, Harness, and regression tests**
+- [x] **Step 5: Run runtime, Harness, and regression tests**
 
 Run:
 
@@ -120,7 +120,7 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_c
 
 Expected: all selected tests PASS; known environment-only failures must remain outside this focused command.
 
-- [ ] **Step 6: Commit the runtime integration task**
+- [x] **Step 6: Commit the runtime integration task**
 
 ```bash
 git add app/src/career/services/cellular_runtime.py app/src/career/services/harness_supervisor.py app/src/career/services/agent_runner.py app/tests/test_cellular_runtime.py
@@ -141,11 +141,11 @@ git commit -m "feat: record cellular harness runtime sessions"
 - `ControlledAgentRunner` is the test configuration adapter used by `analysis_runner.kind=controlled`; it has no resume/session continuation option.
 - `controlled_agent_worker.py` reads only the request JSON, writes the declared FIT_MAP draft path, and exits nonzero for a missing/invalid allowlist.
 
-- [ ] **Step 1: Write failing runner tests**
+- [x] **Step 1: Write failing runner tests**
 
 Test the command has a new Python process and no `resume`; the worker writes a deterministic draft to the declared application-scoped path; and a request containing an unauthorized output is rejected without writing it.
 
-- [ ] **Step 2: Run the tests and confirm failure**
+- [x] **Step 2: Run the tests and confirm failure**
 
 Run:
 
@@ -155,11 +155,11 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_c
 
 Expected: FAIL because `kind=controlled` and the worker script do not exist.
 
-- [ ] **Step 3: Implement the controlled worker and command adapter**
+- [x] **Step 3: Implement the controlled worker and command adapter**
 
 Use `sys.executable`, pass the request path only, and derive the output from the request's `write_allowlist`. The worker must reject paths outside the workspace and must not read or print the job description. The output draft must include only deterministic fixture data and the request identity.
 
-- [ ] **Step 4: Run runner and Harness isolation tests**
+- [x] **Step 4: Run runner and Harness isolation tests**
 
 Run:
 
@@ -169,7 +169,7 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_c
 
 Expected: all selected tests PASS.
 
-- [ ] **Step 5: Commit the controlled runner task**
+- [x] **Step 5: Commit the controlled runner task**
 
 ```bash
 git add app/src/career/services/agent_runner.py app/scripts/controlled_agent_worker.py app/tests/test_controlled_agent_runner.py
@@ -186,14 +186,14 @@ git commit -m "feat: add controlled fresh-process cellular runner"
 - Create: `app/scripts/run_phase_c_pilot.py`
 
 **Interfaces:**
-- `run_phase_c_pilot.py --fixture-dir <path>` creates an isolated control DB and one application, runs the cellular analyze path with `analysis_runner.kind=controlled`, and emits a bounded JSON report.
+- `run_phase_c_pilot.py --workspace <path>` creates an isolated control DB and one application, runs the cellular analyze path with `analysis_runner.kind=controlled`, and emits a bounded JSON report.
 - The pilot report includes `run_id`, `runtime_run_id`, request path/hash, subprocess command, isolation status, SQLite counts, handover status, and terminal node status.
 
-- [ ] **Step 1: Write the failing pilot test**
+- [x] **Step 1: Write the failing pilot test**
 
 Create a temporary fixture with one application and a valid authority identity. Assert that the pilot executes a fresh controlled subprocess, writes the draft, validates `analyze_fit`, records `cell_inputs`, `cell_requests`, `runtime_runs`, `runtime_observations`, `cell_handovers`, `validation_receipts`, and leaves no unauthorized workspace changes.
 
-- [ ] **Step 2: Run the pilot test and verify the expected failure**
+- [x] **Step 2: Run the pilot test and verify the expected failure**
 
 Run:
 
@@ -203,22 +203,22 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_p
 
 Expected: FAIL until the request bridge, runtime bridge, and controlled runner are connected.
 
-- [ ] **Step 3: Implement the isolated pilot command**
+- [x] **Step 3: Implement the isolated pilot command**
 
 Use the existing `CellExecutor` and `HarnessSupervisor` path; do not call Telegram, Notion, OneDrive, Gmail, or `processe-a-vaga`. Provision the fixture authority ledger explicitly, run only the analyze cell, and serialize counts rather than payload bodies.
 
-- [ ] **Step 4: Run the pilot and inspect its report**
+- [x] **Step 4: Run the pilot and inspect its report**
 
 Run:
 
 ```bash
 tmp_phase_c=$(mktemp -d)
-PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python scripts/run_phase_c_pilot.py --fixture-dir "$tmp_phase_c"
+PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python scripts/run_phase_c_pilot.py --workspace "$tmp_phase_c"
 ```
 
 Expected: exit code 0, `status=completed`, one fresh controlled subprocess, `isolation.status=ok`, and SQLite rows for request/runtime/input/handover/receipt.
 
-- [ ] **Step 5: Run concurrent pilot coverage**
+- [x] **Step 5: Run concurrent pilot coverage**
 
 Run:
 
@@ -228,7 +228,7 @@ PYTHONPATH=src:scripts ../.venvs/hermes-dev/bin/python -m pytest -q tests/test_p
 
 Expected: distinct applications share the control DB without cross-application artifact or request writes.
 
-- [ ] **Step 6: Commit the pilot task**
+- [x] **Step 6: Commit the pilot task**
 
 ```bash
 git add app/src/career/services/applications_v2.py app/tests/test_phase_c_pilot.py app/scripts/run_phase_c_pilot.py
@@ -244,19 +244,19 @@ git commit -m "test: prove phase C cellular pilot end to end"
 - Modify: `app/docs/superpowers/status/scope-change-log.md`
 - Modify: `app/docs/superpowers/specs/2026-08-13-phase-c-cellular-runtime-integration-design.md` only if implementation clarifies a contract
 
-- [ ] **Step 1: Run focused and full verification**
+- [x] **Step 1: Run focused and full verification**
 
 Run the Phase C focused suite, the relevant cellular regression suite, `git diff --check`, Python compilation, and the complete pytest suite with `--tb=no`. Record exact counts and known environmental failures separately.
 
-- [ ] **Step 2: Inspect the pilot evidence**
+- [x] **Step 2: Inspect the pilot evidence**
 
 Verify the report and SQLite queries contain no full job description, prompt, stdout, or conversation history. Confirm the request hash, runtime row, isolation result, handover, receipts, and terminal node are mutually consistent.
 
-- [ ] **Step 3: Update governance**
+- [x] **Step 3: Update governance**
 
 Mark only the requirements proven by the pilot as `em validação` or `verificado`. Keep `ARCH-06` (Telegram dispatcher) outside verified status. Change `CHG-0005` to `concluído` only if the pilot and focused gates pass; otherwise record the exact blocker.
 
-- [ ] **Step 4: Commit evidence and final status**
+- [x] **Step 4: Commit evidence and final status**
 
 ```bash
 git add app/docs/superpowers/status/architecture-implementation-control.md app/docs/superpowers/status/scope-change-log.md

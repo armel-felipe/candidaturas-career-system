@@ -1747,7 +1747,14 @@ class CellExecutor:
                 run_id, node.node_id, attempt, inputs
             )
             request = self.request_builder.build(
-                run_id=run_id, node_id=node.node_id, attempt=attempt
+                run_id=run_id,
+                node_id=node.node_id,
+                attempt=attempt,
+                cellular_context=self._cellular_request_context(
+                    manifest_path=record.path,
+                    manifest=manifest,
+                    node=node,
+                ),
             )
             self.request_builder.materialize(request, record.path.parent)
             manifest["inputs"] = store._normalize_inputs(inputs)
@@ -1774,10 +1781,34 @@ class CellExecutor:
         )
         self.store.register_attempt_inputs(run_id, node.node_id, attempt, inputs)
         request = self.request_builder.build(
-            run_id=run_id, node_id=node.node_id, attempt=attempt
+            run_id=run_id,
+            node_id=node.node_id,
+            attempt=attempt,
+            cellular_context=self._cellular_request_context(
+                manifest_path=record.path,
+                manifest=record.manifest,
+                node=node,
+            ),
         )
         self.request_builder.materialize(request, record.path.parent)
         return record
+
+    @staticmethod
+    def _cellular_request_context(
+        *, manifest_path: Path, manifest: Mapping[str, Any], node: NodePlan
+    ) -> dict[str, Any]:
+        capabilities = manifest.get("capabilities", {})
+        read_allowlist = [str(path) for path in capabilities.get("read_paths", ())]
+        write_allowlist = [str(path) for path in capabilities.get("write_paths", ())]
+        if not read_allowlist or not write_allowlist:
+            raise ValueError(f"cell manifest has incomplete capabilities: {node.node_id}")
+        return {
+            "cellular": True,
+            "manifest_path": str(manifest_path),
+            "read_allowlist": read_allowlist,
+            "write_allowlist": write_allowlist,
+            "objective": f"Execute only the {node.node_id} cell for this application.",
+        }
 
     def _load_or_begin_unmaterialized_attempt(
         self,

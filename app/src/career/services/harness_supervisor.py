@@ -22,6 +22,7 @@ from career.services.router import Router
 from career.services.menu import MenuBuilder
 from career.services.executor import Executor
 from career.services.database import Database
+from career.services.cellular_runtime import CellularRuntime
 
 
 LINKEDIN_JOB_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/(?:jobs(?:/view)?|job)/[^\s]+", re.IGNORECASE)
@@ -869,15 +870,66 @@ class HarnessSupervisor:
                 "read and write only the explicit allowlists."
             )
         run_request = AgentRunRequest(stage=stage, record_key=record_key, request_path=request_md, instruction=instruction, runner_config=runner_config, model=model, variant=variant)
-        harness_run = HarnessRunStore(self.root, application_dir).begin(stage, request_json, request_md)
-        command = self.runner.build_command(run_request)
-        if on_start:
-            on_start(command)
-        result = self.runner.run(run_request)
-        isolation = harness_run.inspect()
-        payload = {"stage": stage, "command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "finished_at": utc_now_iso(), "run_dir": str(harness_run.run_dir.relative_to(self.root)), "isolation": isolation}
-        harness_run.finish(payload, isolation)
-        return payload
+        harness_run = HarnessRunStore(self.root, application_dir).begin(
+            stage,
+            request_json,
+            request_md,
+            allowed_workspace_changes=(
+                ".career-state/career.db::runtime_workers",
+                ".career-state/career.db::runtime_runs",
+                ".career-state/career.db::runtime_observations",
+            )
+            if cellular_context
+            else (),
+        )
+        runtime_db: Database | None = None
+        runtime: CellularRuntime | None = None
+        runtime_run: dict[str, Any] | None = None
+        if cellular_context:
+            runtime_db = Database(self.root / ".career-state" / "career.db")
+            runtime_db.init_schema()
+            runtime = CellularRuntime(
+                runtime_db,
+                root=self.root,
+                worker_id=f"cellular-harness-{record_key}-{os.getpid()}",
+            )
+            runtime_run = runtime.begin(request_json, request_payload)
+        try:
+            command = self.runner.build_command(run_request)
+            if on_start:
+                on_start(command)
+            result = self.runner.run(run_request)
+            isolation = harness_run.inspect()
+            payload = {"stage": stage, "command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "finished_at": utc_now_iso(), "run_dir": str(harness_run.run_dir.relative_to(self.root)), "isolation": isolation}
+            if runtime is not None and runtime_run is not None:
+                runtime.observe(
+                    runtime_run["runtime_run_id"],
+                    returncode=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    isolation_status=str(isolation.get("status") or "unknown"),
+                )
+                runtime_status = (
+                    "completed"
+                    if result.returncode == 0 and isolation.get("status") == "ok"
+                    else "blocked"
+                )
+                runtime.finish(
+                    runtime_run["runtime_run_id"],
+                    status=runtime_status,
+                    error=None if runtime_status == "completed" else "cellular_stage_failed",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+                payload["runtime"] = {
+                    **runtime_run,
+                    "status": runtime_status,
+                }
+            harness_run.finish(payload, isolation)
+            return payload
+        finally:
+            if runtime_db is not None:
+                runtime_db.close()
 
     def _cellular_request_context(
         self, request_payload: dict[str, Any]

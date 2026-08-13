@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -64,10 +65,18 @@ class SubprocessAgentRunner:
             command.append(prompt)
             return command
 
+        if runner_kind == "controlled":
+            return [
+                sys.executable,
+                str(self.root / "scripts" / "controlled_agent_worker.py"),
+                "--request",
+                str(request.request_path.with_suffix(".json")),
+            ]
+
         if runner_kind not in {"opencode", "opencode.cmd"}:
             raise ValueError(
                 f"Unsupported agent runner kind {runner_kind!r}. "
-                "Use kind=hermes, kind=opencode or kind=codex."
+                "Use kind=hermes, kind=opencode, kind=codex or kind=controlled."
             )
 
         command = [
@@ -106,6 +115,13 @@ class SubprocessAgentRunner:
                 returncode=124,
                 stdout=str(exc.stdout or ""),
                 stderr=f"Agent runner timed out after {request.runner_config.get('timeout_minutes') or 90} minute(s).",
+            )
+        except OSError as exc:
+            return AgentRunResult(
+                command=command,
+                returncode=127,
+                stdout="",
+                stderr=f"Agent runner unavailable: {exc}",
             )
         return AgentRunResult(
             command=command,

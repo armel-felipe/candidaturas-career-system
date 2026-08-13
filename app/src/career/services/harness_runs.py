@@ -57,6 +57,7 @@ class HarnessRun:
     allowed_outputs: list[Path]
     before_files: dict[str, str]
     before_workspace_files: dict[str, str]
+    allowed_workspace_changes: tuple[str, ...] = ()
 
     def inspect(self) -> dict[str, Any]:
         after_files = self._snapshot_application_files()
@@ -82,6 +83,7 @@ class HarnessRun:
             path
             for path in set(self.before_workspace_files) | set(after_workspace)
             if self.before_workspace_files.get(path) != after_workspace.get(path)
+            and path not in self.allowed_workspace_changes
         )
         return {
             "status": "blocked" if unauthorized or unauthorized_workspace else "ok",
@@ -117,7 +119,14 @@ class HarnessRunStore:
         self.root = root
         self.application_dir = application_dir
 
-    def begin(self, stage: str, request_json: Path, request_md: Path) -> HarnessRun:
+    def begin(
+        self,
+        stage: str,
+        request_json: Path,
+        request_md: Path,
+        *,
+        allowed_workspace_changes: tuple[str, ...] = (),
+    ) -> HarnessRun:
         timestamp = utc_now_iso().replace(":", "").replace("-", "").replace("+", "_").replace(".", "")
         run_id = f"{timestamp}_{stage}_{uuid.uuid4().hex[:8]}"
         run_dir = self.application_dir / "requests" / run_id
@@ -135,6 +144,7 @@ class HarnessRunStore:
             allowed_outputs=allowed_outputs,
             before_files={},
             before_workspace_files={},
+            allowed_workspace_changes=allowed_workspace_changes,
         )
         write_json(
             run_dir / "manifest.json",

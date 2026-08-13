@@ -41,7 +41,7 @@ enquanto não estiver `aprovado`.
 | `CHG-0002` | 2026-08-13 | `adição` | Criar matriz de conformidade e controle formal de mudanças de escopo | controle de governança | `aprovado` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0003` | 2026-08-13 | `implementação` | Executar Fase A: caminho explícito do control plane, registros bounded de runtime e diagnóstico Hermes read-only | `ARCH-02`, `ARCH-09`, `ARCH-10`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0004` | 2026-08-13 | `implementação` | Executar Fase B: persistir inputs, requests, handovers e recibos de validação no control plane celular | `ARCH-03`, `ARCH-04`, `ARCH-05`, `ARCH-08`, `ARCH-11`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
-| `CHG-0005` | 2026-08-13 | `implementação` | Executar Fase C: consolidar heartbeat, control plane e Harness com runner controlado de teste | `ARCH-01`, `ARCH-03`, `ARCH-05`, `ARCH-06`, `ARCH-08`, `ARCH-09`, `ARCH-11`, `ARCH-12` | `aprovado` | `ARCH-DATA-ANCHORED-2026-08-13` |
+| `CHG-0005` | 2026-08-13 | `implementação` | Executar Fase C: consolidar heartbeat, control plane e Harness com runner controlado de teste | `ARCH-01`, `ARCH-03`, `ARCH-05`, `ARCH-06`, `ARCH-08`, `ARCH-09`, `ARCH-11`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
 
 ### Escopo aprovado de CHG-0005
 
@@ -49,12 +49,27 @@ enquanto não estiver `aprovado`.
   de runtime, runner controlado, isolamento, piloto ponta a ponta e evidência.
 - **Fora:** ativação de binários Hermes/opencode ausentes, gateway Telegram,
   migração de bancos e ações externas reais.
-- **Plano:** pendente da revisão da especificação; será vinculado antes de qualquer
-  alteração de código
-  [`2026-08-13-phase-c-cellular-runtime-integration-design.md`](../specs/2026-08-13-phase-c-cellular-runtime-integration-design.md).
+- **Plano:** [`2026-08-13-phase-c-cellular-runtime-integration.md`](../plans/2026-08-13-phase-c-cellular-runtime-integration.md), executado com ponte SQLite → Harness → runner controlado e piloto temporário.
 - **Rollback:** manter o heartbeat celular atrás do modo controlado, preservar
   os registros já gravados e desativar apenas a chamada do runner integrado;
   nenhum banco Hermes será alterado.
+
+### Evidência de CHG-0005
+
+- Arquivos: `agent_requests.py`, `executor.py`, `applications_v2.py`,
+  `cellular_runtime.py`, `harness_supervisor.py`, `harness_runs.py`,
+  `agent_runner.py`, `controlled_agent_worker.py` e respectivos testes.
+- Testes focados: `5 passed` no corte final de runner/Harness/piloto; regressão
+  celular/runtime integrada: `51 passed`.
+- Piloto: `run_phase_c_pilot.py --workspace <tmp>` terminou com
+  `status=completed`, `execution=[validated]`, `runtime=completed`, isolamento
+  `ok` e processo Python novo sem `resume`.
+- SQLite do piloto: `cell_inputs=1`, `cell_requests=1`, `cell_handovers=1`,
+  `validation_receipts=3`, `artifacts=1`, `runtime_runs=1` e
+  `runtime_observations=2`; nenhuma descrição de vaga ou histórico foi gravada
+  nessas tabelas.
+- Limitação explícita: a integração real com Hermes/opencode e Telegram não foi
+  ativada nem considerada verificada nesta mudança.
 
 ### Escopo de CHG-0004
 

@@ -44,18 +44,18 @@ gateway, o heartbeat ou os dois bots estão usando esse contrato.
 
 | ID | Requisito da arquitetura aprovada | Estado inicial | Evidência atual | Lacuna para verificação |
 |---|---|---|---|---|
-| `ARCH-01` | Cada célula inicia sessão nova, sem `resume` | `desenhado` | `SubprocessAgentRunner` implementa runners novos | conectar o caminho Telegram/heartbeat ao runner celular |
+| `ARCH-01` | Cada célula inicia sessão nova, sem `resume` | `em validação` | `SubprocessAgentRunner` implementa runner controlado em processo Python novo; piloto não contém `resume` | validar o mesmo contrato com os runners reais dos bots |
 | `ARCH-02` | SQLite compartilhado é a autoridade operacional | `em validação` | `CAREER_CONTROL_DB_PATH` e mount comum foram configurados; control plane vazio provisionado em `/opt/agent-projects/candidaturas/control-plane/career.db` | autoridade/ledger e migração controlada ficam para fases posteriores |
-| `ARCH-03` | Inputs da tentativa são registrados antes do agente | `em validação` | `cell_inputs`, `inputs_registered_at`, `CellRequestBuilder` e guard de hash no `CellExecutor`; teste observa rows antes do handler | runner/gateway externo ainda não está integrado |
-| `ARCH-04` | Handover e outputs são publicados antes da liberação seguinte | `em validação` | `cell_handovers`, `validation_receipts` e commit final do `CellStore`; dependente só aparece pronto após `validated` | publicação filesystem + SQLite ainda precisa de runtime controlado fora da fixture |
-| `ARCH-05` | Request do agente é projeção compacta do estado persistido | `em validação` | `cell_requests`, `request.json`/`request.md`, hash e limite bounded usados pelo executor | `AgentRequestBuilder` legado e gateway Hermes ainda coexistem |
+| `ARCH-03` | Inputs da tentativa são registrados antes do agente | `em validação` | Fase C usa `CellRequestBuilder` persistido e piloto registrou `cell_inputs=1` antes do Harness | runner/gateway externo ainda não está integrado |
+| `ARCH-04` | Handover e outputs são publicados antes da liberação seguinte | `em validação` | piloto registrou `cell_handovers=1`, `validation_receipts=3`, `artifacts=1` e terminou `validated` | publicação em execução real dos bots ainda não foi observada |
+| `ARCH-05` | Request do agente é projeção compacta do estado persistido | `em validação` | Fase C materializa somente `cell_requests`; piloto validou hash e rejeitou adulteração | `AgentRequestBuilder` legado e gateway Hermes ainda coexistem |
 | `ARCH-06` | Telegram é dispatcher fino | `divergente` | containers iniciam gateway Hermes direto | instalar e validar integração com Harness/CellExecutor |
 | `ARCH-07` | `processe-a-vaga` compila para células pequenas | `parcial` | contratos celulares já definem vários nós | impedir o uso direto da skill monolítica no caminho de produção |
-| `ARCH-08` | Limite de contexto bloqueia payload excessivo antes do runner | `parcial` | `CellRequestBuilder` rejeita projeção acima de 128 KiB antes do handler e explicita alvo 12k/limite 32k | medição de tokens e limite no runner real ficam para integração/telemetria |
+| `ARCH-08` | Limite de contexto bloqueia payload excessivo antes do runner | `em validação` | `CellRequestBuilder` rejeita projeção acima de 128 KiB; piloto registrou request bounded e tokens estimados | medição do runner real ainda fica para integração/telemetria |
 | `ARCH-09` | Workers são substituíveis e consultam estado comum | `em validação` | caminho comum do control plane e APIs de registro existem; bancos Hermes e estados legados continuam separados | integrar todos os workers e retirar autoridade operacional dos perfis |
 | `ARCH-10` | Alterações de código têm registro, testes e impacto | `em validação` | matriz, change log, plano e commits de Fase A existem | aplicar gates automaticamente e registrar evidência de cada execução |
-| `ARCH-11` | Falhas bloqueiam ou reparam, sem sessão interminável | `em validação` | hash ausente/alterado, request oversized e handover inconsistente bloqueiam sem liberar dependentes; testes focados aprovados | limite de repetição/contexto no runner externo ainda não integrado |
-| `ARCH-12` | Execução completa deixa trilha auditável no SQLite | `em validação` | além das tabelas de runtime, Fase B registra inputs, requests, handovers, receipts e artifacts por tentativa | gateway e heartbeat reais ainda não estão conectados ao registro celular |
+| `ARCH-11` | Falhas bloqueiam ou reparam, sem sessão interminável | `em validação` | adulteração de request, allowlist fora da aplicação e falha do controlled worker bloqueiam sem publicar; runtime termina `blocked` | limite de repetição/contexto no runner externo ainda não integrado |
+| `ARCH-12` | Execução completa deixa trilha auditável no SQLite | `em validação` | piloto registrou inputs, request, handover, receipts, artifact, runtime e duas observações no SQLite | gateway e heartbeat reais ainda não estão conectados ao registro celular |
 
 ## Como atualizar a matriz
 
@@ -120,6 +120,17 @@ Verificado em: <UTC>
   `divergente` quando o caminho de produção não a utiliza.
 - A matriz é um controle de status, não uma autorização para ampliar o escopo.
   Toda ampliação passa pelo change log.
+
+## Evidência da Fase C
+
+| Verificação | Resultado |
+|---|---|
+| Request SQLite → arquivo celular | `test_phase_c_request_bridge.py`: 2 aprovados; adulteração do JSON rejeitada pelo hash persistido |
+| Runtime/Harness/runner | `test_cellular_runtime.py`, `test_phase_c_harness.py` e `test_controlled_agent_runner.py`: 5 aprovados no corte final; processo novo, sem `resume`, allowlist aplicada |
+| Piloto controlado | `test_phase_c_pilot.py`: 1 aprovado; `status=completed`, `execution=[validated]`, `runtime=completed` |
+| Evidência SQLite do piloto | 1 `cell_inputs`, 1 `cell_requests`, 1 `cell_handovers`, 3 `validation_receipts`, 1 `artifacts`, 1 `runtime_runs`, 2 `runtime_observations` |
+| Regressão celular/runtime | comando focal da Fase C: `51 passed`; corte final de runner/Harness/piloto: `5 passed` |
+| Limitações | Hermes/opencode reais não estão disponíveis; Telegram, Notion, OneDrive e Gmail permaneceram fora do piloto; os três arquivos sujos preexistentes não foram alterados |
 
 ## Evidência da Fase A
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 from uuid import uuid4
 
@@ -49,7 +50,14 @@ class CellRequestBuilder:
         self._db = database
         self.max_bytes = max_bytes
 
-    def build(self, *, run_id: str, node_id: str, attempt: int) -> dict[str, Any]:
+    def build(
+        self,
+        *,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        cellular_context: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         contract = CELL_CONTRACTS.get(node_id)
         if contract is None:
             raise KeyError(f"unknown cell contract: {node_id}")
@@ -84,6 +92,8 @@ class CellRequestBuilder:
             "inputs": inputs,
             "limits": {"target_context_tokens": 12000, "hard_context_tokens": 32000},
         }
+        if cellular_context is not None:
+            payload.update(self._normalize_cellular_context(cellular_context))
         payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         payload_bytes = len(payload_json.encode("utf-8"))
         if payload_bytes > self.max_bytes:
@@ -137,6 +147,58 @@ class CellRequestBuilder:
                     payload_bytes,
                 ),
             )
+        return payload
+
+    @staticmethod
+    def _normalize_cellular_context(context: Mapping[str, Any]) -> dict[str, Any]:
+        if context.get("cellular") is not True:
+            raise ValueError("cellular request context must set cellular=true")
+        manifest_path = str(context.get("manifest_path") or "").strip()
+        objective = str(context.get("objective") or "").strip()
+        read_allowlist = [str(item).strip() for item in context.get("read_allowlist", ())]
+        write_allowlist = [str(item).strip() for item in context.get("write_allowlist", ())]
+        if not manifest_path or not objective:
+            raise ValueError("cellular request context needs manifest_path and objective")
+        if not read_allowlist or not write_allowlist:
+            raise ValueError("cellular request context needs read/write allowlists")
+        if any(not item for item in (*read_allowlist, *write_allowlist)):
+            raise ValueError("cellular request allowlists cannot contain empty paths")
+        return {
+            "cellular": True,
+            "manifest_path": manifest_path,
+            "read_allowlist": read_allowlist,
+            "write_allowlist": write_allowlist,
+            "objective": objective,
+        }
+
+    def load(self, run_id: str, node_id: str, attempt: int) -> dict[str, Any]:
+        row = self._db.fetch_one(
+            "SELECT payload_json, payload_hash FROM cell_requests "
+            "WHERE run_id = ? AND node_id = ? AND attempt = ?",
+            (run_id, node_id, attempt),
+        )
+        if row is None:
+            raise KeyError(f"missing cell request: {run_id}/{node_id}/{attempt}")
+        payload = json.loads(row["payload_json"])
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        if digest != row["payload_hash"]:
+            raise ValueError("cell request hash mismatch in SQLite")
+        return payload
+
+    def validate_materialized(
+        self, run_id: str, node_id: str, attempt: int, request_json: Path
+    ) -> dict[str, Any]:
+        payload = json.loads(request_json.read_text(encoding="utf-8"))
+        persisted = self.load(run_id, node_id, attempt)
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        persisted_canonical = json.dumps(
+            persisted, sort_keys=True, separators=(",", ":")
+        )
+        if hashlib.sha256(canonical.encode("utf-8")).hexdigest() != hashlib.sha256(
+            persisted_canonical.encode("utf-8")
+        ).hexdigest():
+            raise ValueError("materialized cell request hash mismatch")
         return payload
 
     @staticmethod

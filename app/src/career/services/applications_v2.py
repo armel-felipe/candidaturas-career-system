@@ -29,6 +29,7 @@ from career.services.application_context import (
     workspace_owner_from_env,
 )
 from career.services.cell_store import CellStore
+from career.services.agent_requests import CellRequestBuilder
 from career.services.database import Database
 from career.utils import (
     ValidationFailure,
@@ -2510,12 +2511,12 @@ def _write_cellular_analyze_request(
     workspace_owner: str,
     control_db_id: str,
 ) -> tuple[Path, Path]:
-    manifest = read_json(prepared.manifest_path)
-    capabilities = manifest.get("capabilities")
-    if not isinstance(capabilities, dict):
-        raise ValidationFailure("cellular attempt manifest is missing capabilities")
-    read_allowlist = list(capabilities.get("read_paths") or [])
-    write_allowlist = list(capabilities.get("write_paths") or [])
+    workspace_root = paths.app_dir.parents[2].resolve()
+    database_path = Path(
+        str(os.environ.get("CAREER_CONTROL_DB_PATH") or workspace_root / ".career-state" / "career.db")
+    )
+    database = Database(database_path)
+    database.init_schema()
     request_dir = (
         paths.requests_dir
         / "cellular"
@@ -2523,44 +2524,29 @@ def _write_cellular_analyze_request(
         / prepared.node_id
         / str(prepared.attempt)
     )
-    request_json = request_dir / "request.json"
-    request_md = request_dir / "request.md"
-    payload = {
-        "kind": "cellular_agent_request",
-        "cellular": True,
-        "step": "fit-map",
-        "application_id": prepared.application_id,
-        "run_id": prepared.run_id,
-        "node_id": prepared.node_id,
-        "manifest_path": str(prepared.manifest_path.resolve()),
-        "read_allowlist": read_allowlist,
-        "write_allowlist": write_allowlist,
-        "workspace_owner": workspace_owner,
-        "control_db_id": control_db_id,
-        "objective": (
-            "Produce only the application-scoped FIT_MAP draft required by "
-            "this analyze_fit attempt."
-        ),
-        "allowed_files": read_allowlist,
-        "expected_outputs": write_allowlist,
-    }
-    from career.services import multiagent as multiagent_service
+    try:
+        builder = CellRequestBuilder(database)
+        payload = builder.load(
+            prepared.run_id, prepared.node_id, int(prepared.attempt)
+        )
+        from career.services import multiagent as multiagent_service
 
-    context = multiagent_service.validate_cellular_request_context(
-        payload, root=_cellular_workspace_root()
-    )
-    payload.update(context)
-    payload["operational_rules"] = multiagent_service.cellular_operational_rules(
-        context
-    )
-    write_json(request_json, payload)
-    write_text(
-        request_md,
-        "# Cellular analyze_fit request\n\n"
-        + "\n".join(f"- {rule}" for rule in payload["operational_rules"])
-        + "\n",
-    )
-    return request_json, request_md
+        context = multiagent_service.validate_cellular_request_context(
+            payload, root=workspace_root
+        )
+        payload.update(context)
+        request_json, request_md = builder.materialize(payload, request_dir)
+        rules = multiagent_service.cellular_operational_rules(context)
+        write_text(
+            request_md,
+            request_md.read_text(encoding="utf-8")
+            + "\n## Operational rules\n\n"
+            + "\n".join(f"- {rule}" for rule in rules)
+            + "\n",
+        )
+        return request_json, request_md
+    finally:
+        database.close()
 
 
 def _run_cellular_analyze_agent(
@@ -2583,7 +2569,8 @@ def _run_cellular_analyze_agent(
             or ""
         ),
     )
-    supervisor = HarnessSupervisor(_cellular_workspace_root())
+    workspace_root = paths.app_dir.parents[2].resolve()
+    supervisor = HarnessSupervisor(workspace_root)
     return supervisor.run_application_stage(
         stage="analyze",
         record_key=paths.application_id,
