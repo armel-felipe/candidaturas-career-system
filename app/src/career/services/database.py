@@ -26,7 +26,9 @@ class Database:
         *,
         authority_ledger_path: str | Path | None = None,
     ):
-        self.db_path = Path(db_path or os.path.join(CAREER_STATE, "career.db"))
+        configured_control_path = os.environ.get("CAREER_CONTROL_DB_PATH")
+        selected_db_path = db_path or configured_control_path or os.path.join(CAREER_STATE, "career.db")
+        self.db_path = Path(selected_db_path)
         configured_ledger = authority_ledger_path or os.environ.get(
             "CAREER_AUTHORITY_LEDGER_PATH"
         )

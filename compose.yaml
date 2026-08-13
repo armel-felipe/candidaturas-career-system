@@ -12,6 +12,7 @@ services:
       CAREER_HERMES_PROFILE_ID: "16f204534852"
       HERMES_UID: "10000"
       HERMES_GID: "10000"
+      CAREER_CONTROL_DB_PATH: /workspace/candidaturas/.career-control/career.db
       HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace/candidaturas
       LINKEDIN_NOVNC_PUBLIC_PORT: "6081"
       RCLONE_CONFIG: /opt/data/.config/rclone/rclone.conf
@@ -22,6 +23,7 @@ services:
       - /opt/agent-projects/candidaturas/app/src:/workspace/candidaturas/src:rw
       - /opt/agent-projects/candidaturas/app/scripts:/workspace/candidaturas/scripts:rw
       - /opt/agent-projects/candidaturas/app/.agents:/workspace/candidaturas/.agents:rw
+      - /opt/agent-projects/candidaturas/control-plane:/workspace/candidaturas/.career-control:rw
       - /opt/agent-projects/candidaturas/workspaces/vagas_bot_01/state:/workspace/candidaturas/.career-state:rw
       - /opt/agent-projects/candidaturas/workspaces/vagas_bot_01/inbox:/workspace/candidaturas/inbox:rw
       - /opt/agent-projects/candidaturas/workspaces/vagas_bot_01/outputs:/workspace/candidaturas/outputs:rw
@@ -45,6 +47,7 @@ services:
       CAREER_HERMES_PROFILE_ID: "bcc27ffe51db"
       HERMES_UID: "10000"
       HERMES_GID: "10000"
+      CAREER_CONTROL_DB_PATH: /workspace/candidaturas/.career-control/career.db
       HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace/candidaturas
       LINKEDIN_NOVNC_PUBLIC_PORT: "6082"
       RCLONE_CONFIG: /opt/data/.config/rclone/rclone.conf
@@ -55,6 +58,7 @@ services:
       - /opt/agent-projects/candidaturas/app/src:/workspace/candidaturas/src:rw
       - /opt/agent-projects/candidaturas/app/scripts:/workspace/candidaturas/scripts:rw
       - /opt/agent-projects/candidaturas/app/.agents:/workspace/candidaturas/.agents:rw
+      - /opt/agent-projects/candidaturas/control-plane:/workspace/candidaturas/.career-control:rw
       - /opt/agent-projects/candidaturas/workspaces/vagas_bot_02/state:/workspace/candidaturas/.career-state:rw
       - /opt/agent-projects/candidaturas/workspaces/vagas_bot_02/inbox:/workspace/candidaturas/inbox:rw
       - /opt/agent-projects/candidaturas/workspaces/vagas_bot_02/outputs:/workspace/candidaturas/outputs:rw

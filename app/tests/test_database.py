@@ -7,6 +7,31 @@ import pytest
 from career.services.database import Database
 
 
+def test_database_uses_explicit_path_before_control_database_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(tmp_path / "env.db"))
+
+    database = Database(db_path=tmp_path / "explicit.db")
+
+    assert database.db_path == tmp_path / "explicit.db"
+
+
+def test_database_uses_control_database_environment_when_path_is_omitted(monkeypatch, tmp_path):
+    configured = tmp_path / "control" / "career.db"
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(configured))
+
+    database = Database()
+
+    assert database.db_path == configured
+
+
+def test_database_keeps_legacy_app_scoped_default_without_control_database_environment(monkeypatch):
+    monkeypatch.delenv("CAREER_CONTROL_DB_PATH", raising=False)
+
+    database = Database()
+
+    assert database.db_path.name == "career.db"
+
+
 def test_database_creates_schema():
     with tempfile.NamedTemporaryFile(suffix=".db") as f:
         db = Database(db_path=f.name)
