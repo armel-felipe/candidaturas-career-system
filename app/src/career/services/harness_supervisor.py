@@ -923,6 +923,7 @@ class HarnessSupervisor:
         runtime_db: Database | None = None
         runtime: CellularRuntime | None = None
         runtime_run: dict[str, Any] | None = None
+        runtime_finished = False
         if cellular_context:
             try:
                 runtime_db = self._cellular_database(
@@ -974,6 +975,7 @@ class HarnessSupervisor:
                     error=None if runtime_status == "completed" else "cellular_stage_failed",
                     output_bytes=output_metrics["output_bytes"],
                 )
+                runtime_finished = True
                 payload["runtime"] = {
                     **runtime_run,
                     "status": runtime_status,
@@ -981,6 +983,15 @@ class HarnessSupervisor:
             harness_run.finish(payload, isolation)
             return payload
         finally:
+            if runtime is not None and runtime_run is not None and not runtime_finished:
+                try:
+                    runtime.finish(
+                        runtime_run["runtime_run_id"],
+                        status="failed",
+                        error="cellular_stage_exception",
+                    )
+                except Exception:
+                    pass
             if runtime_db is not None:
                 runtime_db.close()
             release_acquired_lease()

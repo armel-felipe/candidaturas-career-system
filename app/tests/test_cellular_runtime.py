@@ -74,4 +74,9 @@ def test_cellular_runtime_records_a_fresh_bounded_session(tmp_path):
     assert observation["history_messages"] == 0
     assert observation["source"] == "cellular-result"
     assert finished["status"] == "completed"
+    worker = db.fetch_one(
+        "SELECT status FROM runtime_workers WHERE worker_id = ?",
+        ("runtime-worker",),
+    )
+    assert worker["status"] == "inactive"
     db.close()

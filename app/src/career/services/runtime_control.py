@@ -192,6 +192,20 @@ class RuntimeControl:
                 raise ValueError(f"runtime run is already terminal: {runtime_run_id}")
         return {"runtime_run_id": runtime_run_id, "status": status, "finished_at": finished_at}
 
+    def finish_worker(self, worker_id: str, *, status: str = "inactive") -> dict[str, Any]:
+        """Mark a short-lived worker inactive after its run has ended."""
+        worker_id = self._required_text(worker_id, "worker_id")
+        status = self._required_text(status, "status")
+        finished_at = self._now()
+        with self.database.transaction(immediate=True) as conn:
+            updated = conn.execute(
+                "UPDATE runtime_workers SET status = ?, last_seen = ? WHERE worker_id = ?",
+                (status, finished_at, worker_id),
+            ).rowcount
+            if updated != 1:
+                raise KeyError(f"unknown runtime worker: {worker_id}")
+        return {"worker_id": worker_id, "status": status, "last_seen": finished_at}
+
     def _worker_first_seen(self, worker_id: str) -> str:
         row = self.database.fetch_one(
             "SELECT first_seen FROM runtime_workers WHERE worker_id = ?", (worker_id,)

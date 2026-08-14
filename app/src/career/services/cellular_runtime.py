@@ -123,9 +123,12 @@ class CellularRuntime:
             if output_bytes is not None
             else len(stdout.encode("utf-8")) + len(stderr.encode("utf-8"))
         )
-        return self.control.finish_run(
-            runtime_run_id,
-            status=status,
-            error=error,
-            output_bytes=measured_output_bytes,
-        )
+        try:
+            return self.control.finish_run(
+                runtime_run_id,
+                status=status,
+                error=error,
+                output_bytes=measured_output_bytes,
+            )
+        finally:
+            self.control.finish_worker(self.worker_id)
