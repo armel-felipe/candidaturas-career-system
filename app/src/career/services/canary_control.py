@@ -5,10 +5,14 @@ import os
 import shutil
 import sqlite3
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
+from career.services.harness_supervisor import HarnessSupervisor
 
 
 CANARY_BOT_NAME = "vagas_bot_01"
@@ -231,6 +235,88 @@ def route_smoke(
     return results
 
 
+def probe_runner(runner_config: dict[str, Any], root: Path) -> dict[str, Any]:
+    root_path = Path(root).resolve()
+    config = dict(runner_config or {})
+    runner = SubprocessAgentRunner(root_path)
+    request_context = _load_task3_request_context(root_path)
+    request_md = (
+        request_context["request_md"]
+        if request_context is not None
+        else (root_path / ".career-state" / "runner_probe" / "request.md")
+    )
+    command = runner.build_command(
+        AgentRunRequest(
+            stage="analyze",
+            record_key=(
+                str(request_context["application_id"])
+                if request_context is not None
+                else CANARY_BOT_NAME
+            ),
+            request_path=request_md,
+            instruction="Runner probe only; do not resume prior sessions.",
+            runner_config=config,
+        )
+    )
+    runner_type = str(config.get("kind") or config.get("command") or Path(command[0]).name).casefold()
+    resolved = shutil.which(str(config.get("command") or command[0]))
+    if not resolved:
+        return {
+            "status": "blocked",
+            "command": command,
+            "type": runner_type,
+            "available": False,
+            "returncode": 127,
+            "blocker": "runner_unavailable",
+        }
+    command = [resolved, *command[1:]]
+    if request_context is None:
+        return {
+            "status": "blocked",
+            "command": command,
+            "type": runner_type,
+            "available": True,
+            "returncode": None,
+            "blocker": "d2_request_missing",
+        }
+    if not request_context["request_hash"] or not request_context["read_allowlist"] or not request_context["write_allowlist"]:
+        return {
+            "status": "blocked",
+            "command": command,
+            "type": runner_type,
+            "available": True,
+            "returncode": None,
+            "blocker": "d2_request_incomplete",
+        }
+    payload = HarnessSupervisor(root_path).run_application_stage(
+        stage="analyze",
+        record_key=str(request_context["application_id"]),
+        application_dir=Path(request_context["application_dir"]),
+        request_json=Path(request_context["request_json"]),
+        request_md=Path(request_context["request_md"]),
+        runner_config=config,
+        workspace_owner=str(os.environ.get("CAREER_WORKSPACE_OWNER") or ""),
+        control_db_id=str(os.environ.get("CAREER_CONTROL_DB_ID") or ""),
+    )
+    blocker = None
+    status = "completed"
+    returncode = int(payload.get("returncode", 0))
+    if returncode != 0:
+        status = "blocked"
+        blocker = str(payload.get("blocker_reason") or "runner_failed")
+    elif (payload.get("isolation") or {}).get("status") != "ok":
+        status = "blocked"
+        blocker = "runner_isolation_blocked"
+    return {
+        "status": status,
+        "command": list(payload.get("command") or command),
+        "type": runner_type,
+        "available": True,
+        "returncode": returncode,
+        "blocker": blocker,
+    }
+
+
 def _append_check(report: dict[str, Any], name: str, status: str, **extra: Any) -> None:
     report["checks"].append({"name": name, "status": status, **extra})
 
@@ -249,6 +335,41 @@ def _check_path(report: dict[str, Any], name: str, path: Path, blocked: bool) ->
         return blocked
     _append_check(report, name, "blocked", reason=f"missing file: {path}")
     return True
+
+
+def _load_task3_request_context(root: Path) -> dict[str, Any] | None:
+    candidates = sorted(
+        root.glob(".career-state/applications_v2/*/requests/cellular/*/analyze_fit/*/request.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for request_json in candidates:
+        request_md = request_json.with_suffix(".md")
+        if not request_md.is_file():
+            continue
+        try:
+            payload = json.loads(request_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if payload.get("cellular") is not True:
+            continue
+        read_allowlist = payload.get("read_allowlist")
+        write_allowlist = payload.get("write_allowlist")
+        if not isinstance(read_allowlist, list) or not read_allowlist:
+            continue
+        if not isinstance(write_allowlist, list) or not write_allowlist:
+            continue
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return {
+            "application_id": str(payload.get("application_id") or ""),
+            "request_json": request_json,
+            "request_md": request_md,
+            "application_dir": request_json.parents[5],
+            "request_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            "read_allowlist": list(read_allowlist),
+            "write_allowlist": list(write_allowlist),
+        }
+    return None
 
 
 def _load_compose(compose_path: Path) -> dict[str, Any]:

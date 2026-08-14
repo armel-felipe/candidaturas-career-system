@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from career.services.canary_control import (
     assert_canary_target,
+    probe_runner,
     resolve_target_from_compose,
     rollback_dry_run,
     route_smoke,
@@ -82,6 +83,15 @@ def _build_parser() -> argparse.ArgumentParser:
     rollback.add_argument("--bot", required=True)
     rollback.add_argument("--json", action="store_true", dest="as_json")
 
+    runner_probe = subparsers.add_parser("runner-probe", help="Probe the real runner gate without fallback")
+    runner_probe.add_argument(
+        "--compose",
+        type=Path,
+        default=Path(__file__).parents[1] / "deploy" / "hermes" / "compose.yaml",
+    )
+    runner_probe.add_argument("--bot", required=True)
+    runner_probe.add_argument("--json", action="store_true", dest="as_json")
+
     smoke = subparsers.add_parser("route-smoke", help="Exercise deterministic routing smoke locally")
     smoke.add_argument("--root", type=Path)
     smoke.add_argument("--message-id", required=True)
@@ -126,6 +136,30 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
         return 0 if result["status"] == "dry_run_ok" else 1
+    if args.command == "runner-probe":
+        from career.services import applications_v2
+
+        try:
+            target = resolve_target_from_compose(compose_path=args.compose, bot_name=args.bot)
+            result = probe_runner(
+                dict(applications_v2.DEFAULT_CONFIG["analysis_runner"]),
+                target.workspace_root,
+            )
+        except Exception as exc:
+            result = {
+                "status": "blocked",
+                "command": [],
+                "type": "unknown",
+                "available": False,
+                "returncode": None,
+                "blocker": str(exc),
+            }
+        if args.as_json:
+            json.dump(result, sys.stdout, ensure_ascii=False, sort_keys=True)
+            sys.stdout.write("\n")
+        else:
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+        return 0 if result["status"] == "completed" else 1
     if args.command == "route-smoke":
         smoke_root = args.root or Path(tempfile.mkdtemp(prefix="phase-d-fixture-"))
         messages = [
