@@ -74,8 +74,9 @@ enquanto não estiver `aprovado`.
 
 ### Escopo de CHG-0006
 
-- **Dentro:** preflight D0 read-only no target `vagas_bot_01`; staging/rollback D1
-  restritos ao mesmo bot; canário D2 controlado para uma aplicação explícita;
+- **Dentro:** preflight D0 read-only no target `vagas_bot_01`; preview operacional
+  de rollback D1 restrito ao mesmo bot; canário D2 controlado para uma
+  aplicação explícita;
   gate D3 fail-closed sem fallback; documentação e testes de governança do
   relatório/não alteração.
 - **Fora:** promoção do gateway Telegram como dispatcher fino, restart
@@ -90,22 +91,28 @@ enquanto não estiver `aprovado`.
 
 - Arquivos: `run_phase_c_pilot.py`, `canary_control.py`,
   `TELEGRAM_HARNESS_RUNBOOK.md`, `architecture-implementation-control.md`,
-  `scope-change-log.md`, `test_phase_d_canary.py` e `test_phase_d_runner_gate.py`.
-- Testes focados: `31 passed` em
+  `scope-change-log.md`, `test_phase_c_pilot.py`, `test_phase_d_canary.py` e
+  `test_phase_d_runner_gate.py`.
+- Testes focados: `33 passed` em
   `test_phase_d_canary.py`, `test_phase_d_canary_integration.py` e
   `test_phase_d_runner_gate.py`.
 - D0 host: `phase_d_canary.py preflight --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json`
   → `status=blocked`, `mutations=[]`, SQLite em read-only, bloqueado por
   `hermes.config.json` ausente, authority ledger ausente e
   `CAREER_CONTROL_DB_ID` ausente.
-- D1 host: `rollback-dry-run` → `dry_run_ok`, `revertible=false`, `mutations=[]`;
-  fixtures garantem target exclusivo `vagas_bot_01`, backup/mutations corretos e
-  rejeição de `vagas_bot_02`.
+- D1 host: `rollback-dry-run` permanece apenas preview operacional read-only
+  (`dry_run_ok`, `revertible=false`, `mutations=[]`); a evidência vinculante de
+  D1 continua em fixture, com target exclusivo `vagas_bot_01`,
+  backup/mutations corretos e rejeição de `vagas_bot_02`.
 - D2 fixture: relatório compacto sem `stdout`/`stderr` crus, `request_hash`
   consistente, contagens SQLite fixadas e snapshot do `bot02` idêntico.
 - D3 host: `runner-probe` → `status=blocked`, `blocker=runner_unavailable`,
   prompt redigido (`<request prompt redacted>`), sem fallback e sem prova de
   transporte pelo Harness.
+- Regressão explícita da Fase C: `test_phase_c_pilot.py` agora fixa o shape
+  compacto do payload de harness sem `stdout`/`stderr` e preserva os defaults
+  `application_id=phase-c-pilot`, `run_id=run_phase_c_pilot` e
+  `runner_kind=controlled`.
 - Status final desta mudança: `bloqueado`. Com D3 bloqueado e sem evidência real
   de Telegram → Harness, `ARCH-06` continua `divergente` e `CHG-0006` não pode
   ser marcado `concluído`.

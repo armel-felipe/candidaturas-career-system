@@ -55,3 +55,34 @@ def test_phase_c_controlled_pilot_completes_cell_execution(tmp_path):
     assert attempt["status"] == "validated"
     assert attempt["inputs_registered_at"] is not None
     database.close()
+
+
+def test_phase_c_controlled_pilot_persists_compact_harness_payload_and_preserves_defaults(tmp_path):
+    previous = {
+        key: os.environ.get(key)
+        for key in (
+            "CAREER_CONTROL_DB_PATH",
+            "CAREER_AUTHORITY_LEDGER_PATH",
+            "CAREER_WORKSPACE_OWNER",
+            "CAREER_CONTROL_DB_ID",
+        )
+    }
+    try:
+        result = run_pilot(tmp_path)
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    persisted = json.loads((tmp_path / "phase_c_pilot_result.json").read_text(encoding="utf-8"))
+
+    assert result["application_id"] == "phase-c-pilot"
+    assert result["run_id"] == "run_phase_c_pilot"
+    assert result["runner_kind"] == "controlled"
+    assert result["harness"]["stage"] == "analyze"
+    assert "stdout" not in result["harness"]
+    assert "stderr" not in result["harness"]
+    assert "stdout" not in persisted["harness"]
+    assert "stderr" not in persisted["harness"]
