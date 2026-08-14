@@ -18,6 +18,7 @@ services:
       HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace/candidaturas
       LINKEDIN_NOVNC_PUBLIC_PORT: "6081"
       RCLONE_CONFIG: /opt/data/.config/rclone/rclone.conf
+      HERMES_ACCEPT_HOOKS: "1"
     volumes:
       - /opt/agent-projects/candidaturas/hermes/runtime/vagas_bot_01:/opt/data
       - /opt/agent-projects/candidaturas/hermes/vagas_bot_01:/opt/data/profiles/vagas_bot_01
@@ -55,6 +56,7 @@ services:
       HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace/candidaturas
       LINKEDIN_NOVNC_PUBLIC_PORT: "6082"
       RCLONE_CONFIG: /opt/data/.config/rclone/rclone.conf
+      HERMES_ACCEPT_HOOKS: "1"
     volumes:
       - /opt/agent-projects/candidaturas/hermes/runtime/vagas_bot_02:/opt/data
       - /opt/agent-projects/candidaturas/hermes/vagas_bot_02:/opt/data/profiles/vagas_bot_02

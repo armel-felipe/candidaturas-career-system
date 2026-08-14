@@ -31,6 +31,14 @@ def install(
     )
     hooks = payload.setdefault("hooks", {})
     entries = hooks.setdefault("pre_llm_call", [])
+    entries[:] = [
+        item
+        for item in entries
+        if not (
+            isinstance(item, dict)
+            and "hermes_harness_context_hook.py" in str(item.get("command", ""))
+        )
+    ]
     exists = any(isinstance(item, dict) and item.get("command") == command for item in entries)
     if not exists:
         entries.append({"command": command, "timeout": 300})
@@ -67,9 +75,18 @@ def main() -> int:
         "--config",
         default=str(Path.home() / ".hermes" / "profiles" / "candidaturas" / "config.yaml"),
     )
+    parser.add_argument(
+        "--command-root",
+        type=Path,
+        help="Root visible to the runtime that executes the hook command.",
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    result = install(Path(args.config).expanduser().resolve(), apply=args.apply)
+    result = install(
+        Path(args.config).expanduser().resolve(),
+        apply=args.apply,
+        command_root=args.command_root,
+    )
     print(yaml.safe_dump(result, allow_unicode=True, sort_keys=False))
     return 0
 
