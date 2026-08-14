@@ -18,7 +18,7 @@ from career.cells.contracts import CELL_CONTRACTS
 from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services import applications_v2
-from career.services.application_context import paths_for
+from career.services.application_context import WorkspaceLease, paths_for
 from career.services.canary_control import compact_harness_payload_for_report
 from career.services.cell_store import CellStore
 from career.services.database import Database
@@ -62,10 +62,12 @@ def _pilot_metadata(application_id: str) -> dict[str, str]:
 def _prepare_state_root(
     workspace: Path,
     *,
+    state_root: Path | None,
     control_db_path: Path | None,
     authority_ledger_path: Path | None,
 ) -> tuple[Path, Path, Path]:
-    state_dir = workspace / ".career-state"
+    workspace_state_dir = workspace / ".career-state"
+    state_dir = Path(state_root).resolve() if state_root is not None else workspace_state_dir
     if (control_db_path is None) != (authority_ledger_path is None):
         raise ValueError(
             "control_db_path and authority_ledger_path must be provided together"
@@ -87,16 +89,22 @@ def _prepare_state_root(
             "workspace requires control_db_path and authority_ledger_path under one state root"
         )
     db_root.mkdir(parents=True, exist_ok=True)
-    if state_dir.exists() or state_dir.is_symlink():
-        if state_dir.resolve() != db_root:
+    if workspace_state_dir.is_symlink() and workspace_state_dir.resolve() != state_dir:
+        raise ValueError(
+            "workspace .career-state conflicts with the authoritative canary state root"
+        )
+    if state_root is None and workspace_state_dir.exists():
+        if workspace_state_dir.resolve() != db_root:
             raise ValueError(
                 "workspace .career-state conflicts with the authoritative canary state root"
             )
-    elif db_root == state_dir:
+    elif state_root is None and db_root == state_dir:
         state_dir.mkdir(parents=True, exist_ok=True)
-    else:
+    elif state_root is None:
         state_dir.parent.mkdir(parents=True, exist_ok=True)
         state_dir.symlink_to(db_root, target_is_directory=True)
+    else:
+        state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir, db_path, ledger_path
 
 
@@ -104,12 +112,14 @@ def run_pilot(
     workspace: Path,
     application_id: str = DEFAULT_APPLICATION_ID,
     *,
+    state_root: Path | None = None,
     control_db_path: Path | None = None,
     authority_ledger_path: Path | None = None,
 ) -> dict:
     workspace = workspace.resolve()
     state_dir, db_path, ledger_path = _prepare_state_root(
         workspace,
+        state_root=state_root,
         control_db_path=control_db_path,
         authority_ledger_path=authority_ledger_path,
     )
@@ -209,6 +219,10 @@ def run_pilot(
         workspace_control_db_id=control_db_id,
         require_authoritative_workspace=True,
     )
+    # The request contract must contain every file input before the external
+    # stage starts.  The controlled worker may replace this draft, but it must
+    # not be the first writer that makes the declared input exist.
+    write_json(paths.fit_map_draft, {"pilot": True})
     prepared = executor.prepare_ready_node(run_id, "analyze_fit")
 
     worker_script = workspace / "scripts" / "controlled_agent_worker.py"
@@ -232,15 +246,6 @@ def run_pilot(
     )
     if harness_result.get("returncode") != 0 or harness_result.get("isolation", {}).get("status") != "ok":
         raise RuntimeError(f"controlled harness pilot failed: {harness_result}")
-    materialized_request = read_json(request_json)
-    materialized_request_json = json.dumps(
-        materialized_request, sort_keys=True, separators=(",", ":")
-    )
-    materialized_request_hash = hashlib.sha256(
-        materialized_request_json.encode("utf-8")
-    ).hexdigest()
-    materialized_request_bytes = len(materialized_request_json.encode("utf-8"))
-
     write_json(
         applications_v2._draft_binding_path(paths),
         {
@@ -254,7 +259,31 @@ def run_pilot(
             "manifest_path": str(prepared.manifest_path),
         },
     )
-    execution = executor.run_ready(run_id)
+    try:
+        execution = executor.run_ready(run_id)
+    finally:
+        WorkspaceLease(
+            database,
+            expected_control_db_id=control_db_id,
+            require_authority=True,
+        ).release(workspace_owner)
+    # The agent is allowed to replace the draft output. Refresh the bounded
+    # request projection after execution so its persisted input hash matches
+    # the final SQLite projection used by a later fresh runner session.
+    request_json, request_md = applications_v2._write_cellular_analyze_request(
+        paths,
+        prepared,
+        workspace_owner=workspace_owner,
+        control_db_id=control_db_id,
+    )
+    materialized_request = read_json(request_json)
+    materialized_request_json = json.dumps(
+        materialized_request, sort_keys=True, separators=(",", ":")
+    )
+    materialized_request_hash = hashlib.sha256(
+        materialized_request_json.encode("utf-8")
+    ).hexdigest()
+    materialized_request_bytes = len(materialized_request_json.encode("utf-8"))
     runtime_run = database.fetch_one(
         "SELECT runtime_run_id, status, source FROM runtime_runs WHERE run_id = ?",
         (run_id,),

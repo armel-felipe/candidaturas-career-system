@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -57,6 +58,7 @@ def run_controlled_canary(
     result = run_pilot(
         workspace_root,
         application_id=app_name,
+        state_root=Path(target.state_root),
         control_db_path=Path(target.control_db_path),
         authority_ledger_path=Path(target.authority_ledger_path),
     )
@@ -288,11 +290,19 @@ def main(argv: list[str] | None = None) -> int:
         else:
             try:
                 target = resolve_target_from_compose(compose_path=args.compose, bot_name=args.bot)
-                result = probe_runner(
-                    target,
-                    dict(applications_v2.DEFAULT_CONFIG["analysis_runner"]),
-                    gate_manifest_path=args.gate_manifest,
-                )
+                previous_host_probe = os.environ.get("CAREER_CANARY_HOST_EXECUTION")
+                os.environ["CAREER_CANARY_HOST_EXECUTION"] = "1"
+                try:
+                    result = probe_runner(
+                        target,
+                        dict(applications_v2.DEFAULT_CONFIG["analysis_runner"]),
+                        gate_manifest_path=args.gate_manifest,
+                    )
+                finally:
+                    if previous_host_probe is None:
+                        os.environ.pop("CAREER_CANARY_HOST_EXECUTION", None)
+                    else:
+                        os.environ["CAREER_CANARY_HOST_EXECUTION"] = previous_host_probe
             except Exception as exc:
                 result = {
                     "status": "blocked",

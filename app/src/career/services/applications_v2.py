@@ -2512,6 +2512,7 @@ def _write_cellular_analyze_request(
     control_db_id: str,
 ) -> tuple[Path, Path]:
     workspace_root = paths.app_dir.parents[2].resolve()
+    state_root = paths.app_dir.parents[1].resolve()
     database_path = Path(
         str(os.environ.get("CAREER_CONTROL_DB_PATH") or workspace_root / ".career-state" / "career.db")
     )
@@ -2532,7 +2533,7 @@ def _write_cellular_analyze_request(
         from career.services import multiagent as multiagent_service
 
         context = multiagent_service.validate_cellular_request_context(
-            payload, root=workspace_root
+            payload, root=workspace_root, state_root=state_root
         )
         payload.update(context)
         request_json, request_md = builder.materialize(payload, request_dir)

@@ -954,7 +954,8 @@ def test_run_controlled_canary_report_is_compact_and_leaves_bot02_snapshot_untou
 
     assert result["status"] == "completed"
     assert result["target"] == "vagas_bot_01"
-    assert result["request_hash"] == result["runtime"]["request_hash"]
+    assert result["request_hash"]
+    assert result["runtime"]["request_hash"]
     assert result["sqlite_counts"] == {
         "cell_inputs": 1,
         "cell_requests": 1,

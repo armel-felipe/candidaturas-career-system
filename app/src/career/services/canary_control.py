@@ -51,6 +51,7 @@ class CanaryTarget:
     workspace_root: Path
     state_root: Path
     compose_path: Path
+    control_db_id: str = ""
 
 
 def assert_canary_target(target: CanaryTarget) -> None:
@@ -90,6 +91,11 @@ def resolve_target_from_compose(
         or state_root / "authority.json",
         volumes,
     ).resolve()
+    control_db_id = str(
+        (service.get("environment") or {}).get("CAREER_CONTROL_DB_ID")
+        or env_map.get("CAREER_CONTROL_DB_ID")
+        or ""
+    ).strip()
     adapter_script = (workspace_root / "scripts" / "telegram_harness_adapter.py").resolve()
     profile_mount = _find_profile_mount(volumes, bot_name)
     hermes_config = (
@@ -105,6 +111,7 @@ def resolve_target_from_compose(
         workspace_root=workspace_root,
         state_root=state_root,
         compose_path=compose_file,
+        control_db_id=control_db_id,
     )
 
 
@@ -296,11 +303,19 @@ def probe_runner(
     target: CanaryTarget,
     runner_config: dict[str, Any],
     gate_manifest_path: str | Path | None = None,
+    *,
+    host_execution: bool | None = None,
 ) -> dict[str, Any]:
     assert_canary_target(target)
+    if host_execution is None:
+        host_execution = os.environ.get("CAREER_CANARY_HOST_EXECUTION") == "1"
     root_path = Path(target.workspace_root).resolve()
     state_root = Path(target.state_root).resolve()
     config = dict(runner_config or {})
+    try:
+        config["timeout_minutes"] = min(int(config.get("timeout_minutes") or 1), 1)
+    except (TypeError, ValueError):
+        config["timeout_minutes"] = 1
     runner = SubprocessAgentRunner(root_path)
     gate_context = _load_runner_gate_context(state_root, gate_manifest_path=gate_manifest_path)
     request_context = gate_context.get("request_context") if gate_context.get("status") == "ok" else None
@@ -309,8 +324,11 @@ def probe_runner(
         if request_context is not None
         else (state_root / "runner_probe" / "request.md")
     )
-    request_display_path = Path("/workspace/candidaturas/.career-state") / request_md.resolve().relative_to(
-        state_root
+    request_display_path = (
+        request_md.resolve()
+        if host_execution
+        else Path("/workspace/candidaturas/.career-state")
+        / request_md.resolve().relative_to(state_root)
     )
     command = runner.build_command(
         AgentRunRequest(
@@ -366,7 +384,16 @@ def probe_runner(
         request_md=Path(request_context["request_md"]),
         runner_config=config,
         workspace_owner=str(os.environ.get("CAREER_WORKSPACE_OWNER") or ""),
-        control_db_id=str(os.environ.get("CAREER_CONTROL_DB_ID") or ""),
+        control_db_id=str(
+            target.control_db_id or os.environ.get("CAREER_CONTROL_DB_ID") or ""
+        ),
+        control_db_path=target.control_db_path,
+        authority_ledger_path=target.authority_ledger_path,
+        release_workspace_lease=True,
+        instruction_override=(
+            "Runner probe only: read the request file, confirm it is readable and "
+            "valid JSON, then stop. Do not modify any file and do not resume a session."
+        ),
     )
     blocker = None
     status = "completed"

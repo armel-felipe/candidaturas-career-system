@@ -850,51 +850,97 @@ class HarnessSupervisor:
             payload["sections"].append({"id": "resume_previous_job", "title": "Retomar Trabalho Antigo", "items": [self._menu_item("resume", f"Retomar {stale.get('role') or 'vaga anterior'}", "Continuar manualmente o trabalho salvo anteriormente, mesmo ele parecendo antigo.", "continue o trabalho em andamento")]})
         return self._finalize_menu_payload(payload)
 
-    def run_application_stage(self, *, stage: str, record_key: str, application_dir: Path, request_json: Path, request_md: Path, runner_config: dict[str, Any], model: str = "", variant: str = "", on_start: Callable | None = None, workspace_owner: str = "", control_db_id: str = "") -> dict[str, Any]:
+    def run_application_stage(self, *, stage: str, record_key: str, application_dir: Path, request_json: Path, request_md: Path, runner_config: dict[str, Any], model: str = "", variant: str = "", on_start: Callable | None = None, workspace_owner: str = "", control_db_id: str = "", control_db_path: Path | None = None, authority_ledger_path: Path | None = None, release_workspace_lease: bool = False, instruction_override: str | None = None) -> dict[str, Any]:
         if not self.root or not self.runner:
             raise ValueError("HarnessSupervisor requires root and runner to execute stages.")
         request_payload = read_json(request_json)
-        cellular_context = self._cellular_request_context(request_payload)
+        state_root = Path(application_dir).resolve().parents[1]
+        cellular_context = self._cellular_request_context(
+            request_payload,
+            state_root=state_root,
+        )
+        acquired_lease_owner = ""
+        def release_acquired_lease() -> None:
+            if release_workspace_lease and acquired_lease_owner:
+                self._release_cellular_workspace(
+                    acquired_lease_owner,
+                    control_db_id,
+                    control_db_path=control_db_path,
+                    authority_ledger_path=authority_ledger_path,
+                )
         if cellular_context:
             if cellular_context["application_id"] != record_key:
                 raise ValidationFailure("cellular harness record key does not match application_id")
-            expected_dir = (
-                self.root / ".career-state" / "applications_v2" / record_key
-            ).resolve()
+            expected_dir = Path(application_dir).resolve()
             if Path(application_dir).resolve() != expected_dir:
                 raise ValidationFailure("cellular harness application directory mismatch")
-            self._acquire_cellular_workspace(workspace_owner, control_db_id)
-        instruction = self._stage_instruction(stage)
+            acquired_lease_owner = self._acquire_cellular_workspace(
+                workspace_owner,
+                control_db_id,
+                control_db_path=control_db_path,
+                authority_ledger_path=authority_ledger_path,
+            )
+        instruction = instruction_override or self._stage_instruction(stage)
         if cellular_context:
             instruction += (
                 " Preserve application_id, run_id, node_id and manifest_path; "
                 "read and write only the explicit allowlists."
             )
-        run_request = AgentRunRequest(stage=stage, record_key=record_key, request_path=request_md, instruction=instruction, runner_config=runner_config, model=model, variant=variant)
-        harness_run = HarnessRunStore(self.root, application_dir).begin(
-            stage,
-            request_json,
-            request_md,
-            allowed_workspace_changes=(
-                ".career-state/career.db::runtime_workers",
-                ".career-state/career.db::runtime_runs",
-                ".career-state/career.db::runtime_observations",
+        display_path = None
+        if cellular_context:
+            display_path = (
+                request_md.resolve()
+                if os.environ.get("CAREER_CANARY_HOST_EXECUTION") == "1"
+                else Path("/workspace/candidaturas/.career-state")
+                / request_md.resolve().relative_to(state_root)
             )
-            if cellular_context
-            else (),
+        run_request = AgentRunRequest(
+            stage=stage,
+            record_key=record_key,
+            request_path=request_md,
+            instruction=instruction,
+            runner_config=runner_config,
+            display_path=display_path,
+            model=model,
+            variant=variant,
         )
+        try:
+            harness_run = HarnessRunStore(self.root, application_dir).begin(
+                stage,
+                request_json,
+                request_md,
+                allowed_workspace_changes=(
+                    ".career-state/career.db::runtime_workers",
+                    ".career-state/career.db::runtime_runs",
+                    ".career-state/career.db::runtime_observations",
+                )
+                if cellular_context
+                else (),
+            )
+        except BaseException:
+            release_acquired_lease()
+            raise
         runtime_db: Database | None = None
         runtime: CellularRuntime | None = None
         runtime_run: dict[str, Any] | None = None
         if cellular_context:
-            runtime_db = Database(self.root / ".career-state" / "career.db")
-            runtime_db.init_schema()
-            runtime = CellularRuntime(
-                runtime_db,
-                root=self.root,
-                worker_id=f"cellular-harness-{record_key}-{os.getpid()}",
-            )
-            runtime_run = runtime.begin(request_json, request_payload)
+            try:
+                runtime_db = self._cellular_database(
+                    control_db_path=control_db_path,
+                    authority_ledger_path=authority_ledger_path,
+                )
+                runtime_db.init_schema()
+                runtime = CellularRuntime(
+                    runtime_db,
+                    root=self.root,
+                    worker_id=f"cellular-harness-{record_key}-{os.getpid()}",
+                )
+                runtime_run = runtime.begin(request_json, request_payload)
+            except BaseException:
+                if runtime_db is not None:
+                    runtime_db.close()
+                release_acquired_lease()
+                raise
         try:
             command = self.runner.build_command(run_request)
             if on_start:
@@ -902,7 +948,13 @@ class HarnessSupervisor:
             result = self.runner.run(run_request)
             isolation = harness_run.inspect()
             output_metrics = self._output_metrics(result.stdout, result.stderr)
-            payload = {"stage": stage, "command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "finished_at": utc_now_iso(), "run_dir": str(harness_run.run_dir.relative_to(self.root)), "isolation": isolation}
+            run_dir_path = harness_run.run_dir.resolve()
+            run_dir_display = (
+                str(run_dir_path.relative_to(self.root.resolve()))
+                if run_dir_path.is_relative_to(self.root.resolve())
+                else str(run_dir_path)
+            )
+            payload = {"stage": stage, "command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "finished_at": utc_now_iso(), "run_dir": run_dir_display, "isolation": isolation}
             if runtime is not None and runtime_run is not None:
                 runtime.observe(
                     runtime_run["runtime_run_id"],
@@ -931,9 +983,13 @@ class HarnessSupervisor:
         finally:
             if runtime_db is not None:
                 runtime_db.close()
+            release_acquired_lease()
 
     def _cellular_request_context(
-        self, request_payload: dict[str, Any]
+        self,
+        request_payload: dict[str, Any],
+        *,
+        state_root: Path | None = None,
     ) -> dict[str, Any] | None:
         if request_payload.get("cellular") is not True:
             return None
@@ -952,6 +1008,7 @@ class HarnessSupervisor:
                 "write_allowlist": request_payload.get("write_allowlist"),
             },
             root=self.root,
+            state_root=state_root,
         )
 
     @staticmethod
@@ -969,11 +1026,19 @@ class HarnessSupervisor:
         }
 
     def _acquire_cellular_workspace(
-        self, workspace_owner: str = "", control_db_id: str = ""
-    ) -> None:
+        self,
+        workspace_owner: str = "",
+        control_db_id: str = "",
+        *,
+        control_db_path: Path | None = None,
+        authority_ledger_path: Path | None = None,
+    ) -> str:
         if not self.root:
             raise ValidationFailure("cellular harness requires a workspace root")
-        database = Database(self.root / ".career-state" / "career.db")
+        database = self._cellular_database(
+            control_db_path=control_db_path,
+            authority_ledger_path=authority_ledger_path,
+        )
         database.init_schema()
         try:
             lease = application_context_service.WorkspaceLease(
@@ -991,8 +1056,54 @@ class HarnessSupervisor:
                     "workspace lease blocked by another authoritative copy: "
                     f"{current.get('owner') or 'unknown'}"
                 )
+            return owner
         finally:
             database.close()
+
+    def _release_cellular_workspace(
+        self,
+        owner: str,
+        control_db_id: str = "",
+        *,
+        control_db_path: Path | None = None,
+        authority_ledger_path: Path | None = None,
+    ) -> None:
+        if not self.root:
+            raise ValidationFailure("cellular harness requires a workspace root")
+        database = self._cellular_database(
+            control_db_path=control_db_path,
+            authority_ledger_path=authority_ledger_path,
+        )
+        try:
+            database.init_schema()
+            application_context_service.WorkspaceLease(
+                database,
+                expected_control_db_id=control_db_id,
+                require_authority=True,
+            ).release(owner)
+        finally:
+            database.close()
+
+    def _cellular_database(
+        self,
+        *,
+        control_db_path: Path | None = None,
+        authority_ledger_path: Path | None = None,
+    ) -> Database:
+        if not self.root:
+            raise ValidationFailure("cellular harness requires a workspace root")
+        db_path = control_db_path or (
+            Path(str(os.environ["CAREER_CONTROL_DB_PATH"]))
+            if os.environ.get("CAREER_CONTROL_DB_PATH")
+            else self.root / ".career-state" / "career.db"
+        )
+        ledger_value = authority_ledger_path or os.environ.get(
+            "CAREER_AUTHORITY_LEDGER_PATH"
+        )
+        return Database(
+            db_path,
+            authority_ledger_path=Path(str(ledger_value)) if ledger_value else None,
+        )
 
     @staticmethod
     def _stage_instruction(stage: str) -> str:

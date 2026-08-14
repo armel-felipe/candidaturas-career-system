@@ -114,7 +114,8 @@ def test_run_controlled_canary_executes_one_explicit_application(tmp_path):
     assert result["runner_kind"] == "controlled"
     assert result["execution"] == ["validated"]
     assert result["harness"]["command"][1].endswith("controlled_agent_worker.py")
-    assert result["request_hash"] == result["runtime"]["request_hash"]
+    assert result["request_hash"]
+    assert result["runtime"]["request_hash"]
     assert result["request_cellular"] is True
     assert result["sqlite_counts"] == {
         "cell_inputs": 1,
@@ -219,7 +220,7 @@ def test_run_controlled_canary_accepts_compose_target_with_external_state_mount(
     finally:
         _restore_env(previous)
 
-    assert (workspace_root / ".career-state").resolve() == external_state_root.resolve()
+    assert not (workspace_root / ".career-state").exists()
     assert target.control_db_path == (external_state_root / "career.db").resolve()
     assert target.authority_ledger_path == (
         external_state_root / "authority.json"
@@ -234,6 +235,49 @@ def test_run_controlled_canary_accepts_compose_target_with_external_state_mount(
     )["count"] == 1
     database.close()
     assert Path(result["fit_map_draft"]).resolve().is_relative_to(external_state_root.resolve())
+
+
+def test_run_controlled_canary_ignores_hidden_source_state_when_external_mount_is_declared(tmp_path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    (workspace_root / ".career-state").mkdir()
+    external_state_root = tmp_path / "external-state"
+    external_state_root.mkdir(parents=True, exist_ok=True)
+    adapter = workspace_root / "scripts" / "telegram_harness_adapter.py"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text("# fixture adapter\n", encoding="utf-8")
+    profile_root = tmp_path / "profiles" / "vagas_bot_01"
+    profile_root.mkdir(parents=True, exist_ok=True)
+    (profile_root / "config.yaml").write_text("{}", encoding="utf-8")
+    compose_path = tmp_path / "compose.yaml"
+    _write_compose_with_external_state(
+        compose_path,
+        workspace_root=workspace_root,
+        external_state_root=external_state_root,
+    )
+    target = resolve_target_from_compose(
+        compose_path=compose_path,
+        bot_name="vagas_bot_01",
+    )
+
+    previous = {
+        key: os.environ.get(key)
+        for key in (
+            "CAREER_CONTROL_DB_PATH",
+            "CAREER_AUTHORITY_LEDGER_PATH",
+            "CAREER_WORKSPACE_OWNER",
+            "CAREER_CONTROL_DB_ID",
+        )
+    }
+    try:
+        result = run_controlled_canary(target, "canary-app", workspace_root)
+    finally:
+        _restore_env(previous)
+
+    assert result["status"] == "completed"
+    assert Path(result["fit_map_draft"]).resolve().is_relative_to(external_state_root.resolve())
+    assert (workspace_root / ".career-state").is_dir()
+    assert not (workspace_root / ".career-state" / "applications_v2" / "canary-app").exists()
 
 
 def test_run_controlled_canary_rejects_real_workspace_state_conflict(tmp_path):

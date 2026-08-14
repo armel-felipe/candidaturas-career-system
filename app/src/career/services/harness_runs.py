@@ -20,6 +20,12 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _display_path(path: Path, root: Path) -> str:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    return str(resolved_path.relative_to(resolved_root)) if resolved_path.is_relative_to(resolved_root) else str(resolved_path)
+
+
 def allowed_outputs_from_request(request_json: Path, root: Path) -> list[Path]:
     if not request_json.exists():
         return []
@@ -152,8 +158,8 @@ class HarnessRunStore:
                 "run_id": run_id,
                 "stage": stage,
                 "created_at": utc_now_iso(),
-                "source_request_json": str(request_json.relative_to(self.root)),
-                "source_request_md": str(request_md.relative_to(self.root)),
+                "source_request_json": _display_path(request_json, self.root),
+                "source_request_md": _display_path(request_md, self.root),
                 "allowed_outputs": [
                     str(path.relative_to(self.root)) if path.is_relative_to(self.root) else str(path)
                     for path in allowed_outputs

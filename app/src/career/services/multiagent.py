@@ -210,7 +210,7 @@ def _fit_map_summary(
 
 
 def validate_cellular_request_context(
-    extras: dict[str, Any], *, root: Path = ROOT
+    extras: dict[str, Any], *, root: Path = ROOT, state_root: Path | None = None
 ) -> dict[str, Any]:
     """Validate the complete cell identity/capability envelope or fail closed."""
     if extras.get("cellular") is not True:
@@ -235,9 +235,12 @@ def validate_cellular_request_context(
     node_id = str(extras["node_id"]).strip()
     if not run_id or not node_id:
         raise ValidationFailure("cellular request requires non-empty run_id and node_id")
-    app_dir = (
-        Path(root) / ".career-state" / "applications_v2" / application_id
-    ).resolve()
+    application_state_root = (
+        Path(state_root).resolve()
+        if state_root is not None
+        else (Path(root) / ".career-state").resolve()
+    )
+    app_dir = (application_state_root / "applications_v2" / application_id).resolve()
     manifest_path = Path(str(extras["manifest_path"])).resolve()
     try:
         manifest_path.relative_to(app_dir)
