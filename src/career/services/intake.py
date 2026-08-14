@@ -16,6 +16,7 @@ from career.services import project as project_service
 from career.tasks.registry import run_task
 from career.utils import (
     ValidationFailure,
+    read_json,
     sha256_file,
     sha256_text,
     utc_now_iso,
@@ -142,6 +143,41 @@ def _is_generic_url_metadata(company: str | None, role: str | None) -> bool:
         or company_key in GENERIC_URL_COMPANIES
         or role_key in GENERIC_URL_ROLES
     )
+
+
+def _linkedin_job_key(url: str) -> str:
+    match = re.search(r"/jobs/view/(\d+)", str(url or ""))
+    return match.group(1) if match else ""
+
+
+def _saved_job_metadata_hints_for_url(url: str) -> dict[str, str]:
+    """Resolve selector metadata for a URL when LinkedIn hides its top card."""
+    saved_jobs_path = INBOX / "linkedin_saved_jobs.json"
+    if not saved_jobs_path.is_file():
+        return {}
+    try:
+        payload = read_json(saved_jobs_path)
+    except (OSError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
+        return {}
+
+    requested_key = _linkedin_job_key(url)
+    if not requested_key:
+        return {}
+    for item in payload["jobs"]:
+        if not isinstance(item, dict):
+            continue
+        item_key = str(item.get("jobId") or "") or _linkedin_job_key(str(item.get("url") or ""))
+        if item_key != requested_key:
+            continue
+        hints = {
+            "company": str(item.get("company") or "").strip(),
+            "role": str(item.get("title") or "").strip(),
+            "location": str(item.get("location") or "").strip(),
+        }
+        return {key: value for key, value in hints.items() if value}
+    return {}
 
 
 def _load_state(state_store: WorkflowStateStore) -> dict[str, Any]:
@@ -518,7 +554,8 @@ def from_linkedin_job(
     application_id: str | None = None,
 ) -> dict[str, Any]:
     command = ["npm", "run", "linkedin:extract:authenticated", "--", "--url", url, "--headless"]
-    hints = metadata_hints or {}
+    hints = _saved_job_metadata_hints_for_url(url)
+    hints.update({key: value for key, value in (metadata_hints or {}).items() if value})
     if hints.get("company"):
         command.extend(["--fallback-company", str(hints["company"])])
     if hints.get("role"):
@@ -608,7 +645,13 @@ def from_url(
     path = parsed.path or ""
     if host == "linkedin.com" or host.endswith(".linkedin.com"):
         if "/jobs/" in path or "/job/" in path:
-            return from_linkedin_job(url, state_store=state_store, application_id=application_id)
+            hints = {key: value for key, value in {"company": company, "role": role}.items() if value}
+            return from_linkedin_job(
+                url,
+                state_store=state_store,
+                metadata_hints=hints,
+                application_id=application_id,
+            )
         if any(marker in path for marker in ["/feed/update/", "/posts/", "/pulse/"]):
             if not company or not role:
                 raise ValidationFailure("LinkedIn post intake requires --company and --role.")
