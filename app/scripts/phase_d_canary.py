@@ -121,6 +121,13 @@ def _build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--bot", required=True)
     preflight.add_argument("--json", action="store_true", dest="as_json")
 
+    record_preflight = subparsers.add_parser(
+        "record-preflight", help="Run D0 and explicitly persist ready evidence"
+    )
+    record_preflight.add_argument("--compose", required=True, type=Path)
+    record_preflight.add_argument("--bot", required=True)
+    record_preflight.add_argument("--json", action="store_true", dest="as_json")
+
     rollback = subparsers.add_parser("rollback-dry-run", help="Inspect rollback without writing")
     rollback.add_argument("--compose", required=True, type=Path)
     rollback.add_argument("--bot", required=True)
@@ -167,6 +174,32 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 target = resolve_target_from_compose(compose_path=args.compose, bot_name=args.bot)
                 result = run_preflight(target, args.compose)
+            except Exception as exc:
+                result = {
+                    "status": "blocked",
+                    "target": args.bot,
+                    "checks": [{"name": "compose_service", "status": "blocked", "reason": str(exc)}],
+                    "mutations": [],
+                }
+        if args.as_json:
+            json.dump(result, sys.stdout, ensure_ascii=False, sort_keys=True)
+            sys.stdout.write("\n")
+        else:
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+        return 0 if result["status"] == "ready" else 1
+    if args.command == "record-preflight":
+        blocked = _reject_non_canary_bot(args.bot)
+        if blocked is not None:
+            result = blocked
+        else:
+            try:
+                target = resolve_target_from_compose(compose_path=args.compose, bot_name=args.bot)
+                result = run_preflight(target, args.compose)
+                if result.get("status") == "ready":
+                    result = {
+                        **result,
+                        "evidence": persist_gate_evidence(target, "d0", result),
+                    }
             except Exception as exc:
                 result = {
                     "status": "blocked",

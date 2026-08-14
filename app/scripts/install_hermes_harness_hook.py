@@ -15,12 +15,18 @@ PLUGIN_NAME = "career-harness-output"
 PLUGIN_SOURCE = ROOT / "integrations" / "hermes" / PLUGIN_NAME
 
 
-def install(config_path: Path, *, apply: bool) -> dict:
+def install(
+    config_path: Path,
+    *,
+    apply: bool,
+    command_root: Path | None = None,
+) -> dict:
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    hook_root = command_root or ROOT
     command = " ".join(
         [
-            shlex.quote(str((ROOT / "scripts" / "python.sh").resolve())),
-            shlex.quote(str((ROOT / "scripts" / "hermes_harness_context_hook.py").resolve())),
+            shlex.quote(str(hook_root / "scripts" / "python.sh")),
+            shlex.quote(str(hook_root / "scripts" / "hermes_harness_context_hook.py")),
         ]
     )
     hooks = payload.setdefault("hooks", {})

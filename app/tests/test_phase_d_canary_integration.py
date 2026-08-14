@@ -32,6 +32,7 @@ def _target(tmp_path: Path, *, bot_name: str = "vagas_bot_01") -> CanaryTarget:
         control_db_path=state_root / "career.db",
         authority_ledger_path=state_root / "authority.json",
         workspace_root=workspace_root,
+        state_root=state_root,
         compose_path=compose_path,
     )
 
@@ -295,6 +296,7 @@ def test_run_controlled_canary_blocks_noncanonical_authority_paths_without_mutat
         control_db_path=external_state_root / "custom-career.sqlite",
         authority_ledger_path=external_state_root / "custom-authority-ledger.json",
         workspace_root=workspace_root,
+        state_root=external_state_root,
         compose_path=tmp_path / "compose.yaml",
     )
     previous = {

@@ -30,6 +30,7 @@ def _canary_target(root: Path) -> CanaryTarget:
         control_db_path=workspace_root / ".career-state" / "career.db",
         authority_ledger_path=workspace_root / ".career-state" / "authority.json",
         workspace_root=workspace_root,
+        state_root=workspace_root / ".career-state",
         compose_path=workspace_root / "compose.yaml",
     )
 

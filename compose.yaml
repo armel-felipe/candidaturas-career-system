@@ -13,6 +13,8 @@ services:
       HERMES_UID: "10000"
       HERMES_GID: "10000"
       CAREER_CONTROL_DB_PATH: /workspace/candidaturas/.career-control/career.db
+      CAREER_AUTHORITY_LEDGER_PATH: /workspace/candidaturas/.career-control/authority.json
+      CAREER_CONTROL_DB_ID: control_9c0aceb3a5cf4441abf5417fc55f5ffc
       HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace/candidaturas
       LINKEDIN_NOVNC_PUBLIC_PORT: "6081"
       RCLONE_CONFIG: /opt/data/.config/rclone/rclone.conf
@@ -48,6 +50,8 @@ services:
       HERMES_UID: "10000"
       HERMES_GID: "10000"
       CAREER_CONTROL_DB_PATH: /workspace/candidaturas/.career-control/career.db
+      CAREER_AUTHORITY_LEDGER_PATH: /workspace/candidaturas/.career-control/authority.json
+      CAREER_CONTROL_DB_ID: control_9c0aceb3a5cf4441abf5417fc55f5ffc
       HERMES_WRITE_SAFE_ROOT: /opt/data:/workspace/candidaturas
       LINKEDIN_NOVNC_PUBLIC_PORT: "6082"
       RCLONE_CONFIG: /opt/data/.config/rclone/rclone.conf

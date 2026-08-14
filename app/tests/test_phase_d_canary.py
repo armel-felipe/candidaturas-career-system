@@ -98,10 +98,13 @@ def _canary_target(
     bot_name: str = "vagas_bot_01",
     *,
     hermes_config: Path | None = None,
+    state_root: Path | None = None,
 ):
     from career.services.canary_control import CanaryTarget
 
     paths = _target_paths(tmp_path)
+    resolved_state_root = state_root or paths["workspace_root"] / ".career-state"
+    resolved_state_root.mkdir(parents=True, exist_ok=True)
     return CanaryTarget(
         bot_name=bot_name,
         compose_service=bot_name,
@@ -110,6 +113,7 @@ def _canary_target(
         control_db_path=paths["control_db_path"],
         authority_ledger_path=paths["authority_ledger_path"],
         workspace_root=paths["workspace_root"],
+        state_root=resolved_state_root,
         compose_path=paths["compose_path"],
     )
 
@@ -364,6 +368,30 @@ def test_run_preflight_opens_sqlite_read_only_and_reports_identity(tmp_path, mon
     ) is None
 
 
+def test_run_preflight_reads_control_db_id_from_service_environment(tmp_path):
+    from career.services.canary_control import run_preflight
+
+    target = _canary_target(tmp_path)
+    paths = _target_paths(tmp_path)
+    _write_compose(paths["compose_path"], db_path=paths["control_db_path"])
+    database, control_db_id = _provisioned_database(
+        paths["control_db_path"], paths["authority_ledger_path"]
+    )
+    database.close()
+    payload = yaml.safe_load(paths["compose_path"].read_text(encoding="utf-8"))
+    payload["services"]["vagas_bot_01"]["environment"]["CAREER_CONTROL_DB_ID"] = control_db_id
+    paths["compose_path"].write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    result = run_preflight(
+        target,
+        paths["compose_path"],
+        env={"PATH": str(Path(sys.executable).parent)},
+    )
+
+    assert result["status"] == "ready"
+    assert result["control_db"]["control_db_id_matches_env"] is True
+
+
 def test_run_preflight_blocks_when_copied_db_and_ledger_are_stale(tmp_path, monkeypatch):
     from career.services.canary_control import run_preflight
 
@@ -501,6 +529,47 @@ def test_resolve_target_from_compose_prefers_service_authority_ledger_path(tmp_p
     assert target.authority_ledger_path == explicit_ledger_path.resolve()
 
 
+def test_resolve_target_from_compose_maps_container_paths_and_exposes_state_root(tmp_path):
+    from career.services.canary_control import resolve_target_from_compose
+
+    workspace_root = tmp_path / "workspace"
+    state_root = tmp_path / "bot01-state"
+    control_root = tmp_path / "control-plane"
+    profile_root = tmp_path / "profiles" / "vagas_bot_01"
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text(
+        yaml.safe_dump(
+            {
+                "services": {
+                    "vagas_bot_01": {
+                        "environment": {
+                            "CAREER_CONTROL_DB_PATH": "/workspace/candidaturas/.career-control/career.db",
+                            "CAREER_AUTHORITY_LEDGER_PATH": "/workspace/candidaturas/.career-control/authority.json",
+                        },
+                        "volumes": [
+                            f"{workspace_root}:/workspace/candidaturas:rw",
+                            f"{state_root}:/workspace/candidaturas/.career-state:rw",
+                            f"{control_root}:/workspace/candidaturas/.career-control:rw",
+                            f"{profile_root}:/opt/data/profiles/vagas_bot_01:rw",
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    target = resolve_target_from_compose(
+        compose_path=compose_path,
+        bot_name="vagas_bot_01",
+    )
+
+    assert target.workspace_root == workspace_root.resolve()
+    assert target.state_root == state_root.resolve()
+    assert target.control_db_path == (control_root / "career.db").resolve()
+    assert target.authority_ledger_path == (control_root / "authority.json").resolve()
+
+
 def test_resolve_target_from_real_compose_uses_config_yaml():
     from career.services.canary_control import resolve_target_from_compose
 
@@ -511,6 +580,31 @@ def test_resolve_target_from_real_compose_uses_config_yaml():
     assert target.hermes_config == Path(
         "/opt/agent-projects/candidaturas/hermes/vagas_bot_01/config.yaml"
     )
+
+
+@pytest.mark.parametrize(
+    "compose_path",
+    [
+        Path(__file__).resolve().parents[2] / "compose.yaml",
+        Path(__file__).resolve().parents[1] / "deploy" / "hermes" / "compose.yaml",
+    ],
+)
+def test_canary_compose_declares_shared_authority_for_both_agents(compose_path):
+    payload = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    services = payload["services"]
+    expected_id = "control_9c0aceb3a5cf4441abf5417fc55f5ffc"
+
+    for bot_name in ("vagas_bot_01", "vagas_bot_02"):
+        service = services[bot_name]
+        environment = service["environment"]
+        assert environment["CAREER_CONTROL_DB_PATH"] == "/workspace/candidaturas/.career-control/career.db"
+        assert environment["CAREER_AUTHORITY_LEDGER_PATH"] == "/workspace/candidaturas/.career-control/authority.json"
+        assert environment["CAREER_CONTROL_DB_ID"] == expected_id
+        assert any(
+            "/opt/agent-projects/candidaturas/control-plane:/workspace/candidaturas/.career-control"
+            in volume
+            for volume in service["volumes"]
+        )
 
 
 def test_phase_d_canary_preflight_cli_returns_json_and_non_zero_for_blocked(tmp_path):
@@ -582,6 +676,82 @@ def test_preflight_cli_is_read_only_and_does_not_persist_gate_evidence(
     assert not (target.workspace_root / ".career-state" / "phase_d_runner_gate.json").exists()
 
 
+def test_record_preflight_persists_d0_only_after_ready(monkeypatch, capsys, tmp_path):
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    target = _canary_target(tmp_path, state_root=tmp_path / "external-state")
+
+    monkeypatch.setattr(phase_d_canary, "resolve_target_from_compose", lambda **kwargs: target)
+    monkeypatch.setattr(
+        phase_d_canary,
+        "run_preflight",
+        lambda resolved_target, compose: {
+            "status": "ready",
+            "target": resolved_target.bot_name,
+            "checks": [],
+            "mutations": [],
+        },
+    )
+
+    exit_code = phase_d_canary.main(
+        [
+            "record-preflight",
+            "--compose",
+            str(compose_path),
+            "--bot",
+            "vagas_bot_01",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "ready"
+    assert (target.state_root / "phase_d_gates" / "d0_preflight.json").exists()
+    assert (target.state_root / "phase_d_runner_gate.json").exists()
+    assert not (target.workspace_root / ".career-state" / "phase_d_gates" / "d0_preflight.json").exists()
+
+
+def test_record_preflight_does_not_persist_blocked_d0(monkeypatch, capsys, tmp_path):
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    target = _canary_target(tmp_path)
+
+    monkeypatch.setattr(phase_d_canary, "resolve_target_from_compose", lambda **kwargs: target)
+    monkeypatch.setattr(
+        phase_d_canary,
+        "run_preflight",
+        lambda resolved_target, compose: {
+            "status": "blocked",
+            "target": resolved_target.bot_name,
+            "checks": [{"name": "authority", "status": "blocked"}],
+            "mutations": [],
+        },
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("blocked D0 must not persist gate evidence")
+
+    monkeypatch.setattr(phase_d_canary, "persist_gate_evidence", fail_if_called)
+
+    exit_code = phase_d_canary.main(
+        [
+            "record-preflight",
+            "--compose",
+            str(compose_path),
+            "--bot",
+            "vagas_bot_01",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["status"] == "blocked"
+    assert not (target.state_root / "phase_d_gates" / "d0_preflight.json").exists()
+    assert not (target.state_root / "phase_d_runner_gate.json").exists()
+
+
 def test_stage_hook_dry_run_does_not_write_config_and_limits_target_to_bot01(tmp_path):
     from career.services.canary_control import stage_hook
 
@@ -598,6 +768,7 @@ def test_stage_hook_dry_run_does_not_write_config_and_limits_target_to_bot01(tmp
     assert result["mutations"] == []
     assert target.hermes_config.read_text(encoding="utf-8") == original
     assert "vagas_bot_02" not in json.dumps(result, ensure_ascii=False)
+    assert result["command"].startswith("/workspace/candidaturas/scripts/python.sh ")
 
 
 def test_stage_hook_apply_creates_backup_and_rejects_bot02(tmp_path):

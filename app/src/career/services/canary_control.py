@@ -49,6 +49,7 @@ class CanaryTarget:
     control_db_path: Path
     authority_ledger_path: Path
     workspace_root: Path
+    state_root: Path
     compose_path: Path
 
 
@@ -77,19 +78,17 @@ def resolve_target_from_compose(
     if state_root is None:
         state_root = workspace_root / ".career-state"
     state_root = state_root.resolve()
-    control_db_path = Path(
-        str(
-            (service.get("environment") or {}).get("CAREER_CONTROL_DB_PATH")
-            or env_map.get("CAREER_CONTROL_DB_PATH")
-            or state_root / "career.db"
-        )
+    control_db_path = _resolve_service_path(
+        (service.get("environment") or {}).get("CAREER_CONTROL_DB_PATH")
+        or env_map.get("CAREER_CONTROL_DB_PATH")
+        or state_root / "career.db",
+        volumes,
     ).resolve()
-    authority_ledger_path = Path(
-        str(
-            (service.get("environment") or {}).get("CAREER_AUTHORITY_LEDGER_PATH")
-            or env_map.get("CAREER_AUTHORITY_LEDGER_PATH")
-            or state_root / "authority.json"
-        )
+    authority_ledger_path = _resolve_service_path(
+        (service.get("environment") or {}).get("CAREER_AUTHORITY_LEDGER_PATH")
+        or env_map.get("CAREER_AUTHORITY_LEDGER_PATH")
+        or state_root / "authority.json",
+        volumes,
     ).resolve()
     adapter_script = (workspace_root / "scripts" / "telegram_harness_adapter.py").resolve()
     profile_mount = _find_profile_mount(volumes, bot_name)
@@ -104,6 +103,7 @@ def resolve_target_from_compose(
         control_db_path=control_db_path,
         authority_ledger_path=authority_ledger_path,
         workspace_root=workspace_root,
+        state_root=state_root,
         compose_path=compose_file,
     )
 
@@ -132,7 +132,8 @@ def run_preflight(
         return report
     _append_check(report, "compose_service", "ok")
 
-    hermes_home = str((service.get("environment") or {}).get("HERMES_HOME") or "").strip()
+    service_environment = service.get("environment") or {}
+    hermes_home = str(service_environment.get("HERMES_HOME") or "").strip()
     if hermes_home:
         _append_check(report, "hermes_home", "ok", path=hermes_home)
     else:
@@ -160,7 +161,11 @@ def run_preflight(
         _append_check(report, "runner_bin", "blocked", reason=f"runner not available: {runner_bin}")
 
     if target.control_db_path.is_file():
-        expected_control_db_id = str(env_map.get("CAREER_CONTROL_DB_ID") or "").strip()
+        expected_control_db_id = str(
+            service_environment.get("CAREER_CONTROL_DB_ID")
+            or env_map.get("CAREER_CONTROL_DB_ID")
+            or ""
+        ).strip()
         db_check = _inspect_control_db(
             target.control_db_path,
             authority_ledger_path=target.authority_ledger_path,
@@ -233,7 +238,11 @@ def stage_hook(target: CanaryTarget, apply: bool) -> dict[str, Any]:
     _assert_canary_hook_target(target)
     import install_hermes_harness_hook
 
-    result = install_hermes_harness_hook.install(target.hermes_config, apply=apply)
+    result = install_hermes_harness_hook.install(
+        target.hermes_config,
+        apply=apply,
+        command_root=Path("/workspace/candidaturas"),
+    )
     staged = {
         **result,
         "target": target.bot_name,
@@ -290,14 +299,15 @@ def probe_runner(
 ) -> dict[str, Any]:
     assert_canary_target(target)
     root_path = Path(target.workspace_root).resolve()
+    state_root = Path(target.state_root).resolve()
     config = dict(runner_config or {})
     runner = SubprocessAgentRunner(root_path)
-    gate_context = _load_runner_gate_context(root_path, gate_manifest_path=gate_manifest_path)
+    gate_context = _load_runner_gate_context(state_root, gate_manifest_path=gate_manifest_path)
     request_context = gate_context.get("request_context") if gate_context.get("status") == "ok" else None
     request_md = (
         request_context["request_md"]
         if request_context is not None
-        else (root_path / ".career-state" / "runner_probe" / "request.md")
+        else (state_root / "runner_probe" / "request.md")
     )
     command = runner.build_command(
         AgentRunRequest(
@@ -401,7 +411,7 @@ def _load_runner_gate_context(
     manifest_path = (
         _resolve_under_root(root, gate_manifest_path)
         if gate_manifest_path is not None
-        else (root / RUNNER_GATE_MANIFEST_RELATIVE_PATH).resolve()
+        else (root / RUNNER_GATE_MANIFEST_RELATIVE_PATH.relative_to(".career-state")).resolve()
     )
     if not manifest_path.is_file():
         return {"status": "blocked", "blocker": "d3_gate_manifest_missing"}
@@ -507,7 +517,7 @@ def _validate_runner_gate_request(root: Path, d2_payload: dict[str, Any]) -> dic
     if payload.get("cellular") is not True:
         return {"status": "blocked", "blocker": "d2_request_mismatch"}
     expected_application = str(d2_payload["application_id"])
-    expected_dir = (root / ".career-state" / "applications_v2" / expected_application).resolve()
+    expected_dir = (root / "applications_v2" / expected_application).resolve()
     if request_json.parents[5] != expected_dir:
         return {"status": "blocked", "blocker": "d2_request_mismatch"}
     if request_md != request_json.with_suffix(".md"):
@@ -605,6 +615,30 @@ def _find_profile_mount(volumes: list[Any], bot_name: str) -> Path | None:
     return _find_volume_source(volumes, expected_destination)
 
 
+def _resolve_service_path(raw_path: str | Path, volumes: list[Any]) -> Path:
+    """Resolve a service path against the host source of its compose mount."""
+    candidate = Path(str(raw_path)).expanduser()
+    if not candidate.is_absolute():
+        return candidate
+    parsed_volumes: list[tuple[Path, Path]] = []
+    for volume in volumes:
+        if not isinstance(volume, str):
+            continue
+        parts = volume.split(":")
+        if len(parts) < 2:
+            continue
+        source = Path(parts[0]).expanduser()
+        destination = Path(parts[1])
+        parsed_volumes.append((source, destination))
+    for source, destination in sorted(parsed_volumes, key=lambda item: len(item[1].parts), reverse=True):
+        try:
+            relative = candidate.relative_to(destination)
+        except ValueError:
+            continue
+        return source / relative
+    return candidate
+
+
 def _assert_canary_hook_target(target: CanaryTarget) -> None:
     assert_canary_target(target)
     if target.hermes_config.name != "config.yaml":
@@ -614,6 +648,7 @@ def _assert_canary_hook_target(target: CanaryTarget) -> None:
         "compose-resolved profile path": (target.hermes_config.resolve(), resolved.hermes_config.resolve()),
         "compose-resolved adapter path": (target.adapter_script.resolve(), resolved.adapter_script.resolve()),
         "compose-resolved workspace root": (target.workspace_root.resolve(), resolved.workspace_root.resolve()),
+        "compose-resolved state root": (target.state_root.resolve(), resolved.state_root.resolve()),
         "compose-resolved control db path": (target.control_db_path.resolve(), resolved.control_db_path.resolve()),
         "compose-resolved authority ledger path": (
             target.authority_ledger_path.resolve(),
@@ -654,22 +689,23 @@ class _RouteSmokeSupervisor:
 def persist_gate_evidence(target: CanaryTarget, gate: str, result: dict[str, Any]) -> dict[str, Any]:
     assert_canary_target(target)
     evidence = _build_gate_evidence(target, gate, result)
-    evidence_path = (target.workspace_root.resolve() / GATE_EVIDENCE_RELATIVE_PATHS[gate]).resolve()
+    state_root = target.state_root.resolve()
+    evidence_path = (state_root / GATE_EVIDENCE_RELATIVE_PATHS[gate].relative_to(".career-state")).resolve()
     write_json(evidence_path, evidence)
     manifest = refresh_runner_gate_manifest(target)
     return {
         "evidence_path": str(evidence_path),
-        "manifest_path": str((target.workspace_root.resolve() / RUNNER_GATE_MANIFEST_RELATIVE_PATH).resolve()),
+        "manifest_path": str((state_root / RUNNER_GATE_MANIFEST_RELATIVE_PATH.relative_to(".career-state")).resolve()),
         "manifest": manifest,
     }
 
 
 def refresh_runner_gate_manifest(target: CanaryTarget) -> dict[str, Any]:
     assert_canary_target(target)
-    root = target.workspace_root.resolve()
+    root = target.state_root.resolve()
     approvals: dict[str, Any] = {}
     for gate, relative_path in GATE_EVIDENCE_RELATIVE_PATHS.items():
-        evidence_path = (root / relative_path).resolve()
+        evidence_path = (root / relative_path.relative_to(".career-state")).resolve()
         if not evidence_path.is_file():
             continue
         evidence = read_json(evidence_path)
@@ -706,7 +742,7 @@ def refresh_runner_gate_manifest(target: CanaryTarget) -> dict[str, Any]:
         "target": target.bot_name,
         "approvals": approvals,
     }
-    write_json((root / RUNNER_GATE_MANIFEST_RELATIVE_PATH).resolve(), manifest)
+    write_json((root / RUNNER_GATE_MANIFEST_RELATIVE_PATH.relative_to(".career-state")).resolve(), manifest)
     return manifest
 
 
