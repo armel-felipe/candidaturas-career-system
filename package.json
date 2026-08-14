@@ -142,6 +142,7 @@
     "applications:doctor-concurrency": "./scripts/python.sh scripts/career_cli.py applications doctor-concurrency",
     "applications:provision-authority-ledger": "./scripts/python.sh scripts/career_cli.py applications provision-authority-ledger",
     "applications:authorize-handoff": "./scripts/python.sh scripts/career_cli.py applications authorize-handoff",
+    "applications:handoff": "cd app && ./scripts/python.sh scripts/career_cli.py applications handoff",
     "applications:migrate-global-state": "./scripts/python.sh scripts/career_cli.py applications migrate-global-state",
     "applications:migrate-cellular": "./scripts/python.sh scripts/career_cli.py applications migrate-cellular",
     "applications:verify-parallel": "./scripts/python.sh scripts/career_cli.py applications verify-parallel",

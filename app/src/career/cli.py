@@ -284,6 +284,19 @@ def build_parser() -> argparse.ArgumentParser:
     applications_handoff = applications_sub.add_parser("authorize-handoff")
     applications_handoff.add_argument("--control-db-id", required=True)
     applications_handoff.add_argument("--owner", required=True)
+    applications_controlled_handoff = applications_sub.add_parser("handoff")
+    applications_controlled_handoff.add_argument("--application-id", required=True)
+    applications_controlled_handoff.add_argument(
+        "--target-bot", required=True, choices=["vagas_bot_01", "vagas_bot_02"]
+    )
+    applications_controlled_handoff.add_argument("--source-root")
+    applications_controlled_handoff.add_argument("--compose")
+    handoff_mode = applications_controlled_handoff.add_mutually_exclusive_group()
+    handoff_mode.add_argument("--dry-run", action="store_true")
+    handoff_mode.add_argument("--apply", action="store_true")
+    applications_controlled_handoff.add_argument(
+        "--format", choices=["json", "human", "both"], default="both"
+    )
     applications_migrate = applications_sub.add_parser("migrate-global-state")
     applications_migrate.add_argument("--application-id")
     applications_migrate.add_argument("--dry-run", action="store_true")
@@ -1206,6 +1219,31 @@ def main(argv: list[str] | None = None) -> int:
                     "owner": args.owner,
                 }
             )
+            return 0
+        if args.action == "handoff":
+            from career.services.application_handoff import ApplicationHandoffService
+
+            try:
+                result = ApplicationHandoffService(
+                    compose_path=args.compose,
+                    source_root=args.source_root,
+                ).handoff(
+                    args.application_id,
+                    args.target_bot,
+                    dry_run=args.dry_run,
+                    apply=args.apply,
+                )
+            except (FileNotFoundError, RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            if args.format in {"human", "both"}:
+                _print_human(
+                    "handoff="
+                    f"{result.get('status')} application={result.get('application_id')} "
+                    f"target={result.get('target_bot')} run={result.get('run_id') or '-'}"
+                )
+            if args.format in {"json", "both"}:
+                _dump(result)
             return 0
         if args.action == "migrate-global-state":
             _dump(
