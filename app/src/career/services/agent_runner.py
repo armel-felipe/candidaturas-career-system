@@ -16,6 +16,7 @@ class AgentRunRequest:
     request_path: Path
     instruction: str
     runner_config: dict[str, Any]
+    display_path: Path | None = None
     model: str = ""
     variant: str = ""
 
@@ -38,10 +39,10 @@ class SubprocessAgentRunner:
         command_name = str(request.runner_config.get("command") or "opencode")
         resolved = shutil.which(command_name) or shutil.which("opencode.cmd") or command_name
         runner_kind = str(request.runner_config.get("kind") or Path(resolved).name).casefold()
+        display_path = request.display_path or request.request_path.relative_to(self.root)
 
         if runner_kind == "hermes":
-            request_rel = request.request_path.relative_to(self.root)
-            prompt = f"Leia o arquivo {request_rel}. {request.instruction}"
+            prompt = f"Leia o arquivo {display_path}. {request.instruction}"
             command = [resolved, "--accept-hooks"]
             if request.model:
                 command.extend(["--model", request.model])
@@ -49,8 +50,7 @@ class SubprocessAgentRunner:
             return command
 
         if runner_kind == "codex":
-            request_rel = request.request_path.relative_to(self.root)
-            prompt = f"Leia o arquivo {request_rel}. {request.instruction}"
+            prompt = f"Leia o arquivo {display_path}. {request.instruction}"
             command = [
                 resolved,
                 "exec",

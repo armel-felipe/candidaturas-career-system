@@ -309,6 +309,9 @@ def probe_runner(
         if request_context is not None
         else (state_root / "runner_probe" / "request.md")
     )
+    request_display_path = Path("/workspace/candidaturas/.career-state") / request_md.resolve().relative_to(
+        state_root
+    )
     command = runner.build_command(
         AgentRunRequest(
             stage="analyze",
@@ -318,6 +321,7 @@ def probe_runner(
                 else CANARY_BOT_NAME
             ),
             request_path=request_md,
+            display_path=request_display_path,
             instruction="Runner probe only; do not resume prior sessions.",
             runner_config=config,
         )

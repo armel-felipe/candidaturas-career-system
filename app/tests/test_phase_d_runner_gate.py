@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.canary_control import CanaryTarget, REDACTED_REQUEST_PROMPT, probe_runner
 from scripts import phase_d_canary
 
@@ -18,10 +19,12 @@ def _runner_config() -> dict[str, object]:
     }
 
 
-def _canary_target(root: Path) -> CanaryTarget:
+def _canary_target(root: Path, *, state_root: Path | None = None) -> CanaryTarget:
     profile_root = root / "profiles" / "vagas_bot_01"
     profile_root.mkdir(parents=True, exist_ok=True)
     workspace_root = root.resolve()
+    resolved_state_root = state_root or workspace_root / ".career-state"
+    resolved_state_root.mkdir(parents=True, exist_ok=True)
     return CanaryTarget(
         bot_name="vagas_bot_01",
         compose_service="vagas_bot_01",
@@ -30,7 +33,7 @@ def _canary_target(root: Path) -> CanaryTarget:
         control_db_path=workspace_root / ".career-state" / "career.db",
         authority_ledger_path=workspace_root / ".career-state" / "authority.json",
         workspace_root=workspace_root,
-        state_root=workspace_root / ".career-state",
+        state_root=resolved_state_root,
         compose_path=workspace_root / "compose.yaml",
     )
 
@@ -277,6 +280,38 @@ def test_probe_runner_blocks_without_explicit_gate_manifest_even_if_multiple_req
     assert result["blocker"] == "d3_gate_manifest_missing"
     assert "resume" not in result["command"]
     assert calls == []
+
+
+def test_probe_runner_uses_container_state_path_when_host_state_is_external(tmp_path, monkeypatch):
+    target = _canary_target(tmp_path, state_root=tmp_path / "external-state")
+    monkeypatch.setattr(
+        "career.services.canary_control.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+
+    result = probe_runner(target, _runner_config())
+
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "d3_gate_manifest_missing"
+    assert result["command"][3] == REDACTED_REQUEST_PROMPT
+
+
+def test_agent_runner_uses_container_display_path_for_external_request(tmp_path):
+    request_path = tmp_path / "external-state" / "request.md"
+    request = AgentRunRequest(
+        stage="analyze",
+        record_key="canary-app",
+        request_path=request_path,
+        display_path=Path("/workspace/candidaturas/.career-state/request.md"),
+        instruction="Runner probe only.",
+        runner_config={"kind": "hermes", "command": "hermes"},
+    )
+
+    command = SubprocessAgentRunner(tmp_path / "workspace").build_command(request)
+
+    assert command[-1] == (
+        "Leia o arquivo /workspace/candidaturas/.career-state/request.md. Runner probe only."
+    )
 
 
 def test_probe_runner_requires_explicit_d0_d1_d2_approvals_before_harness(
