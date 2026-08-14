@@ -20,7 +20,7 @@ def _target(tmp_path: Path, *, bot_name: str = "vagas_bot_01") -> CanaryTarget:
     adapter.write_text("# fixture adapter\n", encoding="utf-8")
     profile_root = tmp_path / "profiles" / bot_name
     profile_root.mkdir(parents=True, exist_ok=True)
-    hermes_config = profile_root / "hermes.config.json"
+    hermes_config = profile_root / "config.yaml"
     hermes_config.write_text("{}", encoding="utf-8")
     compose_path = tmp_path / "compose.yaml"
     compose_path.write_text("services: {}\n", encoding="utf-8")
@@ -193,7 +193,7 @@ def test_run_controlled_canary_accepts_compose_target_with_external_state_mount(
     adapter.write_text("# fixture adapter\n", encoding="utf-8")
     profile_root = tmp_path / "profiles" / "vagas_bot_01"
     profile_root.mkdir(parents=True, exist_ok=True)
-    (profile_root / "hermes.config.json").write_text("{}", encoding="utf-8")
+    (profile_root / "config.yaml").write_text("{}", encoding="utf-8")
     compose_path = tmp_path / "compose.yaml"
     _write_compose_with_external_state(
         compose_path,
@@ -247,7 +247,7 @@ def test_run_controlled_canary_rejects_real_workspace_state_conflict(tmp_path):
     adapter.write_text("# fixture adapter\n", encoding="utf-8")
     profile_root = tmp_path / "profiles" / "vagas_bot_01"
     profile_root.mkdir(parents=True, exist_ok=True)
-    (profile_root / "hermes.config.json").write_text("{}", encoding="utf-8")
+    (profile_root / "config.yaml").write_text("{}", encoding="utf-8")
     compose_path = tmp_path / "compose.yaml"
     _write_compose_with_external_state(
         compose_path,
@@ -283,7 +283,7 @@ def test_run_controlled_canary_blocks_noncanonical_authority_paths_without_mutat
     adapter.write_text("# fixture adapter\n", encoding="utf-8")
     profile_root = tmp_path / "profiles" / "vagas_bot_01"
     profile_root.mkdir(parents=True, exist_ok=True)
-    hermes_config = profile_root / "hermes.config.json"
+    hermes_config = profile_root / "config.yaml"
     hermes_config.write_text("{}", encoding="utf-8")
     external_state_root = tmp_path / "external-state"
     external_state_root.mkdir(parents=True, exist_ok=True)
@@ -316,3 +316,35 @@ def test_run_controlled_canary_blocks_noncanonical_authority_paths_without_mutat
     assert not target.control_db_path.exists()
     assert not target.authority_ledger_path.exists()
     assert not (external_state_root / "applications_v2" / "canary-app").exists()
+
+
+def test_run_controlled_canary_blocks_existing_application_without_mutation(tmp_path):
+    target = _target(tmp_path)
+    existing_root = tmp_path / ".career-state" / "applications_v2" / "existing-app"
+    existing_root.mkdir(parents=True, exist_ok=True)
+    job_description = existing_root / "job_description.md"
+    identity = existing_root / "identity.json"
+    job_description.write_text("Original description\n", encoding="utf-8")
+    identity.write_text(
+        json.dumps({"kind": "application_identity", "application_id": "existing-app"}) + "\n",
+        encoding="utf-8",
+    )
+    previous = {
+        key: os.environ.get(key)
+        for key in (
+            "CAREER_CONTROL_DB_PATH",
+            "CAREER_AUTHORITY_LEDGER_PATH",
+            "CAREER_WORKSPACE_OWNER",
+            "CAREER_CONTROL_DB_ID",
+        )
+    }
+    before_job = job_description.read_text(encoding="utf-8")
+    before_identity = identity.read_text(encoding="utf-8")
+    try:
+        with pytest.raises(ValueError, match="already exists"):
+            run_controlled_canary(target, "existing-app", tmp_path)
+    finally:
+        _restore_env(previous)
+
+    assert job_description.read_text(encoding="utf-8") == before_job
+    assert identity.read_text(encoding="utf-8") == before_identity

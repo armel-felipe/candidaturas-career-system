@@ -36,10 +36,12 @@ Para o canary da Fase D, o staging seguro continua restrito ao profile `vagas_bo
 ```
 
 No host atual, o `preflight` permanece `blocked` sem mutacoes: o compose resolve
-`vagas_bot_01`, abre o SQLite em read-only e le a identidade do control plane, mas
-bloqueia por `hermes/vagas_bot_01/hermes.config.json` ausente, authority ledger
-ausente em `workspaces/vagas_bot_01/state/authority.json` e falta de
-`CAREER_CONTROL_DB_ID`.
+`vagas_bot_01`, abre o SQLite em read-only e valida o contrato completo de
+autoridade (`control_db_id`, `ledger_id`, `authority_epoch`,
+`storage_identity`). O alvo canônico resolvido pelo compose é
+`hermes/vagas_bot_01/config.yaml`. Mesmo assim, o gate continua `blocked`
+porque o authority ledger do state root real continua ausente/inválido e
+`CAREER_CONTROL_DB_ID` não está presente no ambiente.
 
 O `rollback-dry-run` nao escreve nada, nao provisiona autoridade, nao chama
 `processe-a-vaga` e serve apenas para verificar se existe backup reaproveitavel
@@ -47,15 +49,15 @@ para rollback. No host atual ele retorna `dry_run_ok` com `revertible=false`,
 ou seja: o alvo continua restrito a `vagas_bot_01`, mas ainda nao existe backup
 aproveitavel para restauracao.
 
-O `runner-probe` continua `blocked` por `runner_unavailable` e retorna o prompt
-de request de forma redigida (`<request prompt redacted>`). Enquanto esse gate
-real nao atravessar o Harness com runner disponivel, `ARCH-06` permanece
-`divergente` e o canary nao pode ser declarado concluido.
+O `runner-probe` continua `blocked` enquanto nao houver evidencias canonicas
+coerentes de D0-D2 e um runner real disponivel; quando ele retornar comando de
+request, o prompt deve permanecer redigido (`<request prompt redacted>`).
+Enquanto esse gate real nao atravessar o Harness com runner disponivel,
+`ARCH-06` permanece `divergente` e o canary nao pode ser declarado concluido.
 
-O target real do canary nao e o `config.yaml` legacy do instalador genérico: ele e o
-`hermes.config.json` resolvido pelo compose para o mount host de
-`/opt/data/profiles/vagas_bot_01`, com backup correspondente em
-`hermes.config.json.bak.harness`.
+O target real do canary e o `config.yaml` efetivamente consumido pelo Hermes no
+mount host de `/opt/data/profiles/vagas_bot_01`, com backup correspondente em
+`config.yaml.bak.harness`.
 
 ## Instalar
 
@@ -65,15 +67,21 @@ HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes hooks list
 HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes hooks doctor
 ```
 
-No fluxo genérico legado acima, o instalador cria `config.yaml.bak.harness` antes da alteracao.
-No canary da Fase D, o wrapper resolve pelo compose o path host exato de
-`vagas_bot_01/hermes.config.json`, exige que ele coincida com o target calculado
-para `vagas_bot_01`, cria `hermes.config.json.bak.harness` antes da escrita e tambem
-instala o plugin em `vagas_bot_01/plugins/career-harness-output`.
+No fluxo genérico legado acima, o instalador cria `config.yaml.bak.harness`
+antes da alteracao. No canary da Fase D, o wrapper resolve pelo compose o path
+host exato de `vagas_bot_01/config.yaml`, exige que ele coincida com o target
+calculado para `vagas_bot_01`, cria `config.yaml.bak.harness` antes da escrita
+e tambem instala o plugin em `vagas_bot_01/plugins/career-harness-output`.
 Ele tambem instala e habilita o plugin `career-harness-output`, usado pelo hook
 `transform_llm_output` para impedir que o modelo resuma, escolha ou reescreva menus.
 O apply so deve apontar para o config exato de `vagas_bot_01`; qualquer target de
 `vagas_bot_02` deve ser rejeitado pelo wrapper de canary.
+
+Para o fluxo canonico da Fase D, os entrypoints `preflight`, `stage-hook` e
+`controlled-run` gravam evidencias compactas e atomicas em
+`.career-state/phase_d_gates/`, e o D3 consome apenas o manifesto derivado
+`.career-state/phase_d_runner_gate.json`. Se D0, D1 ou D2 estiverem
+`blocked`, o manifesto nao pode marcar `approved=true`.
 
 ## Restart manual separado
 

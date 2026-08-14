@@ -12,11 +12,26 @@ from typing import Any
 import yaml
 
 from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
+from career.services.database import Database
 from career.services.harness_supervisor import HarnessSupervisor
+from career.utils import read_json, write_json
 
 
 CANARY_BOT_NAME = "vagas_bot_01"
 RUNNER_GATE_MANIFEST_RELATIVE_PATH = Path(".career-state/phase_d_runner_gate.json")
+GATE_EVIDENCE_RELATIVE_PATHS = {
+    "d0": Path(".career-state/phase_d_gates/d0_preflight.json"),
+    "d1": Path(".career-state/phase_d_gates/d1_stage_hook.json"),
+    "d2": Path(".career-state/phase_d_gates/d2_controlled_run.json"),
+}
+GATE_MANIFEST_KIND = "phase_d_runner_gate_manifest"
+GATE_EVIDENCE_KIND = "phase_d_gate_evidence"
+GATE_SCHEMA_VERSION = 1
+GATE_REQUIRED_STATUSES = {
+    "d0": "ready",
+    "d1": "dry_run_ok",
+    "d2": "completed",
+}
 REQUIRED_WORKSPACE_MOUNTS = (
     "/workspace/candidaturas/.career-state",
     "/workspace/candidaturas/inbox",
@@ -79,7 +94,7 @@ def resolve_target_from_compose(
     adapter_script = (workspace_root / "scripts" / "telegram_harness_adapter.py").resolve()
     profile_mount = _find_profile_mount(volumes, bot_name)
     hermes_config = (
-        profile_mount / "hermes.config.json" if profile_mount is not None else workspace_root / "missing.json"
+        profile_mount / "config.yaml" if profile_mount is not None else workspace_root / "missing.yaml"
     ).resolve()
     return CanaryTarget(
         bot_name=bot_name,
@@ -145,39 +160,70 @@ def run_preflight(
         _append_check(report, "runner_bin", "blocked", reason=f"runner not available: {runner_bin}")
 
     if target.control_db_path.is_file():
-        db_check = _inspect_control_db(target.control_db_path)
+        expected_control_db_id = str(env_map.get("CAREER_CONTROL_DB_ID") or "").strip()
+        db_check = _inspect_control_db(
+            target.control_db_path,
+            authority_ledger_path=target.authority_ledger_path,
+            expected_control_db_id=expected_control_db_id,
+        )
         report["control_db"] = db_check
         if db_check["status"] != "ok":
             blocked = True
-            _append_check(report, "control_plane_sqlite", "blocked", reason=db_check["reason"])
+            _replace_check(
+                report,
+                "control_plane_sqlite",
+                {"name": "control_plane_sqlite", "status": "blocked", "reason": db_check["reason"]},
+            )
         else:
             _replace_check(report, "control_plane_sqlite", {"name": "control_plane_sqlite", "status": "ok"})
-            expected_control_db_id = str(env_map.get("CAREER_CONTROL_DB_ID") or "").strip()
-            if not expected_control_db_id:
-                blocked = True
-                _append_check(
-                    report,
-                    "control_db_identity",
-                    "blocked",
-                    reason="CAREER_CONTROL_DB_ID is required for D0 preflight",
-                )
-            elif expected_control_db_id != db_check["control_db_id"]:
-                blocked = True
-                _append_check(report, "control_db_identity", "blocked", reason="CAREER_CONTROL_DB_ID does not match authoritative database")
-            else:
-                _append_check(report, "control_db_identity", "ok")
-            ledger_check = _inspect_ledger(target.authority_ledger_path, db_check)
-            if ledger_check["status"] != "ok":
-                blocked = True
-                _replace_check(
-                    report,
-                    "authority_ledger",
-                    {"name": "authority_ledger", "status": "blocked", "reason": ledger_check["reason"]},
-                )
-            else:
-                report["control_db"]["ledger_id"] = ledger_check["ledger_id"]
-                report["control_db"]["authority_epoch"] = ledger_check["authority_epoch"]
-                _replace_check(report, "authority_ledger", {"name": "authority_ledger", "status": "ok"})
+
+        if not expected_control_db_id:
+            blocked = True
+            _append_check(
+                report,
+                "control_db_identity",
+                "blocked",
+                reason="CAREER_CONTROL_DB_ID is required for D0 preflight",
+            )
+        elif expected_control_db_id != str(db_check.get("control_db_id") or ""):
+            blocked = True
+            _append_check(
+                report,
+                "control_db_identity",
+                "blocked",
+                reason="CAREER_CONTROL_DB_ID does not match authoritative database",
+            )
+        else:
+            _append_check(report, "control_db_identity", "ok")
+
+        if db_check.get("ledger_status") != "ok":
+            blocked = True
+            _replace_check(
+                report,
+                "authority_ledger",
+                {
+                    "name": "authority_ledger",
+                    "status": "blocked",
+                    "reason": str(db_check.get("ledger_reason") or db_check.get("reason") or "invalid authority ledger"),
+                },
+            )
+        else:
+            _replace_check(report, "authority_ledger", {"name": "authority_ledger", "status": "ok"})
+
+        if db_check.get("authoritative_storage_status") != "ok":
+            blocked = True
+            _append_check(
+                report,
+                "authoritative_storage",
+                "blocked",
+                reason=str(
+                    db_check.get("authoritative_storage_reason")
+                    or db_check.get("reason")
+                    or "authoritative storage validation failed"
+                ),
+            )
+        else:
+            _append_check(report, "authoritative_storage", "ok")
 
     report["status"] = "blocked" if blocked else "ready"
     return report
@@ -238,11 +284,12 @@ def route_smoke(
 
 
 def probe_runner(
+    target: CanaryTarget,
     runner_config: dict[str, Any],
-    root: Path,
     gate_manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    root_path = Path(root).resolve()
+    assert_canary_target(target)
+    root_path = Path(target.workspace_root).resolve()
     config = dict(runner_config or {})
     runner = SubprocessAgentRunner(root_path)
     gate_context = _load_runner_gate_context(root_path, gate_manifest_path=gate_manifest_path)
@@ -267,6 +314,15 @@ def probe_runner(
     )
     report_command = _compact_command_for_report(command)
     runner_type = str(config.get("kind") or config.get("command") or Path(command[0]).name).casefold()
+    if runner_type != "hermes":
+        return {
+            "status": "blocked",
+            "command": report_command,
+            "type": runner_type,
+            "available": False,
+            "returncode": None,
+            "blocker": "runner_kind_unsupported",
+        }
     resolved = shutil.which(str(config.get("command") or command[0]))
     if not resolved:
         return {
@@ -355,19 +411,70 @@ def _load_runner_gate_context(
         return {"status": "blocked", "blocker": "d3_gate_manifest_invalid"}
     if not isinstance(payload, dict):
         return {"status": "blocked", "blocker": "d3_gate_manifest_invalid"}
+    if payload.get("kind") != GATE_MANIFEST_KIND or payload.get("version") != GATE_SCHEMA_VERSION:
+        return {"status": "blocked", "blocker": "d3_gate_manifest_invalid"}
     if str(payload.get("target") or "").strip() != CANARY_BOT_NAME:
         return {"status": "blocked", "blocker": "d3_gate_target_mismatch"}
     approvals = payload.get("approvals")
     if not isinstance(approvals, dict):
         return {"status": "blocked", "blocker": "d3_approvals_missing"}
+    stage_evidence: dict[str, dict[str, Any]] = {}
     for stage_name in ("d0", "d1", "d2"):
-        stage_payload = approvals.get(stage_name)
-        if not isinstance(stage_payload, dict) or stage_payload.get("approved") is not True:
-            return {"status": "blocked", "blocker": "d3_approvals_missing"}
-    request_context = _validate_runner_gate_request(root, approvals["d2"])
+        stage_context = _validate_gate_stage(root, stage_name, approvals.get(stage_name))
+        if stage_context.get("status") != "ok":
+            return stage_context
+        stage_evidence[stage_name] = dict(stage_context["evidence"])
+    request_context = _validate_runner_gate_request(
+        root,
+        dict(stage_evidence["d2"].get("result") or {}),
+    )
     if request_context.get("status") != "ok":
         return request_context
     return {"status": "ok", "request_context": request_context["request_context"]}
+
+
+def _validate_gate_stage(root: Path, stage_name: str, stage_payload: Any) -> dict[str, Any]:
+    if not isinstance(stage_payload, dict) or stage_payload.get("approved") is not True:
+        return {"status": "blocked", "blocker": "d3_approvals_missing"}
+    if (
+        stage_payload.get("kind") != GATE_EVIDENCE_KIND
+        or stage_payload.get("version") != GATE_SCHEMA_VERSION
+        or str(stage_payload.get("gate") or "") != stage_name
+    ):
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    if str(stage_payload.get("status") or "") != GATE_REQUIRED_STATUSES[stage_name]:
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    evidence_path_text = str(stage_payload.get("evidence_path") or "").strip()
+    evidence_hash = str(stage_payload.get("evidence_hash") or "").strip()
+    if not evidence_path_text or not evidence_hash:
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    try:
+        evidence_path = _resolve_under_root(root, evidence_path_text)
+    except ValueError:
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    if not evidence_path.is_file():
+        return {"status": "blocked", "blocker": "d3_approvals_missing"}
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    if not isinstance(evidence, dict):
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    actual_hash = hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if actual_hash != evidence_hash:
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    if (
+        evidence.get("kind") != GATE_EVIDENCE_KIND
+        or evidence.get("version") != GATE_SCHEMA_VERSION
+        or str(evidence.get("gate") or "") != stage_name
+        or str(evidence.get("target") or "") != CANARY_BOT_NAME
+        or evidence.get("approved") is not True
+        or str(evidence.get("status") or "") != GATE_REQUIRED_STATUSES[stage_name]
+    ):
+        return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
+    return {"status": "ok", "evidence": evidence}
 
 
 def _validate_runner_gate_request(root: Path, d2_payload: dict[str, Any]) -> dict[str, Any]:
@@ -500,8 +607,8 @@ def _find_profile_mount(volumes: list[Any], bot_name: str) -> Path | None:
 
 def _assert_canary_hook_target(target: CanaryTarget) -> None:
     assert_canary_target(target)
-    if target.hermes_config.name != "hermes.config.json":
-        raise ValueError("phase D hook staging requires hermes.config.json")
+    if target.hermes_config.name != "config.yaml":
+        raise ValueError("phase D hook staging requires config.yaml")
     resolved = resolve_target_from_compose(compose_path=target.compose_path, bot_name=target.bot_name)
     compared_paths = {
         "compose-resolved profile path": (target.hermes_config.resolve(), resolved.hermes_config.resolve()),
@@ -544,7 +651,124 @@ class _RouteSmokeSupervisor:
         }
 
 
-def _inspect_control_db(control_db_path: Path) -> dict[str, Any]:
+def persist_gate_evidence(target: CanaryTarget, gate: str, result: dict[str, Any]) -> dict[str, Any]:
+    assert_canary_target(target)
+    evidence = _build_gate_evidence(target, gate, result)
+    evidence_path = (target.workspace_root.resolve() / GATE_EVIDENCE_RELATIVE_PATHS[gate]).resolve()
+    write_json(evidence_path, evidence)
+    manifest = refresh_runner_gate_manifest(target)
+    return {
+        "evidence_path": str(evidence_path),
+        "manifest_path": str((target.workspace_root.resolve() / RUNNER_GATE_MANIFEST_RELATIVE_PATH).resolve()),
+        "manifest": manifest,
+    }
+
+
+def refresh_runner_gate_manifest(target: CanaryTarget) -> dict[str, Any]:
+    assert_canary_target(target)
+    root = target.workspace_root.resolve()
+    approvals: dict[str, Any] = {}
+    for gate, relative_path in GATE_EVIDENCE_RELATIVE_PATHS.items():
+        evidence_path = (root / relative_path).resolve()
+        if not evidence_path.is_file():
+            continue
+        evidence = read_json(evidence_path)
+        serialized = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        approvals[gate] = {
+            "kind": evidence.get("kind"),
+            "version": evidence.get("version"),
+            "gate": gate,
+            "approved": evidence.get("approved"),
+            "status": evidence.get("status"),
+            "evidence_path": str(evidence_path),
+            "evidence_hash": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+        }
+        if gate == "d2" and isinstance(evidence.get("result"), dict):
+            approvals[gate].update(
+                {
+                    field: evidence["result"].get(field)
+                    for field in (
+                        "application_id",
+                        "run_id",
+                        "node_id",
+                        "attempt",
+                        "request_json",
+                        "request_md",
+                        "request_hash",
+                        "read_allowlist",
+                        "write_allowlist",
+                    )
+                }
+            )
+    manifest = {
+        "kind": GATE_MANIFEST_KIND,
+        "version": GATE_SCHEMA_VERSION,
+        "target": target.bot_name,
+        "approvals": approvals,
+    }
+    write_json((root / RUNNER_GATE_MANIFEST_RELATIVE_PATH).resolve(), manifest)
+    return manifest
+
+
+def _build_gate_evidence(target: CanaryTarget, gate: str, result: dict[str, Any]) -> dict[str, Any]:
+    compact_result = _compact_gate_result(gate, result)
+    status = str(compact_result.get("status") or "blocked")
+    return {
+        "kind": GATE_EVIDENCE_KIND,
+        "version": GATE_SCHEMA_VERSION,
+        "gate": gate,
+        "target": target.bot_name,
+        "approved": status == GATE_REQUIRED_STATUSES[gate],
+        "status": status,
+        "result": compact_result,
+    }
+
+
+def _compact_gate_result(gate: str, result: dict[str, Any]) -> dict[str, Any]:
+    if gate == "d2":
+        harness = compact_harness_payload_for_report(dict(result.get("harness") or {}))
+        return {
+            "status": str(result.get("status") or "blocked"),
+            "target": str(result.get("target") or CANARY_BOT_NAME),
+            "application_id": str(result.get("application_id") or ""),
+            "run_id": str(result.get("run_id") or ""),
+            "node_id": str(result.get("node_id") or ""),
+            "attempt": int(result.get("attempt") or 0),
+            "request_json": str(result.get("request_json") or ""),
+            "request_md": str(result.get("request_md") or ""),
+            "request_hash": str(result.get("request_hash") or ""),
+            "read_allowlist": list(result.get("read_allowlist") or []),
+            "write_allowlist": list(result.get("write_allowlist") or []),
+            "runner_kind": str(result.get("runner_kind") or ""),
+            "sqlite_counts": dict(result.get("sqlite_counts") or {}),
+            "harness": harness,
+        }
+    if gate == "d1":
+        return {
+            "status": str(result.get("status") or "blocked"),
+            "target": str(result.get("target") or CANARY_BOT_NAME),
+            "apply": bool(result.get("apply")),
+            "config": str(result.get("config") or ""),
+            "backup": str(result.get("backup") or ""),
+            "revertible": bool(result.get("revertible")),
+            "mutations": list(result.get("mutations") or []),
+        }
+    return {
+        "status": str(result.get("status") or "blocked"),
+        "target": str(result.get("target") or CANARY_BOT_NAME),
+        "checks": list(result.get("checks") or []),
+        "control_db": dict(result.get("control_db") or {}),
+        "mutations": list(result.get("mutations") or []),
+    }
+
+
+def _inspect_control_db(
+    control_db_path: Path,
+    *,
+    authority_ledger_path: Path,
+    expected_control_db_id: str,
+) -> dict[str, Any]:
+    database = Database(control_db_path, authority_ledger_path=authority_ledger_path)
     try:
         connection = sqlite3.connect(f"file:{control_db_path}?mode=ro", uri=True)
         connection.row_factory = sqlite3.Row
@@ -559,34 +783,72 @@ def _inspect_control_db(control_db_path: Path) -> dict[str, Any]:
             connection.close()
         except Exception:
             pass
-    if row is None or not row["control_db_id"]:
-        return {"status": "blocked", "reason": "workspace authority row is missing"}
-    return {
-        "status": "ok",
-        "control_db_id": str(row["control_db_id"]),
-        "storage_identity": str(row["storage_identity"] or ""),
-        "authority_ledger_id": str(row["authority_ledger_id"] or ""),
-        "authority_epoch": int(row["authority_epoch"] or 0),
+    payload: dict[str, Any] = {
+        "status": "blocked",
         "read_only": True,
+        "control_db_id": str(row["control_db_id"] or "") if row is not None else "",
+        "stored_storage_identity": str(row["storage_identity"] or "") if row is not None else "",
+        "actual_storage_identity": database.physical_storage_identity(),
+        "authority_ledger_id": str(row["authority_ledger_id"] or "") if row is not None else "",
+        "authority_epoch": int(row["authority_epoch"] or 0) if row is not None else 0,
     }
-
-
-def _inspect_ledger(ledger_path: Path, db_check: dict[str, Any]) -> dict[str, Any]:
+    if row is None or not payload["control_db_id"]:
+        payload["reason"] = "workspace authority row is missing"
+        payload["ledger_status"] = "blocked"
+        payload["authoritative_storage_status"] = "blocked"
+        return payload
+    payload["control_db_id_matches_env"] = (
+        bool(expected_control_db_id) and expected_control_db_id == payload["control_db_id"]
+    )
     try:
-        payload = json.loads(ledger_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return {"status": "blocked", "reason": f"unable to read authority ledger: {exc}"}
-    if not isinstance(payload, dict):
-        return {"status": "blocked", "reason": "authority ledger is invalid"}
-    if str(payload.get("control_db_id") or "") != str(db_check["control_db_id"]):
-        return {"status": "blocked", "reason": "shared authority ledger control database mismatch"}
-    ledger_id = str(payload.get("ledger_id") or "")
-    if not ledger_id.startswith("ledger_"):
-        return {"status": "blocked", "reason": "shared authority ledger provenance is invalid"}
-    if str(payload.get("storage_identity") or "") != str(db_check["storage_identity"]):
-        return {"status": "blocked", "reason": "shared authority ledger designates another physical control database copy"}
-    return {
-        "status": "ok",
-        "ledger_id": ledger_id,
-        "authority_epoch": int(payload.get("authority_epoch") or 0),
-    }
+        ledger = database._read_authority_ledger()
+        payload.update(
+            {
+                "ledger_status": "ok",
+                "ledger_kind": str(ledger.get("kind") or ""),
+                "ledger_schema_version": int(ledger.get("schema_version") or 0),
+                "ledger_id": str(ledger.get("ledger_id") or ""),
+                "ledger_control_db_id": str(ledger.get("control_db_id") or ""),
+                "ledger_storage_identity": str(ledger.get("storage_identity") or ""),
+                "ledger_authority_epoch": int(ledger.get("authority_epoch") or 0),
+            }
+        )
+    except ValueError as exc:
+        payload["ledger_status"] = "blocked"
+        payload["ledger_reason"] = str(exc)
+        payload["authoritative_storage_status"] = "blocked"
+        payload["reason"] = str(exc)
+        return payload
+    if payload["stored_storage_identity"] != payload["actual_storage_identity"]:
+        payload["authoritative_storage_status"] = "blocked"
+        payload["authoritative_storage_reason"] = (
+            "physical control database copy is not authoritative; an explicit storage handoff is required"
+        )
+        payload["reason"] = payload["authoritative_storage_reason"]
+        return payload
+    if payload["ledger_control_db_id"] != payload["control_db_id"]:
+        payload["authoritative_storage_status"] = "blocked"
+        payload["authoritative_storage_reason"] = "shared authority ledger control database mismatch"
+        payload["reason"] = payload["authoritative_storage_reason"]
+        return payload
+    if payload["ledger_id"] != payload["authority_ledger_id"]:
+        payload["authoritative_storage_status"] = "blocked"
+        payload["authoritative_storage_reason"] = "shared authority ledger provenance mismatch"
+        payload["reason"] = payload["authoritative_storage_reason"]
+        return payload
+    if payload["ledger_authority_epoch"] != payload["authority_epoch"]:
+        payload["authoritative_storage_status"] = "blocked"
+        payload["authoritative_storage_reason"] = "authority epoch revoked for this physical control database copy"
+        payload["reason"] = payload["authoritative_storage_reason"]
+        return payload
+    if payload["ledger_storage_identity"] != payload["actual_storage_identity"]:
+        payload["authoritative_storage_status"] = "blocked"
+        payload["authoritative_storage_reason"] = (
+            "shared authority ledger designates another physical control database copy"
+        )
+        payload["reason"] = payload["authoritative_storage_reason"]
+        return payload
+    payload["authoritative_storage_status"] = "ok"
+    payload["status"] = "ok"
+    payload["reason"] = None
+    return payload

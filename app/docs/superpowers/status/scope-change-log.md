@@ -75,10 +75,10 @@ enquanto não estiver `aprovado`.
 ### Escopo de CHG-0006
 
 - **Dentro:** preflight D0 read-only no target `vagas_bot_01`; preview operacional
-  de rollback D1 restrito ao mesmo bot; canário D2 controlado para uma
-  aplicação explícita;
-  gate D3 fail-closed sem fallback; documentação e testes de governança do
-  relatório/não alteração.
+  de rollback D1 restrito ao mesmo bot; evidências canônicas D0/D1/D2 em
+  `.career-state/phase_d_gates/`; canário D2 controlado para uma aplicação
+  explícita; gate D3 fail-closed sem fallback; documentação e testes de
+  governança do relatório/não alteração.
 - **Fora:** promoção do gateway Telegram como dispatcher fino, restart
   automático, processamento real de candidatura e qualquer conclusão sem runner
   disponível no host.
@@ -92,26 +92,36 @@ enquanto não estiver `aprovado`.
 Resumo normativo: a linha de `CHG-0006` na tabela **Registro de mudanças**
 permanece `bloqueado`; esta seção detalha a mesma decisão e não a substitui.
 
-- Arquivos: `run_phase_c_pilot.py`, `canary_control.py`,
-  `TELEGRAM_HARNESS_RUNBOOK.md`, `architecture-implementation-control.md`,
-  `scope-change-log.md`, `test_phase_c_pilot.py`, `test_phase_d_canary.py` e
-  `test_phase_d_runner_gate.py`.
-- Testes focados: `33 passed` em
-  `test_phase_d_canary.py`, `test_phase_d_canary_integration.py` e
-  `test_phase_d_runner_gate.py`.
-- D0 host: `phase_d_canary.py preflight --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json`
-  → `status=blocked`, `mutations=[]`, SQLite em read-only, bloqueado por
-  `hermes.config.json` ausente, authority ledger ausente e
-  `CAREER_CONTROL_DB_ID` ausente.
+- Arquivos produtivos: `scripts/phase_d_canary.py`,
+  `src/career/services/canary_control.py`, `scripts/run_phase_c_pilot.py`,
+  `TELEGRAM_HARNESS_RUNBOOK.md`,
+  `docs/superpowers/status/architecture-implementation-control.md` e
+  `docs/superpowers/status/scope-change-log.md`.
+- Arquivos de teste: `test_phase_c_pilot.py`, `test_phase_d_canary.py`,
+  `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py`.
+- Testes focados atuais: `46 passed` em `test_phase_d_canary.py`,
+  `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py`.
+- Suíte proporcional do plano — histórico preservado: o comando completo do
+  plano registrou `94 passed` antes desta onda final.
+- Suíte proporcional atual: o mesmo comando do plano agora registra
+  `107 passed` depois das regressões novas desta onda.
+- D0 host: snapshot read-only de 2026-08-14 via `run_preflight(...)` contra o
+  compose real → `status=blocked`, `mutations=[]`; o compose resolve
+  `hermes/vagas_bot_01/config.yaml`, lê o `control_db_id` em read-only e
+  bloqueia corretamente por ledger ausente/inválido, `CAREER_CONTROL_DB_ID`
+  ausente e `authoritative_storage` divergente do storage físico atual.
 - D1 host: `rollback-dry-run` permanece apenas preview operacional read-only
   (`dry_run_ok`, `revertible=false`, `mutations=[]`); a evidência vinculante de
   D1 continua em fixture, com target exclusivo `vagas_bot_01`,
-  backup/mutations corretos e rejeição de `vagas_bot_02`.
-- D2 fixture: relatório compacto sem `stdout`/`stderr` crus, `request_hash`
-  consistente, contagens SQLite fixadas e snapshot do `bot02` idêntico.
-- D3 host: `runner-probe` → `status=blocked`, `blocker=runner_unavailable`,
-  prompt redigido (`<request prompt redacted>`), sem fallback e sem prova de
-  transporte pelo Harness.
+  backup `config.yaml.bak.harness`, geração de evidência canônica e rejeição de
+  `vagas_bot_02`.
+- D2 fixture: relatório compacto sem `stdout`/`stderr` crus, `request_hash`,
+  allowlists e manifesto canônico coerentes, bloqueio de `application_id`
+  existente sem mutação e snapshot do `bot02` idêntico.
+- D3 host: o gate agora consome apenas o manifesto/evidências canônicos
+  versionados; ele rejeita `approved=true` com status contraditório, rejeita
+  runner `kind=controlled` e permanece `blocked` sem manifesto coerente/runner
+  real disponível, sem fallback e sem prova de transporte pelo Harness.
 - Regressão explícita da Fase C: `test_phase_c_pilot.py` agora fixa o shape
   compacto do payload de harness sem `stdout`/`stderr` e preserva os defaults
   `application_id=phase-c-pilot`, `run_id=run_phase_c_pilot` e

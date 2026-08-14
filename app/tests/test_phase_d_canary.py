@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import pytest
 import yaml
 
 from career.services.database import Database
+from scripts import phase_d_canary
 
 
 def _write_compose(
@@ -77,7 +79,7 @@ def _target_paths(tmp_path: Path) -> dict[str, Path]:
     adapter = workspace_root / "scripts" / "telegram_harness_adapter.py"
     adapter.parent.mkdir(parents=True, exist_ok=True)
     adapter.write_text("# adapter fixture\n", encoding="utf-8")
-    hermes_config = tmp_path / "profiles" / "vagas_bot_01" / "hermes.config.json"
+    hermes_config = tmp_path / "profiles" / "vagas_bot_01" / "config.yaml"
     hermes_config.parent.mkdir(parents=True, exist_ok=True)
     hermes_config.write_text("{}", encoding="utf-8")
     return {
@@ -182,10 +184,73 @@ def _write_runner_gate_manifest(root: Path, request_json: Path, payload: dict[st
         "version": 1,
         "target": "vagas_bot_01",
         "approvals": {
-            "d0": {"approved": True, "status": "blocked"},
-            "d1": {"approved": True, "status": "dry_run_ok"},
-            "d2": {
+            "d0": {
+                "kind": "phase_d_gate_evidence",
+                "version": 1,
+                "gate": "d0",
                 "approved": True,
+                "status": "ready",
+                "evidence_path": str(root / ".career-state" / "phase_d_gates" / "d0_preflight.json"),
+                "evidence_hash": "stub-d0",
+            },
+            "d1": {
+                "kind": "phase_d_gate_evidence",
+                "version": 1,
+                "gate": "d1",
+                "approved": True,
+                "status": "dry_run_ok",
+                "evidence_path": str(root / ".career-state" / "phase_d_gates" / "d1_stage_hook.json"),
+                "evidence_hash": "stub-d1",
+            },
+            "d2": {
+                "kind": "phase_d_gate_evidence",
+                "version": 1,
+                "gate": "d2",
+                "approved": True,
+                "status": "completed",
+                "evidence_path": str(root / ".career-state" / "phase_d_gates" / "d2_controlled_run.json"),
+                "evidence_hash": "stub-d2",
+                "application_id": payload["application_id"],
+                "run_id": payload["run_id"],
+                "node_id": payload["node_id"],
+                "attempt": payload["attempt"],
+                "request_json": str(request_json),
+                "request_md": str(request_json.with_suffix(".md")),
+                "request_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                "read_allowlist": list(payload["read_allowlist"]),
+                "write_allowlist": list(payload["write_allowlist"]),
+            },
+        },
+    }
+    evidence_dir = root / ".career-state" / "phase_d_gates"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_payloads = {
+        "d0_preflight.json": {
+            "kind": "phase_d_gate_evidence",
+            "version": 1,
+            "gate": "d0",
+            "target": "vagas_bot_01",
+            "approved": True,
+            "status": "ready",
+            "result": {"status": "ready"},
+        },
+        "d1_stage_hook.json": {
+            "kind": "phase_d_gate_evidence",
+            "version": 1,
+            "gate": "d1",
+            "target": "vagas_bot_01",
+            "approved": True,
+            "status": "dry_run_ok",
+            "result": {"status": "dry_run_ok"},
+        },
+        "d2_controlled_run.json": {
+            "kind": "phase_d_gate_evidence",
+            "version": 1,
+            "gate": "d2",
+            "target": "vagas_bot_01",
+            "approved": True,
+            "status": "completed",
+            "result": {
                 "status": "completed",
                 "application_id": payload["application_id"],
                 "run_id": payload["run_id"],
@@ -199,6 +264,13 @@ def _write_runner_gate_manifest(root: Path, request_json: Path, payload: dict[st
             },
         },
     }
+    for name, evidence in evidence_payloads.items():
+        evidence_path = evidence_dir / name
+        serialized = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        body["approvals"][evidence["gate"]]["evidence_hash"] = hashlib.sha256(
+            serialized.encode("utf-8")
+        ).hexdigest()
+        evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(body), encoding="utf-8")
     return manifest_path
@@ -275,6 +347,9 @@ def test_run_preflight_opens_sqlite_read_only_and_reports_identity(tmp_path, mon
     assert result["control_db"]["control_db_id"] == control_db_id
     assert result["control_db"]["read_only"] is True
     assert result["control_db"]["ledger_id"].startswith("ledger_")
+    assert result["control_db"]["ledger_kind"] == Database.AUTHORITY_LEDGER_KIND
+    assert result["control_db"]["ledger_schema_version"] == Database.AUTHORITY_LEDGER_VERSION
+    assert result["control_db"]["actual_storage_identity"]
     sqlite_check = next(
         check for check in result["checks"] if check["name"] == "control_plane_sqlite"
     )
@@ -287,6 +362,60 @@ def test_run_preflight_opens_sqlite_read_only_and_reports_identity(tmp_path, mon
     assert database.fetch_one(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'should_fail'"
     ) is None
+
+
+def test_run_preflight_blocks_when_copied_db_and_ledger_are_stale(tmp_path, monkeypatch):
+    from career.services.canary_control import run_preflight
+
+    source = tmp_path / "source"
+    copied = tmp_path / "copied"
+    source_paths = _target_paths(source)
+    copied_paths = _target_paths(copied)
+    _write_compose(source_paths["compose_path"], db_path=source_paths["control_db_path"])
+    _write_compose(copied_paths["compose_path"], db_path=copied_paths["control_db_path"])
+    database, control_db_id = _provisioned_database(
+        source_paths["control_db_path"], source_paths["authority_ledger_path"]
+    )
+    database.execute("PRAGMA wal_checkpoint(FULL)")
+    database.close()
+    shutil.copy2(source_paths["control_db_path"], copied_paths["control_db_path"])
+    shutil.copy2(source_paths["authority_ledger_path"], copied_paths["authority_ledger_path"])
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", control_db_id)
+
+    target = _canary_target(copied)
+    result = run_preflight(target, copied_paths["compose_path"], env={})
+
+    assert result["status"] == "blocked"
+    assert result["mutations"] == []
+    assert result["control_db"]["control_db_id"] == control_db_id
+    assert result["control_db"]["stored_storage_identity"] != result["control_db"]["actual_storage_identity"]
+    assert any(
+        check["name"] == "authoritative_storage" and check["status"] == "blocked"
+        for check in result["checks"]
+    )
+
+
+def test_run_preflight_blocks_when_authority_ledger_kind_is_invalid(tmp_path, monkeypatch):
+    from career.services.canary_control import run_preflight
+
+    target = _canary_target(tmp_path)
+    paths = _target_paths(tmp_path)
+    _write_compose(paths["compose_path"], db_path=paths["control_db_path"])
+    _database, control_db_id = _provisioned_database(
+        paths["control_db_path"], paths["authority_ledger_path"]
+    )
+    payload = json.loads(paths["authority_ledger_path"].read_text(encoding="utf-8"))
+    payload["kind"] = "wrong-kind"
+    paths["authority_ledger_path"].write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", control_db_id)
+
+    result = run_preflight(target, paths["compose_path"], env={})
+
+    assert result["status"] == "blocked"
+    assert any(
+        check["name"] == "authority_ledger" and check["status"] == "blocked"
+        for check in result["checks"]
+    )
 
 
 def test_run_preflight_blocks_on_control_db_identity_mismatch(tmp_path, monkeypatch):
@@ -370,6 +499,18 @@ def test_resolve_target_from_compose_prefers_service_authority_ledger_path(tmp_p
 
     assert target.control_db_path == paths["control_db_path"].resolve()
     assert target.authority_ledger_path == explicit_ledger_path.resolve()
+
+
+def test_resolve_target_from_real_compose_uses_config_yaml():
+    from career.services.canary_control import resolve_target_from_compose
+
+    compose_path = Path(__file__).resolve().parents[1] / "deploy" / "hermes" / "compose.yaml"
+
+    target = resolve_target_from_compose(compose_path=compose_path, bot_name="vagas_bot_01")
+
+    assert target.hermes_config == Path(
+        "/opt/agent-projects/candidaturas/hermes/vagas_bot_01/config.yaml"
+    )
 
 
 def test_phase_d_canary_preflight_cli_returns_json_and_non_zero_for_blocked(tmp_path):
@@ -466,8 +607,8 @@ def test_rollback_dry_run_reports_reversible_state_without_writing(tmp_path):
     assert result["apply"] is False
     assert Path(result["backup"]).exists()
     assert result["config"] == str(target.hermes_config)
-    assert str(target.hermes_config).endswith("/vagas_bot_01/hermes.config.json")
-    assert str(result["backup"]).endswith("/vagas_bot_01/hermes.config.json.bak.harness")
+    assert str(target.hermes_config).endswith("/vagas_bot_01/config.yaml")
+    assert str(result["backup"]).endswith("/vagas_bot_01/config.yaml.bak.harness")
     assert target.hermes_config.read_text(encoding="utf-8") == written
 
 
@@ -476,7 +617,7 @@ def test_stage_hook_rejects_target_when_compose_resolves_bot01_to_another_profil
 
     paths = _target_paths(tmp_path)
     _write_compose(paths["compose_path"], db_path=paths["control_db_path"])
-    wrong_profile = tmp_path / "profiles" / "other_profile" / "hermes.config.json"
+    wrong_profile = tmp_path / "profiles" / "other_profile" / "config.yaml"
     wrong_profile.parent.mkdir(parents=True, exist_ok=True)
     wrong_profile.write_text("model:\n  default: test\nhooks: {}\n", encoding="utf-8")
     target = _canary_target(tmp_path, hermes_config=wrong_profile)
@@ -641,11 +782,124 @@ def test_run_controlled_canary_report_is_compact_and_leaves_bot02_snapshot_untou
     assert _hash_file(bot02_snapshot) == before_hash
 
 
+def test_stage_hook_cli_writes_compact_gate_evidence(monkeypatch, capsys, tmp_path):
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    target = _canary_target(tmp_path)
+
+    monkeypatch.setattr(
+        phase_d_canary,
+        "resolve_target_from_compose",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        phase_d_canary,
+        "stage_hook",
+        lambda resolved_target, apply=False: {
+            "status": "dry_run_ok",
+            "target": resolved_target.bot_name,
+            "apply": apply,
+            "config": str(resolved_target.hermes_config),
+            "backup": str(resolved_target.hermes_config.with_suffix(".yaml.bak.harness")),
+            "revertible": False,
+            "mutations": [],
+        },
+    )
+
+    exit_code = phase_d_canary.main(
+        ["stage-hook", "--compose", str(compose_path), "--bot", "vagas_bot_01", "--json"]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    evidence = json.loads(
+        (target.workspace_root / ".career-state" / "phase_d_gates" / "d1_stage_hook.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest = json.loads(
+        (target.workspace_root / ".career-state" / "phase_d_runner_gate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert exit_code == 0
+    assert payload["status"] == "dry_run_ok"
+    assert evidence["approved"] is True
+    assert evidence["status"] == "dry_run_ok"
+    assert manifest["approvals"]["d1"]["approved"] is True
+    assert manifest["approvals"]["d1"]["status"] == "dry_run_ok"
+
+
+def test_controlled_run_cli_writes_gate_evidence_and_manifest(monkeypatch, capsys, tmp_path):
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    target = _canary_target(tmp_path)
+    result = {
+        "status": "completed",
+        "target": "vagas_bot_01",
+        "application_id": "canary-app",
+        "run_id": "run-canary",
+        "node_id": "analyze_fit",
+        "attempt": 1,
+        "request_json": str(target.workspace_root / ".career-state" / "applications_v2" / "canary-app" / "requests" / "cellular" / "run-canary" / "analyze_fit" / "1" / "request.json"),
+        "request_md": str(target.workspace_root / ".career-state" / "applications_v2" / "canary-app" / "requests" / "cellular" / "run-canary" / "analyze_fit" / "1" / "request.md"),
+        "request_hash": "request-hash",
+        "read_allowlist": ["manifest.json"],
+        "write_allowlist": ["fit_map.draft.json"],
+        "harness": {"command": ["/usr/bin/python3", "controlled_agent_worker.py"]},
+        "sqlite_counts": {"runtime_runs": 1},
+    }
+
+    monkeypatch.setattr(
+        phase_d_canary,
+        "resolve_target_from_compose",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        phase_d_canary,
+        "run_controlled_canary",
+        lambda resolved_target, application_id, workspace: result,
+    )
+
+    exit_code = phase_d_canary.main(
+        [
+            "controlled-run",
+            "--compose",
+            str(compose_path),
+            "--bot",
+            "vagas_bot_01",
+            "--application-id",
+            "canary-app",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    evidence = json.loads(
+        (target.workspace_root / ".career-state" / "phase_d_gates" / "d2_controlled_run.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest = json.loads(
+        (target.workspace_root / ".career-state" / "phase_d_runner_gate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert exit_code == 0
+    assert payload["status"] == "completed"
+    assert evidence["approved"] is True
+    assert evidence["result"]["application_id"] == "canary-app"
+    assert manifest["approvals"]["d2"]["approved"] is True
+    assert manifest["approvals"]["d2"]["status"] == "completed"
+
+
 def test_probe_runner_compacts_prompt_and_preserves_bot02_snapshot(tmp_path, monkeypatch):
     from career.services.canary_control import probe_runner
 
-    request_json, payload = _materialize_runner_gate_request(tmp_path)
-    _write_runner_gate_manifest(tmp_path, request_json, payload)
+    target = _canary_target(tmp_path)
+    request_json, payload = _materialize_runner_gate_request(target.workspace_root)
+    _write_runner_gate_manifest(target.workspace_root, request_json, payload)
     bot02_snapshot = tmp_path / "bot02" / "session.json"
     bot02_snapshot.parent.mkdir(parents=True, exist_ok=True)
     bot02_snapshot.write_text(json.dumps({"bot": "vagas_bot_02", "messages": 5}), encoding="utf-8")
@@ -675,8 +929,8 @@ def test_probe_runner_compacts_prompt_and_preserves_bot02_snapshot(tmp_path, mon
     )
 
     result = probe_runner(
+        target,
         {"kind": "hermes", "command": "hermes", "timeout_minutes": 90},
-        tmp_path,
     )
 
     assert result["status"] == "completed"
@@ -689,3 +943,28 @@ def test_probe_runner_compacts_prompt_and_preserves_bot02_snapshot(tmp_path, mon
     assert "secret-stdout-token" not in serialized_report
     assert "secret-stderr-token" not in serialized_report
     assert _hash_file(bot02_snapshot) == before_hash
+
+
+@pytest.mark.parametrize("command", ["rollback-dry-run", "stage-hook", "controlled-run", "runner-probe"])
+def test_phase_d_cli_blocks_bot02_before_resolution(monkeypatch, capsys, tmp_path, command):
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    seen: list[str] = []
+
+    def explode(**kwargs):
+        seen.append("resolve")
+        raise AssertionError("resolve_target_from_compose must not be called for bot02")
+
+    monkeypatch.setattr(phase_d_canary, "resolve_target_from_compose", explode)
+    argv = [command, "--compose", str(compose_path), "--bot", "vagas_bot_02", "--json"]
+    if command == "controlled-run":
+        argv.extend(["--application-id", "existing-app"])
+
+    exit_code = phase_d_canary.main(argv)
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["status"] == "blocked"
+    assert payload["target"] == "vagas_bot_02"
+    assert seen == []

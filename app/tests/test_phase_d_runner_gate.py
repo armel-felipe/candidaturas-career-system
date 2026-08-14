@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from career.services.canary_control import REDACTED_REQUEST_PROMPT, probe_runner
+from career.services.canary_control import CanaryTarget, REDACTED_REQUEST_PROMPT, probe_runner
 from scripts import phase_d_canary
 
 
@@ -16,6 +16,22 @@ def _runner_config() -> dict[str, object]:
         "agent": "build",
         "timeout_minutes": 90,
     }
+
+
+def _canary_target(root: Path) -> CanaryTarget:
+    profile_root = root / "profiles" / "vagas_bot_01"
+    profile_root.mkdir(parents=True, exist_ok=True)
+    workspace_root = root.resolve()
+    return CanaryTarget(
+        bot_name="vagas_bot_01",
+        compose_service="vagas_bot_01",
+        hermes_config=profile_root / "config.yaml",
+        adapter_script=workspace_root / "scripts" / "telegram_harness_adapter.py",
+        control_db_path=workspace_root / ".career-state" / "career.db",
+        authority_ledger_path=workspace_root / ".career-state" / "authority.json",
+        workspace_root=workspace_root,
+        compose_path=workspace_root / "compose.yaml",
+    )
 
 
 def _materialize_task3_request(
@@ -79,9 +95,14 @@ def _write_runner_gate_manifest(
     request_json: Path,
     payload: dict[str, object],
     *,
+    manifest_kind: str = "phase_d_runner_gate_manifest",
+    manifest_version: int = 1,
     d0_approved: bool = True,
     d1_approved: bool = True,
     d2_approved: bool = True,
+    d0_status: str | None = None,
+    d1_status: str | None = None,
+    d2_status: str | None = None,
     request_hash: str | None = None,
     read_allowlist: list[str] | None = None,
     write_allowlist: list[str] | None = None,
@@ -89,15 +110,36 @@ def _write_runner_gate_manifest(
     manifest_path = root / ".career-state" / "phase_d_runner_gate.json"
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     body = {
-        "kind": "phase_d_runner_gate_manifest",
-        "version": 1,
+        "kind": manifest_kind,
+        "version": manifest_version,
         "target": "vagas_bot_01",
         "approvals": {
-            "d0": {"approved": d0_approved, "status": "ready" if d0_approved else "blocked"},
-            "d1": {"approved": d1_approved, "status": "dry_run_ok" if d1_approved else "blocked"},
+            "d0": {
+                "kind": "phase_d_gate_evidence",
+                "version": 1,
+                "gate": "d0",
+                "approved": d0_approved,
+                "status": d0_status or ("ready" if d0_approved else "blocked"),
+                "evidence_path": str(root / ".career-state" / "phase_d_gates" / "d0_preflight.json"),
+                "evidence_hash": "stub-d0",
+            },
+            "d1": {
+                "kind": "phase_d_gate_evidence",
+                "version": 1,
+                "gate": "d1",
+                "approved": d1_approved,
+                "status": d1_status or ("dry_run_ok" if d1_approved else "blocked"),
+                "evidence_path": str(root / ".career-state" / "phase_d_gates" / "d1_stage_hook.json"),
+                "evidence_hash": "stub-d1",
+            },
             "d2": {
+                "kind": "phase_d_gate_evidence",
+                "version": 1,
+                "gate": "d2",
                 "approved": d2_approved,
-                "status": "completed" if d2_approved else "blocked",
+                "status": d2_status or ("completed" if d2_approved else "blocked"),
+                "evidence_path": str(root / ".career-state" / "phase_d_gates" / "d2_controlled_run.json"),
+                "evidence_hash": "stub-d2",
                 "application_id": payload["application_id"],
                 "run_id": payload["run_id"],
                 "node_id": payload["node_id"],
@@ -114,6 +156,59 @@ def _write_runner_gate_manifest(
             },
         },
     }
+    evidence_dir = root / ".career-state" / "phase_d_gates"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_payloads = {
+        "d0_preflight.json": {
+            "kind": "phase_d_gate_evidence",
+            "version": 1,
+            "gate": "d0",
+            "target": "vagas_bot_01",
+            "approved": body["approvals"]["d0"]["approved"],
+            "status": body["approvals"]["d0"]["status"],
+            "result": {"status": body["approvals"]["d0"]["status"]},
+        },
+        "d1_stage_hook.json": {
+            "kind": "phase_d_gate_evidence",
+            "version": 1,
+            "gate": "d1",
+            "target": "vagas_bot_01",
+            "approved": body["approvals"]["d1"]["approved"],
+            "status": body["approvals"]["d1"]["status"],
+            "result": {"status": body["approvals"]["d1"]["status"]},
+        },
+        "d2_controlled_run.json": {
+            "kind": "phase_d_gate_evidence",
+            "version": 1,
+            "gate": "d2",
+            "target": "vagas_bot_01",
+            "approved": body["approvals"]["d2"]["approved"],
+            "status": body["approvals"]["d2"]["status"],
+            "result": {
+                "status": body["approvals"]["d2"]["status"],
+                "application_id": payload["application_id"],
+                "run_id": payload["run_id"],
+                "node_id": payload["node_id"],
+                "attempt": payload["attempt"],
+                "request_json": str(request_json),
+                "request_md": str(request_json.with_suffix(".md")),
+                "request_hash": body["approvals"]["d2"]["request_hash"],
+                "read_allowlist": list(
+                    read_allowlist if read_allowlist is not None else payload["read_allowlist"]
+                ),
+                "write_allowlist": list(
+                    write_allowlist if write_allowlist is not None else payload["write_allowlist"]
+                ),
+            },
+        },
+    }
+    for name, evidence in evidence_payloads.items():
+        evidence_path = evidence_dir / name
+        serialized = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        body["approvals"][evidence["gate"]]["evidence_hash"] = hashlib.sha256(
+            serialized.encode("utf-8")
+        ).hexdigest()
+        evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(body), encoding="utf-8")
     return manifest_path
@@ -136,7 +231,7 @@ def test_probe_runner_blocks_when_runner_is_unavailable_without_calling_harness(
         blocked_harness,
     )
 
-    result = probe_runner(_runner_config(), tmp_path)
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
 
     assert result == {
         "status": "blocked",
@@ -175,7 +270,7 @@ def test_probe_runner_blocks_without_explicit_gate_manifest_even_if_multiple_req
         blocked_harness,
     )
 
-    result = probe_runner(_runner_config(), tmp_path)
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
 
     assert result["status"] == "blocked"
     assert result["blocker"] == "d3_gate_manifest_missing"
@@ -203,10 +298,43 @@ def test_probe_runner_requires_explicit_d0_d1_d2_approvals_before_harness(
         blocked_harness,
     )
 
-    result = probe_runner(_runner_config(), tmp_path)
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
 
     assert result["status"] == "blocked"
     assert result["blocker"] == "d3_approvals_missing"
+    assert calls == []
+
+
+def test_probe_runner_blocks_when_manifest_approval_status_is_contradictory(
+    tmp_path, monkeypatch
+):
+    request_json, payload = _materialize_task3_request(tmp_path)
+    _write_runner_gate_manifest(
+        tmp_path,
+        request_json,
+        payload,
+        d0_approved=True,
+        d0_status="blocked",
+    )
+    calls: list[dict[str, object]] = []
+
+    def blocked_harness(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        raise AssertionError("probe_runner must not call HarnessSupervisor on contradictory approvals")
+
+    monkeypatch.setattr(
+        "career.services.canary_control.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.HarnessSupervisor.run_application_stage",
+        blocked_harness,
+    )
+
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
+
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "d3_approvals_incoherent"
     assert calls == []
 
 
@@ -228,7 +356,7 @@ def test_probe_runner_blocks_when_d2_request_incomplete(tmp_path, monkeypatch):
         blocked_harness,
     )
 
-    result = probe_runner(_runner_config(), tmp_path)
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
 
     assert result["status"] == "blocked"
     assert result["blocker"] == "d2_request_incomplete"
@@ -260,7 +388,7 @@ def test_probe_runner_uses_explicit_d2_binding_and_ignores_other_requests(tmp_pa
         fake_harness,
     )
 
-    result = probe_runner(_runner_config(), tmp_path)
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
 
     assert result == {
         "status": "completed",
@@ -276,6 +404,37 @@ def test_probe_runner_uses_explicit_d2_binding_and_ignores_other_requests(tmp_pa
     assert Path(captured["application_dir"]).resolve() == request_json.parents[5].resolve()
     assert Path(captured["request_json"]).resolve() == request_json.resolve()
     assert Path(captured["request_md"]).resolve() == request_json.with_suffix(".md").resolve()
+
+
+def test_probe_runner_rejects_noncanonical_manifest_kind_and_version(tmp_path, monkeypatch):
+    request_json, payload = _materialize_task3_request(tmp_path)
+    _write_runner_gate_manifest(
+        tmp_path,
+        request_json,
+        payload,
+        manifest_kind="wrong_kind",
+        manifest_version=9,
+    )
+    calls: list[dict[str, object]] = []
+
+    def blocked_harness(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        raise AssertionError("probe_runner must not call HarnessSupervisor with invalid gate manifest")
+
+    monkeypatch.setattr(
+        "career.services.canary_control.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.HarnessSupervisor.run_application_stage",
+        blocked_harness,
+    )
+
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
+
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "d3_gate_manifest_invalid"
+    assert calls == []
 
 
 def test_probe_runner_blocks_when_explicit_d2_hash_mismatches(tmp_path, monkeypatch):
@@ -296,10 +455,44 @@ def test_probe_runner_blocks_when_explicit_d2_hash_mismatches(tmp_path, monkeypa
         blocked_harness,
     )
 
-    result = probe_runner(_runner_config(), tmp_path)
+    result = probe_runner(_canary_target(tmp_path), _runner_config())
 
     assert result["status"] == "blocked"
     assert result["blocker"] == "d2_request_mismatch"
+    assert calls == []
+
+
+def test_probe_runner_rejects_controlled_runner_kind_without_calling_harness(
+    tmp_path, monkeypatch
+):
+    request_json, payload = _materialize_task3_request(tmp_path)
+    _write_runner_gate_manifest(tmp_path, request_json, payload)
+    calls: list[dict[str, object]] = []
+
+    def blocked_harness(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        raise AssertionError("probe_runner must not call HarnessSupervisor for controlled runner probes")
+
+    monkeypatch.setattr(
+        "career.services.canary_control.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.HarnessSupervisor.run_application_stage",
+        blocked_harness,
+    )
+
+    result = probe_runner(
+        _canary_target(tmp_path),
+        {
+            "kind": "controlled",
+            "command": "controlled",
+            "timeout_minutes": 1,
+        },
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "runner_kind_unsupported"
     assert calls == []
 
 
@@ -322,7 +515,7 @@ def test_runner_probe_cli_returns_blocked_json_and_non_zero(monkeypatch, capsys,
     monkeypatch.setattr(
         phase_d_canary,
         "probe_runner",
-        lambda runner_config, root, gate_manifest_path=None: expected,
+        lambda target, runner_config, gate_manifest_path=None: expected,
     )
 
     exit_code = phase_d_canary.main(
@@ -353,7 +546,7 @@ def test_runner_probe_cli_returns_compact_json_and_zero_for_completed(monkeypatc
     monkeypatch.setattr(
         phase_d_canary,
         "probe_runner",
-        lambda runner_config, root, gate_manifest_path=None: expected,
+        lambda target, runner_config, gate_manifest_path=None: expected,
     )
 
     exit_code = phase_d_canary.main(
