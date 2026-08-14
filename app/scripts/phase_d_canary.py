@@ -6,15 +6,46 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from career.services.canary_control import (
+    assert_canary_target,
     resolve_target_from_compose,
     rollback_dry_run,
     route_smoke,
     run_preflight,
 )
+from career.utils import read_json
+from scripts.run_phase_c_pilot import run_pilot
+
+
+def run_controlled_canary(
+    *, target: Any, application_id: str, workspace: Path
+) -> dict[str, Any]:
+    assert_canary_target(target)
+    workspace_root = Path(workspace).resolve()
+    if workspace_root != Path(target.workspace_root).resolve():
+        raise ValueError("workspace must match the canary target workspace_root")
+    result = run_pilot(workspace_root, application_id=application_id)
+    request = read_json(Path(result["request_json"]))
+    manifest = read_json(Path(result["manifest_path"]))
+    expected = {
+        "application_id": result["application_id"],
+        "run_id": result["run_id"],
+        "node_id": "analyze_fit",
+        "attempt": 1,
+    }
+    for key, value in expected.items():
+        if request.get(key) != value:
+            raise RuntimeError(f"cell request {key} mismatch for controlled canary")
+        if manifest.get(key) != value:
+            raise RuntimeError(f"manifest {key} mismatch for controlled canary")
+    return {
+        **result,
+        "target": target.bot_name,
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:

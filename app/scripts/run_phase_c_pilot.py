@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
@@ -17,12 +18,15 @@ from career.cells.contracts import CELL_CONTRACTS
 from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services import applications_v2
-from career.services.agent_runner import SubprocessAgentRunner
 from career.services.application_context import paths_for
 from career.services.cell_store import CellStore
 from career.services.database import Database
 from career.services.harness_supervisor import HarnessSupervisor
 from career.utils import read_json, sha256_file, write_json
+
+DEFAULT_APPLICATION_ID = "phase-c-pilot"
+DEFAULT_RUN_ID = "run_phase_c_pilot"
+DEFAULT_RUNNER_KIND = "controlled"
 
 
 def _args() -> argparse.Namespace:
@@ -31,15 +35,42 @@ def _args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_pilot(workspace: Path) -> dict:
+def _pilot_token(application_id: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9]+", "_", application_id).strip("_") or "pilot"
+
+
+def _pilot_metadata(application_id: str) -> dict[str, str]:
+    if application_id == DEFAULT_APPLICATION_ID:
+        return {
+            "run_id": DEFAULT_RUN_ID,
+            "control_owner": "phase-c-pilot-owner",
+            "workspace_owner": "phase-c-pilot-worker",
+            "worker_id": "phase-c-pilot-executor",
+            "result_name": "phase_c_pilot_result.json",
+        }
+    token = _pilot_token(application_id)
+    return {
+        "run_id": f"run_{token}",
+        "control_owner": f"{application_id}-owner",
+        "workspace_owner": f"{application_id}-worker",
+        "worker_id": f"{application_id}-executor",
+        "result_name": f"{token}_result.json",
+    }
+
+
+def run_pilot(workspace: Path, application_id: str = DEFAULT_APPLICATION_ID) -> dict:
     workspace = workspace.resolve()
     state_dir = workspace / ".career-state"
     applications_root = state_dir / "applications_v2"
     db_path = state_dir / "career.db"
     ledger_path = state_dir / "authority.json"
-    app_id = "phase-c-pilot"
-    control_owner = "phase-c-pilot-owner"
-    workspace_owner = "phase-c-pilot-worker"
+    app_id = paths_for(application_id, root=applications_root).application_id
+    metadata = _pilot_metadata(app_id)
+    run_id = metadata["run_id"]
+    control_owner = metadata["control_owner"]
+    workspace_owner = metadata["workspace_owner"]
+    worker_id = metadata["worker_id"]
+    runner_kind = DEFAULT_RUNNER_KIND
     state_dir.mkdir(parents=True, exist_ok=True)
     applications_root.mkdir(parents=True, exist_ok=True)
     os.environ.update(
@@ -80,7 +111,6 @@ def run_pilot(workspace: Path) -> dict:
     )
 
     contract = CELL_CONTRACTS["analyze_fit"]
-    run_id = "run_phase_c_pilot"
     node = {
         "node_id": contract.node_id,
         "requires": [],
@@ -124,7 +154,7 @@ def run_pilot(workspace: Path) -> dict:
         applications_root=applications_root,
         handlers={"analyze_fit": pilot_handler},
         validators=validators,
-        worker_id="phase-c-pilot-executor",
+        worker_id=worker_id,
         workspace_owner=workspace_owner,
         workspace_control_db_id=control_db_id,
         require_authoritative_workspace=True,
@@ -146,12 +176,20 @@ def run_pilot(workspace: Path) -> dict:
         application_dir=paths.app_dir,
         request_json=request_json,
         request_md=request_md,
-        runner_config={"kind": "controlled", "timeout_minutes": 1},
+        runner_config={"kind": runner_kind, "timeout_minutes": 1},
         workspace_owner=workspace_owner,
         control_db_id=control_db_id,
     )
     if harness_result.get("returncode") != 0 or harness_result.get("isolation", {}).get("status") != "ok":
         raise RuntimeError(f"controlled harness pilot failed: {harness_result}")
+    materialized_request = read_json(request_json)
+    materialized_request_json = json.dumps(
+        materialized_request, sort_keys=True, separators=(",", ":")
+    )
+    materialized_request_hash = hashlib.sha256(
+        materialized_request_json.encode("utf-8")
+    ).hexdigest()
+    materialized_request_bytes = len(materialized_request_json.encode("utf-8"))
 
     write_json(
         applications_v2._draft_binding_path(paths),
@@ -199,21 +237,26 @@ def run_pilot(workspace: Path) -> dict:
             (run_id,),
         )["count"]
     )
+    runtime_payload = dict(harness_result.get("runtime") or {})
+    if runtime_run:
+        runtime_payload.update(dict(runtime_run))
     result = {
         "status": "completed" if execution and execution[0].status == "validated" else "blocked",
         "application_id": app_id,
         "run_id": run_id,
+        "runner_kind": runner_kind,
         "request_json": str(request_json),
-        "request_cellular": read_json(request_json).get("cellular"),
-        "request_hash": request_row["payload_hash"] if request_row else None,
-        "request_bytes": request_row["payload_bytes"] if request_row else None,
+        "request_cellular": materialized_request.get("cellular"),
+        "request_hash": materialized_request_hash,
+        "request_bytes": materialized_request_bytes,
+        "manifest_path": str(prepared.manifest_path),
         "sqlite_counts": counts,
         "harness": harness_result,
         "execution": [item.status for item in execution],
-        "runtime": dict(runtime_run) if runtime_run else None,
+        "runtime": runtime_payload or None,
         "fit_map_draft": str(paths.fit_map_draft),
     }
-    write_json(workspace / "phase_c_pilot_result.json", result)
+    write_json(workspace / metadata["result_name"], result)
     database.close()
     return result
 

@@ -29,6 +29,7 @@ def test_phase_c_controlled_pilot_completes_cell_execution(tmp_path):
     assert result["status"] == "completed"
     assert result["execution"] == ["validated"]
     assert result["runtime"]["status"] == "completed"
+    assert result["runner_kind"] == "controlled"
     assert result["request_hash"]
     assert result["sqlite_counts"] == {
         "cell_inputs": 1,
@@ -42,6 +43,7 @@ def test_phase_c_controlled_pilot_completes_cell_execution(tmp_path):
     request = json.loads(__import__("pathlib").Path(result["request_json"]).read_text())
     assert request["cellular"] is True
     assert request["application_id"] == "phase-c-pilot"
+    assert request["run_id"] == "run_phase_c_pilot"
 
     database = Database(tmp_path / ".career-state" / "career.db")
     database.init_schema()
