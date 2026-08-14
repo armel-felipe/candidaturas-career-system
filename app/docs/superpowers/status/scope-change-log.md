@@ -2,7 +2,7 @@
 
 **Baseline atual:** `ARCH-DATA-ANCHORED-2026-08-13`
 **Especificação principal:** [`2026-08-13-data-anchored-cellular-orchestration.md`](../specs/2026-08-13-data-anchored-cellular-orchestration.md)
-**Atualizado em:** 2026-08-13
+**Atualizado em:** 2026-08-14
 
 ## Finalidade
 
@@ -42,7 +42,7 @@ enquanto não estiver `aprovado`.
 | `CHG-0003` | 2026-08-13 | `implementação` | Executar Fase A: caminho explícito do control plane, registros bounded de runtime e diagnóstico Hermes read-only | `ARCH-02`, `ARCH-09`, `ARCH-10`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0004` | 2026-08-13 | `implementação` | Executar Fase B: persistir inputs, requests, handovers e recibos de validação no control plane celular | `ARCH-03`, `ARCH-04`, `ARCH-05`, `ARCH-08`, `ARCH-11`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
 | `CHG-0005` | 2026-08-13 | `implementação` | Executar Fase C: consolidar heartbeat, control plane e Harness com runner controlado de teste | `ARCH-01`, `ARCH-03`, `ARCH-05`, `ARCH-06`, `ARCH-08`, `ARCH-09`, `ARCH-11`, `ARCH-12` | `concluído` | `ARCH-DATA-ANCHORED-2026-08-13` |
-| `CHG-0006` | 2026-08-13 | `implementação` | Planejar canário de integração do `vagas_bot_01` com hook Hermes, Harness e execução celular | `ARCH-01`, `ARCH-02`, `ARCH-03`, `ARCH-06`, `ARCH-08`, `ARCH-09`, `ARCH-11`, `ARCH-12` | `aprovado` | `ARCH-DATA-ANCHORED-2026-08-13` |
+| `CHG-0006` | 2026-08-13 | `implementação` | Executar e governar o canário de integração do `vagas_bot_01` com hook Hermes, Harness e execução celular | `ARCH-01`, `ARCH-02`, `ARCH-03`, `ARCH-06`, `ARCH-08`, `ARCH-09`, `ARCH-11`, `ARCH-12` | `bloqueado` | `ARCH-DATA-ANCHORED-2026-08-13` |
 
 ### Escopo aprovado de CHG-0005
 
@@ -71,6 +71,44 @@ enquanto não estiver `aprovado`.
   nessas tabelas.
 - Limitação explícita: a integração real com Hermes/opencode e Telegram não foi
   ativada nem considerada verificada nesta mudança.
+
+### Escopo de CHG-0006
+
+- **Dentro:** preflight D0 read-only no target `vagas_bot_01`; staging/rollback D1
+  restritos ao mesmo bot; canário D2 controlado para uma aplicação explícita;
+  gate D3 fail-closed sem fallback; documentação e testes de governança do
+  relatório/não alteração.
+- **Fora:** promoção do gateway Telegram como dispatcher fino, restart
+  automático, processamento real de candidatura e qualquer conclusão sem runner
+  disponível no host.
+- **Plano:** [`2026-08-13-phase-d-vagas-bot-01-canary.md`](../plans/2026-08-13-phase-d-vagas-bot-01-canary.md).
+- **Rollback:** manter D0/D1 read-only ou dry-run quando o host não estiver
+  pronto; bloquear D3 sem fallback; preservar `vagas_bot_02` e o restante do
+  workspace sem mutações.
+
+### Evidência de CHG-0006
+
+- Arquivos: `run_phase_c_pilot.py`, `canary_control.py`,
+  `TELEGRAM_HARNESS_RUNBOOK.md`, `architecture-implementation-control.md`,
+  `scope-change-log.md`, `test_phase_d_canary.py` e `test_phase_d_runner_gate.py`.
+- Testes focados: `31 passed` em
+  `test_phase_d_canary.py`, `test_phase_d_canary_integration.py` e
+  `test_phase_d_runner_gate.py`.
+- D0 host: `phase_d_canary.py preflight --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json`
+  → `status=blocked`, `mutations=[]`, SQLite em read-only, bloqueado por
+  `hermes.config.json` ausente, authority ledger ausente e
+  `CAREER_CONTROL_DB_ID` ausente.
+- D1 host: `rollback-dry-run` → `dry_run_ok`, `revertible=false`, `mutations=[]`;
+  fixtures garantem target exclusivo `vagas_bot_01`, backup/mutations corretos e
+  rejeição de `vagas_bot_02`.
+- D2 fixture: relatório compacto sem `stdout`/`stderr` crus, `request_hash`
+  consistente, contagens SQLite fixadas e snapshot do `bot02` idêntico.
+- D3 host: `runner-probe` → `status=blocked`, `blocker=runner_unavailable`,
+  prompt redigido (`<request prompt redacted>`), sem fallback e sem prova de
+  transporte pelo Harness.
+- Status final desta mudança: `bloqueado`. Com D3 bloqueado e sem evidência real
+  de Telegram → Harness, `ARCH-06` continua `divergente` e `CHG-0006` não pode
+  ser marcado `concluído`.
 
 ### Escopo de CHG-0004
 

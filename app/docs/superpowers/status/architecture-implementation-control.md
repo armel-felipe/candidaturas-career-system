@@ -2,7 +2,7 @@
 
 **Baseline:** `ARCH-DATA-ANCHORED-2026-08-13`
 **Especificação:** [`2026-08-13-data-anchored-cellular-orchestration.md`](../specs/2026-08-13-data-anchored-cellular-orchestration.md)
-**Atualizado em:** 2026-08-13
+**Atualizado em:** 2026-08-14
 **Responsável pelo controle:** projeto Career Job Application System
 
 ## Finalidade
@@ -49,7 +49,7 @@ gateway, o heartbeat ou os dois bots estão usando esse contrato.
 | `ARCH-03` | Inputs da tentativa são registrados antes do agente | `em validação` | Fase C usa `CellRequestBuilder` persistido e piloto registrou `cell_inputs=1` antes do Harness | runner/gateway externo ainda não está integrado |
 | `ARCH-04` | Handover e outputs são publicados antes da liberação seguinte | `em validação` | piloto registrou `cell_handovers=1`, `validation_receipts=3`, `artifacts=1` e terminou `validated` | publicação em execução real dos bots ainda não foi observada |
 | `ARCH-05` | Request do agente é projeção compacta do estado persistido | `em validação` | Fase C materializa somente `cell_requests`; piloto validou hash e rejeitou adulteração | `AgentRequestBuilder` legado e gateway Hermes ainda coexistem |
-| `ARCH-06` | Telegram é dispatcher fino | `divergente` | containers iniciam gateway Hermes direto | instalar e validar integração com Harness/CellExecutor |
+| `ARCH-06` | Telegram é dispatcher fino | `divergente` | Fase D adicionou preflight D0 read-only, rollback D1, canário D2 controlado e gate D3 fail-closed; no host real o transporte segue sem prova via Harness | provisionar `hermes.config.json`, authority ledger e runner reais para observar Telegram → Harness → célula |
 | `ARCH-07` | `processe-a-vaga` compila para células pequenas | `parcial` | contratos celulares já definem vários nós | impedir o uso direto da skill monolítica no caminho de produção |
 | `ARCH-08` | Limite de contexto bloqueia payload excessivo antes do runner | `em validação` | `CellRequestBuilder` rejeita projeção acima de 128 KiB; piloto registrou request bounded e tokens estimados | medição do runner real ainda fica para integração/telemetria |
 | `ARCH-09` | Workers são substituíveis e consultam estado comum | `em validação` | caminho comum do control plane e APIs de registro existem; bancos Hermes e estados legados continuam separados | integrar todos os workers e retirar autoridade operacional dos perfis |
@@ -159,3 +159,14 @@ execução real e os fará iniciar células novas ainda não foi promovida para
 | Integridade | hash alterado, input vazio posteriormente ampliado, request acima do limite e handover com identidade errada foram rejeitados |
 | Suíte completa pós-commit | `344 passed, 15 failed`; as falhas estão fora da Fase B: Node.js ausente, `enquadramento.json` ausente e scripts Windows preexistentes em `.venv-test` |
 | Limitações | não prova ainda gateway Telegram, runner externo, medição real de tokens ou produção nos dois bots |
+
+## Evidência da Fase D
+
+| Verificação | Resultado |
+|---|---|
+| D0 host preflight | `phase_d_canary.py preflight --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json` → `status=blocked`, `mutations=[]`, SQLite em read-only com `control_db_id=control_4b9e3ce0922c4025a32fb950d6c1e55a`; bloqueios reais: `hermes.config.json` ausente, authority ledger ausente e `CAREER_CONTROL_DB_ID` ausente |
+| D1 rollback/staging | `test_phase_d_canary.py` cobre target exclusivo `vagas_bot_01`, backup/mutations e rejeição explícita de `vagas_bot_02`; no host, `rollback-dry-run` retorna `dry_run_ok` com `revertible=false` e `mutations=[]` |
+| D2 canário controlado | `test_phase_d_canary.py` + `test_phase_d_canary_integration.py`: relatório compacto sem `stdout`/`stderr` crus, `request_hash` e contagens SQLite consistentes, e snapshot do `bot02` idêntico |
+| D3 runner gate | `test_phase_d_runner_gate.py`: gate explícito D0-D2, fail-closed e prompt redigido; no host, `runner-probe` continua `blocked` com `runner_unavailable` |
+| Regressão focal da Fase D | `31 passed` em `test_phase_d_canary.py`, `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py` |
+| Limitações | D1/D2 seguem suportados por fixture/teste; D0 e D3 continuam bloqueados no host, portanto ainda não há evidência real de transporte Telegram → Harness → célula |

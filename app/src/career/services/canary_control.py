@@ -22,6 +22,7 @@ REQUIRED_WORKSPACE_MOUNTS = (
     "/workspace/candidaturas/inbox",
     "/workspace/candidaturas/outputs",
 )
+REDACTED_REQUEST_PROMPT = "<request prompt redacted>"
 
 
 @dataclass(frozen=True)
@@ -264,22 +265,24 @@ def probe_runner(
             runner_config=config,
         )
     )
+    report_command = _compact_command_for_report(command)
     runner_type = str(config.get("kind") or config.get("command") or Path(command[0]).name).casefold()
     resolved = shutil.which(str(config.get("command") or command[0]))
     if not resolved:
         return {
             "status": "blocked",
-            "command": command,
+            "command": report_command,
             "type": runner_type,
             "available": False,
             "returncode": 127,
             "blocker": "runner_unavailable",
         }
     command = [resolved, *command[1:]]
+    report_command = _compact_command_for_report(command)
     if gate_context.get("status") != "ok":
         return {
             "status": "blocked",
-            "command": command,
+            "command": report_command,
             "type": runner_type,
             "available": True,
             "returncode": None,
@@ -306,7 +309,7 @@ def probe_runner(
         blocker = "runner_isolation_blocked"
     return {
         "status": status,
-        "command": list(payload.get("command") or command),
+        "command": _compact_command_for_report(list(payload.get("command") or command)),
         "type": runner_type,
         "available": True,
         "returncode": returncode,
@@ -441,6 +444,28 @@ def _resolve_under_root(root: Path, raw_path: str | Path) -> Path:
     if not resolved.is_relative_to(root.resolve()):
         raise ValueError("runner gate path escapes workspace root")
     return resolved
+
+
+def compact_harness_payload_for_report(payload: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        key: value
+        for key, value in dict(payload or {}).items()
+        if key not in {"stdout", "stderr"}
+    }
+    if isinstance(compact.get("command"), list):
+        compact["command"] = _compact_command_for_report(compact["command"])
+    return compact
+
+
+def _compact_command_for_report(command: list[Any]) -> list[str]:
+    compact: list[str] = []
+    for item in command:
+        text = str(item)
+        if text.startswith("Leia o arquivo "):
+            compact.append(REDACTED_REQUEST_PROMPT)
+        else:
+            compact.append(text)
+    return compact
 
 
 def _load_compose(compose_path: Path) -> dict[str, Any]:

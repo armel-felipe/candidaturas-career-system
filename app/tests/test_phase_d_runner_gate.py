@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from career.services.canary_control import probe_runner
+from career.services.canary_control import REDACTED_REQUEST_PROMPT, probe_runner
 from scripts import phase_d_canary
 
 
@@ -144,7 +144,7 @@ def test_probe_runner_blocks_when_runner_is_unavailable_without_calling_harness(
             "hermes",
             "--accept-hooks",
             "-z",
-            "Leia o arquivo .career-state/applications_v2/canary-app/requests/cellular/run-canary/analyze_fit/1/request.md. Runner probe only; do not resume prior sessions.",
+            REDACTED_REQUEST_PROMPT,
         ],
         "type": "hermes",
         "available": False,

@@ -30,11 +30,28 @@ Subagentes recebem `CAREER_HARNESS_SUBAGENT=1`, evitando recursao do hook.
 Para o canary da Fase D, o staging seguro continua restrito ao profile `vagas_bot_01`:
 
 ```bash
-./scripts/python.sh scripts/phase_d_canary.py rollback-dry-run --compose docker-compose.yml --bot vagas_bot_01
+./scripts/python.sh scripts/phase_d_canary.py preflight --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json
+./scripts/python.sh scripts/phase_d_canary.py rollback-dry-run --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json
+./scripts/python.sh scripts/phase_d_canary.py runner-probe --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json
 ```
 
-Esse dry-run nao escreve nada, nao provisiona autoridade, nao chama `processe-a-vaga`
-e serve apenas para verificar se existe backup reaproveitavel para rollback.
+No host atual, o `preflight` permanece `blocked` sem mutacoes: o compose resolve
+`vagas_bot_01`, abre o SQLite em read-only e le a identidade do control plane, mas
+bloqueia por `hermes/vagas_bot_01/hermes.config.json` ausente, authority ledger
+ausente em `workspaces/vagas_bot_01/state/authority.json` e falta de
+`CAREER_CONTROL_DB_ID`.
+
+O `rollback-dry-run` nao escreve nada, nao provisiona autoridade, nao chama
+`processe-a-vaga` e serve apenas para verificar se existe backup reaproveitavel
+para rollback. No host atual ele retorna `dry_run_ok` com `revertible=false`,
+ou seja: o alvo continua restrito a `vagas_bot_01`, mas ainda nao existe backup
+aproveitavel para restauracao.
+
+O `runner-probe` continua `blocked` por `runner_unavailable` e retorna o prompt
+de request de forma redigida (`<request prompt redacted>`). Enquanto esse gate
+real nao atravessar o Harness com runner disponivel, `ARCH-06` permanece
+`divergente` e o canary nao pode ser declarado concluido.
+
 O target real do canary nao e o `config.yaml` legacy do instalador genérico: ele e o
 `hermes.config.json` resolvido pelo compose para o mount host de
 `/opt/data/profiles/vagas_bot_01`, com backup correspondente em
@@ -87,7 +104,7 @@ smoke_root=$(mktemp -d /tmp/phase-d-fixture-XXXXXX) && ./scripts/python.sh scrip
 ./scripts/python.sh scripts/phase_d_canary.py route-smoke --message-id d1-1 --message "status das candidaturas" --route-only
 ```
 
-No segundo comando acima, a CLI cria um root efemero novo por execucao.
+No terceiro comando acima, a CLI cria um root efemero novo por execucao.
 Nao reutilize um root fixo se quiser observar o primeiro passe `deduplicated=false`
 seguido do replay `deduplicated=true`.
 

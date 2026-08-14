@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -108,6 +110,98 @@ def _canary_target(
         workspace_root=paths["workspace_root"],
         compose_path=paths["compose_path"],
     )
+
+
+def _hash_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _restore_env(previous: dict[str, str | None]) -> None:
+    for key, value in previous.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+def _materialize_runner_gate_request(
+    root: Path,
+    *,
+    application_id: str = "canary-app",
+    run_id: str = "run-canary",
+    attempt: int = 1,
+) -> tuple[Path, dict[str, object]]:
+    request_dir = (
+        root
+        / ".career-state"
+        / "applications_v2"
+        / application_id
+        / "requests"
+        / "cellular"
+        / run_id
+        / "analyze_fit"
+        / str(attempt)
+    )
+    request_dir.mkdir(parents=True, exist_ok=True)
+    request_json = request_dir / "request.json"
+    request_md = request_dir / "request.md"
+    manifest = (
+        root
+        / ".career-state"
+        / "applications_v2"
+        / application_id
+        / "cells"
+        / "analyze_fit"
+        / str(attempt)
+        / "manifest.json"
+    )
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text("{}", encoding="utf-8")
+    draft = root / ".career-state" / "applications_v2" / application_id / "fit_map.draft.json"
+    payload: dict[str, object] = {
+        "cellular": True,
+        "application_id": application_id,
+        "run_id": run_id,
+        "node_id": "analyze_fit",
+        "attempt": attempt,
+        "manifest_path": str(manifest),
+        "read_allowlist": [str(manifest)],
+        "write_allowlist": [str(draft)],
+        "objective": "Produce only the FIT_MAP draft.",
+    }
+    request_json.write_text(json.dumps(payload), encoding="utf-8")
+    request_md.write_text("# request\n", encoding="utf-8")
+    return request_json, payload
+
+
+def _write_runner_gate_manifest(root: Path, request_json: Path, payload: dict[str, object]) -> Path:
+    manifest_path = root / ".career-state" / "phase_d_runner_gate.json"
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    body = {
+        "kind": "phase_d_runner_gate_manifest",
+        "version": 1,
+        "target": "vagas_bot_01",
+        "approvals": {
+            "d0": {"approved": True, "status": "blocked"},
+            "d1": {"approved": True, "status": "dry_run_ok"},
+            "d2": {
+                "approved": True,
+                "status": "completed",
+                "application_id": payload["application_id"],
+                "run_id": payload["run_id"],
+                "node_id": payload["node_id"],
+                "attempt": payload["attempt"],
+                "request_json": str(request_json),
+                "request_md": str(request_json.with_suffix(".md")),
+                "request_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                "read_allowlist": list(payload["read_allowlist"]),
+                "write_allowlist": list(payload["write_allowlist"]),
+            },
+        },
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(body), encoding="utf-8")
+    return manifest_path
 
 
 def test_assert_canary_target_rejects_non_canary_bot(tmp_path):
@@ -478,3 +572,120 @@ def test_phase_d_canary_route_smoke_cli_creates_ephemeral_root_when_omitted():
     payload = json.loads(completed.stdout)
     assert payload[0]["deduplicated"] is False
     assert payload[1]["deduplicated"] is True
+
+
+def test_run_controlled_canary_report_is_compact_and_leaves_bot02_snapshot_untouched(tmp_path):
+    from scripts.phase_d_canary import run_controlled_canary
+
+    target = _canary_target(tmp_path)
+    bot02_snapshot = tmp_path / "bot02" / "session.json"
+    bot02_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    bot02_snapshot.write_text(json.dumps({"bot": "vagas_bot_02", "messages": 3}), encoding="utf-8")
+    before_hash = _hash_file(bot02_snapshot)
+    previous = {
+        key: os.environ.get(key)
+        for key in (
+            "CAREER_CONTROL_DB_PATH",
+            "CAREER_AUTHORITY_LEDGER_PATH",
+            "CAREER_WORKSPACE_OWNER",
+            "CAREER_CONTROL_DB_ID",
+        )
+    }
+    try:
+        result = run_controlled_canary(target, "canary-app", target.workspace_root)
+    finally:
+        _restore_env(previous)
+    persisted_report = json.loads(
+        (target.workspace_root / "canary_app_result.json").read_text(encoding="utf-8")
+    )
+
+    assert result["status"] == "completed"
+    assert result["target"] == "vagas_bot_01"
+    assert result["request_hash"] == result["runtime"]["request_hash"]
+    assert result["sqlite_counts"] == {
+        "cell_inputs": 1,
+        "cell_requests": 1,
+        "cell_handovers": 1,
+        "validation_receipts": 3,
+        "runtime_runs": 1,
+        "artifacts": 1,
+        "runtime_observations": 2,
+    }
+    assert "stdout" not in result["harness"]
+    assert "stderr" not in result["harness"]
+    assert "stdout" not in persisted_report["harness"]
+    assert "stderr" not in persisted_report["harness"]
+    serialized_report = json.dumps({"d2": persisted_report}, ensure_ascii=False)
+    assert "Cargo: Operations Lead" not in serialized_report
+    assert "Responsabilidades: liderar operações." not in serialized_report
+
+    database = sqlite3.connect(target.control_db_path)
+    database.row_factory = sqlite3.Row
+    serialized_rows = json.dumps(
+        {
+            table: [dict(row) for row in database.execute(f"SELECT * FROM {table}")]
+            for table in (
+                "cell_inputs",
+                "cell_requests",
+                "cell_handovers",
+                "validation_receipts",
+                "artifacts",
+                "runtime_observations",
+            )
+        },
+        ensure_ascii=False,
+    )
+    database.close()
+    assert "Cargo: Operations Lead" not in serialized_rows
+    assert "Responsabilidades: liderar operações." not in serialized_rows
+    assert _hash_file(bot02_snapshot) == before_hash
+
+
+def test_probe_runner_compacts_prompt_and_preserves_bot02_snapshot(tmp_path, monkeypatch):
+    from career.services.canary_control import probe_runner
+
+    request_json, payload = _materialize_runner_gate_request(tmp_path)
+    _write_runner_gate_manifest(tmp_path, request_json, payload)
+    bot02_snapshot = tmp_path / "bot02" / "session.json"
+    bot02_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    bot02_snapshot.write_text(json.dumps({"bot": "vagas_bot_02", "messages": 5}), encoding="utf-8")
+    before_hash = _hash_file(bot02_snapshot)
+
+    def fake_harness(self, **kwargs):
+        return {
+            "command": [
+                "/usr/bin/hermes",
+                "--accept-hooks",
+                "-z",
+                "Leia o arquivo .career-state/runner_probe/request.md. secret prompt with historical transcript and a long pasted job description",
+            ],
+            "returncode": 0,
+            "stdout": "secret-stdout-token",
+            "stderr": "secret-stderr-token",
+            "isolation": {"status": "ok"},
+        }
+
+    monkeypatch.setattr(
+        "career.services.canary_control.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.HarnessSupervisor.run_application_stage",
+        fake_harness,
+    )
+
+    result = probe_runner(
+        {"kind": "hermes", "command": "hermes", "timeout_minutes": 90},
+        tmp_path,
+    )
+
+    assert result["status"] == "completed"
+    assert result["available"] is True
+    assert result["returncode"] == 0
+    assert "stdout" not in result
+    assert "stderr" not in result
+    serialized_report = json.dumps({"d3": result}, ensure_ascii=False)
+    assert "secret prompt with historical transcript" not in serialized_report
+    assert "secret-stdout-token" not in serialized_report
+    assert "secret-stderr-token" not in serialized_report
+    assert _hash_file(bot02_snapshot) == before_hash

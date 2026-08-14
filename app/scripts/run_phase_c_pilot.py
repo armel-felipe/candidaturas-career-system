@@ -19,6 +19,7 @@ from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services import applications_v2
 from career.services.application_context import paths_for
+from career.services.canary_control import compact_harness_payload_for_report
 from career.services.cell_store import CellStore
 from career.services.database import Database
 from career.services.harness_supervisor import HarnessSupervisor
@@ -289,6 +290,7 @@ def run_pilot(
     runtime_payload = dict(harness_result.get("runtime") or {})
     if runtime_run:
         runtime_payload.update(dict(runtime_run))
+    compact_harness = compact_harness_payload_for_report(harness_result)
     result = {
         "status": "completed" if execution and execution[0].status == "validated" else "blocked",
         "application_id": app_id,
@@ -302,7 +304,7 @@ def run_pilot(
         "control_db_path": str(db_path),
         "authority_ledger_path": str(ledger_path),
         "sqlite_counts": counts,
-        "harness": harness_result,
+        "harness": compact_harness,
         "execution": [item.status for item in execution],
         "runtime": runtime_payload or None,
         "fit_map_draft": str(paths.fit_map_draft),
