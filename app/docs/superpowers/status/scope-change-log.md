@@ -93,33 +93,36 @@ Resumo normativo: a linha de `CHG-0006` na tabela **Registro de mudanças**
 permanece `bloqueado`; esta seção detalha a mesma decisão e não a substitui.
 
 - Arquivos produtivos: `scripts/phase_d_canary.py`,
-  `src/career/services/canary_control.py`, `scripts/run_phase_c_pilot.py`,
+  `src/career/services/canary_control.py`, `src/career/services/agent_runner.py`,
+  `scripts/install_hermes_harness_hook.py`, `scripts/run_phase_c_pilot.py`,
+  `compose.yaml`, `deploy/hermes/compose.yaml`,
   `TELEGRAM_HARNESS_RUNBOOK.md`,
   `docs/superpowers/status/architecture-implementation-control.md` e
   `docs/superpowers/status/scope-change-log.md`.
 - Arquivos de teste: `test_phase_c_pilot.py`, `test_phase_d_canary.py`,
   `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py`.
-- Testes focados atuais: `50 passed` em `test_phase_d_canary.py`,
+- Testes focados atuais: `57 passed` em `test_phase_d_canary.py`,
   `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py`, incluindo
   regressões para D0 sem persistência e D1 `--apply` aprovado como `installed`.
 - Suíte proporcional do plano — histórico preservado: o comando completo do
   plano registrou `94 passed` antes desta onda final.
 - Suíte proporcional atual: o mesmo comando do plano agora registra
-  `109 passed` depois das regressões novas desta onda.
+  `119 passed` depois das regressões novas desta onda.
 - Correção pós-revisão: o commit `67ce067` removeu a persistência de evidência do
   CLI D0 e passou a aceitar `dry_run_ok` e `installed` como estados aprovados do
   D1. O preflight continua emitindo somente o relatório; D1/D2 permanecem os
   produtores de evidência persistida.
-- D0 host: snapshot read-only de 2026-08-14 via `run_preflight(...)` contra o
-  compose real → `status=blocked`, `mutations=[]`; o compose resolve
-  `hermes/vagas_bot_01/config.yaml`, lê o `control_db_id` em read-only e
-  bloqueia corretamente por ledger ausente/inválido, `CAREER_CONTROL_DB_ID`
-  ausente e `authoritative_storage` divergente do storage físico atual.
-- D1 host: `rollback-dry-run` permanece apenas preview operacional read-only
-  (`dry_run_ok`, `revertible=false`, `mutations=[]`); a evidência vinculante de
-  D1 continua em fixture, com target exclusivo `vagas_bot_01`,
-  backup `config.yaml.bak.harness`, geração de evidência canônica e rejeição de
-  `vagas_bot_02`.
+- Alinhamento de runtime: o commit `c46d40d` adicionou `state_root`, tradução de
+  paths de mounts, `record-preflight`, authority env compartilhado nos dois
+  compose files e display path `/workspace/candidaturas/...` para o runner.
+- D0 host: `preflight` e `record-preflight` de 2026-08-14 contra o compose
+  atualizado → `status=ready`, `mutations=[]`; o compose resolve
+  `hermes/vagas_bot_01/config.yaml`, o control plane compartilhado, ledger e
+  `CAREER_CONTROL_DB_ID` em read-only; a evidência está no state root do bot01.
+- D1 host: `stage-hook --dry-run` retornou `dry_run_ok`, não alterou o hash do
+  `config.yaml` e registrou comando com paths internos do container; os testes
+  mantêm target exclusivo `vagas_bot_01`, backup `config.yaml.bak.harness` e
+  rejeição de `vagas_bot_02`.
 - D2 fixture: relatório compacto sem `stdout`/`stderr` crus, `request_hash`,
   allowlists e manifesto canônico coerentes, bloqueio de `application_id`
   existente sem mutação e snapshot do `bot02` idêntico.
@@ -128,8 +131,8 @@ permanece `bloqueado`; esta seção detalha a mesma decisão e não a substitui.
   runner `kind=controlled` e permanece `blocked` sem manifesto coerente/runner
   real disponível, sem fallback e sem prova de transporte pelo Harness.
 - Validação integrada de 2026-08-14: `phase_d_canary.py preflight` no compose
-  real retornou `status=blocked`, `mutations=[]`, por ledger ausente/inválido e
-  `CAREER_CONTROL_DB_ID` ausente; `runner-probe` retornou `blocked` com
+  atualizado retornou `status=ready`, `mutations=[]`; `record-preflight` gravou
+  D0 no state root do bot01; `runner-probe` retornou `blocked` com
   `runner_unavailable` e `returncode=127`. Nenhum bot foi iniciado ou reiniciado.
 - Regressão explícita da Fase C: `test_phase_c_pilot.py` agora fixa o shape
   compacto do payload de harness sem `stdout`/`stderr` e preserva os defaults

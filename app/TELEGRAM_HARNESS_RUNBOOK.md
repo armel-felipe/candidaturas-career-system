@@ -31,17 +31,23 @@ Para o canary da Fase D, o staging seguro continua restrito ao profile `vagas_bo
 
 ```bash
 ./scripts/python.sh scripts/phase_d_canary.py preflight --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json
+./scripts/python.sh scripts/phase_d_canary.py record-preflight --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json
 ./scripts/python.sh scripts/phase_d_canary.py rollback-dry-run --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json
 ./scripts/python.sh scripts/phase_d_canary.py runner-probe --compose deploy/hermes/compose.yaml --bot vagas_bot_01 --json
 ```
 
-No host atual, o `preflight` permanece `blocked` sem mutacoes: o compose resolve
-`vagas_bot_01`, abre o SQLite em read-only e valida o contrato completo de
-autoridade (`control_db_id`, `ledger_id`, `authority_epoch`,
-`storage_identity`). O alvo canônico resolvido pelo compose é
-`hermes/vagas_bot_01/config.yaml`. Mesmo assim, o gate continua `blocked`
-porque o authority ledger do state root real continua ausente/inválido e
-`CAREER_CONTROL_DB_ID` não está presente no ambiente.
+No host atual, o `preflight` retorna `ready` sem mutacoes: o compose resolve
+`vagas_bot_01`, traduz os paths internos dos mounts para o host, abre o SQLite
+em read-only e valida o contrato completo de autoridade (`control_db_id`,
+`ledger_id`, `authority_epoch`, `storage_identity`). O control plane
+compartilhado é `/opt/agent-projects/candidaturas/control-plane/career.db`,
+com ledger `authority.json` e `CAREER_CONTROL_DB_ID` declarados nos dois
+serviços. O alvo canônico resolvido pelo compose é
+`hermes/vagas_bot_01/config.yaml`.
+
+O `record-preflight` é a operação explícita que persiste a evidência D0 em
+`workspaces/vagas_bot_01/state/phase_d_gates/`; o `preflight` sozinho nunca
+grava evidência, manifesto ou estado auxiliar.
 
 O `rollback-dry-run` nao escreve nada, nao provisiona autoridade, nao chama
 `processe-a-vaga` e serve apenas para verificar se existe backup reaproveitavel
@@ -49,9 +55,10 @@ para rollback. No host atual ele retorna `dry_run_ok` com `revertible=false`,
 ou seja: o alvo continua restrito a `vagas_bot_01`, mas ainda nao existe backup
 aproveitavel para restauracao.
 
-O `runner-probe` continua `blocked` enquanto nao houver evidencias canonicas
-coerentes de D0-D2 e um runner real disponivel; quando ele retornar comando de
-request, o prompt deve permanecer redigido (`<request prompt redacted>`).
+O `runner-probe` continua `blocked` enquanto nao houver um runner Hermes real
+disponivel; atualmente retorna `runner_unavailable` (`returncode=127`). Quando
+ele retornar comando de request, o prompt deve permanecer redigido
+(`<request prompt redacted>`).
 Enquanto esse gate real nao atravessar o Harness com runner disponivel,
 `ARCH-06` permanece `divergente` e o canary nao pode ser declarado concluido.
 
@@ -78,7 +85,8 @@ O apply so deve apontar para o config exato de `vagas_bot_01`; qualquer target d
 `vagas_bot_02` deve ser rejeitado pelo wrapper de canary.
 
 Para o fluxo canonico da Fase D, o entrypoint `preflight` executa D0 de forma
-read-only e retorna o relatorio compacto sem gravar no workspace. Os
+read-only e retorna o relatorio compacto sem gravar no workspace. O
+`record-preflight` registra D0 somente depois de um resultado `ready`. Os
 entrypoints `stage-hook` e `controlled-run` gravam suas evidencias compactas e
 atomicas em `.career-state/phase_d_gates/`, e o D3 consome apenas o manifesto
 derivado `.career-state/phase_d_runner_gate.json`. A evidencia de D0 precisa ser
