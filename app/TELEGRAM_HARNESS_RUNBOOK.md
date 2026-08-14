@@ -27,18 +27,37 @@ Subagentes recebem `CAREER_HARNESS_SUBAGENT=1`, evitando recursao do hook.
 ./scripts/python.sh scripts/install_hermes_harness_hook.py
 ```
 
+Para o canary da Fase D, o staging seguro continua restrito ao profile `vagas_bot_01`:
+
+```bash
+./scripts/python.sh scripts/phase_d_canary.py rollback-dry-run --compose docker-compose.yml --bot vagas_bot_01
+```
+
+Esse dry-run nao escreve nada, nao provisiona autoridade, nao chama `processe-a-vaga`
+e serve apenas para verificar se existe backup reaproveitavel para rollback.
+
 ## Instalar
 
 ```bash
 ./scripts/python.sh scripts/install_hermes_harness_hook.py --apply
 HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes hooks list
 HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes hooks doctor
-HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes gateway restart --accept-hooks
 ```
 
 O instalador cria `config.yaml.bak.harness` antes da alteracao.
 Ele tambem instala e habilita o plugin `career-harness-output`, usado pelo hook
 `transform_llm_output` para impedir que o modelo resuma, escolha ou reescreva menus.
+O apply so deve apontar para o config exato de `vagas_bot_01`; qualquer target de
+`vagas_bot_02` deve ser rejeitado pelo wrapper de canary.
+
+## Restart manual separado
+
+O staging D1 nunca reinicia o gateway automaticamente. Se o apply foi validado e voce
+decidir aceitar a mudanca no canary, o restart continua sendo um passo manual e separado:
+
+```bash
+HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes gateway restart --accept-hooks
+```
 
 ## Rodar em uma pasta local
 
@@ -56,6 +75,7 @@ de Telegram continua lendo o `terminal.cwd` salvo no profile.
 
 ```bash
 npm run harness:telegram -- --message "status das candidaturas" --message-id teste-1 --route-only
+./scripts/python.sh scripts/phase_d_canary.py route-smoke --root /tmp/phase-d-fixture --message-id d1-1 --message "status das candidaturas" --route-only
 ```
 
 Remova `--route-only` para executar o workflow.

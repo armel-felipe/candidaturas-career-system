@@ -174,6 +174,62 @@ def run_preflight(
     return report
 
 
+def stage_hook(target: CanaryTarget, apply: bool) -> dict[str, Any]:
+    assert_canary_target(target)
+    _assert_canary_hook_path(target)
+    import install_hermes_harness_hook
+
+    result = install_hermes_harness_hook.install(target.hermes_config, apply=apply)
+    staged = {
+        **result,
+        "target": target.bot_name,
+        "apply": apply,
+        "mutations": [] if not apply else [{"kind": "write_config", "path": str(target.hermes_config)}],
+    }
+    return staged
+
+
+def rollback_dry_run(target: CanaryTarget) -> dict[str, Any]:
+    assert_canary_target(target)
+    _assert_canary_hook_path(target)
+    backup = target.hermes_config.with_suffix(target.hermes_config.suffix + ".bak.harness")
+    return {
+        "status": "dry_run_ok",
+        "target": target.bot_name,
+        "apply": False,
+        "config": str(target.hermes_config),
+        "backup": str(backup),
+        "revertible": backup.exists(),
+        "mutations": [],
+    }
+
+
+def route_smoke(
+    root: Path,
+    messages: list[dict[str, Any]],
+    *,
+    execute: bool = False,
+    supervisor: Any | None = None,
+) -> list[dict[str, Any]]:
+    import telegram_harness_adapter
+
+    smoke_root = Path(root).resolve()
+    smoke_root.mkdir(parents=True, exist_ok=True)
+    smoke_supervisor = supervisor or _RouteSmokeSupervisor()
+    results: list[dict[str, Any]] = []
+    for entry in messages:
+        results.append(
+            telegram_harness_adapter.process_message(
+                str(entry["message"]),
+                message_id=str(entry["message_id"]),
+                execute=execute,
+                supervisor=smoke_supervisor,
+                root=smoke_root,
+            )
+        )
+    return results
+
+
 def _append_check(report: dict[str, Any], name: str, status: str, **extra: Any) -> None:
     report["checks"].append({"name": name, "status": status, **extra})
 
@@ -222,6 +278,26 @@ def _find_volume_source(volumes: list[Any], destination: str) -> Path | None:
 def _find_profile_mount(volumes: list[Any], bot_name: str) -> Path | None:
     expected_destination = f"/opt/data/profiles/{bot_name}"
     return _find_volume_source(volumes, expected_destination)
+
+
+def _assert_canary_hook_path(target: CanaryTarget) -> None:
+    expected_parent = CANARY_BOT_NAME
+    if target.hermes_config.name != "hermes.config.json":
+        raise ValueError("phase D hook staging requires hermes.config.json")
+    if target.hermes_config.parent.name != expected_parent:
+        raise ValueError(f"phase D hook staging only allows config for {CANARY_BOT_NAME}")
+
+
+class _RouteSmokeSupervisor:
+    def handle_message(self, message: str, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "completed",
+            "result": {
+                "display_text": f"route-only ok: {message}",
+                "channel": kwargs.get("channel"),
+                "execute": kwargs.get("execute"),
+            },
+        }
 
 
 def _inspect_control_db(control_db_path: Path) -> dict[str, Any]:

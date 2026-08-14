@@ -269,3 +269,123 @@ def test_phase_d_canary_preflight_cli_returns_json_and_non_zero_for_blocked(tmp_
     payload = json.loads(completed.stdout)
     assert payload["status"] == "blocked"
     assert payload["mutations"] == []
+
+
+def test_stage_hook_dry_run_does_not_write_config_and_limits_target_to_bot01(tmp_path):
+    from career.services.canary_control import stage_hook
+
+    target = _canary_target(tmp_path)
+    original = "model:\n  default: test\nhooks: {}\n"
+    target.hermes_config.write_text(original, encoding="utf-8")
+
+    result = stage_hook(target, apply=False)
+
+    assert result["status"] == "dry_run_ok"
+    assert result["target"] == "vagas_bot_01"
+    assert result["apply"] is False
+    assert result["mutations"] == []
+    assert target.hermes_config.read_text(encoding="utf-8") == original
+    assert "vagas_bot_02" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_stage_hook_apply_creates_backup_and_rejects_bot02(tmp_path):
+    from career.services.canary_control import stage_hook
+
+    forbidden = _canary_target(tmp_path, bot_name="vagas_bot_02")
+    with pytest.raises(ValueError, match="vagas_bot_01"):
+        stage_hook(forbidden, apply=True)
+
+    target = _canary_target(tmp_path)
+    target.hermes_config.write_text("model:\n  default: test\nhooks: {}\n", encoding="utf-8")
+
+    result = stage_hook(target, apply=True)
+
+    assert result["status"] in {"installed", "already_configured"}
+    assert result["target"] == "vagas_bot_01"
+    assert result["apply"] is True
+    backup_path = Path(result["backup"])
+    assert backup_path.exists()
+    assert backup_path.read_text(encoding="utf-8") == "model:\n  default: test\nhooks: {}\n"
+    assert "career-harness-output" in target.hermes_config.read_text(encoding="utf-8")
+    assert "restart" not in json.dumps(result, ensure_ascii=False).lower()
+
+
+def test_rollback_dry_run_reports_reversible_state_without_writing(tmp_path):
+    from career.services.canary_control import rollback_dry_run, stage_hook
+
+    target = _canary_target(tmp_path)
+    original = "model:\n  default: test\nhooks: {}\n"
+    target.hermes_config.write_text(original, encoding="utf-8")
+    stage_hook(target, apply=True)
+    written = target.hermes_config.read_text(encoding="utf-8")
+
+    result = rollback_dry_run(target)
+
+    assert result["status"] == "dry_run_ok"
+    assert result["target"] == "vagas_bot_01"
+    assert result["apply"] is False
+    assert Path(result["backup"]).exists()
+    assert target.hermes_config.read_text(encoding="utf-8") == written
+
+
+def test_route_smoke_uses_deterministic_ids_and_deduplicates(tmp_path):
+    from career.services.canary_control import route_smoke
+
+    class FakeSupervisor:
+        def __init__(self):
+            self.calls = 0
+
+        def handle_message(self, message, **kwargs):
+            self.calls += 1
+            return {
+                "status": "completed",
+                "result": {
+                    "display_text": f"ok:{message}",
+                    "execute": kwargs["execute"],
+                },
+            }
+
+    supervisor = FakeSupervisor()
+    messages = [
+        {"message_id": "d1-1", "message": "status das candidaturas"},
+        {"message_id": "d1-1", "message": "status das candidaturas"},
+        {"message_id": "d1-2", "message": "menu"},
+    ]
+
+    result = route_smoke(tmp_path, messages, execute=False, supervisor=supervisor)
+
+    assert [item["message_id"] for item in result] == ["d1-1", "d1-1", "d1-2"]
+    assert result[0]["deduplicated"] is False
+    assert result[1]["deduplicated"] is True
+    assert result[2]["deduplicated"] is False
+    assert supervisor.calls == 2
+
+
+def test_phase_d_canary_route_smoke_cli_uses_temp_root_and_route_only(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "scripts" / "phase_d_canary.py"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "route-smoke",
+            "--root",
+            str(tmp_path),
+            "--message-id",
+            "d1-1",
+            "--message",
+            "status das candidaturas",
+            "--route-only",
+        ],
+        cwd=script.parent.parent,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload[0]["message_id"] == "d1-1"
+    assert payload[0]["deduplicated"] is False
+    assert payload[1]["message_id"] == "d1-1"
+    assert payload[1]["deduplicated"] is True
