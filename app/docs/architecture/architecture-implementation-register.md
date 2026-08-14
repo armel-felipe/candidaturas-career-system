@@ -8,6 +8,7 @@
 | Stale-target quarantine | `.handoff_quarantine/<timestamp>...` | stale fixture and old-fingerprint tests | `33aaadd` | Implemented |
 | Shared SQLite registration | `applications`, `profile_application_bindings`, `application_runs`, `cell_nodes`, `cell_inputs`, `cell_requests`, `workflow_events` | cellular registration test | `33aaadd` | Implemented |
 | Bounded fresh cell | one `analyze_fit` plan, manifest, and request | request limit and allowlist assertions | `33aaadd` | Implemented |
+| Compact CV skill input | synchronized `.agents/skills/cv-generator/SKILL.md` and `app/.agents/skills/cv-generator/SKILL.md` under 50 KB | `tests/test_skill_context_budget.py`; bot 02 request validation | pending commit | Implemented |
 | Scope control | `scope-change-log.md` | explicit exclusion of downstream side effects | `33aaadd` | Implemented |
 | Operational documentation | this register and `controlled-application-handoff.md` | reviewed alongside implementation | `33aaadd` | Implemented |
 
