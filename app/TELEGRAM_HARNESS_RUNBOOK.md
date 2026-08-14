@@ -77,11 +77,14 @@ Ele tambem instala e habilita o plugin `career-harness-output`, usado pelo hook
 O apply so deve apontar para o config exato de `vagas_bot_01`; qualquer target de
 `vagas_bot_02` deve ser rejeitado pelo wrapper de canary.
 
-Para o fluxo canonico da Fase D, os entrypoints `preflight`, `stage-hook` e
-`controlled-run` gravam evidencias compactas e atomicas em
-`.career-state/phase_d_gates/`, e o D3 consome apenas o manifesto derivado
-`.career-state/phase_d_runner_gate.json`. Se D0, D1 ou D2 estiverem
-`blocked`, o manifesto nao pode marcar `approved=true`.
+Para o fluxo canonico da Fase D, o entrypoint `preflight` executa D0 de forma
+read-only e retorna o relatorio compacto sem gravar no workspace. Os
+entrypoints `stage-hook` e `controlled-run` gravam suas evidencias compactas e
+atomicas em `.career-state/phase_d_gates/`, e o D3 consome apenas o manifesto
+derivado `.career-state/phase_d_runner_gate.json`. A evidencia de D0 precisa ser
+capturada por um controlador de governanca separado, sem transformar o
+preflight em uma operacao de escrita. Se D0, D1 ou D2 estiverem `blocked`, o
+manifesto nao pode marcar `approved=true`.
 
 ## Restart manual separado
 

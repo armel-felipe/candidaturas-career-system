@@ -99,12 +99,17 @@ permanece `bloqueado`; esta seção detalha a mesma decisão e não a substitui.
   `docs/superpowers/status/scope-change-log.md`.
 - Arquivos de teste: `test_phase_c_pilot.py`, `test_phase_d_canary.py`,
   `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py`.
-- Testes focados atuais: `46 passed` em `test_phase_d_canary.py`,
-  `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py`.
+- Testes focados atuais: `50 passed` em `test_phase_d_canary.py`,
+  `test_phase_d_canary_integration.py` e `test_phase_d_runner_gate.py`, incluindo
+  regressões para D0 sem persistência e D1 `--apply` aprovado como `installed`.
 - Suíte proporcional do plano — histórico preservado: o comando completo do
   plano registrou `94 passed` antes desta onda final.
 - Suíte proporcional atual: o mesmo comando do plano agora registra
-  `107 passed` depois das regressões novas desta onda.
+  `109 passed` depois das regressões novas desta onda.
+- Correção pós-revisão: o commit `67ce067` removeu a persistência de evidência do
+  CLI D0 e passou a aceitar `dry_run_ok` e `installed` como estados aprovados do
+  D1. O preflight continua emitindo somente o relatório; D1/D2 permanecem os
+  produtores de evidência persistida.
 - D0 host: snapshot read-only de 2026-08-14 via `run_preflight(...)` contra o
   compose real → `status=blocked`, `mutations=[]`; o compose resolve
   `hermes/vagas_bot_01/config.yaml`, lê o `control_db_id` em read-only e
@@ -122,6 +127,10 @@ permanece `bloqueado`; esta seção detalha a mesma decisão e não a substitui.
   versionados; ele rejeita `approved=true` com status contraditório, rejeita
   runner `kind=controlled` e permanece `blocked` sem manifesto coerente/runner
   real disponível, sem fallback e sem prova de transporte pelo Harness.
+- Validação integrada de 2026-08-14: `phase_d_canary.py preflight` no compose
+  real retornou `status=blocked`, `mutations=[]`, por ledger ausente/inválido e
+  `CAREER_CONTROL_DB_ID` ausente; `runner-probe` retornou `blocked` com
+  `runner_unavailable` e `returncode=127`. Nenhum bot foi iniciado ou reiniciado.
 - Regressão explícita da Fase C: `test_phase_c_pilot.py` agora fixa o shape
   compacto do payload de harness sem `stdout`/`stderr` e preserva os defaults
   `application_id=phase-c-pilot`, `run_id=run_phase_c_pilot` e
