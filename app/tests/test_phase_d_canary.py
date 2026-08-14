@@ -64,7 +64,9 @@ def _provisioned_database(database_path: Path, ledger_path: Path) -> tuple[Datab
 def _target_paths(tmp_path: Path) -> dict[str, Path]:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(parents=True, exist_ok=True)
-    adapter = tmp_path / "scripts" / "telegram_harness_adapter.py"
+    state_root = workspace_root / ".career-state"
+    state_root.mkdir(parents=True, exist_ok=True)
+    adapter = workspace_root / "scripts" / "telegram_harness_adapter.py"
     adapter.parent.mkdir(parents=True, exist_ok=True)
     adapter.write_text("# adapter fixture\n", encoding="utf-8")
     hermes_config = tmp_path / "profiles" / "vagas_bot_01" / "hermes.config.json"
@@ -72,26 +74,33 @@ def _target_paths(tmp_path: Path) -> dict[str, Path]:
     hermes_config.write_text("{}", encoding="utf-8")
     return {
         "workspace_root": workspace_root,
+        "profile_root": hermes_config.parent,
         "adapter_script": adapter,
         "hermes_config": hermes_config,
-        "control_db_path": tmp_path / "career.db",
-        "authority_ledger_path": tmp_path / "authority.json",
+        "control_db_path": state_root / "career.db",
+        "authority_ledger_path": state_root / "authority.json",
         "compose_path": tmp_path / "compose.yaml",
     }
 
 
-def _canary_target(tmp_path: Path, bot_name: str = "vagas_bot_01"):
+def _canary_target(
+    tmp_path: Path,
+    bot_name: str = "vagas_bot_01",
+    *,
+    hermes_config: Path | None = None,
+):
     from career.services.canary_control import CanaryTarget
 
     paths = _target_paths(tmp_path)
     return CanaryTarget(
         bot_name=bot_name,
         compose_service=bot_name,
-        hermes_config=paths["hermes_config"],
+        hermes_config=(hermes_config or paths["hermes_config"]),
         adapter_script=paths["adapter_script"],
         control_db_path=paths["control_db_path"],
         authority_ledger_path=paths["authority_ledger_path"],
         workspace_root=paths["workspace_root"],
+        compose_path=paths["compose_path"],
     )
 
 
@@ -275,6 +284,7 @@ def test_stage_hook_dry_run_does_not_write_config_and_limits_target_to_bot01(tmp
     from career.services.canary_control import stage_hook
 
     target = _canary_target(tmp_path)
+    _write_compose(_target_paths(tmp_path)["compose_path"], db_path=_target_paths(tmp_path)["control_db_path"])
     original = "model:\n  default: test\nhooks: {}\n"
     target.hermes_config.write_text(original, encoding="utf-8")
 
@@ -291,6 +301,8 @@ def test_stage_hook_dry_run_does_not_write_config_and_limits_target_to_bot01(tmp
 def test_stage_hook_apply_creates_backup_and_rejects_bot02(tmp_path):
     from career.services.canary_control import stage_hook
 
+    paths = _target_paths(tmp_path)
+    _write_compose(paths["compose_path"], db_path=paths["control_db_path"])
     forbidden = _canary_target(tmp_path, bot_name="vagas_bot_02")
     with pytest.raises(ValueError, match="vagas_bot_01"):
         stage_hook(forbidden, apply=True)
@@ -300,13 +312,20 @@ def test_stage_hook_apply_creates_backup_and_rejects_bot02(tmp_path):
 
     result = stage_hook(target, apply=True)
 
-    assert result["status"] in {"installed", "already_configured"}
+    assert result["status"] == "installed"
     assert result["target"] == "vagas_bot_01"
     assert result["apply"] is True
     backup_path = Path(result["backup"])
     assert backup_path.exists()
     assert backup_path.read_text(encoding="utf-8") == "model:\n  default: test\nhooks: {}\n"
     assert "career-harness-output" in target.hermes_config.read_text(encoding="utf-8")
+    assert result["config"] == str(target.hermes_config)
+    assert result["plugin"] == str(target.hermes_config.parent / "plugins" / "career-harness-output")
+    assert result["mutations"] == [
+        {"kind": "backup_config", "path": str(backup_path)},
+        {"kind": "write_config", "path": str(target.hermes_config)},
+        {"kind": "install_plugin", "path": str(target.hermes_config.parent / "plugins" / "career-harness-output")},
+    ]
     assert "restart" not in json.dumps(result, ensure_ascii=False).lower()
 
 
@@ -314,6 +333,7 @@ def test_rollback_dry_run_reports_reversible_state_without_writing(tmp_path):
     from career.services.canary_control import rollback_dry_run, stage_hook
 
     target = _canary_target(tmp_path)
+    _write_compose(_target_paths(tmp_path)["compose_path"], db_path=_target_paths(tmp_path)["control_db_path"])
     original = "model:\n  default: test\nhooks: {}\n"
     target.hermes_config.write_text(original, encoding="utf-8")
     stage_hook(target, apply=True)
@@ -325,7 +345,24 @@ def test_rollback_dry_run_reports_reversible_state_without_writing(tmp_path):
     assert result["target"] == "vagas_bot_01"
     assert result["apply"] is False
     assert Path(result["backup"]).exists()
+    assert result["config"] == str(target.hermes_config)
+    assert str(target.hermes_config).endswith("/vagas_bot_01/hermes.config.json")
+    assert str(result["backup"]).endswith("/vagas_bot_01/hermes.config.json.bak.harness")
     assert target.hermes_config.read_text(encoding="utf-8") == written
+
+
+def test_stage_hook_rejects_target_when_compose_resolves_bot01_to_another_profile_path(tmp_path):
+    from career.services.canary_control import stage_hook
+
+    paths = _target_paths(tmp_path)
+    _write_compose(paths["compose_path"], db_path=paths["control_db_path"])
+    wrong_profile = tmp_path / "profiles" / "other_profile" / "hermes.config.json"
+    wrong_profile.parent.mkdir(parents=True, exist_ok=True)
+    wrong_profile.write_text("model:\n  default: test\nhooks: {}\n", encoding="utf-8")
+    target = _canary_target(tmp_path, hermes_config=wrong_profile)
+
+    with pytest.raises(ValueError, match="compose-resolved profile path"):
+        stage_hook(target, apply=False)
 
 
 def test_route_smoke_uses_deterministic_ids_and_deduplicates(tmp_path):
@@ -388,4 +425,30 @@ def test_phase_d_canary_route_smoke_cli_uses_temp_root_and_route_only(tmp_path):
     assert payload[0]["message_id"] == "d1-1"
     assert payload[0]["deduplicated"] is False
     assert payload[1]["message_id"] == "d1-1"
+    assert payload[1]["deduplicated"] is True
+
+
+def test_phase_d_canary_route_smoke_cli_creates_ephemeral_root_when_omitted():
+    script = Path(__file__).resolve().parents[1] / "scripts" / "phase_d_canary.py"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "route-smoke",
+            "--message-id",
+            "d1-1",
+            "--message",
+            "status das candidaturas",
+            "--route-only",
+        ],
+        cwd=script.parent.parent,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload[0]["deduplicated"] is False
     assert payload[1]["deduplicated"] is True

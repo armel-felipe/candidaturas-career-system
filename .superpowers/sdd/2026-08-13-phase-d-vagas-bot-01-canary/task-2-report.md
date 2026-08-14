@@ -124,3 +124,71 @@ git diff -- app/src/career/services/canary_control.py app/scripts/phase_d_canary
 1. The brief’s pytest path uses `../.venvs/hermes-dev/bin/python` from `app/`, but the actual environment here resolved to `/opt/agent-projects/candidaturas/.venvs/hermes-dev/bin/python`; I used the real path and kept the rest of the command unchanged.
 2. `route-smoke` is intentionally deterministic and cache-backed. Reusing the same `--root` and `--message-id` across runs will make later smoke executions start already deduplicated. For a clean first-pass smoke, use a fresh temp root.
 3. Formal subagent code review was not executed because this harness did not expose the multi-agent reviewer flow described by the superpowers skill set.
+
+## Fix round 1
+
+Status: implemented
+
+Commit: `fix: tighten phase D canary hook contract`
+
+### Tests
+
+RED:
+
+```bash
+PYTHONPATH=src:scripts /opt/agent-projects/candidaturas/.venvs/hermes-dev/bin/python -m pytest -q tests/test_phase_d_canary.py -k 'backup or compose_resolves or ephemeral_root or route_smoke_cli_creates or stage_hook_apply' --tb=short
+```
+
+```text
+FFF                                                                      [100%]
+3 failed, 14 deselected in 0.22s
+```
+
+GREEN focused:
+
+```bash
+PYTHONPATH=src:scripts /opt/agent-projects/candidaturas/.venvs/hermes-dev/bin/python -m pytest -q tests/test_phase_d_canary.py -k 'backup or compose_resolves or ephemeral_root or route_smoke_cli_creates or stage_hook_apply' --tb=short
+```
+
+```text
+...                                                                      [100%]
+3 passed, 14 deselected in 0.20s
+```
+
+Task 2 suite:
+
+```bash
+PYTHONPATH=src:scripts /opt/agent-projects/candidaturas/.venvs/hermes-dev/bin/python -m pytest -q tests/test_phase_d_canary.py --tb=short
+```
+
+```text
+.................                                                        [100%]
+17 passed in 0.73s
+```
+
+Smoke:
+
+```bash
+./scripts/python.sh scripts/phase_d_canary.py route-smoke --message-id d1-fix1 --message 'status das candidaturas' --route-only
+```
+
+Observed:
+
+```json
+[
+  {
+    "deduplicated": false,
+    "message_id": "d1-fix1"
+  },
+  {
+    "deduplicated": true,
+    "message_id": "d1-fix1"
+  }
+]
+```
+
+### Concerns
+
+1. The canary contract is now explicitly split from the legacy generic installer: the generic script still defaults to `config.yaml`, while the Phase D canary wrapper only accepts the compose-resolved host path for `vagas_bot_01/hermes.config.json` and reports `hermes.config.json.bak.harness`.
+2. `route-smoke` without `--root` now creates a fresh ephemeral temp root per execution. Reusing an explicit root remains intentionally stateful because deduplication is file-backed.
+3. Formal subagent code review still was not executed because this harness does not expose the multi-agent reviewer flow described by the superpowers skills.

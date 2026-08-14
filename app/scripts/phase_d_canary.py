@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -31,7 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     rollback.add_argument("--json", action="store_true", dest="as_json")
 
     smoke = subparsers.add_parser("route-smoke", help="Exercise deterministic routing smoke locally")
-    smoke.add_argument("--root", required=True, type=Path)
+    smoke.add_argument("--root", type=Path)
     smoke.add_argument("--message-id", required=True)
     smoke.add_argument("--message", required=True)
     smoke.add_argument("--route-only", action="store_true")
@@ -75,11 +76,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
         return 0 if result["status"] == "dry_run_ok" else 1
     if args.command == "route-smoke":
+        smoke_root = args.root or Path(tempfile.mkdtemp(prefix="phase-d-fixture-"))
         messages = [
             {"message_id": args.message_id, "message": args.message},
             {"message_id": args.message_id, "message": args.message},
         ]
-        result = route_smoke(args.root, messages, execute=not args.route_only)
+        result = route_smoke(smoke_root, messages, execute=not args.route_only)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
         return 0
     return 2

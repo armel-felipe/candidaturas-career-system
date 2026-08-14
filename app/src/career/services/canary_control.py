@@ -28,6 +28,7 @@ class CanaryTarget:
     control_db_path: Path
     authority_ledger_path: Path
     workspace_root: Path
+    compose_path: Path
 
 
 def assert_canary_target(target: CanaryTarget) -> None:
@@ -81,6 +82,7 @@ def resolve_target_from_compose(
         control_db_path=control_db_path,
         authority_ledger_path=authority_ledger_path,
         workspace_root=workspace_root,
+        compose_path=compose_file,
     )
 
 
@@ -175,8 +177,7 @@ def run_preflight(
 
 
 def stage_hook(target: CanaryTarget, apply: bool) -> dict[str, Any]:
-    assert_canary_target(target)
-    _assert_canary_hook_path(target)
+    _assert_canary_hook_target(target)
     import install_hermes_harness_hook
 
     result = install_hermes_harness_hook.install(target.hermes_config, apply=apply)
@@ -184,14 +185,13 @@ def stage_hook(target: CanaryTarget, apply: bool) -> dict[str, Any]:
         **result,
         "target": target.bot_name,
         "apply": apply,
-        "mutations": [] if not apply else [{"kind": "write_config", "path": str(target.hermes_config)}],
+        "mutations": _hook_mutations(target, result),
     }
     return staged
 
 
 def rollback_dry_run(target: CanaryTarget) -> dict[str, Any]:
-    assert_canary_target(target)
-    _assert_canary_hook_path(target)
+    _assert_canary_hook_target(target)
     backup = target.hermes_config.with_suffix(target.hermes_config.suffix + ".bak.harness")
     return {
         "status": "dry_run_ok",
@@ -280,12 +280,38 @@ def _find_profile_mount(volumes: list[Any], bot_name: str) -> Path | None:
     return _find_volume_source(volumes, expected_destination)
 
 
-def _assert_canary_hook_path(target: CanaryTarget) -> None:
-    expected_parent = CANARY_BOT_NAME
+def _assert_canary_hook_target(target: CanaryTarget) -> None:
+    assert_canary_target(target)
     if target.hermes_config.name != "hermes.config.json":
         raise ValueError("phase D hook staging requires hermes.config.json")
-    if target.hermes_config.parent.name != expected_parent:
-        raise ValueError(f"phase D hook staging only allows config for {CANARY_BOT_NAME}")
+    resolved = resolve_target_from_compose(compose_path=target.compose_path, bot_name=target.bot_name)
+    compared_paths = {
+        "compose-resolved profile path": (target.hermes_config.resolve(), resolved.hermes_config.resolve()),
+        "compose-resolved adapter path": (target.adapter_script.resolve(), resolved.adapter_script.resolve()),
+        "compose-resolved workspace root": (target.workspace_root.resolve(), resolved.workspace_root.resolve()),
+        "compose-resolved control db path": (target.control_db_path.resolve(), resolved.control_db_path.resolve()),
+        "compose-resolved authority ledger path": (
+            target.authority_ledger_path.resolve(),
+            resolved.authority_ledger_path.resolve(),
+        ),
+    }
+    for label, (actual, expected) in compared_paths.items():
+        if actual != expected:
+            raise ValueError(f"{label} mismatch for {CANARY_BOT_NAME}: expected {expected}, got {actual}")
+
+
+def _hook_mutations(target: CanaryTarget, result: dict[str, Any]) -> list[dict[str, str]]:
+    if not result.get("apply") or result.get("status") != "installed":
+        return []
+    backup = target.hermes_config.with_suffix(target.hermes_config.suffix + ".bak.harness")
+    return [
+        {"kind": "backup_config", "path": str(backup)},
+        {"kind": "write_config", "path": str(target.hermes_config)},
+        {
+            "kind": "install_plugin",
+            "path": str(target.hermes_config.parent / "plugins" / "career-harness-output"),
+        },
+    ]
 
 
 class _RouteSmokeSupervisor:

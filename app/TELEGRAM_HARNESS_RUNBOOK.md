@@ -35,6 +35,10 @@ Para o canary da Fase D, o staging seguro continua restrito ao profile `vagas_bo
 
 Esse dry-run nao escreve nada, nao provisiona autoridade, nao chama `processe-a-vaga`
 e serve apenas para verificar se existe backup reaproveitavel para rollback.
+O target real do canary nao e o `config.yaml` legacy do instalador genérico: ele e o
+`hermes.config.json` resolvido pelo compose para o mount host de
+`/opt/data/profiles/vagas_bot_01`, com backup correspondente em
+`hermes.config.json.bak.harness`.
 
 ## Instalar
 
@@ -44,7 +48,11 @@ HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes hooks list
 HERMES_HOME="$HOME/.hermes/profiles/vagas" hermes hooks doctor
 ```
 
-O instalador cria `config.yaml.bak.harness` antes da alteracao.
+No fluxo genérico legado acima, o instalador cria `config.yaml.bak.harness` antes da alteracao.
+No canary da Fase D, o wrapper resolve pelo compose o path host exato de
+`vagas_bot_01/hermes.config.json`, exige que ele coincida com o target calculado
+para `vagas_bot_01`, cria `hermes.config.json.bak.harness` antes da escrita e tambem
+instala o plugin em `vagas_bot_01/plugins/career-harness-output`.
 Ele tambem instala e habilita o plugin `career-harness-output`, usado pelo hook
 `transform_llm_output` para impedir que o modelo resuma, escolha ou reescreva menus.
 O apply so deve apontar para o config exato de `vagas_bot_01`; qualquer target de
@@ -75,8 +83,13 @@ de Telegram continua lendo o `terminal.cwd` salvo no profile.
 
 ```bash
 npm run harness:telegram -- --message "status das candidaturas" --message-id teste-1 --route-only
-./scripts/python.sh scripts/phase_d_canary.py route-smoke --root /tmp/phase-d-fixture --message-id d1-1 --message "status das candidaturas" --route-only
+smoke_root=$(mktemp -d /tmp/phase-d-fixture-XXXXXX) && ./scripts/python.sh scripts/phase_d_canary.py route-smoke --root "$smoke_root" --message-id d1-1 --message "status das candidaturas" --route-only
+./scripts/python.sh scripts/phase_d_canary.py route-smoke --message-id d1-1 --message "status das candidaturas" --route-only
 ```
+
+No segundo comando acima, a CLI cria um root efemero novo por execucao.
+Nao reutilize um root fixo se quiser observar o primeiro passe `deduplicated=false`
+seguido do replay `deduplicated=true`.
 
 Remova `--route-only` para executar o workflow.
 
