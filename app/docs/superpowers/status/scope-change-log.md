@@ -89,6 +89,9 @@ enquanto não estiver `aprovado`.
 
 ### Evidência de CHG-0006
 
+Resumo normativo: a linha de `CHG-0006` na tabela **Registro de mudanças**
+permanece `bloqueado`; esta seção detalha a mesma decisão e não a substitui.
+
 - Arquivos: `run_phase_c_pilot.py`, `canary_control.py`,
   `TELEGRAM_HARNESS_RUNBOOK.md`, `architecture-implementation-control.md`,
   `scope-change-log.md`, `test_phase_c_pilot.py`, `test_phase_d_canary.py` e
