@@ -65,7 +65,8 @@ def resolve_target_from_compose(
     ).resolve()
     authority_ledger_path = Path(
         str(
-            env_map.get("CAREER_AUTHORITY_LEDGER_PATH")
+            (service.get("environment") or {}).get("CAREER_AUTHORITY_LEDGER_PATH")
+            or env_map.get("CAREER_AUTHORITY_LEDGER_PATH")
             or state_root / "authority.json"
         )
     ).resolve()

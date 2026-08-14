@@ -18,12 +18,15 @@ from career.services.canary_control import (
     run_preflight,
 )
 from career.utils import read_json
-from scripts.run_phase_c_pilot import run_pilot
 
 
 def _assert_target_state_root(target: Any) -> None:
     control_db_path = Path(getattr(target, "control_db_path")).resolve()
     authority_ledger_path = Path(getattr(target, "authority_ledger_path")).resolve()
+    if control_db_path.name != "career.db" or authority_ledger_path.name != "authority.json":
+        raise ValueError(
+            "canonical canary authority paths must end with career.db and authority.json"
+        )
     if control_db_path.parent != authority_ledger_path.parent:
         raise ValueError(
             "workspace requires control_db_path and authority_ledger_path under one canary state root"
@@ -33,6 +36,8 @@ def _assert_target_state_root(target: Any) -> None:
 def run_controlled_canary(
     target: Any, application_id: str, workspace: Path
 ) -> dict[str, Any]:
+    from run_phase_c_pilot import run_pilot
+
     assert_canary_target(target)
     workspace_root = Path(workspace).resolve()
     if workspace_root != Path(target.workspace_root).resolve():

@@ -17,7 +17,9 @@ def _write_compose(
     *,
     include_canary: bool = True,
     db_path: Path | None = None,
+    authority_ledger_path: Path | None = None,
     include_control_db_env: bool = True,
+    include_authority_ledger_env: bool = False,
     state_mount_root: Path | None = None,
 ) -> None:
     services: dict[str, object] = {}
@@ -30,6 +32,10 @@ def _write_compose(
         }
         if include_control_db_env:
             environment["CAREER_CONTROL_DB_PATH"] = str(db_path or path.parent / "career.db")
+        if include_authority_ledger_env:
+            environment["CAREER_AUTHORITY_LEDGER_PATH"] = str(
+                authority_ledger_path or path.parent / "authority.json"
+            )
         services["vagas_bot_01"] = {
             "environment": environment,
             "volumes": [
@@ -250,6 +256,26 @@ def test_resolve_target_from_compose_uses_career_state_mount_when_env_path_absen
     assert target.workspace_root == paths["workspace_root"].resolve()
     assert target.control_db_path == expected_db_path.resolve()
     assert target.authority_ledger_path == expected_ledger_path.resolve()
+
+
+def test_resolve_target_from_compose_prefers_service_authority_ledger_path(tmp_path):
+    from career.services.canary_control import resolve_target_from_compose
+
+    paths = _target_paths(tmp_path)
+    explicit_ledger_path = tmp_path / "custom-state" / "authority-ledger.json"
+    _write_compose(
+        paths["compose_path"],
+        db_path=paths["control_db_path"],
+        authority_ledger_path=explicit_ledger_path,
+        include_authority_ledger_env=True,
+    )
+
+    target = resolve_target_from_compose(
+        compose_path=paths["compose_path"], bot_name="vagas_bot_01"
+    )
+
+    assert target.control_db_path == paths["control_db_path"].resolve()
+    assert target.authority_ledger_path == explicit_ledger_path.resolve()
 
 
 def test_phase_d_canary_preflight_cli_returns_json_and_non_zero_for_blocked(tmp_path):

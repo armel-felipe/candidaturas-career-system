@@ -75,6 +75,10 @@ def _prepare_state_root(
 
     db_path = Path(control_db_path).resolve()
     ledger_path = Path(authority_ledger_path).resolve()
+    if db_path.name != "career.db" or ledger_path.name != "authority.json":
+        raise ValueError(
+            "canonical canary authority paths must end with career.db and authority.json"
+        )
     db_root = db_path.parent
     ledger_root = ledger_path.parent
     if db_root != ledger_root:

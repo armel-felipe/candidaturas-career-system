@@ -273,3 +273,46 @@ def test_run_controlled_canary_rejects_real_workspace_state_conflict(tmp_path):
             run_controlled_canary(target, "canary-app", workspace_root)
     finally:
         _restore_env(previous)
+
+
+def test_run_controlled_canary_blocks_noncanonical_authority_paths_without_mutation(tmp_path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    adapter = workspace_root / "scripts" / "telegram_harness_adapter.py"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text("# fixture adapter\n", encoding="utf-8")
+    profile_root = tmp_path / "profiles" / "vagas_bot_01"
+    profile_root.mkdir(parents=True, exist_ok=True)
+    hermes_config = profile_root / "hermes.config.json"
+    hermes_config.write_text("{}", encoding="utf-8")
+    external_state_root = tmp_path / "external-state"
+    external_state_root.mkdir(parents=True, exist_ok=True)
+    target = CanaryTarget(
+        bot_name="vagas_bot_01",
+        compose_service="vagas_bot_01",
+        hermes_config=hermes_config,
+        adapter_script=adapter,
+        control_db_path=external_state_root / "custom-career.sqlite",
+        authority_ledger_path=external_state_root / "custom-authority-ledger.json",
+        workspace_root=workspace_root,
+        compose_path=tmp_path / "compose.yaml",
+    )
+    previous = {
+        key: os.environ.get(key)
+        for key in (
+            "CAREER_CONTROL_DB_PATH",
+            "CAREER_AUTHORITY_LEDGER_PATH",
+            "CAREER_WORKSPACE_OWNER",
+            "CAREER_CONTROL_DB_ID",
+        )
+    }
+    try:
+        with pytest.raises(ValueError, match="canonical"):
+            run_controlled_canary(target, "canary-app", workspace_root)
+    finally:
+        _restore_env(previous)
+
+    assert not (workspace_root / ".career-state").exists()
+    assert not target.control_db_path.exists()
+    assert not target.authority_ledger_path.exists()
+    assert not (external_state_root / "applications_v2" / "canary-app").exists()
