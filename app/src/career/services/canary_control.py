@@ -28,9 +28,9 @@ GATE_MANIFEST_KIND = "phase_d_runner_gate_manifest"
 GATE_EVIDENCE_KIND = "phase_d_gate_evidence"
 GATE_SCHEMA_VERSION = 1
 GATE_REQUIRED_STATUSES = {
-    "d0": "ready",
-    "d1": "dry_run_ok",
-    "d2": "completed",
+    "d0": {"ready"},
+    "d1": {"dry_run_ok", "installed"},
+    "d2": {"completed"},
 }
 REQUIRED_WORKSPACE_MOUNTS = (
     "/workspace/candidaturas/.career-state",
@@ -442,7 +442,7 @@ def _validate_gate_stage(root: Path, stage_name: str, stage_payload: Any) -> dic
         or str(stage_payload.get("gate") or "") != stage_name
     ):
         return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
-    if str(stage_payload.get("status") or "") != GATE_REQUIRED_STATUSES[stage_name]:
+    if str(stage_payload.get("status") or "") not in GATE_REQUIRED_STATUSES[stage_name]:
         return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
     evidence_path_text = str(stage_payload.get("evidence_path") or "").strip()
     evidence_hash = str(stage_payload.get("evidence_hash") or "").strip()
@@ -471,7 +471,7 @@ def _validate_gate_stage(root: Path, stage_name: str, stage_payload: Any) -> dic
         or str(evidence.get("gate") or "") != stage_name
         or str(evidence.get("target") or "") != CANARY_BOT_NAME
         or evidence.get("approved") is not True
-        or str(evidence.get("status") or "") != GATE_REQUIRED_STATUSES[stage_name]
+        or str(evidence.get("status") or "") not in GATE_REQUIRED_STATUSES[stage_name]
     ):
         return {"status": "blocked", "blocker": "d3_approvals_incoherent"}
     return {"status": "ok", "evidence": evidence}
@@ -718,7 +718,7 @@ def _build_gate_evidence(target: CanaryTarget, gate: str, result: dict[str, Any]
         "version": GATE_SCHEMA_VERSION,
         "gate": gate,
         "target": target.bot_name,
-        "approved": status == GATE_REQUIRED_STATUSES[gate],
+        "approved": status in GATE_REQUIRED_STATUSES[gate],
         "status": status,
         "result": compact_result,
     }

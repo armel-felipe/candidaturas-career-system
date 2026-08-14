@@ -167,7 +167,6 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 target = resolve_target_from_compose(compose_path=args.compose, bot_name=args.bot)
                 result = run_preflight(target, args.compose)
-                persist_gate_evidence(target, "d0", result)
             except Exception as exc:
                 result = {
                     "status": "blocked",
@@ -223,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write("\n")
         else:
             print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
-        return 0 if result["status"] == "dry_run_ok" else 1
+        return 0 if result["status"] in {"dry_run_ok", "installed"} else 1
     if args.command == "controlled-run":
         blocked = _reject_non_canary_bot(args.bot)
         if blocked is not None:

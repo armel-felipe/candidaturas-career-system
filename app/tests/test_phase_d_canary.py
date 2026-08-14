@@ -541,6 +541,47 @@ def test_phase_d_canary_preflight_cli_returns_json_and_non_zero_for_blocked(tmp_
     assert payload["mutations"] == []
 
 
+def test_preflight_cli_is_read_only_and_does_not_persist_gate_evidence(
+    monkeypatch, capsys, tmp_path
+):
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    target = _canary_target(tmp_path)
+
+    monkeypatch.setattr(
+        phase_d_canary,
+        "resolve_target_from_compose",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        phase_d_canary,
+        "run_preflight",
+        lambda resolved_target, compose: {
+            "status": "ready",
+            "target": resolved_target.bot_name,
+            "checks": [],
+            "mutations": [],
+        },
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("D0 preflight must not persist gate evidence")
+
+    monkeypatch.setattr(phase_d_canary, "persist_gate_evidence", fail_if_called)
+
+    exit_code = phase_d_canary.main(
+        ["preflight", "--compose", str(compose_path), "--bot", "vagas_bot_01", "--json"]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["status"] == "ready"
+    assert payload["mutations"] == []
+    assert not (target.workspace_root / ".career-state" / "phase_d_gates" / "d0_preflight.json").exists()
+    assert not (target.workspace_root / ".career-state" / "phase_d_runner_gate.json").exists()
+
+
 def test_stage_hook_dry_run_does_not_write_config_and_limits_target_to_bot01(tmp_path):
     from career.services.canary_control import stage_hook
 
@@ -828,6 +869,64 @@ def test_stage_hook_cli_writes_compact_gate_evidence(monkeypatch, capsys, tmp_pa
     assert evidence["status"] == "dry_run_ok"
     assert manifest["approvals"]["d1"]["approved"] is True
     assert manifest["approvals"]["d1"]["status"] == "dry_run_ok"
+
+
+def test_stage_hook_cli_apply_accepts_installed_as_successful_d1_gate(
+    monkeypatch, capsys, tmp_path
+):
+    compose_path = tmp_path / "compose.yaml"
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    target = _canary_target(tmp_path)
+
+    monkeypatch.setattr(
+        phase_d_canary,
+        "resolve_target_from_compose",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        phase_d_canary,
+        "stage_hook",
+        lambda resolved_target, apply=False: {
+            "status": "installed",
+            "target": resolved_target.bot_name,
+            "apply": apply,
+            "config": str(resolved_target.hermes_config),
+            "backup": str(resolved_target.hermes_config.with_suffix(".yaml.bak.harness")),
+            "revertible": True,
+            "mutations": [],
+        },
+    )
+
+    exit_code = phase_d_canary.main(
+        [
+            "stage-hook",
+            "--compose",
+            str(compose_path),
+            "--bot",
+            "vagas_bot_01",
+            "--apply",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    evidence = json.loads(
+        (target.workspace_root / ".career-state" / "phase_d_gates" / "d1_stage_hook.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest = json.loads(
+        (target.workspace_root / ".career-state" / "phase_d_runner_gate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert exit_code == 0
+    assert payload["status"] == "installed"
+    assert evidence["approved"] is True
+    assert evidence["status"] == "installed"
+    assert manifest["approvals"]["d1"]["approved"] is True
+    assert manifest["approvals"]["d1"]["status"] == "installed"
 
 
 def test_controlled_run_cli_writes_gate_evidence_and_manifest(monkeypatch, capsys, tmp_path):
