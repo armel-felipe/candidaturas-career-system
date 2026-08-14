@@ -21,13 +21,29 @@ from career.utils import read_json
 from scripts.run_phase_c_pilot import run_pilot
 
 
+def _assert_target_workspace_consistent(target: Any, workspace_root: Path) -> None:
+    expected_state_root = (workspace_root / ".career-state").resolve()
+    expected_paths = {
+        "control_db_path": (expected_state_root / "career.db").resolve(),
+        "authority_ledger_path": (expected_state_root / "authority.json").resolve(),
+    }
+    for field_name, expected_path in expected_paths.items():
+        actual = Path(getattr(target, field_name)).resolve()
+        if actual != expected_path:
+            raise ValueError(
+                f"workspace must match the canary target {field_name}: "
+                f"expected {expected_path} got {actual}"
+            )
+
+
 def run_controlled_canary(
-    *, target: Any, application_id: str, workspace: Path
+    target: Any, application_id: str, workspace: Path
 ) -> dict[str, Any]:
     assert_canary_target(target)
     workspace_root = Path(workspace).resolve()
     if workspace_root != Path(target.workspace_root).resolve():
         raise ValueError("workspace must match the canary target workspace_root")
+    _assert_target_workspace_consistent(target, workspace_root)
     result = run_pilot(workspace_root, application_id=application_id)
     request = read_json(Path(result["request_json"]))
     manifest = read_json(Path(result["manifest_path"]))
