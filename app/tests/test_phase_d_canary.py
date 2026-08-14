@@ -12,22 +12,33 @@ import yaml
 from career.services.database import Database
 
 
-def _write_compose(path: Path, *, include_canary: bool = True, db_path: Path | None = None) -> None:
+def _write_compose(
+    path: Path,
+    *,
+    include_canary: bool = True,
+    db_path: Path | None = None,
+    include_control_db_env: bool = True,
+    state_mount_root: Path | None = None,
+) -> None:
     services: dict[str, object] = {}
     if include_canary:
+        workspace_root = path.parent / "workspace"
+        state_root = state_mount_root or workspace_root / ".career-state"
+        environment = {
+            "HERMES_HOME": "/opt/data",
+            "CAREER_HERMES_PROFILE_ID": "profile-01",
+        }
+        if include_control_db_env:
+            environment["CAREER_CONTROL_DB_PATH"] = str(db_path or path.parent / "career.db")
         services["vagas_bot_01"] = {
-            "environment": {
-                "HERMES_HOME": "/opt/data",
-                "CAREER_HERMES_PROFILE_ID": "profile-01",
-                "CAREER_CONTROL_DB_PATH": str(db_path or path.parent / "career.db"),
-            },
+            "environment": environment,
             "volumes": [
                 f"{path.parent / 'runtime'}:/opt/data",
                 f"{path.parent / 'profiles' / 'vagas_bot_01'}:/opt/data/profiles/vagas_bot_01",
-                f"{path.parent / 'workspace'}:/workspace/candidaturas:rw",
-                f"{path.parent / 'workspace' / '.career-state'}:/workspace/candidaturas/.career-state:rw",
-                f"{path.parent / 'workspace' / 'inbox'}:/workspace/candidaturas/inbox:rw",
-                f"{path.parent / 'workspace' / 'outputs'}:/workspace/candidaturas/outputs:rw",
+                f"{workspace_root}:/workspace/candidaturas:rw",
+                f"{state_root}:/workspace/candidaturas/.career-state:rw",
+                f"{workspace_root / 'inbox'}:/workspace/candidaturas/inbox:rw",
+                f"{workspace_root / 'outputs'}:/workspace/candidaturas/outputs:rw",
             ],
             "command": ["--profile", "vagas_bot_01", "gateway", "run"],
         }
@@ -188,6 +199,48 @@ def test_run_preflight_blocks_on_control_db_identity_mismatch(tmp_path, monkeypa
         check["name"] == "control_db_identity" and check["status"] == "blocked"
         for check in result["checks"]
     )
+
+
+def test_run_preflight_blocks_when_control_db_identity_env_is_missing(tmp_path, monkeypatch):
+    from career.services.canary_control import run_preflight
+
+    target = _canary_target(tmp_path)
+    paths = _target_paths(tmp_path)
+    _write_compose(paths["compose_path"], db_path=paths["control_db_path"])
+    _provisioned_database(paths["control_db_path"], paths["authority_ledger_path"])
+    monkeypatch.delenv("CAREER_CONTROL_DB_ID", raising=False)
+
+    result = run_preflight(target, paths["compose_path"], env={})
+
+    assert result["status"] == "blocked"
+    assert result["mutations"] == []
+    assert any(
+        check["name"] == "control_db_identity"
+        and check["status"] == "blocked"
+        and "CAREER_CONTROL_DB_ID" in check["reason"]
+        for check in result["checks"]
+    )
+
+
+def test_resolve_target_from_compose_uses_career_state_mount_when_env_path_absent(tmp_path):
+    from career.services.canary_control import resolve_target_from_compose
+
+    paths = _target_paths(tmp_path)
+    state_mount_root = tmp_path / "state-mount"
+    expected_db_path = state_mount_root / "career.db"
+    expected_ledger_path = state_mount_root / "authority.json"
+    _write_compose(
+        paths["compose_path"],
+        db_path=expected_db_path,
+        include_control_db_env=False,
+        state_mount_root=state_mount_root,
+    )
+
+    target = resolve_target_from_compose(compose_path=paths["compose_path"], bot_name="vagas_bot_01")
+
+    assert target.workspace_root == paths["workspace_root"].resolve()
+    assert target.control_db_path == expected_db_path.resolve()
+    assert target.authority_ledger_path == expected_ledger_path.resolve()
 
 
 def test_phase_d_canary_preflight_cli_returns_json_and_non_zero_for_blocked(tmp_path):

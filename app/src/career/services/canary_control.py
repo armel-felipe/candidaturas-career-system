@@ -51,17 +51,21 @@ def resolve_target_from_compose(
     if workspace_root is None:
         workspace_root = compose_file.parent
     workspace_root = workspace_root.resolve()
+    state_root = _find_volume_source(volumes, "/workspace/candidaturas/.career-state")
+    if state_root is None:
+        state_root = workspace_root / ".career-state"
+    state_root = state_root.resolve()
     control_db_path = Path(
         str(
             (service.get("environment") or {}).get("CAREER_CONTROL_DB_PATH")
             or env_map.get("CAREER_CONTROL_DB_PATH")
-            or workspace_root / ".career-state" / "career.db"
+            or state_root / "career.db"
         )
     ).resolve()
     authority_ledger_path = Path(
         str(
             env_map.get("CAREER_AUTHORITY_LEDGER_PATH")
-            or control_db_path.with_name("authority.json")
+            or state_root / "authority.json"
         )
     ).resolve()
     adapter_script = (workspace_root / "scripts" / "telegram_harness_adapter.py").resolve()
@@ -140,7 +144,15 @@ def run_preflight(
         else:
             _replace_check(report, "control_plane_sqlite", {"name": "control_plane_sqlite", "status": "ok"})
             expected_control_db_id = str(env_map.get("CAREER_CONTROL_DB_ID") or "").strip()
-            if expected_control_db_id and expected_control_db_id != db_check["control_db_id"]:
+            if not expected_control_db_id:
+                blocked = True
+                _append_check(
+                    report,
+                    "control_db_identity",
+                    "blocked",
+                    reason="CAREER_CONTROL_DB_ID is required for D0 preflight",
+                )
+            elif expected_control_db_id != db_check["control_db_id"]:
                 blocked = True
                 _append_check(report, "control_db_identity", "blocked", reason="CAREER_CONTROL_DB_ID does not match authoritative database")
             else:
