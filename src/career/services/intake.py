@@ -723,9 +723,19 @@ def from_url(
 
 
 def resume(state_store: WorkflowStateStore | None = None, *, application_id: str | None = None) -> dict[str, Any]:
+    state_store_was_explicit = state_store is not None
     state_store = state_store or (WorkflowStateStore.for_application(application_id) if application_id else WorkflowStateStore())
     payload = state_store.load()
     active = payload.get("active_intake")
+    if not state_store_was_explicit and not application_id and isinstance(active, dict):
+        pointed_application_id = str(active.get("application_id") or "").strip()
+        if pointed_application_id:
+            scoped_store = WorkflowStateStore.for_application(pointed_application_id)
+            scoped_active = scoped_store.load().get("active_intake")
+            if isinstance(scoped_active, dict):
+                state_store = scoped_store
+                payload = state_store.payload
+                active = scoped_active
     if not isinstance(active, dict) or not active.get("job_description_path"):
         return {
             "status": "no_active_intake",
