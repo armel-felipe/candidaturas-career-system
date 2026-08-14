@@ -188,6 +188,33 @@ def _load_state(state_store: WorkflowStateStore) -> dict[str, Any]:
     return payload
 
 
+def _sync_global_active_pointer(
+    state_store: WorkflowStateStore,
+    global_state_store: WorkflowStateStore | None = None,
+) -> None:
+    """Expose the selected application to global guard entry points.
+
+    The application workflow remains canonical in its own state file. This
+    pointer lets commands without ``--application-id`` discover it without
+    copying the application history into global state.
+    """
+    from career.workflow.state_store import DEFAULT_STATE_PATH
+
+    if state_store.path.resolve() == DEFAULT_STATE_PATH.resolve():
+        return
+    application_payload = _load_state(state_store)
+    active_intake = application_payload.get("active_intake")
+    if not isinstance(active_intake, dict) or not active_intake.get("job_description_path"):
+        return
+    global_store = global_state_store or WorkflowStateStore()
+    global_payload = _load_state(global_store)
+    global_payload["active_job"] = application_payload.get("active_job")
+    global_payload["active_intake"] = dict(active_intake)
+    global_payload["active_application_id"] = active_intake.get("application_id")
+    global_store.payload = global_payload
+    global_store.save()
+
+
 def _set_active_job(
     state_store: WorkflowStateStore,
     path: Path,
@@ -431,6 +458,7 @@ def _run_ready_pipeline(
         extra=extra_payload,
     )
     _mark_template_ready(state_store, result)
+    _sync_global_active_pointer(state_store)
     return result
 
 

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from career.paths import CAREER_STATE, ROOT
+from career.services import application_context as application_context_service
 from career.services import fit_map as fit_map_service
 from career.services import intake as intake_service
 from career.services import multiagent as multiagent_service
@@ -59,9 +60,20 @@ def _active_intake_payload(state_store: WorkflowStateStore) -> dict[str, Any] | 
 
 
 def guard(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
+    explicit_state_store = state_store is not None
     state_store = state_store or WorkflowStateStore()
     forbidden_files = forbidden_root_files()
     active = _active_intake_payload(state_store)
+    application_paths = None
+    if not explicit_state_store and isinstance(active, dict):
+        application_id = str(active.get("application_id") or "").strip()
+        if application_id:
+            application_paths = application_context_service.paths_for(application_id)
+            scoped_store = WorkflowStateStore.for_application(application_id)
+            scoped_active = _active_intake_payload(scoped_store)
+            if scoped_active:
+                state_store = scoped_store
+                active = scoped_active
 
     if forbidden_files:
         return {
@@ -100,8 +112,8 @@ def guard(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
         }
 
     fit_guard = fit_map_service.progress_guard(
-        draft_path=CAREER_STATE / "fit_map.draft.json",
-        fit_map_path=CAREER_STATE / "fit_map.json",
+        draft_path=application_paths.fit_map_draft if application_paths else CAREER_STATE / "fit_map.draft.json",
+        fit_map_path=application_paths.fit_map if application_paths else CAREER_STATE / "fit_map.json",
         job_description_path=job_path,
     )
     next_step = fit_guard.get("next_required_step")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from career.services import intake
+from career.workflow.state_store import WorkflowStateStore
 
 
 def test_saved_job_metadata_hints_resolve_selected_url(monkeypatch, tmp_path):
@@ -45,3 +46,25 @@ def test_saved_job_metadata_hints_ignore_unmatched_or_invalid_cache(monkeypatch,
     assert intake._saved_job_metadata_hints_for_url(
         "https://www.linkedin.com/jobs/view/4453385301/"
     ) == {}
+
+
+def test_application_intake_mirrors_pointer_for_global_guard(tmp_path):
+    application_store = WorkflowStateStore(
+        path=tmp_path / "application" / "workflow_state.json"
+    )
+    global_store = WorkflowStateStore(path=tmp_path / "global" / "workflow_state.json")
+    application_store.payload = {
+        "active_job": {"path": ".career-state/applications_v2/app-a/job_description.md"},
+        "active_intake": {
+            "application_id": "app-a",
+            "job_description_path": ".career-state/applications_v2/app-a/job_description.md",
+            "next_required_step": "fill_fit_map_draft",
+        },
+    }
+    application_store.save()
+
+    intake._sync_global_active_pointer(application_store, global_store)
+
+    mirrored = global_store.load()
+    assert mirrored["active_job"] == application_store.payload["active_job"]
+    assert mirrored["active_intake"] == application_store.payload["active_intake"]
