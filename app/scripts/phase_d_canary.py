@@ -90,6 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path(__file__).parents[1] / "deploy" / "hermes" / "compose.yaml",
     )
     runner_probe.add_argument("--bot", required=True)
+    runner_probe.add_argument("--gate-manifest", type=Path)
     runner_probe.add_argument("--json", action="store_true", dest="as_json")
 
     smoke = subparsers.add_parser("route-smoke", help="Exercise deterministic routing smoke locally")
@@ -144,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             result = probe_runner(
                 dict(applications_v2.DEFAULT_CONFIG["analysis_runner"]),
                 target.workspace_root,
+                gate_manifest_path=args.gate_manifest,
             )
         except Exception as exc:
             result = {

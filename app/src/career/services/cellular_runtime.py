@@ -80,12 +80,24 @@ class CellularRuntime:
         runtime_run_id: str,
         *,
         returncode: int,
+        output_bytes: int | None = None,
+        output_sha256: str = "",
         stdout: str = "",
         stderr: str = "",
         isolation_status: str = "ok",
     ) -> dict[str, Any]:
-        output_bytes = len(stdout.encode("utf-8")) + len(stderr.encode("utf-8"))
-        output_tokens = math.ceil(output_bytes / 4) if output_bytes else 0
+        measured_output_bytes = (
+            int(output_bytes)
+            if output_bytes is not None
+            else len(stdout.encode("utf-8")) + len(stderr.encode("utf-8"))
+        )
+        output_tokens = math.ceil(measured_output_bytes / 4) if measured_output_bytes else 0
+        details = {
+            "returncode": int(returncode),
+            "isolation_status": str(isolation_status),
+        }
+        if output_sha256:
+            details["output_sha256"] = str(output_sha256)
         return self.control.record_context_observation(
             runtime_run_id,
             context_tokens=output_tokens,
@@ -93,10 +105,7 @@ class CellularRuntime:
             history_messages=0,
             tool_calls=0,
             source="cellular-result",
-            details={
-                "returncode": int(returncode),
-                "isolation_status": str(isolation_status),
-            },
+            details=details,
         )
 
     def finish(
@@ -105,13 +114,18 @@ class CellularRuntime:
         *,
         status: str,
         error: str | None = None,
+        output_bytes: int | None = None,
         stdout: str = "",
         stderr: str = "",
     ) -> dict[str, Any]:
-        output_bytes = len(stdout.encode("utf-8")) + len(stderr.encode("utf-8"))
+        measured_output_bytes = (
+            int(output_bytes)
+            if output_bytes is not None
+            else len(stdout.encode("utf-8")) + len(stderr.encode("utf-8"))
+        )
         return self.control.finish_run(
             runtime_run_id,
             status=status,
             error=error,
-            output_bytes=output_bytes,
+            output_bytes=measured_output_bytes,
         )

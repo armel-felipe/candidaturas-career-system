@@ -16,6 +16,7 @@ from career.services.harness_supervisor import HarnessSupervisor
 
 
 CANARY_BOT_NAME = "vagas_bot_01"
+RUNNER_GATE_MANIFEST_RELATIVE_PATH = Path(".career-state/phase_d_runner_gate.json")
 REQUIRED_WORKSPACE_MOUNTS = (
     "/workspace/candidaturas/.career-state",
     "/workspace/candidaturas/inbox",
@@ -235,11 +236,16 @@ def route_smoke(
     return results
 
 
-def probe_runner(runner_config: dict[str, Any], root: Path) -> dict[str, Any]:
+def probe_runner(
+    runner_config: dict[str, Any],
+    root: Path,
+    gate_manifest_path: str | Path | None = None,
+) -> dict[str, Any]:
     root_path = Path(root).resolve()
     config = dict(runner_config or {})
     runner = SubprocessAgentRunner(root_path)
-    request_context = _load_task3_request_context(root_path)
+    gate_context = _load_runner_gate_context(root_path, gate_manifest_path=gate_manifest_path)
+    request_context = gate_context.get("request_context") if gate_context.get("status") == "ok" else None
     request_md = (
         request_context["request_md"]
         if request_context is not None
@@ -270,23 +276,14 @@ def probe_runner(runner_config: dict[str, Any], root: Path) -> dict[str, Any]:
             "blocker": "runner_unavailable",
         }
     command = [resolved, *command[1:]]
-    if request_context is None:
+    if gate_context.get("status") != "ok":
         return {
             "status": "blocked",
             "command": command,
             "type": runner_type,
             "available": True,
             "returncode": None,
-            "blocker": "d2_request_missing",
-        }
-    if not request_context["request_hash"] or not request_context["read_allowlist"] or not request_context["write_allowlist"]:
-        return {
-            "status": "blocked",
-            "command": command,
-            "type": runner_type,
-            "available": True,
-            "returncode": None,
-            "blocker": "d2_request_incomplete",
+            "blocker": str(gate_context.get("blocker") or "d3_gate_manifest_missing"),
         }
     payload = HarnessSupervisor(root_path).run_application_stage(
         stage="analyze",
@@ -337,39 +334,113 @@ def _check_path(report: dict[str, Any], name: str, path: Path, blocked: bool) ->
     return True
 
 
-def _load_task3_request_context(root: Path) -> dict[str, Any] | None:
-    candidates = sorted(
-        root.glob(".career-state/applications_v2/*/requests/cellular/*/analyze_fit/*/request.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
+def _load_runner_gate_context(
+    root: Path,
+    *,
+    gate_manifest_path: str | Path | None,
+) -> dict[str, Any]:
+    manifest_path = (
+        _resolve_under_root(root, gate_manifest_path)
+        if gate_manifest_path is not None
+        else (root / RUNNER_GATE_MANIFEST_RELATIVE_PATH).resolve()
     )
-    for request_json in candidates:
-        request_md = request_json.with_suffix(".md")
-        if not request_md.is_file():
-            continue
-        try:
-            payload = json.loads(request_json.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if payload.get("cellular") is not True:
-            continue
-        read_allowlist = payload.get("read_allowlist")
-        write_allowlist = payload.get("write_allowlist")
-        if not isinstance(read_allowlist, list) or not read_allowlist:
-            continue
-        if not isinstance(write_allowlist, list) or not write_allowlist:
-            continue
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return {
-            "application_id": str(payload.get("application_id") or ""),
+    if not manifest_path.is_file():
+        return {"status": "blocked", "blocker": "d3_gate_manifest_missing"}
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "blocked", "blocker": "d3_gate_manifest_invalid"}
+    if not isinstance(payload, dict):
+        return {"status": "blocked", "blocker": "d3_gate_manifest_invalid"}
+    if str(payload.get("target") or "").strip() != CANARY_BOT_NAME:
+        return {"status": "blocked", "blocker": "d3_gate_target_mismatch"}
+    approvals = payload.get("approvals")
+    if not isinstance(approvals, dict):
+        return {"status": "blocked", "blocker": "d3_approvals_missing"}
+    for stage_name in ("d0", "d1", "d2"):
+        stage_payload = approvals.get(stage_name)
+        if not isinstance(stage_payload, dict) or stage_payload.get("approved") is not True:
+            return {"status": "blocked", "blocker": "d3_approvals_missing"}
+    request_context = _validate_runner_gate_request(root, approvals["d2"])
+    if request_context.get("status") != "ok":
+        return request_context
+    return {"status": "ok", "request_context": request_context["request_context"]}
+
+
+def _validate_runner_gate_request(root: Path, d2_payload: dict[str, Any]) -> dict[str, Any]:
+    required_text_fields = (
+        "application_id",
+        "run_id",
+        "node_id",
+        "request_json",
+        "request_md",
+        "request_hash",
+    )
+    if any(not str(d2_payload.get(field) or "").strip() for field in required_text_fields):
+        return {"status": "blocked", "blocker": "d2_request_incomplete"}
+    if not isinstance(d2_payload.get("attempt"), int) or int(d2_payload["attempt"]) <= 0:
+        return {"status": "blocked", "blocker": "d2_request_incomplete"}
+    read_allowlist = d2_payload.get("read_allowlist")
+    write_allowlist = d2_payload.get("write_allowlist")
+    if not isinstance(read_allowlist, list) or not read_allowlist:
+        return {"status": "blocked", "blocker": "d2_request_incomplete"}
+    if not isinstance(write_allowlist, list) or not write_allowlist:
+        return {"status": "blocked", "blocker": "d2_request_incomplete"}
+    request_json = _resolve_under_root(root, str(d2_payload["request_json"]))
+    request_md = _resolve_under_root(root, str(d2_payload["request_md"]))
+    if not request_json.is_file() or not request_md.is_file():
+        return {"status": "blocked", "blocker": "d2_request_missing"}
+    try:
+        payload = json.loads(request_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "blocked", "blocker": "d2_request_missing"}
+    if payload.get("cellular") is not True:
+        return {"status": "blocked", "blocker": "d2_request_mismatch"}
+    expected_application = str(d2_payload["application_id"])
+    expected_dir = (root / ".career-state" / "applications_v2" / expected_application).resolve()
+    if request_json.parents[5] != expected_dir:
+        return {"status": "blocked", "blocker": "d2_request_mismatch"}
+    if request_md != request_json.with_suffix(".md"):
+        return {"status": "blocked", "blocker": "d2_request_mismatch"}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    request_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    expected_read = [str(item).strip() for item in read_allowlist]
+    expected_write = [str(item).strip() for item in write_allowlist]
+    if any(not item for item in (*expected_read, *expected_write)):
+        return {"status": "blocked", "blocker": "d2_request_incomplete"}
+    checks = {
+        "application_id": expected_application,
+        "run_id": str(d2_payload["run_id"]),
+        "node_id": str(d2_payload["node_id"]),
+        "attempt": int(d2_payload["attempt"]),
+        "read_allowlist": expected_read,
+        "write_allowlist": expected_write,
+    }
+    for key, expected in checks.items():
+        if payload.get(key) != expected:
+            return {"status": "blocked", "blocker": "d2_request_mismatch"}
+    if request_hash != str(d2_payload["request_hash"]):
+        return {"status": "blocked", "blocker": "d2_request_mismatch"}
+    return {
+        "status": "ok",
+        "request_context": {
+            "application_id": expected_application,
             "request_json": request_json,
             "request_md": request_md,
-            "application_dir": request_json.parents[5],
-            "request_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-            "read_allowlist": list(read_allowlist),
-            "write_allowlist": list(write_allowlist),
-        }
-    return None
+            "application_dir": expected_dir,
+            "request_hash": request_hash,
+            "read_allowlist": expected_read,
+            "write_allowlist": expected_write,
+        },
+    }
+
+
+def _resolve_under_root(root: Path, raw_path: str | Path) -> Path:
+    candidate = Path(raw_path)
+    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    if not resolved.is_relative_to(root.resolve()):
+        raise ValueError("runner gate path escapes workspace root")
+    return resolved
 
 
 def _load_compose(compose_path: Path) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -900,13 +901,14 @@ class HarnessSupervisor:
                 on_start(command)
             result = self.runner.run(run_request)
             isolation = harness_run.inspect()
+            output_metrics = self._output_metrics(result.stdout, result.stderr)
             payload = {"stage": stage, "command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "finished_at": utc_now_iso(), "run_dir": str(harness_run.run_dir.relative_to(self.root)), "isolation": isolation}
             if runtime is not None and runtime_run is not None:
                 runtime.observe(
                     runtime_run["runtime_run_id"],
                     returncode=result.returncode,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
+                    output_bytes=output_metrics["output_bytes"],
+                    output_sha256=output_metrics["output_sha256"],
                     isolation_status=str(isolation.get("status") or "unknown"),
                 )
                 runtime_status = (
@@ -918,8 +920,7 @@ class HarnessSupervisor:
                     runtime_run["runtime_run_id"],
                     status=runtime_status,
                     error=None if runtime_status == "completed" else "cellular_stage_failed",
-                    stdout=result.stdout,
-                    stderr=result.stderr,
+                    output_bytes=output_metrics["output_bytes"],
                 )
                 payload["runtime"] = {
                     **runtime_run,
@@ -952,6 +953,20 @@ class HarnessSupervisor:
             },
             root=self.root,
         )
+
+    @staticmethod
+    def _output_metrics(stdout: str, stderr: str) -> dict[str, Any]:
+        stdout_text = str(stdout or "")
+        stderr_text = str(stderr or "")
+        output_bytes = len(stdout_text.encode("utf-8")) + len(stderr_text.encode("utf-8"))
+        digest = hashlib.sha256()
+        digest.update(stdout_text.encode("utf-8"))
+        digest.update(b"\n---stderr---\n")
+        digest.update(stderr_text.encode("utf-8"))
+        return {
+            "output_bytes": output_bytes,
+            "output_sha256": digest.hexdigest() if output_bytes else "",
+        }
 
     def _acquire_cellular_workspace(
         self, workspace_owner: str = "", control_db_id: str = ""
