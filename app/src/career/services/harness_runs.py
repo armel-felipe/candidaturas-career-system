@@ -184,7 +184,7 @@ def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str
                 or resolved.is_relative_to(application_dir)
             ):
                 continue
-            snapshot[str(resolved.relative_to(root))] = _file_hash(resolved)
+            snapshot[str(path.relative_to(root))] = _file_hash(path)
     snapshot.update(_protected_database_snapshot(root))
     return snapshot
 

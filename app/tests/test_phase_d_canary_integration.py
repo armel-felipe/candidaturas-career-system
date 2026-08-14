@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from career.services.canary_control import CanaryTarget
+from career.services.canary_control import CanaryTarget, resolve_target_from_compose
 from career.services.database import Database
 from scripts.phase_d_canary import run_controlled_canary
 
@@ -42,6 +42,37 @@ def _restore_env(previous: dict[str, str | None]) -> None:
             os.environ.pop(key, None)
         else:
             os.environ[key] = value
+
+
+def _write_compose_with_external_state(
+    compose_path: Path, *, workspace_root: Path, external_state_root: Path
+) -> None:
+    profile_root = compose_path.parent / "profiles" / "vagas_bot_01"
+    compose_path.write_text(
+        "\n".join(
+            [
+                "services:",
+                "  vagas_bot_01:",
+                "    environment:",
+                "      HERMES_HOME: /opt/data",
+                "      CAREER_HERMES_PROFILE_ID: profile-01",
+                "    volumes:",
+                f"      - {compose_path.parent / 'runtime'}:/opt/data",
+                f"      - {profile_root}:/opt/data/profiles/vagas_bot_01",
+                f"      - {workspace_root}:/workspace/candidaturas:rw",
+                f"      - {external_state_root}:/workspace/candidaturas/.career-state:rw",
+                f"      - {workspace_root / 'inbox'}:/workspace/candidaturas/inbox:rw",
+                f"      - {workspace_root / 'outputs'}:/workspace/candidaturas/outputs:rw",
+                "    command:",
+                "      - --profile",
+                "      - vagas_bot_01",
+                "      - gateway",
+                "      - run",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_run_controlled_canary_executes_one_explicit_application(tmp_path):
@@ -152,16 +183,26 @@ def test_run_controlled_canary_requires_explicit_application_id(tmp_path):
         run_controlled_canary(target=target, application_id="", workspace=tmp_path)
 
 
-@pytest.mark.parametrize("field_name", ["control_db_path", "authority_ledger_path"])
-def test_run_controlled_canary_rejects_target_paths_inconsistent_with_workspace(
-    tmp_path, field_name: str
-):
-    target = _target(tmp_path)
-    inconsistent = target.__class__(
-        **{
-            **target.__dict__,
-            field_name: tmp_path / "elsewhere" / Path(getattr(target, field_name)).name,
-        }
+def test_run_controlled_canary_accepts_compose_target_with_external_state_mount(tmp_path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    external_state_root = tmp_path / "external-state"
+    external_state_root.mkdir(parents=True, exist_ok=True)
+    adapter = workspace_root / "scripts" / "telegram_harness_adapter.py"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text("# fixture adapter\n", encoding="utf-8")
+    profile_root = tmp_path / "profiles" / "vagas_bot_01"
+    profile_root.mkdir(parents=True, exist_ok=True)
+    (profile_root / "hermes.config.json").write_text("{}", encoding="utf-8")
+    compose_path = tmp_path / "compose.yaml"
+    _write_compose_with_external_state(
+        compose_path,
+        workspace_root=workspace_root,
+        external_state_root=external_state_root,
+    )
+    target = resolve_target_from_compose(
+        compose_path=compose_path,
+        bot_name="vagas_bot_01",
     )
     previous = {
         key: os.environ.get(key)
@@ -173,7 +214,62 @@ def test_run_controlled_canary_rejects_target_paths_inconsistent_with_workspace(
         )
     }
     try:
+        result = run_controlled_canary(target, "canary-app", workspace_root)
+    finally:
+        _restore_env(previous)
+
+    assert (workspace_root / ".career-state").resolve() == external_state_root.resolve()
+    assert target.control_db_path == (external_state_root / "career.db").resolve()
+    assert target.authority_ledger_path == (
+        external_state_root / "authority.json"
+    ).resolve()
+    assert (external_state_root / "applications_v2" / "canary-app").is_dir()
+
+    database = Database(target.control_db_path, authority_ledger_path=target.authority_ledger_path)
+    database.init_schema()
+    assert database.fetch_one(
+        "SELECT COUNT(*) AS count FROM application_runs WHERE application_id = ?",
+        ("canary-app",),
+    )["count"] == 1
+    database.close()
+    assert Path(result["fit_map_draft"]).resolve().is_relative_to(external_state_root.resolve())
+
+
+def test_run_controlled_canary_rejects_real_workspace_state_conflict(tmp_path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    external_state_root = tmp_path / "external-state"
+    external_state_root.mkdir(parents=True, exist_ok=True)
+    conflicting_state_root = tmp_path / "conflicting-state"
+    conflicting_state_root.mkdir(parents=True, exist_ok=True)
+    adapter = workspace_root / "scripts" / "telegram_harness_adapter.py"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text("# fixture adapter\n", encoding="utf-8")
+    profile_root = tmp_path / "profiles" / "vagas_bot_01"
+    profile_root.mkdir(parents=True, exist_ok=True)
+    (profile_root / "hermes.config.json").write_text("{}", encoding="utf-8")
+    compose_path = tmp_path / "compose.yaml"
+    _write_compose_with_external_state(
+        compose_path,
+        workspace_root=workspace_root,
+        external_state_root=external_state_root,
+    )
+    target = resolve_target_from_compose(
+        compose_path=compose_path,
+        bot_name="vagas_bot_01",
+    )
+    (workspace_root / ".career-state").symlink_to(conflicting_state_root, target_is_directory=True)
+    previous = {
+        key: os.environ.get(key)
+        for key in (
+            "CAREER_CONTROL_DB_PATH",
+            "CAREER_AUTHORITY_LEDGER_PATH",
+            "CAREER_WORKSPACE_OWNER",
+            "CAREER_CONTROL_DB_ID",
+        )
+    }
+    try:
         with pytest.raises(ValueError, match="workspace"):
-            run_controlled_canary(inconsistent, "canary-app", tmp_path)
+            run_controlled_canary(target, "canary-app", workspace_root)
     finally:
         _restore_env(previous)

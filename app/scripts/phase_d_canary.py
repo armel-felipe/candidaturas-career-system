@@ -21,19 +21,13 @@ from career.utils import read_json
 from scripts.run_phase_c_pilot import run_pilot
 
 
-def _assert_target_workspace_consistent(target: Any, workspace_root: Path) -> None:
-    expected_state_root = (workspace_root / ".career-state").resolve()
-    expected_paths = {
-        "control_db_path": (expected_state_root / "career.db").resolve(),
-        "authority_ledger_path": (expected_state_root / "authority.json").resolve(),
-    }
-    for field_name, expected_path in expected_paths.items():
-        actual = Path(getattr(target, field_name)).resolve()
-        if actual != expected_path:
-            raise ValueError(
-                f"workspace must match the canary target {field_name}: "
-                f"expected {expected_path} got {actual}"
-            )
+def _assert_target_state_root(target: Any) -> None:
+    control_db_path = Path(getattr(target, "control_db_path")).resolve()
+    authority_ledger_path = Path(getattr(target, "authority_ledger_path")).resolve()
+    if control_db_path.parent != authority_ledger_path.parent:
+        raise ValueError(
+            "workspace requires control_db_path and authority_ledger_path under one canary state root"
+        )
 
 
 def run_controlled_canary(
@@ -43,8 +37,13 @@ def run_controlled_canary(
     workspace_root = Path(workspace).resolve()
     if workspace_root != Path(target.workspace_root).resolve():
         raise ValueError("workspace must match the canary target workspace_root")
-    _assert_target_workspace_consistent(target, workspace_root)
-    result = run_pilot(workspace_root, application_id=application_id)
+    _assert_target_state_root(target)
+    result = run_pilot(
+        workspace_root,
+        application_id=application_id,
+        control_db_path=Path(target.control_db_path),
+        authority_ledger_path=Path(target.authority_ledger_path),
+    )
     request = read_json(Path(result["request_json"]))
     manifest = read_json(Path(result["manifest_path"]))
     expected = {

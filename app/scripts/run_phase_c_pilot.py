@@ -58,12 +58,57 @@ def _pilot_metadata(application_id: str) -> dict[str, str]:
     }
 
 
-def run_pilot(workspace: Path, application_id: str = DEFAULT_APPLICATION_ID) -> dict:
-    workspace = workspace.resolve()
+def _prepare_state_root(
+    workspace: Path,
+    *,
+    control_db_path: Path | None,
+    authority_ledger_path: Path | None,
+) -> tuple[Path, Path, Path]:
     state_dir = workspace / ".career-state"
+    if (control_db_path is None) != (authority_ledger_path is None):
+        raise ValueError(
+            "control_db_path and authority_ledger_path must be provided together"
+        )
+    if control_db_path is None and authority_ledger_path is None:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        return state_dir, state_dir / "career.db", state_dir / "authority.json"
+
+    db_path = Path(control_db_path).resolve()
+    ledger_path = Path(authority_ledger_path).resolve()
+    db_root = db_path.parent
+    ledger_root = ledger_path.parent
+    if db_root != ledger_root:
+        raise ValueError(
+            "workspace requires control_db_path and authority_ledger_path under one state root"
+        )
+    db_root.mkdir(parents=True, exist_ok=True)
+    if state_dir.exists() or state_dir.is_symlink():
+        if state_dir.resolve() != db_root:
+            raise ValueError(
+                "workspace .career-state conflicts with the authoritative canary state root"
+            )
+    elif db_root == state_dir:
+        state_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        state_dir.parent.mkdir(parents=True, exist_ok=True)
+        state_dir.symlink_to(db_root, target_is_directory=True)
+    return state_dir, db_path, ledger_path
+
+
+def run_pilot(
+    workspace: Path,
+    application_id: str = DEFAULT_APPLICATION_ID,
+    *,
+    control_db_path: Path | None = None,
+    authority_ledger_path: Path | None = None,
+) -> dict:
+    workspace = workspace.resolve()
+    state_dir, db_path, ledger_path = _prepare_state_root(
+        workspace,
+        control_db_path=control_db_path,
+        authority_ledger_path=authority_ledger_path,
+    )
     applications_root = state_dir / "applications_v2"
-    db_path = state_dir / "career.db"
-    ledger_path = state_dir / "authority.json"
     app_id = paths_for(application_id, root=applications_root).application_id
     metadata = _pilot_metadata(app_id)
     run_id = metadata["run_id"]
@@ -250,6 +295,8 @@ def run_pilot(workspace: Path, application_id: str = DEFAULT_APPLICATION_ID) -> 
         "request_hash": materialized_request_hash,
         "request_bytes": materialized_request_bytes,
         "manifest_path": str(prepared.manifest_path),
+        "control_db_path": str(db_path),
+        "authority_ledger_path": str(ledger_path),
         "sqlite_counts": counts,
         "harness": harness_result,
         "execution": [item.status for item in execution],
