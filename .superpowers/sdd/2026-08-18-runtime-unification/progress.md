@@ -213,6 +213,14 @@
 
 - Scope: make intake and guard identity-first and SQLite-scoped, with explicit application/fingerprint validation before draft or derived-context writes.
 - Acceptance gate: focused intake regressions, neighboring application/projection tests, independent review, and diff inspection must prove that global active pointers and JSON mirrors cannot select or authorize agent execution.
+- Initial implementation `4938b59` and hardening `978c015` were independently reviewed and rejected. Required fixes: route operational persistence to `control-plane/career.db`; remove global-pointer fallback from resume/request/supervisor/CLI execution paths; add explicit CLI application/fingerprint propagation; validate active-intake identity; cover public intake entrypoints and make the evidence reproducible from tracked files.
+
+### Task 3.1: correction round complete, awaiting independent re-review
+
+- Correction commit: `def2e60` (`Fix task 3.1 canonical intake scope`).
+- TDD evidence: seven focused regressions were run red before the correction (canonical database, public paste routing, unscoped resume/request, foreign active intake, CLI guard propagation, and supervisor resume/execution). The tracked controller subset then passed 63/63.
+- Implementation: operational intake identity/source/description now uses `control-plane/career.db`; injected test/migration databases remain explicit exceptions. Agent execution now requires an application ID; guard also requires the matching fingerprint. Global pointers are discovery/display metadata only.
+- Residual: the user-owned, untracked `tests/test_intake_persistence.py` still asserts the retired `.career-state/career.db` destination and therefore is intentionally excluded from correction evidence. It requires a separately authorized test migration, not a compatibility fallback in production code.
 
 ## Phase 0 gate
 
