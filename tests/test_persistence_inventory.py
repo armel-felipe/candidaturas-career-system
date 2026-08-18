@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -160,6 +161,44 @@ class PersistenceInventoryTests(unittest.TestCase):
             self.assertEqual(payload["root"], str(root.resolve()))
             self.assertGreaterEqual(payload["summary"]["json_file_count"], 3)
             self.assertGreaterEqual(payload["summary"]["root_app_divergence_count"], 2)
+
+    def test_build_inventory_does_not_modify_migration_runs_database(self):
+        self.assertTrue(
+            SCRIPT_PATH.exists(),
+            f"Missing task script at {SCRIPT_PATH}",
+        )
+        module = load_module()
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            root = Path(temporary_dir)
+            self._build_fixture(root)
+            db_path = root / "control-plane" / "career.db"
+            connection = sqlite3.connect(db_path)
+            connection.execute(
+                "CREATE TABLE migration_runs (id INTEGER PRIMARY KEY, status TEXT NOT NULL)"
+            )
+            connection.execute(
+                "INSERT INTO migration_runs (status) VALUES ('seeded')"
+            )
+            connection.commit()
+            rows_before = connection.execute(
+                "SELECT id, status FROM migration_runs ORDER BY id"
+            ).fetchall()
+            connection.close()
+            bytes_before = db_path.read_bytes()
+
+            inventory = module.build_inventory(root)
+
+            self.assertNotIn("migration_run", inventory)
+            rows_after_connection = sqlite3.connect(db_path)
+            rows_after = rows_after_connection.execute(
+                "SELECT id, status FROM migration_runs ORDER BY id"
+            ).fetchall()
+            rows_after_connection.close()
+            bytes_after = db_path.read_bytes()
+
+            self.assertEqual(rows_before, rows_after)
+            self.assertEqual(bytes_before, bytes_after)
 
 
 if __name__ == "__main__":

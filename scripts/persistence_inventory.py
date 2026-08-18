@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import shutil
-import sqlite3
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -214,75 +213,10 @@ def _find_root_app_divergences(root: Path, file_paths: list[str]) -> list[dict[s
     return divergences
 
 
-def _record_migration_run_if_available(root: Path, inventory: dict[str, Any]) -> dict[str, Any] | None:
-    candidates = (
-        root / "control-plane" / "career.db",
-        root / ".career-control" / "career.db",
-        root / ".career-state" / "career.db",
-        root / "app" / ".career-state" / "career.db",
-    )
-    now = datetime.now(UTC).isoformat()
-    for db_path in candidates:
-        if not db_path.exists():
-            continue
-        try:
-            connection = sqlite3.connect(str(db_path))
-            connection.row_factory = sqlite3.Row
-            tables = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                )
-            }
-            if "migration_runs" not in tables:
-                connection.close()
-                continue
-            columns = {
-                row["name"]
-                for row in connection.execute("PRAGMA table_info(migration_runs)")
-            }
-            payload_json = json.dumps(
-                {
-                    "task": "0.1",
-                    "kind": "persistence_inventory",
-                    "summary": inventory["summary"],
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-            row: dict[str, Any] = {}
-            if "task_name" in columns:
-                row["task_name"] = "runtime-unification-0.1"
-            if "run_kind" in columns:
-                row["run_kind"] = "persistence_inventory"
-            if "status" in columns:
-                row["status"] = "completed"
-            for name in ("details_json", "payload_json", "report_json", "metadata_json"):
-                if name in columns:
-                    row[name] = payload_json
-            for name in ("created_at", "started_at", "completed_at", "ran_at", "updated_at"):
-                if name in columns:
-                    row[name] = now
-            if not row:
-                connection.close()
-                continue
-            ordered_columns = sorted(row)
-            placeholders = ", ".join("?" for _ in ordered_columns)
-            connection.execute(
-                f"INSERT INTO migration_runs ({', '.join(ordered_columns)}) VALUES ({placeholders})",
-                [row[name] for name in ordered_columns],
-            )
-            connection.commit()
-            connection.close()
-            return {"db_path": str(db_path.resolve()), "recorded_at": now}
-        except sqlite3.Error:
-            continue
-    return None
-
-
 def build_inventory(root: Path) -> dict[str, Any]:
     resolved_root = root.resolve()
     all_files = sorted(_run_rg_files(resolved_root))
+    root_app_divergences = _find_root_app_divergences(resolved_root, all_files)
     json_files: list[dict[str, Any]] = []
     domain_counts: dict[str, int] = {}
     for relative_path in sorted(_run_rg_files(resolved_root, "*.json")):
@@ -305,20 +239,15 @@ def build_inventory(root: Path) -> dict[str, Any]:
         "root": str(resolved_root),
         "generated_at": datetime.now(UTC).isoformat(),
         "json_files": json_files,
-        "root_app_divergences": _find_root_app_divergences(resolved_root, all_files),
+        "root_app_divergences": root_app_divergences,
         "hermes": hermes,
         "summary": {
             "json_file_count": len(json_files),
             "json_domains": domain_counts,
-            "root_app_divergence_count": len(
-                _find_root_app_divergences(resolved_root, all_files)
-            ),
+            "root_app_divergence_count": len(root_app_divergences),
             "hermes_service_count": len(hermes["services"]),
         },
     }
-    migration_run = _record_migration_run_if_available(resolved_root, inventory)
-    if migration_run is not None:
-        inventory["migration_run"] = migration_run
     return inventory
 
 
