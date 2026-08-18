@@ -9,6 +9,13 @@ from career.services.database import Database
 
 
 class SQLitePersistenceTests(unittest.TestCase):
+    EXPECTED_VERSIONS = [
+        "001_application_revisions.sql",
+        "002_analysis_and_positioning.sql",
+        "003_gates_artifacts_integrations.sql",
+        "004_legacy_compatibility.py",
+    ]
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
@@ -19,15 +26,8 @@ class SQLitePersistenceTests(unittest.TestCase):
     def test_migrate_registers_schema_and_runtime_pragmas(self) -> None:
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 3)
-        self.assertEqual(
-            self._migration_versions(),
-            [
-                "001_application_revisions.sql",
-                "002_analysis_and_positioning.sql",
-                "003_gates_artifacts_integrations.sql",
-            ],
-        )
+        self.assertEqual(applied, 4)
+        self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(self._pragma("foreign_keys"), 1)
         self.assertEqual(self._pragma("busy_timeout"), 10000)
         self.assertEqual(self._pragma("synchronous"), 2)
@@ -60,7 +60,63 @@ class SQLitePersistenceTests(unittest.TestCase):
         applied = self.database.migrate()
 
         self.assertEqual(applied, 0)
-        self.assertEqual(len(self._migration_versions()), 3)
+        self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
+
+    def test_migrate_upgrades_legacy_compatibility_schema_via_versioned_migration(
+        self,
+    ) -> None:
+        self.database.close()
+        self._seed_legacy_compatibility_schema(self.db_path)
+        self.database = Database(db_path=self.db_path)
+        self.addCleanup(self.database.close)
+
+        applied = self.database.migrate()
+
+        self.assertEqual(applied, 4)
+        self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
+        self.assertEqual(
+            self._columns("resource_locks"),
+            {"resource_name", "worker_id", "lease_id", "acquired_at", "expires_at"},
+        )
+        self.assertEqual(
+            self._columns("workspace_leases"),
+            {
+                "lease_name",
+                "worker_id",
+                "run_id",
+                "lease_epoch",
+                "acquired_at",
+                "expires_at",
+            },
+        )
+        self.assertTrue(
+            {
+                "singleton_id",
+                "control_db_id",
+                "storage_identity",
+                "authority_ledger_id",
+                "authority_epoch",
+                "lease_epoch_counter",
+                "created_at",
+            }.issubset(self._columns("workspace_authority"))
+        )
+        self.assertTrue(
+            {
+                "id",
+                "control_db_id",
+                "prior_storage_identity",
+                "new_storage_identity",
+                "new_owner",
+                "prior_authority_epoch",
+                "new_authority_epoch",
+                "authorized_at",
+            }.issubset(self._columns("workspace_authority_handoffs"))
+        )
+
+        reapplied = self.database.migrate()
+
+        self.assertEqual(reapplied, 0)
+        self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
 
     def test_transaction_rolls_back_and_foreign_keys_are_enforced(self) -> None:
         self.database.migrate()
@@ -114,6 +170,52 @@ class SQLitePersistenceTests(unittest.TestCase):
                WHERE type = 'table' AND name != 'sqlite_sequence'"""
         )
         return {row["name"] for row in rows}
+
+    def _columns(self, table_name: str) -> set[str]:
+        rows = self.database.get_connection().execute(
+            f"PRAGMA table_info({table_name})"
+        ).fetchall()
+        return {row[1] for row in rows}
+
+    def _seed_legacy_compatibility_schema(self, db_path: Path) -> None:
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE resource_locks (
+                    resource_name TEXT PRIMARY KEY,
+                    worker_id TEXT NOT NULL,
+                    acquired_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                );
+
+                CREATE TABLE workspace_leases (
+                    lease_name TEXT PRIMARY KEY,
+                    worker_id TEXT NOT NULL,
+                    run_id TEXT,
+                    acquired_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                );
+
+                CREATE TABLE workspace_authority (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    control_db_id TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE workspace_authority_handoffs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    control_db_id TEXT NOT NULL,
+                    prior_storage_identity TEXT NOT NULL,
+                    new_storage_identity TEXT NOT NULL,
+                    new_owner TEXT NOT NULL,
+                    authorized_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":

@@ -107,3 +107,70 @@ read_only_schema_validation=ok
 ## Concerns
 
 - There is at least one older repository test (`tests/test_database.py`) that hard-codes the pre-migration table list/count for `init_schema()`. It was intentionally not modified because it is outside Task 1.1 scope and was not part of the focused test command. If the broader suite is run later, that expectation likely needs to be updated to the consolidated schema contract.
+
+## Fix Round 1
+
+### Reviewer findings addressed
+
+1. `Database.migrate()` previously ledgered only `001-003`, while `_initialize_schema()` still performed untracked compatibility `ALTER TABLE` upgrades for:
+   - `resource_locks.lease_id`
+   - `workspace_leases.lease_epoch`
+   - `workspace_authority.storage_identity`
+   - `workspace_authority.authority_epoch`
+   - `workspace_authority.authority_ledger_id`
+   - `workspace_authority.lease_epoch_counter`
+   - `workspace_authority_handoffs.prior_authority_epoch`
+   - `workspace_authority_handoffs.new_authority_epoch`
+2. `tests/test_database.py` still encoded the pre-migration exact table list/count and was not executable by the required `unittest` runner because it depended on `pytest`.
+
+### Changes made
+
+- Added versioned Python migration `src/career/services/persistence/migrations/004_legacy_compatibility.py`.
+- Extended `Database.migrate()` to:
+  - discover both `.sql` and `.py` migrations by numbered filename;
+  - checksum and ledger Python migrations exactly like SQL migrations;
+  - dispatch Python handlers via `apply(conn)`.
+- Removed the hidden compatibility `ALTER TABLE` block from `_initialize_schema()`.
+- Added a legacy-schema regression in `tests/test_sqlite_persistence.py` that seeds pre-compatibility tables, runs only `migrate()`, verifies the compatibility columns exist, verifies `004_legacy_compatibility.py` is recorded in `schema_migrations`, and verifies the second `migrate()` call is idempotent.
+- Reworked `tests/test_database.py` into `unittest.TestCase` form so the exact runner command executes it, and updated it to assert the consolidated required table set instead of the stale pre-migration list/count.
+
+### Verification
+
+Commands run:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_sqlite_persistence.py tests/test_database.py
+```
+
+Observed result:
+
+```text
+Ran 8 tests in 0.201s
+OK
+```
+
+```bash
+tmp_db=$(mktemp /tmp/runtime-unification-task11-fix1-XXXXXX.db)
+TASK11_DB="$tmp_db" PYTHONPATH=src ./scripts/python.sh - <<'PY'
+import os
+from career.services.database import Database
+
+db = Database(db_path=os.environ["TASK11_DB"])
+db.migrate()
+db.close()
+PY
+TASK11_DB="$tmp_db" PYTHONPATH=src ./scripts/python.sh -c 'import os, sqlite3; c = sqlite3.connect(os.environ["TASK11_DB"]); print(c.execute("PRAGMA integrity_check").fetchone()[0]); print(c.execute("PRAGMA foreign_key_check").fetchall())'
+```
+
+Observed result:
+
+```text
+ok
+[]
+```
+
+### Self-review notes
+
+- The compatibility upgrade path is now explicit and versioned in `schema_migrations`; `migrate()` alone is sufficient to materialize those legacy columns.
+- `_initialize_schema()` still contains inline `CREATE TABLE IF NOT EXISTS` statements for authority/bootstrap compatibility, but it no longer hides schema evolution behind unledgered `ALTER TABLE` calls.
+- `control-plane/career.db` was not migrated or mutated during this fix round.

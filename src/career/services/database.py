@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import importlib.util
 import json
 import platform
 import sqlite3
@@ -62,8 +63,7 @@ class Database:
         applied = 0
         for migration_path in self._migration_paths():
             version = migration_path.name
-            sql = migration_path.read_text(encoding="utf-8")
-            checksum = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+            checksum = hashlib.sha256(migration_path.read_bytes()).hexdigest()
             existing = conn.execute(
                 "SELECT checksum FROM schema_migrations WHERE version = ?",
                 (version,),
@@ -75,7 +75,7 @@ class Database:
                     )
                 continue
             with self.transaction() as txn:
-                self._execute_sql_script(txn, sql)
+                self._apply_migration(txn, migration_path)
                 txn.execute(
                     """INSERT INTO schema_migrations (version, checksum, applied_at)
                        VALUES (?, ?, ?)""",
@@ -331,52 +331,6 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_artifact_dependencies_artifact_input
                 ON artifact_dependencies(artifact_id, input_hash);
         """)
-        resource_lock_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(resource_locks)")
-        }
-        if "lease_id" not in resource_lock_columns:
-            conn.execute("ALTER TABLE resource_locks ADD COLUMN lease_id TEXT")
-        workspace_lease_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(workspace_leases)")
-        }
-        if "lease_epoch" not in workspace_lease_columns:
-            conn.execute(
-                "ALTER TABLE workspace_leases "
-                "ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 1"
-            )
-        authority_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(workspace_authority)")
-        }
-        if "storage_identity" not in authority_columns:
-            conn.execute("ALTER TABLE workspace_authority ADD COLUMN storage_identity TEXT")
-        if "authority_epoch" not in authority_columns:
-            conn.execute(
-                "ALTER TABLE workspace_authority "
-                "ADD COLUMN authority_epoch INTEGER NOT NULL DEFAULT 1"
-            )
-        if "authority_ledger_id" not in authority_columns:
-            conn.execute(
-                "ALTER TABLE workspace_authority ADD COLUMN authority_ledger_id TEXT"
-            )
-        if "lease_epoch_counter" not in authority_columns:
-            conn.execute(
-                "ALTER TABLE workspace_authority "
-                "ADD COLUMN lease_epoch_counter INTEGER NOT NULL DEFAULT 0"
-            )
-        handoff_columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(workspace_authority_handoffs)")
-        }
-        if "prior_authority_epoch" not in handoff_columns:
-            conn.execute(
-                "ALTER TABLE workspace_authority_handoffs "
-                "ADD COLUMN prior_authority_epoch INTEGER NOT NULL DEFAULT 1"
-            )
-        if "new_authority_epoch" not in handoff_columns:
-            conn.execute(
-                "ALTER TABLE workspace_authority_handoffs "
-                "ADD COLUMN new_authority_epoch INTEGER NOT NULL DEFAULT 1"
-            )
         storage_identity = self.physical_storage_identity()
         conn.execute(
             """INSERT OR IGNORE INTO workspace_authority
@@ -779,7 +733,35 @@ class Database:
 
     def _migration_paths(self) -> list[Path]:
         migration_dir = Path(__file__).resolve().parent / "persistence" / "migrations"
-        return sorted(migration_dir.glob("[0-9][0-9][0-9]_*.sql"))
+        return sorted(
+            path
+            for path in migration_dir.iterdir()
+            if path.is_file()
+            and path.suffix in {".sql", ".py"}
+            and len(path.stem) >= 3
+            and path.stem[:3].isdigit()
+        )
+
+    def _apply_migration(self, conn: sqlite3.Connection, path: Path) -> None:
+        if path.suffix == ".sql":
+            self._execute_sql_script(conn, path.read_text(encoding="utf-8"))
+            return
+        if path.suffix == ".py":
+            migration = self._load_python_migration(path)
+            migration.apply(conn)
+            return
+        raise RuntimeError(f"unsupported migration type: {path.name}")
+
+    def _load_python_migration(self, path: Path):
+        module_name = f"career_sqlite_migration_{path.stem}"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"unable to load migration module {path.name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, "apply"):
+            raise RuntimeError(f"python migration {path.name} is missing apply(conn)")
+        return module
 
     def _execute_sql_script(self, conn: sqlite3.Connection, script: str) -> None:
         statement_parts: list[str] = []
