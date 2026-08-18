@@ -37,6 +37,7 @@ REQUIRED_TABLES = {
     "job_sources",
     "keyword_registry",
     "keyword_translations",
+    "keyword_translation_versions",
     "notion_cache",
     "notion_records",
     "notion_syncs",

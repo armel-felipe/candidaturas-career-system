@@ -12,6 +12,7 @@ from career.services.persistence.application_repository import (
     ApplicationRepository,
 )
 from career.services.persistence.reference_repository import ReferenceRepository
+from career.utils import sha256_text
 
 
 class AnalysisRevisionRepositoryTests(unittest.TestCase):
@@ -71,6 +72,13 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
                     "metric": "400-800 cidades",
                 }
             ],
+            "objections": [
+                {
+                    "objection_key": "startup_gap",
+                    "objection_text": "Nao veio de startup pequena recente.",
+                    "response_text": "Atuou em ambiente de construcao na WeHandle.",
+                }
+            ],
             "stories": [
                 {
                     "story_key": "ifood_growth",
@@ -116,6 +124,13 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
                     "metric": "400-800 cidades",
                 }
             ],
+            "objections": [
+                {
+                    "objection_key": "startup_gap",
+                    "objection_text": "Nao veio de startup pequena recente.",
+                    "response_text": "Atuou em ambiente de construcao na WeHandle.",
+                }
+            ],
             "stories": [
                 {
                     "story_key": "ifood_growth",
@@ -140,14 +155,25 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
         self.assertEqual(current.stories[0].narrative, revision_two_payload["stories"][0]["narrative"])
         self.assertEqual(current.keywords[0].keyword, "growth")
         self.assertEqual(current.keywords[0].importance, 0.99)
+        self.assertEqual(current.dimensions[0].dimension_key, "escopo")
+        self.assertEqual(current.dimensions[0].score, 8.7)
+        self.assertEqual(current.objections[0].objection_key, "startup_gap")
+        self.assertEqual(
+            current.objections[0].response_text,
+            "Atuou em ambiente de construcao na WeHandle.",
+        )
 
         prior_revision = self.db.fetch_one(
-            """SELECT payload_json, score_final FROM fit_map_revisions
+            """SELECT payload_json, score_final, payload_hash FROM fit_map_revisions
                WHERE revision_id = ?""",
             (revision_one,),
         )
         self.assertIsNotNone(prior_revision)
         self.assertEqual(prior_revision["score_final"], 7.4)
+        self.assertEqual(
+            prior_revision["payload_hash"],
+            sha256_text(str(prior_revision["payload_json"])),
+        )
         self.assertEqual(
             json.loads(str(prior_revision["payload_json"]))["stories"][0]["narrative"],
             revision_one_payload["stories"][0]["narrative"],
@@ -163,6 +189,52 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
             prior_story["narrative"],
             revision_one_payload["stories"][0]["narrative"],
         )
+
+    def test_create_revision_rejects_stale_payload_hash_and_preserves_source_hash(self) -> None:
+        with self.assertRaisesRegex(ValueError, "payload_hash does not match canonical payload"):
+            self.analysis.create_revision(
+                "app-conexa",
+                {
+                    "metadata": {
+                        "job_fingerprint": "fp-conexa",
+                        "payload_hash": "stale-hash",
+                    },
+                    "scores": {"final": 7.1},
+                    "stories": [
+                        {
+                            "story_key": "base_story",
+                            "title": "Base",
+                            "narrative": "Narrativa base.",
+                        }
+                    ],
+                },
+                source_hash="fit-source-v1",
+            )
+
+        revision_id = self.analysis.create_revision(
+            "app-conexa",
+            {
+                "metadata": {"job_fingerprint": "fp-conexa"},
+                "scores": {"final": 7.1},
+                "stories": [
+                    {
+                        "story_key": "base_story",
+                        "title": "Base",
+                        "narrative": "Narrativa base.",
+                    }
+                ],
+            },
+            source_hash="fit-source-v1",
+        )
+
+        row = self.db.fetch_one(
+            """SELECT source_hash, payload_hash, payload_json
+               FROM fit_map_revisions WHERE revision_id = ?""",
+            (revision_id,),
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["source_hash"], "fit-source-v1")
+        self.assertEqual(row["payload_hash"], sha256_text(str(row["payload_json"])))
 
     def test_create_positioning_revision_attaches_snapshot_to_current_analysis(self) -> None:
         analysis_revision_id = self.analysis.create_revision(
@@ -216,6 +288,44 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
             current.positioning.principles[0].content,
             "Comecar pela tese de impacto mensuravel.",
         )
+        self.assertEqual(
+            current.positioning.payload_hash,
+            sha256_text(json.dumps(positioning_snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))),
+        )
+
+    def test_create_positioning_revision_rejects_stale_payload_hash(self) -> None:
+        analysis_revision_id = self.analysis.create_revision(
+            "app-conexa",
+            {
+                "metadata": {"job_fingerprint": "fp-conexa"},
+                "scores": {"final": 7.8},
+                "stories": [
+                    {
+                        "story_key": "base_story",
+                        "title": "Base",
+                        "narrative": "Narrativa base.",
+                    }
+                ],
+            },
+            source_hash="fit-source-v1",
+        )
+
+        with self.assertRaisesRegex(ValueError, "payload_hash does not match canonical payload"):
+            self.analysis.create_positioning_revision(
+                "app-conexa",
+                source_revision_id=analysis_revision_id,
+                snapshot={
+                    "payload_hash": "stale-positioning-hash",
+                    "headline": "Executivo de growth com disciplina operacional.",
+                    "stories": [
+                        {
+                            "story_key": "feras",
+                            "title": "FERAS",
+                            "narrative": "Eu conecto crescimento, margem e execucao.",
+                        }
+                    ],
+                },
+            )
 
     def test_reference_repository_versions_json_and_preserves_content(self) -> None:
         candidate_reference_v1 = json.dumps(
@@ -279,18 +389,19 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
         self.assertEqual(first_reference_again, first_reference)
         self.assertNotEqual(second_reference, first_reference)
 
-        reference_rows = self.db.fetch_all(
-            """SELECT reference_id, reference_key, content, source_hash
-               FROM reference_documents
-               WHERE kind = ?
-               ORDER BY created_at""",
-            ("candidate_facts",),
-        )
-        self.assertEqual(len(reference_rows), 2)
-        self.assertEqual(reference_rows[0]["content"], candidate_reference_v1)
-        self.assertEqual(reference_rows[1]["content"], candidate_reference_v2)
-        self.assertIn("candidate_cv_facts#", reference_rows[0]["reference_key"])
-        self.assertIn("candidate_cv_facts#", reference_rows[1]["reference_key"])
+        current_reference = self.references.get_current("candidate_facts", "candidate_cv_facts")
+        first_version = self.references.get_version(first_reference)
+        versions = self.references.list_versions("candidate_facts", "candidate_cv_facts")
+
+        self.assertEqual(current_reference.reference_id, second_reference)
+        self.assertEqual(current_reference.logical_key, "candidate_cv_facts")
+        self.assertEqual(first_version.reference_id, first_reference)
+        self.assertEqual(first_version.content, candidate_reference_v1)
+        self.assertEqual(len(versions), 2)
+        self.assertEqual(versions[0].reference_id, second_reference)
+        self.assertEqual(versions[1].reference_id, first_reference)
+        self.assertEqual(versions[0].content_hash, sha256_text(candidate_reference_v2))
+        self.assertEqual(versions[1].content_hash, sha256_text(candidate_reference_v1))
 
         fact_rows = self.db.fetch_all(
             """SELECT fact_key, fact_value FROM candidate_facts
@@ -349,14 +460,14 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
         translation_rows = self.db.fetch_all(
             """SELECT keyword, locale, translation, source_hash
                FROM keyword_translations
-               WHERE source_hash = ?
+               WHERE keyword = ?
                ORDER BY keyword, locale""",
-            ("translations-v1",),
+            ("Budget Management",),
         )
         self.assertEqual(len(translation_rows), 2)
         self.assertIn(
             {
-                "keyword": f"{translation_reference}:Budget Management",
+                "keyword": "Budget Management",
                 "locale": "canonical",
                 "translation": "Budget Management",
                 "source_hash": "translations-v1",
@@ -365,13 +476,54 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
         )
         self.assertIn(
             {
-                "keyword": f"{translation_reference}:Budget Management",
+                "keyword": "Budget Management",
                 "locale": "pt-BR",
                 "translation": "gestão orçamentária",
                 "source_hash": "translations-v1",
             },
             translation_rows,
         )
+        translation_history = self.db.fetch_all(
+            """SELECT reference_id, keyword, locale, translation, source_hash, content_hash
+               FROM keyword_translation_versions
+               WHERE keyword = ?
+               ORDER BY locale""",
+            ("Budget Management",),
+        )
+        self.assertEqual(len(translation_history), 2)
+        self.assertTrue(all(row["reference_id"] == translation_reference for row in translation_history))
+        self.assertTrue(
+            all(row["content_hash"] == sha256_text(json.dumps(
+                {
+                    "entries": {
+                        "budget_management": {
+                            "canonical_keyword": "Budget Management",
+                            "pt_br_preferred": "gestão orçamentária",
+                            "accepted_variants": ["budget"],
+                        }
+                    }
+                },
+                ensure_ascii=False,
+            )) for row in translation_history)
+        )
+
+    def test_create_revision_rejects_malformed_story_payload(self) -> None:
+        with self.assertRaisesRegex(ValueError, "stories\\[0\\] requires text field"):
+            self.analysis.create_revision(
+                "app-conexa",
+                {
+                    "metadata": {"job_fingerprint": "fp-conexa"},
+                    "scores": {"final": 7.4},
+                    "stories": [
+                        {
+                            "story_key": "broken_story",
+                            "title": "Quebrada",
+                            "narrative": {"unexpected": "object"},
+                        }
+                    ],
+                },
+                source_hash="fit-source-v1",
+            )
 
 
 if __name__ == "__main__":

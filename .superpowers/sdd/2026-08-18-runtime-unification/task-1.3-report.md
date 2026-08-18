@@ -119,3 +119,74 @@ Checked the new files directly after implementation and confirmed:
 - previous FIT_MAP revision rows remain unchanged after a later revision is inserted
 - current analysis resolution returns the latest FIT_MAP and its current positioning snapshot
 - no unrelated project files were edited by this task
+
+---
+
+## Fix Round 1 — 2026-08-18
+
+Status: implemented and locally verified
+
+### Review gaps addressed
+
+1. Added migration `005_reference_versioning_and_payload_hashes.py`
+   - `reference_documents.logical_key`
+   - `reference_documents.content_hash`
+   - `fit_map_revisions.payload_hash`
+   - `positioning_revisions.payload_hash`
+   - `keyword_translation_versions` history table
+   - indexes for queryable reference versioning and payload hashes
+   - backfill for pre-005 rows in temporary legacy-schema tests
+
+2. Made reference versioning first-class in `ReferenceRepository`
+   - `upsert_version(...)` now resolves versions by `kind + logical_key + content_hash`
+   - lookup and insert now happen inside one `transaction(immediate=True)`
+   - added:
+     - `get_current(kind, key)`
+     - `get_version(reference_id)`
+     - `list_versions(kind, key)`
+   - `keyword_translations` now keeps current semantics with the canonical keyword stored as the actual keyword text
+   - version history now persists in `keyword_translation_versions`
+
+3. Added canonical payload hashing for analysis and positioning
+   - stored `payload_hash` is derived from the canonical stored `payload_json`
+   - caller `source_hash` remains preserved separately
+   - stale/arbitrary supplied `payload_hash` is rejected
+
+4. Extended loaded analysis shape
+   - `AnalysisRevision` now includes normalized `dimensions` and `objections`
+   - `PositioningRevision` now exposes `payload_hash`
+
+5. Tightened normalization fail-closed behavior
+   - `_required_text(...)` now raises `ValueError` for missing/non-text/malformed required fields
+   - added malformed story regression coverage
+
+### Additional files changed in fix round
+
+- `src/career/services/persistence/migrations/005_reference_versioning_and_payload_hashes.py`
+- `tests/test_sqlite_persistence.py`
+- `tests/test_database.py`
+
+### Fix Round 1 verification
+
+Command:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q \
+  tests/test_analysis_revisions.py \
+  tests/test_sqlite_persistence.py \
+  tests/test_database.py \
+  tests/test_application_repository.py
+```
+
+Result:
+
+```text
+Ran 30 tests in 1.364s
+OK
+```
+
+### Notes
+
+- All verification continued to use temporary SQLite databases only
+- No writes were made to `control-plane/career.db`
+- Prior FIT_MAP and positioning immutability behavior remained covered after the hash/schema changes

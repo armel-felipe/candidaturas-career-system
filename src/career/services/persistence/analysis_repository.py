@@ -6,7 +6,16 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from career.services.database import Database
-from career.utils import json_fingerprint, utc_now_iso
+from career.utils import json_fingerprint, sha256_text, utc_now_iso
+
+
+@dataclass(frozen=True)
+class AnalysisDimension:
+    dimension_key: str
+    score: float | None
+    evidence_summary: str | None
+    gap_summary: str | None
+    payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -48,11 +57,20 @@ class AnalysisPrinciple:
 
 
 @dataclass(frozen=True)
+class AnalysisObjection:
+    objection_key: str
+    objection_text: str
+    response_text: str | None
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class PositioningRevision:
     revision_id: str
     application_id: str
     source_revision_id: str
     source_hash: str
+    payload_hash: str
     snapshot: dict[str, Any]
     stories: tuple[AnalysisStory, ...]
     principles: tuple[AnalysisPrinciple, ...]
@@ -66,9 +84,12 @@ class AnalysisRevision:
     application_revision_id: str | None
     fingerprint: str | None
     source_hash: str
+    payload_hash: str
     score_final: float | None
     payload: dict[str, Any]
+    dimensions: tuple[AnalysisDimension, ...]
     keywords: tuple[AnalysisKeyword, ...]
+    objections: tuple[AnalysisObjection, ...]
     stories: tuple[AnalysisStory, ...]
     evidence: tuple[AnalysisEvidence, ...]
     scores: tuple[AnalysisScore, ...]
@@ -85,13 +106,14 @@ class AnalysisRepository:
         self, application_id: str, fit_map: Mapping[str, Any], source_hash: str
     ) -> str:
         self._ensure_schema()
-        payload = _as_payload(fit_map)
+        payload, payload_hash = _canonicalize_payload(fit_map)
+        payload_json = _to_json(payload)
         created_at = utc_now_iso()
         revision_id = f"fit_{uuid4().hex}"
         fingerprint = _extract_fingerprint(payload)
         score_final = _extract_final_score(payload)
         application_revision_id = self._latest_application_revision_id(application_id)
-        dimensions = _normalize_dimensions(payload)
+        dimensions = _normalize_dimensions(payload.get("dimensions"))
         keywords = _normalize_keywords(payload.get("keywords"))
         evidence_items = _normalize_evidence(payload.get("evidence"))
         objections = _normalize_objections(payload.get("objections"))
@@ -102,15 +124,16 @@ class AnalysisRepository:
             conn.execute(
                 """INSERT INTO fit_map_revisions
                    (revision_id, application_id, application_revision_id,
-                    fingerprint, source_hash, payload_json, score_final, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    fingerprint, source_hash, payload_hash, payload_json, score_final, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     revision_id,
                     application_id,
                     application_revision_id,
                     fingerprint,
                     source_hash,
-                    _to_json(payload),
+                    payload_hash,
+                    payload_json,
                     score_final,
                     created_at,
                 ),
@@ -199,7 +222,7 @@ class AnalysisRepository:
         self._ensure_schema()
         row = self.database.fetch_one(
             """SELECT revision_id, application_id, application_revision_id, fingerprint,
-                      source_hash, payload_json, score_final, created_at
+                      source_hash, payload_hash, payload_json, score_final, created_at
                FROM fit_map_revisions
                WHERE application_id = ?
                ORDER BY created_at DESC, revision_id DESC
@@ -211,7 +234,7 @@ class AnalysisRepository:
         revision_id = str(row["revision_id"])
         positioning_row = self.database.fetch_one(
             """SELECT revision_id, application_id, fit_map_revision_id,
-                      source_hash, payload_json, created_at
+                      source_hash, payload_hash, payload_json, created_at
                FROM positioning_revisions
                WHERE application_id = ? AND fit_map_revision_id = ?
                ORDER BY created_at DESC, revision_id DESC
@@ -229,9 +252,12 @@ class AnalysisRepository:
             application_revision_id=_optional_str(row["application_revision_id"]),
             fingerprint=_optional_str(row["fingerprint"]),
             source_hash=str(row["source_hash"]),
+            payload_hash=str(row["payload_hash"]),
             score_final=_optional_float(row["score_final"]),
             payload=_from_json(str(row["payload_json"])),
+            dimensions=self._load_dimensions(revision_id),
             keywords=self._load_keywords(revision_id),
+            objections=self._load_objections(revision_id),
             stories=self._load_fit_map_stories(revision_id),
             evidence=self._load_evidence(revision_id),
             scores=self._load_scores(revision_id),
@@ -252,7 +278,8 @@ class AnalysisRepository:
             raise ValueError(
                 "positioning revision requires a fit_map revision for the same application"
             )
-        payload = _as_payload(snapshot)
+        payload, payload_hash = _canonicalize_payload(snapshot)
+        payload_json = _to_json(payload)
         created_at = utc_now_iso()
         revision_id = f"pos_{uuid4().hex}"
         source_hash = json_fingerprint(payload)
@@ -263,14 +290,15 @@ class AnalysisRepository:
             conn.execute(
                 """INSERT INTO positioning_revisions
                    (revision_id, application_id, fit_map_revision_id,
-                    source_hash, payload_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                    source_hash, payload_hash, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     revision_id,
                     application_id,
                     source_revision_id,
                     source_hash,
-                    _to_json(payload),
+                    payload_hash,
+                    payload_json,
                     created_at,
                 ),
             )
@@ -319,6 +347,25 @@ class AnalysisRepository:
             return None
         return str(row["revision_id"])
 
+    def _load_dimensions(self, revision_id: str) -> tuple[AnalysisDimension, ...]:
+        rows = self.database.fetch_all(
+            """SELECT dimension_key, score, evidence_summary, gap_summary, payload_json
+               FROM fit_map_dimensions
+               WHERE revision_id = ?
+               ORDER BY dimension_key ASC""",
+            (revision_id,),
+        )
+        return tuple(
+            AnalysisDimension(
+                dimension_key=str(row["dimension_key"]),
+                score=_optional_float(row["score"]),
+                evidence_summary=_optional_str(row["evidence_summary"]),
+                gap_summary=_optional_str(row["gap_summary"]),
+                payload=_from_json(str(row["payload_json"])),
+            )
+            for row in rows
+        )
+
     def _load_keywords(self, revision_id: str) -> tuple[AnalysisKeyword, ...]:
         rows = self.database.fetch_all(
             """SELECT keyword, coverage, importance, evidence
@@ -334,6 +381,24 @@ class AnalysisRepository:
                 importance=_optional_float(row["importance"]),
                 evidence=_optional_str(row["evidence"]),
                 payload={},
+            )
+            for row in rows
+        )
+
+    def _load_objections(self, revision_id: str) -> tuple[AnalysisObjection, ...]:
+        rows = self.database.fetch_all(
+            """SELECT objection_key, objection_text, response_text, payload_json
+               FROM fit_map_objections
+               WHERE revision_id = ?
+               ORDER BY objection_key ASC""",
+            (revision_id,),
+        )
+        return tuple(
+            AnalysisObjection(
+                objection_key=str(row["objection_key"]),
+                objection_text=str(row["objection_text"]),
+                response_text=_optional_str(row["response_text"]),
+                payload=_from_json(str(row["payload_json"])),
             )
             for row in rows
         )
@@ -411,6 +476,7 @@ class AnalysisRepository:
             application_id=str(row["application_id"]),
             source_revision_id=str(row["fit_map_revision_id"]),
             source_hash=str(row["source_hash"]),
+            payload_hash=str(row["payload_hash"]),
             snapshot=_from_json(str(row["payload_json"])),
             stories=tuple(
                 AnalysisStory(
@@ -435,6 +501,28 @@ class AnalysisRepository:
 
 def _as_payload(value: Mapping[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(dict(value), ensure_ascii=False))
+
+
+def _canonicalize_payload(value: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
+    payload = _as_payload(value)
+    supplied_hashes: list[str] = []
+    for container_key in ("metadata", "provenance"):
+        nested = payload.get(container_key)
+        if isinstance(nested, dict) and "payload_hash" in nested:
+            nested_hash = nested.pop("payload_hash")
+            if not isinstance(nested_hash, str) or not nested_hash:
+                raise ValueError("payload_hash does not match canonical payload")
+            supplied_hashes.append(nested_hash)
+    if "payload_hash" in payload:
+        root_hash = payload.pop("payload_hash")
+        if not isinstance(root_hash, str) or not root_hash:
+            raise ValueError("payload_hash does not match canonical payload")
+        supplied_hashes.append(root_hash)
+    payload_json = _to_json(payload)
+    payload_hash = sha256_text(payload_json)
+    if any(value != payload_hash for value in supplied_hashes):
+        raise ValueError("payload_hash does not match canonical payload")
+    return payload, payload_hash
 
 
 def _to_json(value: Any) -> str:
@@ -552,14 +640,20 @@ def _normalize_keywords(raw: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_evidence(raw: Any) -> list[dict[str, Any]]:
-    items = _iter_normalized_items(raw, "evidence_key")
+    items = _iter_normalized_items(raw, "evidence_key", "evidence")
     normalized: list[dict[str, Any]] = []
-    for evidence_key, item in items:
+    for evidence_key, item, context in items:
         normalized.append(
             {
                 "evidence_key": evidence_key,
                 "evidence_text": _required_text(
-                    item, "evidence_text", "text", "content", "narrative", "summary"
+                    item,
+                    context,
+                    "evidence_text",
+                    "text",
+                    "content",
+                    "narrative",
+                    "summary",
                 ),
                 "payload": dict(item),
             }
@@ -568,14 +662,14 @@ def _normalize_evidence(raw: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_objections(raw: Any) -> list[dict[str, Any]]:
-    items = _iter_normalized_items(raw, "objection_key")
+    items = _iter_normalized_items(raw, "objection_key", "objections")
     normalized: list[dict[str, Any]] = []
-    for objection_key, item in items:
+    for objection_key, item, context in items:
         normalized.append(
             {
                 "objection_key": objection_key,
                 "objection_text": _required_text(
-                    item, "objection_text", "text", "content", "summary"
+                    item, context, "objection_text", "text", "content", "summary"
                 ),
                 "response_text": _first_text(item, "response_text", "response", "answer"),
                 "payload": dict(item),
@@ -585,15 +679,21 @@ def _normalize_objections(raw: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_stories(raw: Any) -> list[dict[str, Any]]:
-    items = _iter_normalized_items(raw, "story_key")
+    items = _iter_normalized_items(raw, "story_key", "stories")
     normalized: list[dict[str, Any]] = []
-    for story_key, item in items:
+    for story_key, item, context in items:
         normalized.append(
             {
                 "story_key": story_key,
                 "title": _first_text(item, "title", "headline", "name"),
                 "narrative": _required_text(
-                    item, "narrative", "story", "content", "text", "summary"
+                    item,
+                    context,
+                    "narrative",
+                    "story",
+                    "content",
+                    "text",
+                    "summary",
                 ),
                 "payload": dict(item),
             }
@@ -602,13 +702,13 @@ def _normalize_stories(raw: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_principles(raw: Any) -> list[dict[str, Any]]:
-    items = _iter_normalized_items(raw, "principle_key")
+    items = _iter_normalized_items(raw, "principle_key", "principles")
     normalized: list[dict[str, Any]] = []
-    for principle_key, item in items:
+    for principle_key, item, context in items:
         normalized.append(
             {
                 "principle_key": principle_key,
-                "content": _required_text(item, "content", "text", "principle"),
+                "content": _required_text(item, context, "content", "text", "principle"),
                 "payload": dict(item),
             }
         )
@@ -638,19 +738,21 @@ def _normalize_scores(raw: Any) -> list[dict[str, Any]]:
     return normalized
 
 
-def _iter_normalized_items(raw: Any, preferred_key_field: str) -> list[tuple[str, dict[str, Any]]]:
+def _iter_normalized_items(
+    raw: Any, preferred_key_field: str, collection_name: str
+) -> list[tuple[str, dict[str, Any], str]]:
     if isinstance(raw, Mapping):
-        items: list[tuple[str, dict[str, Any]]] = []
+        items: list[tuple[str, dict[str, Any], str]] = []
         for key, value in raw.items():
             if isinstance(value, Mapping):
                 payload = dict(value)
             else:
                 payload = {"value": value}
             payload.setdefault(preferred_key_field, str(key))
-            items.append((str(key), payload))
+            items.append((str(key), payload, f"{collection_name}.{key}"))
         return items
     if isinstance(raw, list):
-        items = []
+        items: list[tuple[str, dict[str, Any], str]] = []
         for index, value in enumerate(raw):
             if isinstance(value, Mapping):
                 payload = dict(value)
@@ -664,7 +766,7 @@ def _iter_normalized_items(raw: Any, preferred_key_field: str) -> list[tuple[str
                 or f"item_{index}"
             )
             payload.setdefault(preferred_key_field, normalized_key)
-            items.append((normalized_key, payload))
+            items.append((normalized_key, payload, f"{collection_name}[{index}]"))
         return items
     return []
 
@@ -677,11 +779,15 @@ def _first_text(mapping: Mapping[str, Any], *keys: str) -> str | None:
     return None
 
 
-def _required_text(mapping: Mapping[str, Any], *keys: str) -> str:
-    value = _first_text(mapping, *keys)
-    if value is not None:
-        return value
+def _required_text(mapping: Mapping[str, Any], context: str, *keys: str) -> str:
+    for key in keys:
+        if key not in mapping:
+            continue
+        value = mapping.get(key)
+        if isinstance(value, str) and value:
+            return value
+        raise ValueError(f"{context} requires text field {key}")
     raw = mapping.get("value")
     if isinstance(raw, str) and raw:
         return raw
-    return _to_json(dict(mapping))
+    raise ValueError(f"{context} requires text field")

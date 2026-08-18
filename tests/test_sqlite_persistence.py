@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from career.services.database import Database
+from career.utils import sha256_text
 
 
 class SQLitePersistenceTests(unittest.TestCase):
@@ -14,6 +15,7 @@ class SQLitePersistenceTests(unittest.TestCase):
         "002_analysis_and_positioning.sql",
         "003_gates_artifacts_integrations.sql",
         "004_legacy_compatibility.py",
+        "005_reference_versioning_and_payload_hashes.py",
     ]
 
     def setUp(self) -> None:
@@ -26,7 +28,7 @@ class SQLitePersistenceTests(unittest.TestCase):
     def test_migrate_registers_schema_and_runtime_pragmas(self) -> None:
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 4)
+        self.assertEqual(applied, 5)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(self._pragma("foreign_keys"), 1)
         self.assertEqual(self._pragma("busy_timeout"), 10000)
@@ -44,6 +46,7 @@ class SQLitePersistenceTests(unittest.TestCase):
             "application_revisions",
             "fit_map_revisions",
             "positioning_revisions",
+            "keyword_translation_versions",
             "gate_dependencies",
             "artifact_versions",
             "artifact_contents",
@@ -119,7 +122,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 4)
+        self.assertEqual(applied, 5)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(
             self._columns("resource_locks"),
@@ -164,6 +167,49 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         self.assertEqual(reapplied, 0)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
+
+    def test_migrate_005_backfills_reference_and_payload_hash_columns(self) -> None:
+        self.database.close()
+        self._seed_pre_005_schema(self.db_path)
+        self.database = Database(db_path=self.db_path)
+        self.addCleanup(self.database.close)
+
+        applied = self.database.migrate()
+
+        self.assertEqual(applied, 1)
+        self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
+        self.assertTrue(
+            {"logical_key", "content_hash"}.issubset(self._columns("reference_documents"))
+        )
+        self.assertIn("payload_hash", self._columns("fit_map_revisions"))
+        self.assertIn("payload_hash", self._columns("positioning_revisions"))
+        self.assertIn("keyword_translation_versions", self._table_names())
+
+        reference_row = self.database.fetch_one(
+            """SELECT logical_key, content_hash FROM reference_documents
+               WHERE reference_id = ?""",
+            ("ref-existing",),
+        )
+        self.assertEqual(reference_row["logical_key"], "candidate_cv_facts")
+        self.assertEqual(len(str(reference_row["content_hash"])), 64)
+
+        fit_map_row = self.database.fetch_one(
+            "SELECT payload_json, payload_hash FROM fit_map_revisions WHERE revision_id = ?",
+            ("fit-existing",),
+        )
+        self.assertEqual(
+            fit_map_row["payload_hash"],
+            sha256_text(str(fit_map_row["payload_json"])),
+        )
+
+        positioning_row = self.database.fetch_one(
+            "SELECT payload_json, payload_hash FROM positioning_revisions WHERE revision_id = ?",
+            ("pos-existing",),
+        )
+        self.assertEqual(
+            positioning_row["payload_hash"],
+            sha256_text(str(positioning_row["payload_json"])),
+        )
 
     def test_transaction_rolls_back_and_foreign_keys_are_enforced(self) -> None:
         self.database.migrate()
@@ -259,6 +305,113 @@ class SQLitePersistenceTests(unittest.TestCase):
                     authorized_at TEXT NOT NULL
                 );
                 """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _seed_pre_005_schema(self, db_path: Path) -> None:
+        payload = '{"stories":[{"story_key":"base","narrative":"Base"}]}'
+        positioning = '{"headline":"Executivo"}'
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                """CREATE TABLE schema_migrations (
+                       version TEXT PRIMARY KEY,
+                       checksum TEXT NOT NULL,
+                       applied_at TEXT NOT NULL
+                   )"""
+            )
+            migration_dir = Path(__file__).resolve().parent.parent / "src" / "career" / "services" / "persistence" / "migrations"
+            for version in self.EXPECTED_VERSIONS[:-1]:
+                migration_path = migration_dir / version
+                checksum = self.database._migration_checksum(migration_path)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (?, ?, ?)",
+                    (version, checksum, "2026-08-18T00:00:00+00:00"),
+                )
+            conn.executescript(
+                """
+                CREATE TABLE reference_documents (
+                    reference_id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    reference_key TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(kind, reference_key)
+                );
+
+                CREATE TABLE keyword_translations (
+                    keyword TEXT NOT NULL,
+                    locale TEXT NOT NULL,
+                    translation TEXT NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(keyword, locale)
+                );
+
+                CREATE TABLE fit_map_revisions (
+                    revision_id TEXT PRIMARY KEY,
+                    application_id TEXT NOT NULL,
+                    application_revision_id TEXT,
+                    fingerprint TEXT,
+                    source_hash TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    score_final REAL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE positioning_revisions (
+                    revision_id TEXT PRIMARY KEY,
+                    application_id TEXT NOT NULL,
+                    fit_map_revision_id TEXT,
+                    source_hash TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                """INSERT INTO reference_documents
+                   (reference_id, kind, reference_key, content, source_hash, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "ref-existing",
+                    "candidate_facts",
+                    "candidate_cv_facts#legacyhash",
+                    '{"candidate":{"name":"Felipe Armel"}}',
+                    "source-existing",
+                    "2026-08-18T00:00:00+00:00",
+                    "2026-08-18T00:00:00+00:00",
+                ),
+            )
+            conn.execute(
+                """INSERT INTO fit_map_revisions
+                   (revision_id, application_id, source_hash, payload_json, score_final, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    "fit-existing",
+                    "app-conexa",
+                    "fit-source-existing",
+                    payload,
+                    7.2,
+                    "2026-08-18T00:00:00+00:00",
+                ),
+            )
+            conn.execute(
+                """INSERT INTO positioning_revisions
+                   (revision_id, application_id, fit_map_revision_id, source_hash, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    "pos-existing",
+                    "app-conexa",
+                    "fit-existing",
+                    "positioning-source-existing",
+                    positioning,
+                    "2026-08-18T00:00:00+00:00",
+                ),
             )
             conn.commit()
         finally:
