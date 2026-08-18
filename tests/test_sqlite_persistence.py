@@ -62,6 +62,53 @@ class SQLitePersistenceTests(unittest.TestCase):
         self.assertEqual(applied, 0)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
 
+    def test_migration_checksum_normalizes_line_endings_for_sql_and_python(self) -> None:
+        sql_lf = Path(self.tempdir.name) / "010_line_endings.sql"
+        sql_crlf = Path(self.tempdir.name) / "011_line_endings.sql"
+        py_lf = Path(self.tempdir.name) / "012_line_endings.py"
+        py_crlf = Path(self.tempdir.name) / "013_line_endings.py"
+        sql_lf.write_text("CREATE TABLE sample (id INTEGER);\n", encoding="utf-8")
+        sql_crlf.write_bytes(b"CREATE TABLE sample (id INTEGER);\r\n")
+        py_lf.write_text(
+            "from __future__ import annotations\n\ndef apply(conn):\n    return None\n",
+            encoding="utf-8",
+        )
+        py_crlf.write_bytes(
+            b"from __future__ import annotations\r\n\r\ndef apply(conn):\r\n    return None\r\n"
+        )
+
+        self.assertEqual(
+            self.database._migration_checksum(sql_lf),
+            self.database._migration_checksum(sql_crlf),
+        )
+        self.assertEqual(
+            self.database._migration_checksum(py_lf),
+            self.database._migration_checksum(py_crlf),
+        )
+
+    def test_migrate_does_not_treat_crlf_only_change_as_checksum_drift(self) -> None:
+        migration_path = Path(self.tempdir.name) / "001_line_endings.sql"
+        migration_path.write_text(
+            "CREATE TABLE line_endings_sample (id INTEGER PRIMARY KEY);\n",
+            encoding="utf-8",
+        )
+        self.database._migration_paths = lambda: [migration_path]
+
+        applied = self.database.migrate()
+
+        self.assertEqual(applied, 1)
+        migration_path.write_bytes(
+            b"CREATE TABLE line_endings_sample (id INTEGER PRIMARY KEY);\r\n"
+        )
+
+        reapplied = self.database.migrate()
+
+        self.assertEqual(reapplied, 0)
+        self.assertEqual(
+            self.database.fetch_all("SELECT version FROM schema_migrations"),
+            [{"version": "001_line_endings.sql"}],
+        )
+
     def test_migrate_upgrades_legacy_compatibility_schema_via_versioned_migration(
         self,
     ) -> None:

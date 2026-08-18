@@ -174,3 +174,58 @@ ok
 - The compatibility upgrade path is now explicit and versioned in `schema_migrations`; `migrate()` alone is sufficient to materialize those legacy columns.
 - `_initialize_schema()` still contains inline `CREATE TABLE IF NOT EXISTS` statements for authority/bootstrap compatibility, but it no longer hides schema evolution behind unledgered `ALTER TABLE` calls.
 - `control-plane/career.db` was not migrated or mutated during this fix round.
+
+## Fix Round 2
+
+### Reviewer finding addressed
+
+- `Database.migrate()` was hashing raw migration bytes, so identical migration content checked out with `LF` versus `CRLF` line endings could trigger a false `migration checksum mismatch`.
+
+### Changes made
+
+- Added `Database._migration_checksum(path)` and routed `migrate()` through it.
+- Normalized migration bytes from `CRLF` to `LF` before computing the checksum for both `.sql` and `.py` migrations.
+- Kept migration execution unchanged: SQL still executes from the file text as read, and Python migrations still load and execute the file module itself.
+- Added focused regressions in `tests/test_sqlite_persistence.py` for:
+  - equal checksums across LF/CRLF variants of `.sql` and `.py` migration files;
+  - no false drift when an already-applied SQL migration file is rewritten with CRLF-only line-ending changes.
+
+### Verification
+
+Commands run:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_sqlite_persistence.py tests/test_database.py
+```
+
+Observed result:
+
+```text
+Ran 10 tests in 0.281s
+OK
+```
+
+```bash
+tmp_db=$(mktemp /tmp/runtime-unification-task11-fix2-XXXXXX.db)
+TASK11_DB="$tmp_db" PYTHONPATH=src ./scripts/python.sh - <<'PY'
+import os
+from career.services.database import Database
+
+db = Database(db_path=os.environ["TASK11_DB"])
+db.migrate()
+db.close()
+PY
+TASK11_DB="$tmp_db" PYTHONPATH=src ./scripts/python.sh -c 'import os, sqlite3; c = sqlite3.connect(os.environ["TASK11_DB"]); print(c.execute("PRAGMA integrity_check").fetchone()[0]); print(c.execute("PRAGMA foreign_key_check").fetchall())'
+```
+
+Observed result:
+
+```text
+ok
+[]
+```
+
+### Self-review notes
+
+- The checksum normalization is deliberately limited to line-ending normalization (`CRLF -> LF`), so it removes checkout-style portability drift without weakening checksum sensitivity to substantive content changes.
+- `control-plane/career.db` was not opened for migration or mutated during this fix round.

@@ -63,7 +63,7 @@ class Database:
         applied = 0
         for migration_path in self._migration_paths():
             version = migration_path.name
-            checksum = hashlib.sha256(migration_path.read_bytes()).hexdigest()
+            checksum = self._migration_checksum(migration_path)
             existing = conn.execute(
                 "SELECT checksum FROM schema_migrations WHERE version = ?",
                 (version,),
@@ -741,6 +741,11 @@ class Database:
             and len(path.stem) >= 3
             and path.stem[:3].isdigit()
         )
+
+    def _migration_checksum(self, path: Path) -> str:
+        raw = path.read_bytes()
+        normalized = raw.replace(b"\r\n", b"\n")
+        return hashlib.sha256(normalized).hexdigest()
 
     def _apply_migration(self, conn: sqlite3.Connection, path: Path) -> None:
         if path.suffix == ".sql":
