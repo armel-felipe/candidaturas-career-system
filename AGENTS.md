@@ -118,14 +118,14 @@ Comandos oficiais:
 
 ```bash
 npm run agent:evaluate-notion -- <id_unico>
-npm run agent:guard
+npm run agent:guard -- --application-id "<id_unico>" --fingerprint "<sha256-da-descricao>"
 npm run intake:notion-record -- <id_unico>
 npm run intake:paste -- --company "<empresa>" --role "<cargo>" --text-file <arquivo>
 cat <arquivo> | npm run intake:paste -- --company "<empresa>" --role "<cargo>" --stdin
 npm run intake:linkedin-job -- --url "<url-da-vaga>"
 npm run intake:linkedin-post -- --url "<url-da-postagem>" --company "<empresa>" --role "<cargo>"
 npm run intake:url -- --url "<url>" --company "<empresa>" --role "<cargo>"
-npm run intake:resume
+npm run intake:resume -- --application-id "<id_unico>"
 npm run agent:evaluate-notion-local -- <id_unico>          # alias explícito do modo local/menor
 ```
 
@@ -133,7 +133,7 @@ Regra operacional:
 - `intake:*` são comandos npm, não nomes de skill; a skill correspondente é `.agents/skills/intake-orchestrator/SKILL.md`
 - para `Avalie vaga Notion <número>`, executar preferencialmente `npm run agent:evaluate-notion -- <número>`; este comando é compatível com modelos locais/menores e também gera o mapa local e o request compacto antes de devolver a próxima ação
 - `npm run agent:evaluate-notion-local -- <número>` existe como alias explícito do mesmo modo operacional; fallback permitido: `npm run intake:notion-record -- <número>`
-- após qualquer intake, executar `npm run agent:guard` se houver dúvida, interrupção, output truncado ou tentação de fallback
+- após qualquer intake, executar `npm run agent:guard -- --application-id "<id_unico>" --fingerprint "<sha256-da-descricao>"` se houver dúvida, interrupção, output truncado ou tentação de fallback
 - nunca executar `notion:list`, `grep`, query inventada, `.env`, `curl`, navegador ou script temporário para substituir `agent:evaluate-notion`/`intake:notion-record`
 - para URL LinkedIn de vaga, executar `npm run intake:linkedin-job -- --url "<url>"`
 - para URL LinkedIn de postagem, executar `npm run intake:linkedin-post -- --url "<url>" --company "<empresa>" --role "<cargo>"`
@@ -144,7 +144,7 @@ Regra operacional:
 - em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map`; o agente deve seguir `Operational Rules` antes de editar o draft
 - após qualquer edição de `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`; se falhar, corrigir e reexecutar antes de responder ao usuário
 - se `.career-state/fit_map.draft.json` ficar com JSON inválido, executar `npm run fit-map:template` para resetar o template da vaga ativa antes de continuar
-- `intake:resume` é o comando padrão para retomar trabalho interrompido e descobrir o próximo passo
+- `intake:resume -- --application-id "<id_unico>"` é o comando padrão para retomar trabalho interrompido e descobrir o próximo passo; ponteiro global é apenas metadado de descoberta e nunca seleciona execução
 - o JSON de saída do intake inclui `delivery_plan` para CV, FERAS, carta, habilidades e atualização no Notion
 - se qualquer comando `intake:*` falhar, é proibido abrir `.env`, copiar token, montar `curl`, criar script temporário ou abrir Notion no navegador; executar `npm run intake:resume` e relatar o bloqueio objetivo
 - se `agent:guard` retornar `allowed_next_action = fill_fit_map_draft`, a única próxima ação autorizada é preencher `.career-state/fit_map.draft.json`

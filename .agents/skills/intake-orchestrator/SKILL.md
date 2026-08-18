@@ -40,7 +40,7 @@ npm run agent:evaluate-notion -- <id_unico>
 Guard de conduta do agente:
 
 ```bash
-npm run agent:guard
+npm run agent:guard -- --application-id "<id>" --fingerprint "<sha256>"
 ```
 
 Notion por ID único:
@@ -77,13 +77,13 @@ Observação operacional:
 Retomada:
 
 ```bash
-npm run intake:resume
+npm run intake:resume -- --application-id "<id>"
 ```
 
 ## Regras duras
 
 - Para “avalie vaga Notion <id>”, usar `npm run agent:evaluate-notion -- <id>` antes de qualquer fallback.
-- Se houver interrupção, output truncado ou dúvida após o intake, executar `npm run agent:guard`.
+- Se houver interrupção, output truncado ou dúvida após o intake, executar `npm run agent:guard -- --application-id "<id>" --fingerprint "<sha256>"`.
 - Se `agent:guard` retornar `allowed_next_action = fill_fit_map_draft`, a única próxima ação autorizada é preencher `.career-state/fit_map.draft.json`.
 - Se o comando `intake:*` retornar `status = ready_for_model_analysis`, parar o intake e preencher `.career-state/fit_map.draft.json`.
 - Se retornar `next_required_step = fill_fit_map_draft`, não entregar análise textual, não rodar Notion alternativo e não usar FIT_MAP antigo.
@@ -92,7 +92,7 @@ npm run intake:resume
 - Em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map`; seguir as `Operational Rules` antes de editar.
 - Após editar `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`; se falhar, corrigir e reexecutar antes de responder ao usuário.
 - Se `intake:*` falhar, não fazer fallback para `.env`, `curl`, API pública do Notion, navegador genérico, `grep` ou cache local.
-- Para falha, executar `npm run intake:resume` e relatar o erro objetivo. Se ainda bloquear, declarar execução bloqueada.
+- Para falha, executar `npm run intake:resume -- --application-id "<id>"` e relatar o erro objetivo. Sem `application_id`, a retomada deve bloquear; nunca usar ponteiro global como fallback.
 - Nunca ler `.env`, copiar `NOTION_TOKEN`, montar script temporário de Notion ou criar arquivo `fetch_*.py`/`query_*.py`.
 - Para LinkedIn, o intake usa os extratores autenticados; se bloquear por sessão, rodar/solicitar `npm run linkedin:auth`.
 

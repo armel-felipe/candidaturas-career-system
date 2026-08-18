@@ -274,11 +274,10 @@ def _sync_global_active_pointer(
     state_store: WorkflowStateStore,
     global_state_store: WorkflowStateStore | None = None,
 ) -> None:
-    """Expose the selected application to global guard entry points.
+    """Expose selected application metadata for discovery/display only.
 
-    The application workflow remains canonical in its own state file. This
-    pointer lets commands without ``--application-id`` discover it without
-    copying the application history into global state.
+    It is not an execution selector: all task, guard, resume and request
+    paths must receive an application ID explicitly.
     """
     application_payload = _load_state(state_store)
     active_intake = application_payload.get("active_intake")
@@ -497,6 +496,10 @@ def _run_ready_pipeline(
     record_id: int | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if not state_store.application_id:
+        raise ValidationFailure(
+            "ready intake pipeline requires an explicit application_id-scoped state store"
+        )
     application_paths = _paths_from_state_store(state_store)
     job_description_path = _canonical_job_description_path(job_description_path, application_paths)
     if not job_description_path.exists():
@@ -846,19 +849,27 @@ def from_url(
 
 
 def resume(state_store: WorkflowStateStore | None = None, *, application_id: str | None = None) -> dict[str, Any]:
-    state_store_was_explicit = state_store is not None
-    state_store = state_store or (WorkflowStateStore.for_application(application_id) if application_id else WorkflowStateStore())
+    application_id = str(application_id or "").strip()
+    if not application_id:
+        return {
+            "status": "blocked",
+            "reason": "explicit_application_scope_required",
+            "next_required_step": "supply_application_id",
+        }
+    if state_store is not None and state_store.application_id not in {None, application_id}:
+        return {
+            "status": "blocked",
+            "reason": "application_scope_mismatch",
+            "application_id": application_id,
+        }
+    # A global state store is discovery metadata, not an execution scope.
+    state_store = (
+        state_store
+        if state_store is not None and state_store.application_id == application_id
+        else WorkflowStateStore.for_application(application_id)
+    )
     payload = state_store.load()
     active = payload.get("active_intake")
-    if not state_store_was_explicit and not application_id and isinstance(active, dict):
-        pointed_application_id = str(active.get("application_id") or "").strip()
-        if pointed_application_id:
-            scoped_store = WorkflowStateStore.for_application(pointed_application_id)
-            scoped_active = scoped_store.load().get("active_intake")
-            if isinstance(scoped_active, dict):
-                state_store = scoped_store
-                payload = state_store.payload
-                active = scoped_active
     if not isinstance(active, dict) or not active.get("job_description_path"):
         return {
             "status": "no_active_intake",
@@ -870,6 +881,13 @@ def resume(state_store: WorkflowStateStore | None = None, *, application_id: str
                 "npm run intake:linkedin-post -- --url \"<url>\" --company \"<empresa>\" --role \"<cargo>\"",
                 "npm run intake:url -- --url \"<url>\" --company \"<empresa>\" --role \"<cargo>\"",
             ],
+        }
+    active_application_id = str(active.get("application_id") or "").strip()
+    if active_application_id != application_id:
+        return {
+            "status": "blocked",
+            "reason": "active_intake_application_mismatch",
+            "application_id": application_id,
         }
     path = ROOT / str(active["job_description_path"])
     if not path.exists():
@@ -895,7 +913,16 @@ def resume(state_store: WorkflowStateStore | None = None, *, application_id: str
     }
 
 
-def write_request_bundle(output_path: Path = CAREER_STATE / "intake_request.json") -> Path:
-    payload = resume()
+def write_request_bundle(
+    output_path: Path | None = None,
+    *,
+    application_id: str | None = None,
+) -> Path:
+    application_id = str(application_id or "").strip()
+    if not application_id:
+        raise ValueError("write_request_bundle requires application_id")
+    payload = resume(application_id=application_id)
+    if output_path is None:
+        output_path = application_context_service.paths_for(application_id).requests_dir / "intake_request.json"
     write_json(output_path, payload)
     return output_path

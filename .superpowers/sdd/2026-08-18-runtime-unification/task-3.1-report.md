@@ -50,3 +50,46 @@ PYTHONPATH=src ./scripts/python.sh -m unittest -q \
   tests.test_workflow_gates tests.test_linkedin_intake_metadata
 # Ran 62 tests: OK
 ```
+
+## Correction round: canonical database and explicit execution scope
+
+Independent review rejected the initial Task 3.1 implementation because the
+operational intake repository still defaulted to `.career-state/career.db`,
+and `resume`, request bundles, supervisor execution and CLI entry points could
+select a vacancy through a global pointer.
+
+### RED
+
+Focused tests were added to `tests/test_intake_sqlite_scope.py` and run before
+the correction. They failed as expected: the default intake had no tables in
+`control-plane/career.db`; unscoped resume and request bundle proceeded; the
+CLI rejected guard scope arguments; the supervisor had no explicit scope
+contract; and a same-fingerprint foreign `active_intake` was accepted.
+
+### GREEN
+
+- Operational identity/source/description persistence now resolves through
+  `control-plane/career.db`; explicitly injected `Database` instances remain
+  available to isolated tests and migrations.
+- `resume`, `write_request_bundle`, `_run_ready_pipeline`, supervisor resume
+  and specialist execution fail closed without an explicit application ID.
+- `agent guard` accepts and propagates required `--application-id` and
+  `--fingerprint` arguments.
+- Guard rejects an absent or foreign `active_intake.application_id` before it
+  reads FIT_MAP context.
+- The documented commands now include the explicit scope and fingerprint.
+
+Reproducible tracked-test evidence:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q \
+  tests.test_intake_sqlite_scope tests.test_application_repository \
+  tests.test_application_projection tests.test_workflow_gates \
+  tests.test_linkedin_intake_metadata
+# Ran 63 tests: OK
+```
+
+`tests/test_intake_persistence.py` is a user-owned untracked legacy test and
+still asserts the retired `.career-state/career.db` destination. It was not
+modified or used as correction evidence; it must be migrated separately to
+the control-plane contract.

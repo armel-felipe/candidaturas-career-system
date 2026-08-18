@@ -76,8 +76,8 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - toda vaga específica deve entrar por `intake:*` antes da análise: `intake:notion-record`, `intake:paste`, `intake:linkedin-job`, `intake:linkedin-post` ou `intake:url`
 - para `Avalie vaga Notion <número>`, prefira `npm run agent:evaluate-notion -- <número>`, que roda intake, guard de conduta, mapa local e request compacto `fit-map`
 - `npm run agent:evaluate-notion-local -- <número>` existe como alias explícito do modo local/menor, mas o comando padrão já é local-safe
-- use `npm run agent:guard` após interrupção, output truncado ou dúvida sobre a próxima ação autorizada
-- use `npm run intake:resume` para retomar e seguir `next_required_step`, em vez de procurar arquivos por nome, rodar `grep`, listar Notion ou reabrir URL por conta própria
+- use `npm run agent:guard -- --application-id "<id>" --fingerprint "<sha256>"` após interrupção, output truncado ou dúvida sobre a próxima ação autorizada; o guard bloqueia sem ambos
+- use `npm run intake:resume -- --application-id "<id>"` para retomar e seguir `next_required_step`; ponteiros globais servem apenas para descoberta e nunca selecionam a vaga de execução
 - quando o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/fit_map.draft.json`; não entregar análise textual nem reaproveitar FIT_MAP antigo
 - preencher `.career-state/fit_map.draft.json` significa o agente editar o arquivo persistido; é proibido responder com instruções para o usuário preencher o template, imprimir o JSON bruto do template ou tratar placeholders como entrega
 - em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map` e seguir as `Operational Rules`

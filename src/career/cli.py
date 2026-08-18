@@ -72,7 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
     agent_eval_notion.add_argument("record_id", type=int)
     agent_eval_notion_local = agent_sub.add_parser("evaluate-notion-local")
     agent_eval_notion_local.add_argument("record_id", type=int)
-    agent_sub.add_parser("guard")
+    agent_guard = agent_sub.add_parser("guard")
+    agent_guard.add_argument("--application-id", required=True)
+    agent_guard.add_argument("--fingerprint", required=True)
     agent_maestro = agent_sub.add_parser("maestro")
     agent_maestro.add_argument("step", nargs="?", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     agent_maestro.add_argument("--objective")
@@ -410,12 +412,11 @@ def _state_store_for_application(
     *,
     require_scope: bool = False,
 ) -> WorkflowStateStore:
-    resolved_application_id = application_id or _active_application_id()
-    if resolved_application_id:
-        return WorkflowStateStore.for_application(resolved_application_id)
+    if application_id:
+        return WorkflowStateStore.for_application(application_id)
     if require_scope:
         raise CareerError(
-            "workflow command requires --application-id or an active application pointer"
+            "workflow command requires --application-id"
         )
     return WorkflowStateStore()
 
@@ -726,7 +727,10 @@ def main(argv: list[str] | None = None) -> int:
                 _dump(result)
                 return 0 if result.get("status") != "blocked" else 1
             if args.action == "guard":
-                result = agent_guard_service.guard()
+                result = agent_guard_service.guard(
+                    application_id=args.application_id,
+                    fingerprint=args.fingerprint,
+                )
                 _dump(result)
                 return 0 if result.get("status") == "ok" else 1
             if args.action == "maestro":

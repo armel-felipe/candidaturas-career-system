@@ -28,6 +28,17 @@ SESSION_REGISTRY = CAREER_STATE / "session_registry.json"
 ALIAS_INDEX = CAREER_STATE / "application_alias_index.json"
 
 
+def canonical_database(*, root: Path | None = None) -> Database:
+    """Return the one runtime control-plane database.
+
+    Callers that inject a ``Database`` remain supported for migrations and
+    isolated tests.  Operational callers must use this resolver instead of
+    recreating the deprecated ``.career-state/career.db`` default.
+    """
+    workspace_root = (root or ROOT).resolve()
+    return Database(db_path=workspace_root / "control-plane" / "career.db")
+
+
 def build_application_projection(
     application_id: str,
     db: Database,
@@ -534,7 +545,7 @@ def persist_intake(
         application_id = f"local_{stamp}_{_slug(company or source_type)}_{_short_hash(basis)}"
 
     paths = paths_for(application_id)
-    repository_database = database or Database(db_path=CAREER_STATE / "career.db")
+    repository_database = database or canonical_database()
     repository_database.migrate()
     now = utc_now_iso()
     aliases: dict[str, str] = {}
@@ -696,7 +707,7 @@ def _update_alias_index(application_id: str, aliases: dict[str, Any]) -> None:
 
 
 def _repository(database: Database | None = None) -> ApplicationRepository:
-    repository_database = database or Database(db_path=CAREER_STATE / "career.db")
+    repository_database = database or canonical_database()
     return ApplicationRepository(repository_database)
 
 

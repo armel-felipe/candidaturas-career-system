@@ -155,6 +155,15 @@ def guard(
             "forbidden_actions": FORBIDDEN_ACTIONS,
         }
 
+    active_application_id = str(active.get("application_id") or "").strip()
+    if active_application_id != application_id:
+        return {
+            "status": "blocked",
+            "reason": "active_intake_application_mismatch",
+            "application_id": application_id,
+            "forbidden_actions": FORBIDDEN_ACTIONS,
+        }
+
     active_fingerprint = str(active.get("fingerprint") or "").strip()
     if active_fingerprint and active_fingerprint != fingerprint:
         return {

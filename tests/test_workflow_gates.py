@@ -490,7 +490,7 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(payload["fingerprints"], {})
         self.assertEqual(payload["active_intake"]["company"], "Conexa")
 
-    def test_sync_global_pointer_honors_explicit_global_store_path_and_scoped_resume_reads_state(
+    def test_global_pointer_is_display_metadata_and_scoped_resume_reads_state(
         self,
     ) -> None:
         job_description = self.root / "inbox" / "job_descriptions" / "conexa.md"
@@ -527,7 +527,8 @@ class WorkflowGateTests(unittest.TestCase):
                     application_id=self.primary.application_id,
                     database=self.db,
                     path=app_store.path,
-                )
+                ),
+                application_id=self.primary.application_id,
             )
 
         self.assertTrue(global_store.path.exists())
@@ -631,7 +632,7 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("--application-id", stdout.getvalue())
 
-    def test_cli_workflow_run_pipeline_uses_active_pointer_scope_when_application_id_omitted(
+    def test_cli_workflow_run_pipeline_requires_explicit_application_id(
         self,
     ) -> None:
         canonical_db = Database(db_path=self.root / ".career-state" / "career.db")
@@ -676,11 +677,9 @@ class WorkflowGateTests(unittest.TestCase):
                 ]
             )
 
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(
-            captured_store["state_store"].application_id,
-            self.primary.application_id,
-        )
+        self.assertEqual(exit_code, 1)
+        self.assertNotIn("state_store", captured_store)
+        self.assertIn("requires --application-id", stdout.getvalue())
 
     def test_cli_workflow_reset_state_clears_active_pointer_before_unscoped_commands(
         self,

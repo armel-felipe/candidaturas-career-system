@@ -345,6 +345,13 @@ class HarnessSupervisor:
     def execute_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None, model: str | None = None, variant: str | None = None) -> dict[str, Any]:
         if not self.root or not self.runner:
             raise ValueError("HarnessSupervisor requires root and runner to execute specialists.")
+        application_id = str((extras or {}).get("application_id") or "").strip()
+        if not application_id:
+            return {
+                "status": "blocked",
+                "blocker_reason": "explicit_application_scope_required",
+                "stage": step,
+            }
         prepared = self.prepare_specialist(step, objective=objective, extras=extras)
         if prepared.get("validation", {}).get("status") != "ok":
             return prepared
@@ -474,7 +481,14 @@ class HarnessSupervisor:
                 self._write_pending_input(request)
                 envelope["result"] = request
             elif workflow == "resume":
-                envelope["result"] = self._resume_and_continue(message, model=model, variant=variant)
+                envelope["result"] = self._resume_and_continue(
+                    message,
+                    model=model,
+                    variant=variant,
+                    application_id=self._session_application_id(
+                        runtime_context, channel=channel
+                    ),
+                )
             elif workflow == "applications_status":
                 from career.services import applications_v2 as applications_service
                 envelope["result"] = applications_service.heartbeat_status()
@@ -620,12 +634,31 @@ class HarnessSupervisor:
         profile_id = str(runtime_context.get("profile_id") or "").strip() or None
         application_context_service.register_session(runtime=runtime, profile_id=profile_id, session_id=session_id, application_id=str(application_id), channel=channel)
 
-    def _resume_and_continue(self, message: str, *, model: str | None, variant: str | None) -> dict[str, Any]:
+    def _resume_and_continue(
+        self,
+        message: str,
+        *,
+        model: str | None,
+        variant: str | None,
+        application_id: str | None,
+    ) -> dict[str, Any]:
         from career.services import intake as intake_service
-        resume = intake_service.resume()
+        application_id = str(application_id or "").strip()
+        if not application_id:
+            return {
+                "status": "blocked",
+                "blocker_reason": "explicit_application_scope_required",
+            }
+        resume = intake_service.resume(application_id=application_id)
         next_step = str(resume.get("next_required_step") or "")
         if "fill_fit_map" in next_step or "draft" in next_step:
-            specialist = self.execute_specialist("fit-map", objective=message, model=model, variant=variant)
+            specialist = self.execute_specialist(
+                "fit-map",
+                objective=message,
+                extras={"application_id": application_id},
+                model=model,
+                variant=variant,
+            )
             return {"status": "blocked" if specialist.get("status") == "blocked" else "completed", "resume": resume, "specialist": specialist}
         return resume
 
@@ -879,7 +912,7 @@ class HarnessSupervisor:
     ) -> None:
         if not self.root:
             raise ValidationFailure("cellular harness requires a workspace root")
-        database = Database(self.root / ".career-state" / "career.db")
+        database = application_context_service.canonical_database(root=self.root)
         database.init_schema()
         try:
             lease = application_context_service.WorkspaceLease(
