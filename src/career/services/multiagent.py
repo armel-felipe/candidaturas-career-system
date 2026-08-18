@@ -186,7 +186,24 @@ def _fit_map_summary(
         return {"exists": False}
     payload = read_json(fit_map_path)
     active_fingerprint = active.get("fingerprint") if isinstance(active, dict) else None
-    state = (state_store or WorkflowStateStore()).load()
+    try:
+        state = (state_store or WorkflowStateStore()).load()
+    except ValueError as exc:
+        expected_application = (
+            str(state_store.application_id).strip()
+            if state_store is not None and state_store.application_id is not None
+            else ""
+        )
+        if not expected_application or str(exc) != f"unknown application: {expected_application}":
+            raise
+        state = {
+            "completed_states": [],
+            "task_history": [],
+            "fingerprints": {},
+            "active_job": None,
+            "active_intake": active if isinstance(active, dict) else None,
+            "active_application_id": expected_application or None,
+        }
     task_fingerprints = state.get("fingerprints") if isinstance(state.get("fingerprints"), dict) else {}
     fit_map_task = None
     for task_name in ("fit_map.validate", "fit_map.score", "fit_map.build"):

@@ -455,6 +455,41 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(payload["active_job"], {"fingerprint": "legacy-fingerprint"})
         self.assertEqual(payload["active_intake"], {"application_id": "legacy-app"})
 
+    def test_unregistered_canonical_shape_loads_metadata_without_file_gate_authority(
+        self,
+    ) -> None:
+        compatibility_path = (
+            self.root
+            / ".career-state"
+            / "applications_v2"
+            / "notion_578"
+            / "workflow_state.json"
+        )
+        compatibility_path.parent.mkdir(parents=True, exist_ok=True)
+        compatibility_path.write_text(
+            json.dumps(
+                {
+                    "completed_states": ["bogus_file_gate"],
+                    "task_history": [{"task": "bogus.local"}],
+                    "fingerprints": {"bogus.local": {"status": "ok"}},
+                    "active_intake": {
+                        "application_id": "notion_578",
+                        "company": "Conexa",
+                        "role": "Diretor de Growth",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        payload = WorkflowStateStore(path=compatibility_path).load()
+
+        self.assertEqual(payload["application_id"], "notion_578")
+        self.assertEqual(payload["completed_states"], [])
+        self.assertEqual(payload["task_history"], [])
+        self.assertEqual(payload["fingerprints"], {})
+        self.assertEqual(payload["active_intake"]["company"], "Conexa")
+
     def test_sync_global_pointer_honors_explicit_global_store_path_and_scoped_resume_reads_state(
         self,
     ) -> None:
@@ -502,6 +537,66 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(mirrored["active_intake"]["application_id"], self.primary.application_id)
         self.assertEqual(resumed["status"], "active_intake_ready")
         self.assertEqual(resumed["active_intake"]["application_id"], self.primary.application_id)
+
+    def test_unknown_active_pointer_is_metadata_only_and_never_a_gate_source(self) -> None:
+        career_state = self.root / ".career-state"
+        global_state = career_state / "workflow_state.json"
+        global_state.parent.mkdir(parents=True, exist_ok=True)
+        global_state.write_text(
+            json.dumps(
+                {
+                    "completed_states": ["stale_global_state"],
+                    "task_history": [{"task": "stale.global"}],
+                    "fingerprints": {"stale.global": {"status": "ok"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        pointer = career_state / "active_application.json"
+        WorkflowStateStore.write_active_pointer(
+            application_id="notion_578",
+            active_job={"path": "job_description.md", "fingerprint": "fp-stale"},
+            active_intake={
+                "application_id": "notion_578",
+                "company": "Conexa",
+                "role": "Diretor de Growth",
+            },
+            path=pointer,
+        )
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", global_state
+        ), mock.patch.object(database_module, "CAREER_STATE", career_state):
+            payload = WorkflowStateStore().load()
+
+        self.assertEqual(payload["application_id"], "notion_578")
+        self.assertEqual(payload["completed_states"], [])
+        self.assertEqual(payload["task_history"], [])
+        self.assertEqual(payload["fingerprints"], {})
+        self.assertEqual(payload["active_intake"]["company"], "Conexa")
+
+    def test_unscoped_store_ignores_stale_global_workflow_state_as_pointer(self) -> None:
+        career_state = self.root / ".career-state"
+        global_state = career_state / "workflow_state.json"
+        global_state.parent.mkdir(parents=True, exist_ok=True)
+        global_state.write_text(
+            json.dumps(
+                {
+                    "active_intake": {"application_id": "notion_578"},
+                    "completed_states": ["stale_global_state"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", global_state
+        ), mock.patch.object(database_module, "CAREER_STATE", career_state):
+            payload = WorkflowStateStore().load()
+
+        self.assertIsNone(payload["active_intake"])
+        self.assertEqual(payload["active_application_id"], None)
+        self.assertEqual(payload["completed_states"], [])
 
     def test_cli_workflow_run_task_requires_scope_before_invoking_registry(self) -> None:
         draft = self.root / "fit_map.draft.json"

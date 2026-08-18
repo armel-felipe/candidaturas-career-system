@@ -38,8 +38,15 @@ class WorkflowStateStore:
             pointer = self._load_pointer()
             pointed_application_id = str(pointer.get("application_id") or "").strip()
             if pointed_application_id:
-                scoped = self.for_application(pointed_application_id, database=self._database())
-                payload = scoped.load()
+                try:
+                    scoped = self.for_application(pointed_application_id, database=self._database())
+                    payload = scoped.load()
+                except ValueError as exc:
+                    if str(exc) != f"unknown application: {pointed_application_id}":
+                        raise
+                    payload = self._empty_payload()
+                    payload["application_id"] = pointed_application_id
+                    payload["next_required_step"] = None
                 if isinstance(pointer.get("active_intake"), dict):
                     payload["active_intake"] = dict(pointer["active_intake"])
                 if isinstance(pointer.get("active_job"), dict):
@@ -156,11 +163,18 @@ class WorkflowStateStore:
 
     def _load_application_projection(self, application_id: str) -> dict[str, Any]:
         repository = GateRepository(self._database())
-        payload = {
-            **DEFAULT_PAYLOAD,
-            **repository.compatibility_payload(application_id),
-        }
         metadata = self._load_application_metadata()
+        try:
+            payload = {
+                **DEFAULT_PAYLOAD,
+                **repository.compatibility_payload(application_id),
+            }
+        except ValueError as exc:
+            if not self._should_fallback_to_local_metadata_only(application_id, exc):
+                raise
+            payload = self._empty_payload()
+            payload["application_id"] = application_id
+            payload["next_required_step"] = None
         active_job = metadata.get("active_job")
         active_intake = metadata.get("active_intake")
         if isinstance(active_job, dict):
@@ -172,6 +186,17 @@ class WorkflowStateStore:
             payload["active_intake"] = None
             payload["active_application_id"] = application_id
         return payload
+
+    def _should_fallback_to_local_metadata_only(
+        self,
+        application_id: str,
+        error: ValueError,
+    ) -> bool:
+        if self.application_id is not None:
+            return False
+        if str(error) != f"unknown application: {application_id}":
+            return False
+        return self._resolved_application_id() == application_id
 
     def _load_application_metadata(self) -> dict[str, Any]:
         companion = self._application_state_path()
@@ -191,14 +216,8 @@ class WorkflowStateStore:
         return self.path.with_name("state.json")
 
     def _load_pointer(self) -> dict[str, Any]:
-        candidate_paths = []
         pointer_path = self._pointer_path(None)
-        if self.path == DEFAULT_STATE_PATH:
-            candidate_paths.append(pointer_path)
-        if self.path != pointer_path:
-            candidate_paths.append(self.path)
-        if self.path != DEFAULT_STATE_PATH:
-            candidate_paths.append(pointer_path)
+        candidate_paths = [pointer_path] if self.path == DEFAULT_STATE_PATH else [self.path]
         for candidate in candidate_paths:
             if candidate.exists():
                 payload = read_json(candidate)

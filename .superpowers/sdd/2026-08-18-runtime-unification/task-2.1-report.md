@@ -115,6 +115,68 @@ Resolved the final blocker in the same bounded Task 2.1 scope:
    `run-pipeline` calls do not reuse the reset application and instead require
    explicit scope / no active application resolution.
 
+### Controller regression follow-up
+
+Resolved the controller-only regression that was not covered by the fork suite:
+
+1. `WorkflowStateStore.load()` now preserves compatibility for canonical-shaped
+   application paths such as `applications_v2/<id>/workflow_state.json` when the
+   application has not yet been registered in canonical SQLite.
+2. In that compatibility case, the store now returns only a neutral gate projection
+   plus local `active_job` / `active_intake` metadata from the explicit file path.
+   It does not reuse local `completed_states`, `task_history`, `fingerprints`, or file
+   existence as gate receipts.
+3. Registered applications remain fully SQLite-projected, and truly scoped operations
+   that require database identity continue to fail closed on unknown applications.
+4. Added focused regressions reproducing the controller failures:
+   - `test_application_input_packs_read_application_fit_map`
+   - `test_generation_request_persists_text_outputs_inside_application`
+
+### Controller active-pointer compatibility follow-up
+
+Resolved the remaining controller compatibility gap on the unscoped global pointer path:
+
+1. When `WorkflowStateStore()` follows `active_application.json` to an application that is
+   not yet registered in canonical SQLite, it now returns a neutral gate projection plus
+   the pointer `active_job` / `active_intake` metadata instead of raising
+   `unknown application`.
+2. This fallback is limited to the unscoped pointer-read compatibility path.
+   Explicit `WorkflowStateStore(application_id=...)` and other scoped operations that
+   require database identity still fail closed on unknown applications.
+3. The pointer file remains non-authoritative for gates: no `completed_states`,
+   `task_history`, or `fingerprints` are sourced from global compatibility JSON.
+4. Added focused regression:
+   - `test_unscoped_global_pointer_unknown_application_returns_metadata_only`
+
+### Controller global-workflow-state pointer diagnosis fix
+
+Resolved the final controller diagnosis about stale global workflow-state authority:
+
+1. `WorkflowStateStore._load_pointer()` no longer treats the legacy global
+   `.career-state/workflow_state.json` as a pointer fallback for the default unscoped live
+   projection.
+2. Unscoped `WorkflowStateStore()` now reads only the canonical
+   `.career-state/active_application.json` pointer when discovering the active application.
+3. A legacy/global `workflow_state.json` remains readable only as an explicit file-backed
+   compatibility store, never as live selection authority.
+4. Added focused regression:
+   - `test_unscoped_default_store_ignores_stale_global_workflow_state_as_pointer`
+
+### Controller multiagent context-summary compatibility fix
+
+Resolved the last controller regression in the legacy intake/request suite:
+
+1. `multiagent._fit_map_summary()` now treats the supplied `state_store` as
+   metadata-only compatible when it raises the exact `unknown application: <id>`
+   error during context summary generation.
+2. This fallback is limited to the read-only fit summary path used by
+   `multiagent.write_request(...)`; it returns a neutral gate projection while still
+   preserving the explicit `fit_map_path` summary data.
+3. `WorkflowStateStore(application_id=...)`, `GateRepository`, gate recording, and task
+   execution remain fail-closed on unknown applications.
+4. Added focused regression:
+   - `test_write_request_with_application_id_without_db_registration_uses_metadata_only_fit_summary`
+
 ### Refactor / integration notes
 
 - Reused the existing `validation_receipts`, `gate_dependencies`, `application_runs`, and
@@ -159,6 +221,70 @@ Ran 1 test in 0.225s
 OK
 
 Ran 21 tests in 1.351s
+OK
+```
+
+Controller-targeted suite after compatibility fix:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions
+```
+
+Result:
+
+```text
+Ran 54 tests in 2.887s
+OK
+```
+
+Controller-targeted suite after active-pointer compatibility fix:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_intake_persistence.py
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions
+```
+
+Result:
+
+```text
+Ran 3 tests in 0.102s
+OK
+
+Ran 55 tests in 2.382s
+OK
+```
+
+Controller-targeted suite after removing global workflow-state pointer fallback:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence.IntakePersistenceCompatibilityTests.test_unscoped_default_store_ignores_stale_global_workflow_state_as_pointer
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions
+```
+
+Result:
+
+```text
+Ran 1 test in 0.014s
+OK
+
+Ran 56 tests in 2.964s
+OK
+```
+
+Controller-targeted suite after multiagent context-summary compatibility fix:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence.IntakePersistenceCompatibilityTests.test_write_request_with_application_id_without_db_registration_uses_metadata_only_fit_summary
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions
+```
+
+Result:
+
+```text
+Ran 1 test in 0.032s
+OK
+
+Ran 57 tests in 3.502s
 OK
 ```
 
@@ -208,5 +334,14 @@ OK
 - `workflow reset-state` no longer leaves the reset application implicitly selected through
   the active pointer; the next unscoped workflow command must resolve a different active app
   or receive explicit `--application-id`.
+- Canonical-shaped temporary application stores can now provide local active-intake metadata
+  before SQLite registration without fabricating gate completion from local JSON fields.
+- Unscoped global active-pointer reads now preserve that same metadata-only compatibility
+  when the pointed application is unknown to SQLite, without promoting the pointer to gate
+  authority.
+- The legacy global `workflow_state.json` no longer participates in active-application
+  pointer resolution for unscoped live reads.
+- `multiagent.write_request(...)` can summarize a known local FIT_MAP for an application
+  that is not yet registered in SQLite, without weakening gate/task fail-closed behavior.
 - Runtime diagnosis reports the legacy global workflow-state JSON as non-authoritative and
   surfaces active-pointer/SQLite-derived status instead of stale `completed_states` history.
