@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -13,6 +14,8 @@ from career.services import derived_context as derived_context_service
 from career.services import fit_map as fit_map_service
 from career.services import notion as notion_service
 from career.services import project as project_service
+from career.services.database import Database
+from career.services.persistence.application_repository import ApplicationRecord
 from career.tasks.registry import run_task
 from career.utils import (
     ValidationFailure,
@@ -60,6 +63,85 @@ INTAKE_FINGERPRINTS_TO_CLEAR = {
     "cv.review",
     "cv.approve",
 }
+
+
+@dataclass(frozen=True)
+class JobSource:
+    """Normalized source accepted by the canonical SQLite intake boundary."""
+
+    source_type: str
+    source_id: str | None
+    company: str
+    role: str
+    text: str
+    application_id: str | None = None
+    notion_id: str | None = None
+    record_id: int | str | None = None
+    source_url: str | None = None
+    source_metadata: dict[str, Any] = field(default_factory=dict)
+    preferred_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.application_id is None and self.preferred_id:
+            object.__setattr__(self, "application_id", self.preferred_id)
+
+
+def start_intake(source: JobSource, *, database: Database | None = None) -> ApplicationRecord:
+    """Persist canonical intake records before draft/context materialization."""
+    if not isinstance(source, JobSource):
+        raise TypeError("start_intake requires JobSource")
+    fingerprint = sha256_text(source.text)
+    paths, record = application_context_service.persist_intake(
+        source_type=source.source_type,
+        source_id=source.source_id,
+        company=source.company,
+        role=source.role,
+        source_text=source.text,
+        fingerprint=fingerprint,
+        record_id=source.record_id if source.record_id is not None else source.notion_id,
+        preferred_id=source.preferred_id or source.application_id,
+        source_url=source.source_url,
+        source_metadata=source.source_metadata,
+        database=database,
+    )
+    capture_source(
+        paths,
+        source_text=source.text,
+        source_metadata={
+            **source.source_metadata,
+            "source_id": source.source_id,
+            "source_type": source.source_type,
+        },
+    )
+    compatibility_store = WorkflowStateStore.for_application(
+        record.application_id,
+        database=database,
+    )
+    compatibility_store.payload = {
+        "active_job": {
+            "path": _relative(paths.job_description),
+            "fingerprint": fingerprint,
+            "company": record.company,
+            "role": record.role,
+            "source": f"intake.{source.source_type}",
+        },
+        "active_intake": {
+            "application_id": record.application_id,
+            "application_dir": _relative(paths.app_dir),
+            "source_type": source.source_type,
+            "source_id": source.source_id,
+            "company": record.company,
+            "role": record.role,
+            "job_description_path": _relative(paths.job_description),
+            "description_chars": len(source.text),
+            "fingerprint": fingerprint,
+            "status": "job_description_saved",
+            "next_required_step": "fill_fit_map_draft",
+            "updated_at": utc_now_iso(),
+        },
+    }
+    compatibility_store.save()
+    return record
 
 
 def capture_source(
@@ -370,6 +452,7 @@ def _status_payload(
     payload = {
         "status": "ready_for_model_analysis",
         "application_id": extra.get("application_id") if extra else None,
+        "fingerprint": extra.get("fingerprint") if extra else None,
         "application_dir": extra.get("application_dir") if extra else None,
         "source_type": source_type,
         "source_id": source_id,
@@ -483,24 +566,31 @@ def from_notion_record(
         INBOX / "job_descriptions",
     )
     path = ROOT / result["job_description_path"]
-    app_paths = application_context_service.ensure_application(
-        source_type="notion_record",
-        source_id=str(record_id),
-        company=result.get("company"),
-        role=result.get("role"),
-        record_id=record_id,
-        preferred_id=application_id,
+    source_text = path.read_text(encoding="utf-8", errors="replace")
+    application = start_intake(
+        JobSource(
+            source_type="notion_record",
+            source_id=str(record_id),
+            company=str(result.get("company") or ""),
+            role=str(result.get("role") or ""),
+            text=source_text,
+            record_id=record_id,
+            source_url=str(result.get("source_url") or result.get("url") or "") or None,
+            source_metadata=result,
+            preferred_id=application_id,
+        )
     )
-    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
+    app_paths = application_context_service.paths_for(application.application_id)
+    state_store = _ensure_scoped_state_store(state_store, application.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="notion_record",
         source_id=str(record_id),
-        job_description_path=path,
+        job_description_path=app_paths.job_description,
         company=result.get("company"),
         role=result.get("role"),
         record_id=record_id,
-        extra=result,
+        extra={**result, "fingerprint": application.fingerprint},
     )
 
 
@@ -512,22 +602,28 @@ def from_paste(
     state_store: WorkflowStateStore | None = None,
     application_id: str | None = None,
 ) -> dict[str, Any]:
-    app_paths = application_context_service.ensure_application(
-        source_type="pasted_text",
-        source_id=None,
-        company=company,
-        role=role,
-        preferred_id=application_id,
+    application = start_intake(
+        JobSource(
+            source_type="pasted_text",
+            source_id=None,
+            company=company,
+            role=role,
+            text=text,
+            preferred_id=application_id,
+        )
     )
-    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
+    app_paths = application_context_service.paths_for(application.application_id)
+    state_store = _ensure_scoped_state_store(state_store, application.application_id)
     output_path = project_service.save_job_description(company, role, text, INBOX / "job_descriptions")
+    write_text(app_paths.saved_job_description, _relative(output_path) + "\n")
     return _run_ready_pipeline(
         state_store,
         source_type="pasted_text",
         source_id=None,
-        job_description_path=output_path,
+        job_description_path=app_paths.job_description,
         company=company,
         role=role,
+        extra={"fingerprint": application.fingerprint},
     )
 
 
@@ -604,22 +700,29 @@ def from_linkedin_job(
             f"(company={result.get('company')!r}, role={result.get('role')!r}). "
             "Fix scripts/linkedin_extract_job.js inference before continuing."
         )
-    app_paths = application_context_service.ensure_application(
-        source_type="linkedin_job",
-        source_id=url,
-        company=result.get("company"),
-        role=result.get("role"),
-        preferred_id=application_id,
+    source_text = path.read_text(encoding="utf-8", errors="replace")
+    application = start_intake(
+        JobSource(
+            source_type="linkedin_job",
+            source_id=url,
+            company=str(result.get("company") or ""),
+            role=str(result.get("role") or ""),
+            text=source_text,
+            source_url=url,
+            source_metadata=result,
+            preferred_id=application_id,
+        )
     )
-    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
+    app_paths = application_context_service.paths_for(application.application_id)
+    state_store = _ensure_scoped_state_store(state_store, application.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_job",
         source_id=url,
-        job_description_path=path,
+        job_description_path=app_paths.job_description,
         company=result.get("company"),
         role=result.get("role"),
-        extra=result,
+        extra={**result, "fingerprint": application.fingerprint},
     )
 
 
@@ -647,22 +750,29 @@ def from_linkedin_post(
         ]
     )
     path = _canonical_saved_path(stdout, result.get("job_output_path"))
-    app_paths = application_context_service.ensure_application(
-        source_type="linkedin_post",
-        source_id=url,
-        company=company,
-        role=role,
-        preferred_id=application_id,
+    source_text = path.read_text(encoding="utf-8", errors="replace")
+    application = start_intake(
+        JobSource(
+            source_type="linkedin_post",
+            source_id=url,
+            company=company,
+            role=role,
+            text=source_text,
+            source_url=url,
+            source_metadata=result,
+            preferred_id=application_id,
+        )
     )
-    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
+    app_paths = application_context_service.paths_for(application.application_id)
+    state_store = _ensure_scoped_state_store(state_store, application.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_post",
         source_id=url,
-        job_description_path=path,
+        job_description_path=app_paths.job_description,
         company=company,
         role=role,
-        extra=result,
+        extra={**result, "fingerprint": application.fingerprint},
     )
 
 
@@ -709,22 +819,29 @@ def from_url(
             f"(company={result.get('company')!r}, role={result.get('role')!r}). "
             "Retry with --company/--role or paste the raw job text."
         )
-    app_paths = application_context_service.ensure_application(
-        source_type="external_url",
-        source_id=url,
-        company=result.get("company"),
-        role=result.get("role"),
-        preferred_id=application_id,
+    source_text = path.read_text(encoding="utf-8", errors="replace")
+    application = start_intake(
+        JobSource(
+            source_type="external_url",
+            source_id=url,
+            company=str(result.get("company") or ""),
+            role=str(result.get("role") or ""),
+            text=source_text,
+            source_url=url,
+            source_metadata=result,
+            preferred_id=application_id,
+        )
     )
-    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
+    app_paths = application_context_service.paths_for(application.application_id)
+    state_store = _ensure_scoped_state_store(state_store, application.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="external_url",
         source_id=url,
-        job_description_path=path,
+        job_description_path=app_paths.job_description,
         company=result.get("company"),
         role=result.get("role"),
-        extra=result,
+        extra={**result, "fingerprint": application.fingerprint},
     )
 
 

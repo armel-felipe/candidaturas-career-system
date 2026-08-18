@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from career.paths import CAREER_STATE, ROOT
 from career.services.database import Database
@@ -18,7 +20,7 @@ from career.services.persistence.application_repository import (
     ApplicationRecord,
     ApplicationRepository,
 )
-from career.utils import read_json, utc_now_iso, write_json
+from career.utils import read_json, utc_now_iso, write_json, write_text
 
 
 APPLICATIONS_DIR = CAREER_STATE / "applications_v2"
@@ -356,7 +358,7 @@ def paths_for(application_id: str, root: Path | None = None) -> ApplicationPaths
     )
 
 
-def ensure_application(
+def application_id_for(
     *,
     source_type: str,
     source_id: str | None = None,
@@ -364,18 +366,29 @@ def ensure_application(
     role: str | None = None,
     record_id: int | str | None = None,
     preferred_id: str | None = None,
-) -> ApplicationPaths:
+) -> str:
+    """Build an application id without persisting state or compatibility files."""
     if preferred_id:
         validate_application_id(preferred_id)
-        application_id = _slug(preferred_id)
-    elif record_id is not None:
-        application_id = f"notion_{_slug(str(record_id))}"
-    else:
-        basis = "|".join([source_type, source_id or "", company or "", role or ""])
-        stamp = utc_now_iso().replace("-", "").replace(":", "").replace(".", "_").split("+")[0]
-        application_id = f"local_{stamp}_{_slug(company or source_type)}_{_short_hash(basis)}"
+        return _slug(preferred_id)
+    if record_id is not None:
+        return f"notion_{_slug(str(record_id))}"
+    basis = "|".join([source_type, source_id or "", company or "", role or ""])
+    stamp = utc_now_iso().replace("-", "").replace(":", "").replace(".", "_").split("+")[0]
+    return f"local_{stamp}_{_slug(company or source_type)}_{_short_hash(basis)}"
 
-    paths = paths_for(application_id)
+
+def materialize_compatibility_identity(
+    paths: ApplicationPaths,
+    *,
+    source_type: str,
+    source_id: str | None = None,
+    company: str | None = None,
+    role: str | None = None,
+    record_id: int | str | None = None,
+    source_url: str | None = None,
+) -> None:
+    """Write non-authoritative path mirrors after canonical SQLite persistence."""
     paths.app_dir.mkdir(parents=True, exist_ok=True)
     for directory in (
         paths.plans_dir,
@@ -386,7 +399,6 @@ def ensure_application(
         paths.requests_dir,
     ):
         directory.mkdir(parents=True, exist_ok=True)
-
     existing_identity = read_json(paths.identity) if paths.identity.exists() else {}
     aliases = (
         dict(existing_identity.get("aliases"))
@@ -399,20 +411,62 @@ def ensure_application(
         aliases[f"{source_type}_source_id"] = source_id
     identity = {
         "kind": "application_identity",
-        "application_id": application_id,
+        "application_id": paths.application_id,
         "created_at": existing_identity.get("created_at") or utc_now_iso(),
         "updated_at": utc_now_iso(),
         "source_type": source_type,
         "source_id": source_id,
+        "source_url": source_url or existing_identity.get("source_url") or "",
         "company": company or existing_identity.get("company") or "",
         "role": role or existing_identity.get("role") or "",
         "aliases": aliases,
     }
+    write_json(paths.identity, identity)
+    _update_alias_index(paths.application_id, aliases)
+    if not paths.state.exists():
+        write_json(
+            paths.state,
+            {
+                "kind": "application_state",
+                "application_id": paths.application_id,
+                "stage": "created",
+                "stage_status": "pending",
+                "created_at": utc_now_iso(),
+                "updated_at": utc_now_iso(),
+                "last_execution": None,
+            },
+        )
+
+
+def ensure_application(
+    *,
+    source_type: str,
+    source_id: str | None = None,
+    company: str | None = None,
+    role: str | None = None,
+    record_id: int | str | None = None,
+    preferred_id: str | None = None,
+) -> ApplicationPaths:
+    application_id = application_id_for(
+        source_type=source_type,
+        source_id=source_id,
+        company=company,
+        role=role,
+        record_id=record_id,
+        preferred_id=preferred_id,
+    )
+    paths = paths_for(application_id)
+    existing_identity = read_json(paths.identity) if paths.identity.exists() else {}
+    aliases = dict(existing_identity.get("aliases")) if isinstance(existing_identity.get("aliases"), dict) else {}
+    if record_id is not None:
+        aliases["notion_record_id"] = str(record_id)
+    if source_id:
+        aliases[f"{source_type}_source_id"] = source_id
     _repository().create_application(
         ApplicationIdentity(
             application_id=application_id,
-            company=str(identity.get("company") or ""),
-            role=str(identity.get("role") or ""),
+            company=str(company or existing_identity.get("company") or ""),
+            role=str(role or existing_identity.get("role") or ""),
             notion_id=str(aliases.get("notion_record_id"))
             if aliases.get("notion_record_id")
             else None,
@@ -427,8 +481,188 @@ def ensure_application(
             },
         )
     )
-    write_json(paths.identity, identity)
-    _update_alias_index(application_id, aliases)
+    materialize_compatibility_identity(
+        paths,
+        source_type=source_type,
+        source_id=source_id,
+        company=company,
+        role=role,
+        record_id=record_id,
+        source_url=str(existing_identity.get("source_url")) if existing_identity.get("source_url") else None,
+    )
+    return paths
+
+
+def persist_intake(
+    *,
+    source_type: str,
+    source_id: str | None,
+    company: str,
+    role: str,
+    source_text: str,
+    fingerprint: str,
+    record_id: int | str | None = None,
+    preferred_id: str | None = None,
+    source_url: str | None = None,
+    source_metadata: dict[str, Any] | None = None,
+    database: Database | None = None,
+) -> tuple[ApplicationPaths, ApplicationRecord]:
+    """Commit canonical intake identity and description before file mirrors.
+
+    Application directories and JSON files are compatibility materializations.
+    They are deliberately written only after the SQLite transaction succeeds.
+    """
+    company = str(company or "").strip()
+    role = str(role or "").strip()
+    source_text = str(source_text or "")
+    fingerprint = str(fingerprint or "").strip()
+    if not company or not role:
+        raise ValueError("intake requires company and role")
+    if not source_text.strip():
+        raise ValueError("intake source_text must be non-empty")
+    expected_fingerprint = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+    if fingerprint != expected_fingerprint:
+        raise ValueError("intake fingerprint does not match source_text")
+
+    if preferred_id:
+        application_id = _slug(validate_application_id(preferred_id))
+    elif record_id is not None:
+        application_id = f"notion_{_slug(str(record_id))}"
+    else:
+        basis = "|".join([source_type, source_id or "", company, role])
+        stamp = utc_now_iso().replace("-", "").replace(":", "").replace(".", "_").split("+")[0]
+        application_id = f"local_{stamp}_{_slug(company or source_type)}_{_short_hash(basis)}"
+
+    paths = paths_for(application_id)
+    repository_database = database or Database(db_path=CAREER_STATE / "career.db")
+    repository_database.migrate()
+    now = utc_now_iso()
+    aliases: dict[str, str] = {}
+    if record_id is not None:
+        aliases["notion_id"] = str(record_id)
+    if source_id:
+        aliases[f"{source_type}_source_id"] = str(source_id)
+    metadata = dict(source_metadata or {})
+    source_row_id = f"source_{uuid4().hex}"
+    description_id = f"job_{uuid4().hex}"
+    source_url = str(source_url or "").strip() or None
+    description_path = _relative(paths.job_description)
+
+    with repository_database.transaction(immediate=True) as conn:
+        existing = conn.execute(
+            "SELECT created_at FROM applications WHERE id = ?", (application_id,)
+        ).fetchone()
+        created_at = str(existing["created_at"]) if existing is not None else now
+        conn.execute(
+            """INSERT INTO applications
+               (id, notion_id, company, role, source_type, source_url, stage,
+                funil_stage, cv_language, status, created_at, updated_at,
+                job_description_path)
+               VALUES (?, ?, ?, ?, ?, ?, 'analyze_pending', 'Fila Agente',
+                       'pt', 'active', ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 notion_id = COALESCE(excluded.notion_id, applications.notion_id),
+                 company = excluded.company,
+                 role = excluded.role,
+                 source_type = excluded.source_type,
+                 source_url = COALESCE(excluded.source_url, applications.source_url),
+                 job_description_path = excluded.job_description_path,
+                 updated_at = excluded.updated_at""",
+            (
+                application_id,
+                str(record_id) if record_id is not None else None,
+                company,
+                role,
+                source_type,
+                source_url,
+                created_at,
+                now,
+                description_path,
+            ),
+        )
+        for alias_type, alias_value in aliases.items():
+            alias_owner = conn.execute(
+                """SELECT application_id FROM application_aliases
+                   WHERE alias_type = ? AND alias_value = ?""",
+                (alias_type, alias_value),
+            ).fetchone()
+            if alias_owner is not None and str(alias_owner["application_id"]) != application_id:
+                raise ValueError(
+                    f"alias {alias_type}={alias_value} already belongs to {alias_owner['application_id']}"
+                )
+            conn.execute(
+                """INSERT INTO application_aliases
+                   (application_id, alias_type, alias_value, is_primary, created_at)
+                   VALUES (?, ?, ?, 1, ?)
+                   ON CONFLICT(alias_type, alias_value) DO UPDATE SET is_primary = 1""",
+                (application_id, alias_type, alias_value, now),
+            )
+        conn.execute(
+            """INSERT OR IGNORE INTO application_revisions
+               (revision_id, application_id, revision_kind, fingerprint, source_hash,
+                payload_json, created_at)
+               VALUES (?, ?, 'intake_identity', ?, ?, '{}', ?)""",
+            (f"rev_{uuid4().hex}", application_id, fingerprint, fingerprint, now),
+        )
+        conn.execute(
+            """INSERT INTO job_sources
+               (source_id, application_id, source_type, source_url, fingerprint,
+                metadata_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                source_row_id,
+                application_id,
+                source_type,
+                source_url,
+                fingerprint,
+                json.dumps(metadata, sort_keys=True, separators=(",", ":"), default=str),
+                now,
+            ),
+        )
+        conn.execute(
+            """INSERT INTO job_descriptions
+               (description_id, application_id, source_id, language, content,
+                content_hash, created_at)
+               VALUES (?, ?, ?, NULL, ?, ?, ?)""",
+            (description_id, application_id, source_row_id, source_text, fingerprint, now),
+        )
+
+    for directory in (
+        paths.app_dir,
+        paths.plans_dir,
+        paths.cells_dir,
+        paths.artifacts_dir,
+        paths.reviews_dir,
+        paths.derived_dir,
+        paths.requests_dir,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    existing_identity = read_json(paths.identity) if paths.identity.exists() else {}
+    identity_aliases = (
+        dict(existing_identity.get("aliases"))
+        if isinstance(existing_identity.get("aliases"), dict)
+        else {}
+    )
+    if record_id is not None:
+        identity_aliases["notion_record_id"] = str(record_id)
+    if source_id:
+        identity_aliases[f"{source_type}_source_id"] = str(source_id)
+    write_json(
+        paths.identity,
+        {
+            "kind": "application_identity",
+            "application_id": application_id,
+            "created_at": existing_identity.get("created_at") or now,
+            "updated_at": now,
+            "source_type": source_type,
+            "source_id": source_id,
+            "company": company,
+            "role": role,
+            "aliases": identity_aliases,
+        },
+    )
+    write_text(paths.job_description, source_text)
+    _update_alias_index(application_id, identity_aliases)
     if not paths.state.exists():
         write_json(
             paths.state,
@@ -437,12 +671,19 @@ def ensure_application(
                 "application_id": application_id,
                 "stage": "created",
                 "stage_status": "pending",
-                "created_at": utc_now_iso(),
-                "updated_at": utc_now_iso(),
+                "created_at": now,
+                "updated_at": now,
                 "last_execution": None,
             },
         )
-    return paths
+    return paths, ApplicationRepository(repository_database).resolve(application_id=application_id)
+
+
+def resolve_active_application() -> ApplicationRecord:
+    """Reject legacy active-pointer resolution in agent execution paths."""
+    raise RuntimeError(
+        "active application pointers are discovery metadata only; agent execution requires explicit application_id"
+    )
 
 
 def _update_alias_index(application_id: str, aliases: dict[str, Any]) -> None:
@@ -511,6 +752,7 @@ def resolve_application(
     company: str | None = None,
     role: str | None = None,
     database: Database | None = None,
+    allow_legacy: bool = True,
 ) -> ApplicationRecord:
     explicit_application_id = str(application_id or "").strip()
     sole_application_selector = bool(explicit_application_id) and not any(
@@ -530,7 +772,7 @@ def resolve_application(
             role=role,
         )
     except ApplicationNotFoundError:
-        if sole_application_selector:
+        if allow_legacy and sole_application_selector:
             return _legacy_record_from_files(
                 validate_application_id(explicit_application_id)
             )
@@ -648,8 +890,9 @@ def migrate_global_state(*, application_id: str | None = None, dry_run: bool = F
     state_path = CAREER_STATE / "workflow_state.json"
     state = read_json(state_path) if state_path.exists() else {}
     active = state.get("active_intake") if isinstance(state.get("active_intake"), dict) else {}
-    company = str(active.get("company") or "legacy")
-    role = str(active.get("role") or "active")
+    legacy_fit_map = read_json(CAREER_STATE / "fit_map.json") if (CAREER_STATE / "fit_map.json").exists() else {}
+    company = str(active.get("company") or legacy_fit_map.get("empresa") or "legacy")
+    role = str(active.get("role") or legacy_fit_map.get("cargo") or "active")
     preferred = application_id or f"legacy_{_slug(company)}_{_slug(role)}"
     if dry_run:
         paths = paths_for(_slug(preferred))
@@ -688,6 +931,25 @@ def migrate_global_state(*, application_id: str | None = None, dry_run: bool = F
         if not dry_run:
             shutil.copy2(job_path, paths.job_description)
             paths.saved_job_description.write_text(_relative(job_path) + "\n", encoding="utf-8")
+    if not dry_run and paths.workflow_state.exists():
+        application_payload = read_json(paths.workflow_state)
+        active_intake = application_payload.get("active_intake")
+        if isinstance(active_intake, dict):
+            active_intake["application_id"] = paths.application_id
+            active_intake["application_dir"] = _relative(paths.app_dir)
+            if paths.job_description.exists():
+                active_intake["job_description_path"] = _relative(paths.job_description)
+            if paths.fit_map_draft.exists():
+                active_intake["draft_path"] = _relative(paths.fit_map_draft)
+            if paths.fit_map.exists():
+                active_intake["fit_map_path"] = _relative(paths.fit_map)
+            application_payload["active_intake"] = active_intake
+            active_job = application_payload.get("active_job")
+            if isinstance(active_job, dict) and paths.job_description.exists():
+                active_job["path"] = _relative(paths.job_description)
+                application_payload["active_job"] = active_job
+            application_payload["active_application_id"] = paths.application_id
+            write_json(paths.workflow_state, application_payload)
     return {
         "status": "ok",
         "dry_run": dry_run,

@@ -8,6 +8,8 @@ from career.services import application_context as application_context_service
 from career.services import fit_map as fit_map_service
 from career.services import intake as intake_service
 from career.services import multiagent as multiagent_service
+from career.services.database import Database
+from career.services.persistence.application_repository import ApplicationNotFoundError
 from career.utils import ValidationFailure
 from career.workflow.state_store import WorkflowStateStore
 
@@ -59,21 +61,73 @@ def _active_intake_payload(state_store: WorkflowStateStore) -> dict[str, Any] | 
     return active if isinstance(active, dict) else None
 
 
-def guard(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
-    explicit_state_store = state_store is not None
-    state_store = state_store or WorkflowStateStore()
+def guard(
+    state_store: WorkflowStateStore | None = None,
+    *,
+    application_id: str | None = None,
+    fingerprint: str | None = None,
+    database: Database | None = None,
+) -> dict[str, Any]:
+    """Validate a declared, SQLite-resolved application before agent work.
+
+    Active pointers are intentionally not consulted here: they are discovery
+    metadata and cannot authorize draft/context creation for an agent.
+    """
+    application_id = str(application_id or "").strip()
+    fingerprint = str(fingerprint or "").strip()
+    if not application_id:
+        return {
+            "status": "blocked",
+            "reason": "explicit_application_scope_required",
+            "forbidden_actions": FORBIDDEN_ACTIONS,
+        }
+    if not fingerprint:
+        return {
+            "status": "blocked",
+            "reason": "application_fingerprint_required",
+            "application_id": application_id,
+            "forbidden_actions": FORBIDDEN_ACTIONS,
+        }
+    try:
+        application = application_context_service.resolve_application(
+            application_id=application_id,
+            database=database,
+            allow_legacy=False,
+        )
+    except ApplicationNotFoundError:
+        return {
+            "status": "blocked",
+            "reason": "unknown_application",
+            "application_id": application_id,
+            "forbidden_actions": FORBIDDEN_ACTIONS,
+        }
+    if application.fingerprint != fingerprint:
+        return {
+            "status": "blocked",
+            "reason": "application_fingerprint_mismatch",
+            "application_id": application_id,
+            "forbidden_actions": FORBIDDEN_ACTIONS,
+        }
+    if state_store is not None and state_store.application_id not in {None, application_id}:
+        return {
+            "status": "blocked",
+            "reason": "application_scope_mismatch",
+            "application_id": application_id,
+            "forbidden_actions": FORBIDDEN_ACTIONS,
+        }
+    state_store = state_store or WorkflowStateStore.for_application(
+        application_id, database=database
+    )
     forbidden_files = forbidden_root_files()
     active = _active_intake_payload(state_store)
-    application_paths = None
-    if not explicit_state_store and isinstance(active, dict):
-        application_id = str(active.get("application_id") or "").strip()
-        if application_id:
-            application_paths = application_context_service.paths_for(application_id)
-            scoped_store = WorkflowStateStore.for_application(application_id)
-            scoped_active = _active_intake_payload(scoped_store)
-            if scoped_active:
-                state_store = scoped_store
-                active = scoped_active
+    application_root = (
+        state_store.path.parent.parent
+        if state_store.path.parent.parent.name == "applications_v2"
+        else None
+    )
+    application_paths = application_context_service.paths_for(
+        application_id, root=application_root
+    )
 
     if forbidden_files:
         return {
@@ -100,7 +154,15 @@ def guard(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
             "forbidden_actions": FORBIDDEN_ACTIONS,
         }
 
-    job_path = ROOT / str(active["job_description_path"])
+    active_fingerprint = str(active.get("fingerprint") or "").strip()
+    if active_fingerprint and active_fingerprint != fingerprint:
+        return {
+            "status": "blocked",
+            "reason": "application_fingerprint_mismatch",
+            "application_id": application_id,
+            "forbidden_actions": FORBIDDEN_ACTIONS,
+        }
+    job_path = application_paths.job_description
     if not job_path.exists():
         return {
             "status": "blocked",
@@ -159,9 +221,23 @@ def guard(state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
 
 
 def evaluate_notion(record_id: int, state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
-    state_store = state_store or WorkflowStateStore()
-    intake_result = intake_service.from_notion_record(record_id, state_store=state_store)
-    guard_result = guard(state_store=state_store)
+    # A Notion evaluation creates/resumes a cellular application.  Passing the
+    # legacy global store here makes intake persist the job in the global state
+    # while the application identity is written to applications_v2.  Resolve
+    # the application first, then guard the same scoped state that intake used.
+    intake_result = intake_service.from_notion_record(record_id)
+    application_id = str(intake_result.get("application_id") or "").strip()
+    fingerprint = str(intake_result.get("fingerprint") or "").strip()
+    scoped_state_store = (
+        WorkflowStateStore.for_application(application_id)
+        if application_id
+        else state_store or WorkflowStateStore()
+    )
+    guard_result = guard(
+        state_store=scoped_state_store,
+        application_id=application_id,
+        fingerprint=fingerprint,
+    )
     if guard_result.get("status") != "ok":
         raise ValidationFailure(f"agent guard blocked after intake: {guard_result.get('reason')}")
     return {
@@ -172,6 +248,7 @@ def evaluate_notion(record_id: int, state_store: WorkflowStateStore | None = Non
             "job_description_path": intake_result.get("job_description_path"),
             "next_required_step": intake_result.get("next_required_step"),
             "description_chars": intake_result.get("description_chars"),
+            "fingerprint": fingerprint,
         },
         "guard": guard_result,
     }
