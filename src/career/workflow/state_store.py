@@ -25,7 +25,7 @@ ACTIVE_POINTER_FILENAME = "active_application.json"
 class WorkflowStateStore:
     application_id: str | None = None
     database: Database | None = None
-    path: Path = DEFAULT_STATE_PATH
+    path: Path = field(default_factory=lambda: DEFAULT_STATE_PATH)
     payload: dict[str, Any] = field(default_factory=dict)
 
     def load(self) -> dict[str, Any]:
@@ -34,28 +34,39 @@ class WorkflowStateStore:
             self.payload = self._load_application_projection(application_id)
             return self.payload
 
-        pointer = self._load_pointer()
-        pointed_application_id = str(pointer.get("application_id") or "").strip()
-        if pointed_application_id:
-            scoped = self.for_application(pointed_application_id, database=self._database())
-            payload = scoped.load()
-            if isinstance(pointer.get("active_intake"), dict):
-                payload["active_intake"] = dict(pointer["active_intake"])
-            if isinstance(pointer.get("active_job"), dict):
-                payload["active_job"] = dict(pointer["active_job"])
-            payload["active_application_id"] = pointed_application_id
-            self.payload = payload
+        if self._uses_global_pointer_projection():
+            pointer = self._load_pointer()
+            pointed_application_id = str(pointer.get("application_id") or "").strip()
+            if pointed_application_id:
+                scoped = self.for_application(pointed_application_id, database=self._database())
+                payload = scoped.load()
+                if isinstance(pointer.get("active_intake"), dict):
+                    payload["active_intake"] = dict(pointer["active_intake"])
+                if isinstance(pointer.get("active_job"), dict):
+                    payload["active_job"] = dict(pointer["active_job"])
+                payload["active_application_id"] = pointed_application_id
+                self.payload = payload
+                return self.payload
+
+            self.payload = self._empty_payload()
             return self.payload
 
-        self.payload = dict(DEFAULT_PAYLOAD)
-        self.payload["active_intake"] = None
-        self.payload["active_application_id"] = None
+        if self.path.exists():
+            payload = read_json(self.path)
+            if isinstance(payload, dict):
+                self.payload = {**self._empty_payload(), **payload}
+                return self.payload
+
+        self.payload = self._empty_payload()
         return self.payload
 
     def save(self) -> None:
         application_id = self._resolved_application_id()
         if application_id is None:
-            raise RuntimeError("unscoped workflow state writes are not supported")
+            if not self._uses_file_backed_compatibility_store():
+                raise RuntimeError("unscoped workflow state writes are not supported")
+            write_json(self.path, self.payload)
+            return
         companion = self._application_state_path()
         companion.parent.mkdir(parents=True, exist_ok=True)
         current = read_json(companion) if companion.exists() else {
@@ -74,7 +85,11 @@ class WorkflowStateStore:
     def reset(self) -> None:
         application_id = self._resolved_application_id()
         if application_id is None:
-            raise RuntimeError("unscoped workflow state resets are not supported")
+            if not self._uses_file_backed_compatibility_store():
+                raise RuntimeError("unscoped workflow state resets are not supported")
+            self.payload = self._empty_payload()
+            write_json(self.path, self.payload)
+            return
         companion = self._application_state_path()
         if companion.exists():
             current = read_json(companion)
@@ -134,9 +149,10 @@ class WorkflowStateStore:
         if self.path.name not in {"workflow_state.json", "state.json"}:
             return None
         parent = self.path.parent
-        if parent.name and parent.name not in {".career-state", "applications_v2"}:
-            return parent.name
-        return None
+        grandparent = parent.parent
+        if grandparent.name != "applications_v2" or not parent.name:
+            return None
+        return parent.name
 
     def _load_application_projection(self, application_id: str) -> dict[str, Any]:
         repository = GateRepository(self._database())
@@ -177,15 +193,35 @@ class WorkflowStateStore:
     def _load_pointer(self) -> dict[str, Any]:
         candidate_paths = []
         pointer_path = self._pointer_path(None)
-        candidate_paths.append(pointer_path)
+        if self.path == DEFAULT_STATE_PATH:
+            candidate_paths.append(pointer_path)
         if self.path != pointer_path:
             candidate_paths.append(self.path)
+        if self.path != DEFAULT_STATE_PATH:
+            candidate_paths.append(pointer_path)
         for candidate in candidate_paths:
             if candidate.exists():
                 payload = read_json(candidate)
                 if isinstance(payload, dict):
                     return payload
         return {}
+
+    def _uses_global_pointer_projection(self) -> bool:
+        return self.path in {DEFAULT_STATE_PATH, self._pointer_path(None)}
+
+    def _uses_file_backed_compatibility_store(self) -> bool:
+        return self._resolved_application_id() is None and not self._uses_global_pointer_projection()
+
+    @staticmethod
+    def _empty_payload() -> dict[str, Any]:
+        return {
+            "completed_states": [],
+            "task_history": [],
+            "fingerprints": {},
+            "active_job": None,
+            "active_intake": None,
+            "active_application_id": None,
+        }
 
     @classmethod
     def _pointer_path(cls, override: Path | None) -> Path:

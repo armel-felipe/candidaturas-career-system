@@ -11,6 +11,7 @@ import validate_project_structure as legacy_validate_project_structure
 from career.paths import CAREER_STATE, ROOT
 from career.services import fit_map as fit_map_service
 from career.utils import read_json, sha256_file, sha256_text, write_json, write_text
+from career.workflow.state_store import WorkflowStateStore
 
 
 def validate_structure() -> None:
@@ -28,12 +29,14 @@ def save_job_description(company: str, role: str, text: str, output_dir: Path) -
 
 def diagnose_runtime() -> dict[str, Any]:
     workflow_state = CAREER_STATE / "workflow_state.json"
+    active_pointer = CAREER_STATE / "active_application.json"
     python_wrapper = ROOT / "scripts" / "python.sh"
     keyword_registry = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
     translation_candidates = ROOT / ".career-state" / "derived" / "keyword_translation_candidates.json"
     macos_soffice = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
     soffice = shutil.which("libreoffice") or shutil.which("soffice") or (str(macos_soffice) if macos_soffice.exists() else None)
-    payload = read_json(workflow_state) if workflow_state.exists() else {}
+    payload = WorkflowStateStore().load()
+    history = payload.get("task_history", [])
     return {
         "platform": {
             "system": platform.system(),
@@ -60,8 +63,13 @@ def diagnose_runtime() -> dict[str, Any]:
             "path": str(workflow_state.relative_to(ROOT)),
             "exists": workflow_state.exists(),
             "bytes": workflow_state.stat().st_size if workflow_state.exists() else 0,
+            "authoritative": False,
+            "active_pointer_path": str(active_pointer.relative_to(ROOT)),
+            "active_pointer_exists": active_pointer.exists(),
+            "active_application_id": payload.get("active_application_id"),
             "completed_states": len(payload.get("completed_states", [])),
-            "task_history": len(payload.get("task_history", [])),
+            "task_history": len(history),
+            "last_task": history[-1] if history else None,
         },
         "large_references": [
             {

@@ -208,6 +208,7 @@ def _sync_global_active_pointer(
         if isinstance(application_payload.get("active_job"), dict)
         else None,
         active_intake=dict(active_intake),
+        path=global_state_store.path if global_state_store is not None else None,
     )
 
 

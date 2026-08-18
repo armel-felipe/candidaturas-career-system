@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import io
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from career import cli
 from career.services import intake
+from career.services import project as project_module
 from career.services import database as database_module
 from career.services.database import Database
 from career.services.persistence.analysis_repository import AnalysisRepository
@@ -428,7 +433,29 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertIsNotNone(store.database)
         self.assertEqual(payload["application_id"], "app-canonical")
 
-    def test_sync_global_pointer_avoids_global_workflow_state_write_and_scoped_resume_reads_state(
+    def test_arbitrary_parent_workflow_state_path_stays_file_backed_compatibility_store(
+        self,
+    ) -> None:
+        compatibility_path = self.root / "tmp" / "application" / "workflow_state.json"
+        store = WorkflowStateStore(path=compatibility_path)
+        store.payload = {
+            "completed_states": ["legacy_state"],
+            "task_history": [{"task": "legacy"}],
+            "active_job": {"fingerprint": "legacy-fingerprint"},
+            "active_intake": {"application_id": "legacy-app"},
+        }
+
+        store.save()
+
+        self.assertIsNone(store._resolved_application_id())
+        self.assertTrue(compatibility_path.exists())
+        payload = store.load()
+        self.assertEqual(payload["completed_states"], ["legacy_state"])
+        self.assertEqual(payload["task_history"], [{"task": "legacy"}])
+        self.assertEqual(payload["active_job"], {"fingerprint": "legacy-fingerprint"})
+        self.assertEqual(payload["active_intake"], {"application_id": "legacy-app"})
+
+    def test_sync_global_pointer_honors_explicit_global_store_path_and_scoped_resume_reads_state(
         self,
     ) -> None:
         job_description = self.root / "inbox" / "job_descriptions" / "conexa.md"
@@ -468,9 +495,153 @@ class WorkflowGateTests(unittest.TestCase):
                 )
             )
 
-        self.assertFalse(global_store.path.exists())
+        self.assertTrue(global_store.path.exists())
+        self.assertFalse((self.root / ".career-state" / "active_application.json").exists())
+        mirrored = json.loads(global_store.path.read_text(encoding="utf-8"))
+        self.assertEqual(mirrored["application_id"], self.primary.application_id)
+        self.assertEqual(mirrored["active_intake"]["application_id"], self.primary.application_id)
         self.assertEqual(resumed["status"], "active_intake_ready")
         self.assertEqual(resumed["active_intake"]["application_id"], self.primary.application_id)
+
+    def test_cli_workflow_run_task_requires_scope_before_invoking_registry(self) -> None:
+        draft = self.root / "fit_map.draft.json"
+        draft.write_text("{}", encoding="utf-8")
+        stdout = io.StringIO()
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", self.root / ".career-state"), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", self.root / ".career-state" / "workflow_state.json"
+        ), mock.patch.object(cli, "run_task") as run_task_mock, redirect_stdout(stdout):
+            exit_code = cli.main(
+                [
+                    "workflow",
+                    "run-task",
+                    "fit_map.validate_draft",
+                    "--arguments",
+                    json.dumps({"path": str(draft)}),
+                ]
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(run_task_mock.called)
+        self.assertIn("--application-id", stdout.getvalue())
+
+    def test_cli_workflow_reset_state_requires_scope_before_reset(self) -> None:
+        stdout = io.StringIO()
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", self.root / ".career-state"), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", self.root / ".career-state" / "workflow_state.json"
+        ), redirect_stdout(stdout):
+            exit_code = cli.main(["workflow", "reset-state"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("--application-id", stdout.getvalue())
+
+    def test_cli_workflow_run_pipeline_uses_active_pointer_scope_when_application_id_omitted(
+        self,
+    ) -> None:
+        canonical_db = Database(db_path=self.root / ".career-state" / "career.db")
+        self.addCleanup(canonical_db.close)
+        ApplicationRepository(canonical_db).create_application(
+            ApplicationIdentity(
+                application_id=self.primary.application_id,
+                company=self.primary.company,
+                role=self.primary.role,
+                notion_id=self.primary.notion_id,
+                fingerprint=self.primary.fingerprint,
+            )
+        )
+        pointer_path = self.root / ".career-state" / "active_application.json"
+        WorkflowStateStore.write_active_pointer(
+            application_id=self.primary.application_id,
+            active_job={"fingerprint": "fp-conexa"},
+            active_intake={
+                "application_id": self.primary.application_id,
+                "job_description_path": "inbox/job_descriptions/conexa.md",
+            },
+            path=pointer_path,
+        )
+        captured_store: dict[str, WorkflowStateStore] = {}
+        stdout = io.StringIO()
+
+        def _fake_run_pipeline(task_names, arguments, *, state_store):
+            captured_store["state_store"] = state_store
+            return {"status": "ok", "tasks": list(task_names), "arguments": arguments}
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", self.root / ".career-state"), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", self.root / ".career-state" / "workflow_state.json"
+        ), mock.patch.object(database_module, "CAREER_STATE", self.root / ".career-state"), mock.patch.object(
+            cli, "run_pipeline", side_effect=_fake_run_pipeline
+        ), redirect_stdout(stdout):
+            exit_code = cli.main(
+                [
+                    "workflow",
+                    "run-pipeline",
+                    "fit_map.validate_draft",
+                    "fit_map.build",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            captured_store["state_store"].application_id,
+            self.primary.application_id,
+        )
+
+    def test_diagnose_runtime_marks_global_workflow_state_non_authoritative(self) -> None:
+        career_state = self.root / ".career-state"
+        canonical_db = Database(db_path=career_state / "career.db")
+        self.addCleanup(canonical_db.close)
+        ApplicationRepository(canonical_db).create_application(
+            ApplicationIdentity(
+                application_id=self.primary.application_id,
+                company=self.primary.company,
+                role=self.primary.role,
+                notion_id=self.primary.notion_id,
+                fingerprint=self.primary.fingerprint,
+            )
+        )
+        workflow_state = career_state / "workflow_state.json"
+        workflow_state.parent.mkdir(parents=True, exist_ok=True)
+        workflow_state.write_text(
+            json.dumps(
+                {
+                    "completed_states": ["stale-a", "stale-b", "stale-c"],
+                    "task_history": [{"task": "stale"} for _ in range(4)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        WorkflowStateStore.write_active_pointer(
+            application_id=self.primary.application_id,
+            active_job={"fingerprint": self.primary.fingerprint},
+            active_intake={
+                "application_id": self.primary.application_id,
+                "job_description_path": "inbox/job_descriptions/conexa.md",
+            },
+            path=career_state / "active_application.json",
+        )
+        GateRepository(canonical_db).record(
+            GateReceipt(
+                application_id=self.primary.application_id,
+                application_fingerprint=self.primary.fingerprint or "",
+                run_id="run-diagnose",
+                gate="fit_map_draft_valid",
+                validator="fit_map.validate_draft",
+                input_hash=self._hash("draft"),
+                output_hash=self._hash("validated"),
+            )
+        )
+
+        with mock.patch.object(project_module, "CAREER_STATE", career_state), mock.patch.object(
+            project_module, "ROOT", self.root
+        ), mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", workflow_state
+        ), mock.patch.object(database_module, "CAREER_STATE", career_state):
+            diagnosis = project_module.diagnose_runtime()
+
+        self.assertFalse(diagnosis["workflow_state"]["authoritative"])
+        self.assertEqual(diagnosis["workflow_state"]["completed_states"], 1)
+        self.assertEqual(diagnosis["workflow_state"]["task_history"], 1)
 
     def _create_fit_map_revision(self, application_id: str, fingerprint: str) -> str:
         return self.analysis_repository.create_revision(

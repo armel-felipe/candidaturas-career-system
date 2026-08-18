@@ -345,13 +345,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_task_parser = workflow_sub.add_parser("run-task")
     run_task_parser.add_argument("task_name")
     run_task_parser.add_argument("--arguments", default="{}")
+    run_task_parser.add_argument("--application-id")
     pipeline_parser = workflow_sub.add_parser("run-pipeline")
     pipeline_parser.add_argument("task_names", nargs="+")
     pipeline_parser.add_argument("--arguments", default="{}")
+    pipeline_parser.add_argument("--application-id")
     workflow_sub.add_parser("show-state")
     workflow_sub.add_parser("summary")
     workflow_sub.add_parser("explain-last-run")
-    workflow_sub.add_parser("reset-state")
+    reset_state_parser = workflow_sub.add_parser("reset-state")
+    reset_state_parser.add_argument("--application-id")
     workflow_reset = workflow_sub.add_parser("reset")
     workflow_reset.add_argument("--dry-run", action="store_true")
     workflow_reset.add_argument("--no-backup", action="store_true")
@@ -402,8 +405,32 @@ def _application_paths(application_id: str | None):
     return application_context_service.paths_for(application_id) if application_id else None
 
 
-def _state_store_for_application(application_id: str | None) -> WorkflowStateStore:
-    return WorkflowStateStore.for_application(application_id) if application_id else WorkflowStateStore()
+def _state_store_for_application(
+    application_id: str | None,
+    *,
+    require_scope: bool = False,
+) -> WorkflowStateStore:
+    resolved_application_id = application_id or _active_application_id()
+    if resolved_application_id:
+        return WorkflowStateStore.for_application(resolved_application_id)
+    if require_scope:
+        raise CareerError(
+            "workflow command requires --application-id or an active application pointer"
+        )
+    return WorkflowStateStore()
+
+
+def _active_application_id() -> str | None:
+    payload = WorkflowStateStore().load()
+    active_application_id = str(payload.get("active_application_id") or "").strip()
+    if active_application_id:
+        return active_application_id
+    active_intake = payload.get("active_intake")
+    if isinstance(active_intake, dict):
+        fallback = str(active_intake.get("application_id") or "").strip()
+        if fallback:
+            return fallback
+    return None
 
 
 def _task_cli_summary(task: str, result):
@@ -1351,57 +1378,81 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "workflow":
-        state_store = WorkflowStateStore()
-        if args.action == "show-state":
-            _dump(state_store.load())
-            return 0
-        if args.action == "summary":
-            payload = state_store.load()
-            active_intake = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
-            active_job = payload.get("active_job") if isinstance(payload.get("active_job"), dict) else {}
-            history = payload.get("task_history", [])
-            _dump(
-                {
-                    "status": "ok",
-                    "active_intake": {
-                        "source_type": active_intake.get("source_type"),
-                        "source_id": active_intake.get("source_id"),
-                        "company": active_intake.get("company"),
-                        "role": active_intake.get("role"),
-                        "job_description_path": active_intake.get("job_description_path"),
-                        "next_required_step": active_intake.get("next_required_step"),
-                    },
-                    "active_job": active_job,
-                    "completed_states_count": len(payload.get("completed_states", [])),
-                    "task_history_count": len(history),
-                    "last_task": history[-1] if history else None,
-                }
-            )
-            return 0
-        if args.action == "explain-last-run":
-            payload = state_store.load()
-            history = payload.get("task_history", [])
-            _dump(history[-1] if history else {})
-            return 0
-        if args.action == "reset-state":
-            state_store.reset()
-            _dump(state_store.load())
-            return 0
-        if args.action == "reset":
-            result = workflow_reset_service.operational_reset(
-                dry_run=args.dry_run,
-                backup=not args.no_backup,
-            )
-            _dump(result)
-            return 0
-        if args.action == "run-task":
-            result = run_task(args.task_name, json.loads(args.arguments), state_store=state_store)
-            _dump(result)
-            return 0
-        if args.action == "run-pipeline":
-            result = run_pipeline(args.task_names, json.loads(args.arguments), state_store=state_store)
-            _dump(result)
-            return 0
+        try:
+            state_store = WorkflowStateStore()
+            if args.action == "show-state":
+                _dump(state_store.load())
+                return 0
+            if args.action == "summary":
+                payload = state_store.load()
+                active_intake = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
+                active_job = payload.get("active_job") if isinstance(payload.get("active_job"), dict) else {}
+                history = payload.get("task_history", [])
+                _dump(
+                    {
+                        "status": "ok",
+                        "active_intake": {
+                            "source_type": active_intake.get("source_type"),
+                            "source_id": active_intake.get("source_id"),
+                            "company": active_intake.get("company"),
+                            "role": active_intake.get("role"),
+                            "job_description_path": active_intake.get("job_description_path"),
+                            "next_required_step": active_intake.get("next_required_step"),
+                        },
+                        "active_job": active_job,
+                        "completed_states_count": len(payload.get("completed_states", [])),
+                        "task_history_count": len(history),
+                        "last_task": history[-1] if history else None,
+                    }
+                )
+                return 0
+            if args.action == "explain-last-run":
+                payload = state_store.load()
+                history = payload.get("task_history", [])
+                _dump(history[-1] if history else {})
+                return 0
+            if args.action == "reset-state":
+                scoped_state_store = _state_store_for_application(
+                    getattr(args, "application_id", None),
+                    require_scope=True,
+                )
+                scoped_state_store.reset()
+                _dump(scoped_state_store.load())
+                return 0
+            if args.action == "reset":
+                result = workflow_reset_service.operational_reset(
+                    dry_run=args.dry_run,
+                    backup=not args.no_backup,
+                )
+                _dump(result)
+                return 0
+            if args.action == "run-task":
+                scoped_state_store = _state_store_for_application(
+                    getattr(args, "application_id", None),
+                    require_scope=True,
+                )
+                result = run_task(
+                    args.task_name,
+                    json.loads(args.arguments),
+                    state_store=scoped_state_store,
+                )
+                _dump(result)
+                return 0
+            if args.action == "run-pipeline":
+                scoped_state_store = _state_store_for_application(
+                    getattr(args, "application_id", None),
+                    require_scope=True,
+                )
+                result = run_pipeline(
+                    args.task_names,
+                    json.loads(args.arguments),
+                    state_store=scoped_state_store,
+                )
+                _dump(result)
+                return 0
+        except CareerError as exc:
+            _dump_error(exc)
+            return 1
 
     if args.command == "session":
         session_id = args.session_id or str(uuid.uuid4())
