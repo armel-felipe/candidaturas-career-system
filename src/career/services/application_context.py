@@ -26,6 +26,28 @@ SESSION_REGISTRY = CAREER_STATE / "session_registry.json"
 ALIAS_INDEX = CAREER_STATE / "application_alias_index.json"
 
 
+def build_application_projection(
+    application_id: str,
+    db: Database,
+    *,
+    legacy_state_path: Path | None = None,
+):
+    """Return the read-only SQLite projection for one application.
+
+    The import is local because ``applications_v2`` still uses the path helpers
+    in this module.  This boundary deliberately accepts a legacy state path
+    only for divergence observation; it cannot influence the resulting stage.
+    """
+
+    from career.services.applications_v2 import build_sqlite_application_projection
+
+    return build_sqlite_application_projection(
+        application_id,
+        db,
+        legacy_state_path=legacy_state_path,
+    )
+
+
 def workspace_owner_from_env(env: dict[str, str] | None = None) -> str:
     """Return an explicit pool owner or a process-distinct default owner."""
     values = env or os.environ

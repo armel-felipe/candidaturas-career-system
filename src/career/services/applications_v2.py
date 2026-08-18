@@ -11,6 +11,7 @@ import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
+from enum import Enum
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -28,6 +29,13 @@ from career.services.application_context import (
     paths_for,
     workspace_owner_from_env,
 )
+from career.services.persistence.application_repository import (
+    ApplicationNotFoundError,
+    ApplicationRepository,
+)
+from career.services.persistence.analysis_repository import AnalysisRepository
+from career.services.persistence.artifact_repository import ArtifactRepository
+from career.services.persistence.gate_repository import GateRepository
 from career.services.cell_store import CellStore
 from career.services.database import Database
 from career.utils import (
@@ -110,6 +118,250 @@ STAGE_METADATA = {
     "done": {"group": "finalize", "status": "completed", "terminal": True, "retryable": False, "next_action": None},
     "error": {"group": "error", "status": "failed", "terminal": True, "retryable": False, "next_action": "inspect_error_report"},
 }
+
+
+class ApplicationStage(str, Enum):
+    """Authoritative lifecycle stages derived from SQLite provenance."""
+
+    INTAKE_PENDING = "intake_pending"
+    FIT_MAP_PENDING = "fit_map_pending"
+    FIT_MAP_VALIDATED = "fit_map_validated"
+    CV_PENDING = "cv_pending"
+    CV_REVIEW_PENDING = "cv_review_pending"
+    CV_APPROVED = "cv_approved"
+    ONEDRIVE_PENDING = "onedrive_pending"
+    NOTION_PENDING = "notion_pending"
+    CORE_PACKAGE_SEALED = "core_package_sealed"
+    POST_PROCESSING_AVAILABLE = "post_processing_available"
+    BLOCKED_RECONCILIATION = "blocked_reconciliation"
+    FAILED_RETRYABLE = "failed_retryable"
+
+
+@dataclass(frozen=True)
+class ApplicationProjection:
+    """Read-only compatibility projection backed exclusively by SQLite."""
+
+    application_id: str
+    company: str
+    role: str
+    notion_id: str | None
+    fingerprint: str | None
+    stage: ApplicationStage
+    next_required_step: str
+    fit_map_revision_id: str | None
+    cv_artifact_id: str | None
+    base_package_sealed: bool
+    compatibility_payload: dict[str, Any]
+    observations: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class _StageDecision:
+    stage: ApplicationStage
+    next_required_step: str
+    fit_map_revision_id: str | None
+    cv_artifact_id: str | None
+
+
+def derive_application_stage(application_id: str, db: Database) -> ApplicationStage:
+    """Derive an application's lifecycle stage without consulting legacy files."""
+
+    return _derive_application_stage_decision(application_id, db).stage
+
+
+def build_sqlite_application_projection(
+    application_id: str,
+    db: Database,
+    *,
+    legacy_state_path: Path | None = None,
+) -> ApplicationProjection:
+    """Build the compatibility shape from receipts, artifacts and integrations.
+
+    ``legacy_state_path`` is inspected only to record a drift observation.  It
+    never changes the decision returned from the canonical database.
+    """
+
+    applications = ApplicationRepository(db)
+    try:
+        application = applications.resolve(application_id=application_id)
+    except ApplicationNotFoundError as exc:
+        raise ValueError(f"unknown application: {application_id}") from exc
+
+    decision = _derive_application_stage_decision(application.application_id, db)
+    gates = GateRepository(db)
+    receipt_payload = gates.compatibility_payload(application.application_id)
+    status = "completed" if decision.stage is ApplicationStage.CORE_PACKAGE_SEALED else "pending"
+    payload = {
+        **receipt_payload,
+        "application_id": application.application_id,
+        "stage": decision.stage.value,
+        "stage_status": status,
+        "status": status,
+        "next_action": decision.next_required_step,
+        "next_required_step": decision.next_required_step,
+        "active_job": {
+            "application_id": application.application_id,
+            "fingerprint": application.fingerprint,
+            "company": application.company,
+            "role": application.role,
+            "source": "sqlite_projection",
+        },
+    }
+    observations = _observe_legacy_stage_divergence(
+        application_id=application.application_id,
+        decision=decision,
+        db=db,
+        legacy_state_path=legacy_state_path,
+    )
+    return ApplicationProjection(
+        application_id=application.application_id,
+        company=application.company,
+        role=application.role,
+        notion_id=application.notion_id,
+        fingerprint=application.fingerprint,
+        stage=decision.stage,
+        next_required_step=decision.next_required_step,
+        fit_map_revision_id=decision.fit_map_revision_id,
+        cv_artifact_id=decision.cv_artifact_id,
+        base_package_sealed=decision.stage is ApplicationStage.CORE_PACKAGE_SEALED,
+        compatibility_payload=payload,
+        observations=observations,
+    )
+
+
+def _derive_application_stage_decision(application_id: str, db: Database) -> _StageDecision:
+    applications = ApplicationRepository(db)
+    try:
+        applications.resolve(application_id=application_id)
+    except ApplicationNotFoundError as exc:
+        raise ValueError(f"unknown application: {application_id}") from exc
+
+    gates = GateRepository(db)
+    if not gates.is_satisfied(application_id, "job_description_saved"):
+        return _StageDecision(ApplicationStage.INTAKE_PENDING, "save_job_description", None, None)
+
+    gate_step = gates.next_required_step(application_id)
+    if gate_step != "build_cv":
+        return _StageDecision(ApplicationStage.FIT_MAP_PENDING, gate_step, None, None)
+
+    revision_id = _current_validated_fit_map_revision(application_id, db)
+    if revision_id is None:
+        return _StageDecision(ApplicationStage.BLOCKED_RECONCILIATION, "reconcile_fit_map_receipts", None, None)
+
+    cv = _latest_cv_for_revision(application_id, revision_id, db)
+    if cv is None:
+        return _StageDecision(ApplicationStage.FIT_MAP_VALIDATED, "build_cv", revision_id, None)
+
+    artifact_id = str(cv["version_id"])
+    if str(cv["status"]) != "review_passed":
+        return _StageDecision(ApplicationStage.CV_REVIEW_PENDING, "review_cv", revision_id, artifact_id)
+    validation = ArtifactRepository(db).validate_path(artifact_id)
+    if not validation.valid:
+        return _StageDecision(ApplicationStage.CV_REVIEW_PENDING, "rerun_cv_review", revision_id, artifact_id)
+
+    if not _has_onedrive_delivery(application_id, artifact_id, db):
+        return _StageDecision(ApplicationStage.ONEDRIVE_PENDING, "deliver_cv_onedrive", revision_id, artifact_id)
+    if not _has_successful_notion_sync(application_id, db):
+        return _StageDecision(ApplicationStage.NOTION_PENDING, "sync_notion", revision_id, artifact_id)
+    return _StageDecision(ApplicationStage.CORE_PACKAGE_SEALED, "post_processing_available", revision_id, artifact_id)
+
+
+def _current_validated_fit_map_revision(application_id: str, db: Database) -> str | None:
+    try:
+        revision_id = AnalysisRepository(db).get_current(application_id).revision_id
+    except ValueError:
+        return None
+    if not GateRepository(db).is_satisfied(application_id, "fit_map_validated", revision_id=revision_id):
+        return None
+    return revision_id
+
+
+def _latest_cv_for_revision(application_id: str, revision_id: str, db: Database):
+    return db.fetch_one(
+        """SELECT version_id, status
+             FROM artifact_versions
+            WHERE application_id = ?
+              AND kind = 'cv'
+              AND source_revision_id = ?
+            ORDER BY created_at DESC, version_id DESC
+            LIMIT 1""",
+        (application_id, revision_id),
+    )
+
+
+def _has_onedrive_delivery(application_id: str, artifact_id: str, db: Database) -> bool:
+    row = db.fetch_one(
+        """SELECT delivery_id
+             FROM deliveries
+            WHERE application_id = ?
+              AND artifact_version_id = ?
+              AND channel = 'onedrive'
+              AND status IN ('delivered', 'validated')
+            ORDER BY delivered_at DESC, delivery_id DESC
+            LIMIT 1""",
+        (application_id, artifact_id),
+    )
+    return row is not None
+
+
+def _has_successful_notion_sync(application_id: str, db: Database) -> bool:
+    row = db.fetch_one(
+        """SELECT ns.sync_id
+             FROM notion_syncs AS ns
+             JOIN notion_records AS nr
+               ON nr.record_id = ns.record_id
+              AND nr.application_id = ns.application_id
+            WHERE ns.application_id = ?
+              AND ns.status IN ('succeeded', 'success', 'completed', 'synced')
+            ORDER BY synced_at DESC, sync_id DESC
+            LIMIT 1""",
+        (application_id,),
+    )
+    return row is not None
+
+
+def _observe_legacy_stage_divergence(
+    *,
+    application_id: str,
+    decision: _StageDecision,
+    db: Database,
+    legacy_state_path: Path | None,
+) -> tuple[dict[str, Any], ...]:
+    if legacy_state_path is None or not legacy_state_path.is_file():
+        return ()
+    try:
+        legacy = json.loads(legacy_state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ()
+    if not isinstance(legacy, dict):
+        return ()
+    legacy_stage = str(legacy.get("stage") or "").strip()
+    legacy_next = str(legacy.get("next_required_step") or legacy.get("next_action") or "").strip()
+    if legacy_stage == decision.stage.value and legacy_next in {"", decision.next_required_step}:
+        return ()
+    details = {
+        "legacy_path": str(legacy_state_path),
+        "legacy_stage": legacy_stage or None,
+        "legacy_next_required_step": legacy_next or None,
+        "sqlite_stage": decision.stage.value,
+        "sqlite_next_required_step": decision.next_required_step,
+    }
+    metadata = json.dumps(details, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    existing = db.fetch_one(
+        """SELECT id FROM workflow_events
+             WHERE application_id = ? AND event = ? AND metadata = ?
+             LIMIT 1""",
+        (application_id, "application_projection_divergence", metadata),
+    )
+    if existing is None:
+        with db.transaction(immediate=True) as conn:
+            conn.execute(
+                """INSERT INTO workflow_events
+                   (application_id, event, fingerprint, metadata, created_at)
+                   VALUES (?, ?, NULL, ?, ?)""",
+                (application_id, "application_projection_divergence", metadata, utc_now_iso()),
+            )
+    return (details,)
 
 
 @dataclass
