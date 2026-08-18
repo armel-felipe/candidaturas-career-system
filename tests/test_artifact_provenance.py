@@ -480,6 +480,83 @@ class ArtifactProvenanceTests(unittest.TestCase):
             )
         self.assertEqual(self.artifacts._load_record(artifact.artifact_id).status, "draft")
 
+    def test_legacy_review_report_without_digest_stays_report_only(self) -> None:
+        source_revision_id = self._create_validated_fit_map(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        artifact_path = self._write_docx(
+            "felipe_armel_cv_conexa_diretor_growth.docx",
+            b"docx-reviewed-v1",
+        )
+        report_path = self._write_review_report(
+            artifact_path,
+            approved=True,
+            include_artifact_sha256=False,
+        )
+        legacy_report = json.loads(report_path.read_text(encoding="utf-8"))
+
+        CvReviewReportSchema(legacy_report).validate()
+        with self.assertRaisesRegex(ValueError, "artifact_sha256"):
+            record_approved_cv_provenance(
+                artifact=artifact_path,
+                report_path=report_path,
+                application_id=self.primary.application_id,
+                source_revision_id=source_revision_id,
+                run_id="run-cv-legacy-report",
+                database=self.db,
+            )
+        self.assertEqual(
+            self.db.fetch_all(
+                "SELECT version_id FROM artifact_versions WHERE application_id = ?",
+                (self.primary.application_id,),
+            ),
+            [],
+        )
+
+    def test_mark_review_passed_rejects_legacy_report_without_digest(self) -> None:
+        source_revision_id = self._create_validated_fit_map(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        artifact_path = self._write_docx(
+            "felipe_armel_cv_conexa_diretor_growth.docx",
+            b"docx-reviewed-v1",
+        )
+        report_path = self._write_review_report(
+            artifact_path,
+            approved=True,
+            include_artifact_sha256=False,
+        )
+        artifact = self.artifacts.register(
+            self.primary.application_id,
+            "cv",
+            artifact_path,
+            None,
+            source_revision_id,
+            "run-cv-legacy-report",
+        )
+        receipt_id = self.gates.record(
+            GateReceipt(
+                application_id=self.primary.application_id,
+                application_fingerprint=self.primary.fingerprint or "",
+                run_id="run-cv-legacy-report",
+                gate="cv_review_passed",
+                validator="cv.review",
+                input_hash=sha256_file(artifact_path),
+                output_hash=sha256_file(report_path),
+                revision_id=source_revision_id,
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "artifact_sha256"):
+            self.artifacts.mark_review_passed(
+                artifact.artifact_id,
+                receipt_id=receipt_id,
+                report_path=report_path,
+            )
+        self.assertEqual(self.artifacts._load_record(artifact.artifact_id).status, "draft")
+
     def test_review_output_publisher_treats_report_without_approval_as_non_receipt(self) -> None:
         source_revision_id = self._create_validated_fit_map(
             self.primary.application_id,
@@ -596,11 +673,16 @@ class ArtifactProvenanceTests(unittest.TestCase):
         path.write_bytes(content)
         return path
 
-    def _write_review_report(self, artifact_path: Path, *, approved: bool) -> Path:
+    def _write_review_report(
+        self,
+        artifact_path: Path,
+        *,
+        approved: bool,
+        include_artifact_sha256: bool = True,
+    ) -> Path:
         report = {
             "kind": "cv",
             "artifact": str(artifact_path.resolve()),
-            "artifact_sha256": sha256_file(artifact_path),
             "company": "Conexa",
             "role": "Diretor de Growth",
             "approved": approved,
@@ -612,7 +694,9 @@ class ArtifactProvenanceTests(unittest.TestCase):
             "weight_total_checks": [],
             "minor_checks": [],
         }
-        CvReviewReportSchema(report).validate()
+        if include_artifact_sha256:
+            report["artifact_sha256"] = sha256_file(artifact_path)
+            CvReviewReportSchema(report).validate()
         path = self.root / ("review_approved.json" if approved else "review_blocked.json")
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return path

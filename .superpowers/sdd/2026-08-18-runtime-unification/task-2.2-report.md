@@ -207,3 +207,56 @@ Result:
 Ran 63 tests in 4.763s
 OK
 ```
+
+## Fix round 2 — legacy report-only compatibility
+
+The first digest fix made `artifact_sha256` mandatory in the general
+`CvReviewReportSchema`. That incorrectly rejected legacy report-only flows
+before they could retain their expected review behavior, including
+`scripts/selftest_phases.py --phase 12`.
+
+### RED
+
+The phase-12 repro failed at `CvReviewReportSchema.validate()` with:
+
+```text
+career.utils.ValidationFailure: artifact_sha256 must be a string
+```
+
+Two focused regressions captured the intended boundary: a legacy report with no
+digest must validate as a report, while both SQLite publication paths must
+reject it before approval is persisted.
+
+### GREEN
+
+- `artifact_sha256` is optional in the general schema and, when present, must
+  still be a string.
+- `record_approved_cv_provenance()` and
+  `ArtifactRepository.mark_review_passed()` retain their own non-empty,
+  lower-case SHA-256 requirement and equality check against the current file.
+- `review_output.py` continues to emit the digest for objective reviews and its
+  opt-in SQLite publication therefore remains digest-bound.
+- The post-review mutation regression remains in place, alongside explicit
+  no-digest tests for both publication paths.
+
+Verification:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_artifact_provenance.py
+PYTHONPATH=src ./scripts/python.sh scripts/selftest_phases.py --phase 12
+PYTHONPATH=src ./scripts/python.sh -m unittest -q \
+  tests/test_artifact_provenance.py \
+  tests/test_analysis_revisions.py \
+  tests/test_workflow_gates.py \
+  tests/test_application_repository.py \
+  tests/test_sqlite_persistence.py \
+  tests/test_database.py
+```
+
+Results:
+
+```text
+Ran 13 tests ... OK
+{"phase": 12, "status": "ok"}
+Ran 65 tests ... OK
+```
