@@ -259,9 +259,9 @@ def _derive_application_stage_decision(application_id: str, db: Database) -> _St
     if not validation.valid:
         return _StageDecision(ApplicationStage.CV_REVIEW_PENDING, "rerun_cv_review", revision_id, artifact_id)
 
-    if not _has_onedrive_delivery(application_id, artifact_id, db):
+    if not _has_verified_onedrive_delivery(application_id, cv, db):
         return _StageDecision(ApplicationStage.ONEDRIVE_PENDING, "deliver_cv_onedrive", revision_id, artifact_id)
-    if not _has_successful_notion_sync(application_id, db):
+    if not _has_verified_notion_sync(application_id, cv, db):
         return _StageDecision(ApplicationStage.NOTION_PENDING, "sync_notion", revision_id, artifact_id)
     return _StageDecision(ApplicationStage.CORE_PACKAGE_SEALED, "post_processing_available", revision_id, artifact_id)
 
@@ -278,7 +278,8 @@ def _current_validated_fit_map_revision(application_id: str, db: Database) -> st
 
 def _latest_cv_for_revision(application_id: str, revision_id: str, db: Database):
     return db.fetch_one(
-        """SELECT version_id, status
+        """SELECT version_id, status, content_hash, source_revision_id,
+                      positioning_revision_id
              FROM artifact_versions
             WHERE application_id = ?
               AND kind = 'cv'
@@ -289,9 +290,9 @@ def _latest_cv_for_revision(application_id: str, revision_id: str, db: Database)
     )
 
 
-def _has_onedrive_delivery(application_id: str, artifact_id: str, db: Database) -> bool:
+def _has_verified_onedrive_delivery(application_id: str, artifact, db: Database) -> bool:
     row = db.fetch_one(
-        """SELECT delivery_id
+        """SELECT delivery_id, report_path, report_hash, payload_json
              FROM deliveries
             WHERE application_id = ?
               AND artifact_version_id = ?
@@ -299,14 +300,21 @@ def _has_onedrive_delivery(application_id: str, artifact_id: str, db: Database) 
               AND status IN ('delivered', 'validated')
             ORDER BY delivered_at DESC, delivery_id DESC
             LIMIT 1""",
-        (application_id, artifact_id),
+        (application_id, str(artifact["version_id"])),
     )
-    return row is not None
+    if row is None:
+        return False
+    return _receipt_row_matches_artifact(
+        row,
+        artifact,
+        require_report=True,
+        require_receipt_path=False,
+    )
 
 
-def _has_successful_notion_sync(application_id: str, db: Database) -> bool:
+def _has_verified_notion_sync(application_id: str, artifact, db: Database) -> bool:
     row = db.fetch_one(
-        """SELECT ns.sync_id
+        """SELECT ns.sync_id, ns.record_id, ns.payload_json
              FROM notion_syncs AS ns
              JOIN notion_records AS nr
                ON nr.record_id = ns.record_id
@@ -317,7 +325,70 @@ def _has_successful_notion_sync(application_id: str, db: Database) -> bool:
             LIMIT 1""",
         (application_id,),
     )
-    return row is not None
+    if row is None:
+        return False
+    return _receipt_row_matches_artifact(
+        row,
+        artifact,
+        require_report=False,
+        require_receipt_path=True,
+        expected_record_id=str(row["record_id"]),
+    )
+
+
+def _receipt_row_matches_artifact(
+    row,
+    artifact,
+    *,
+    require_report: bool,
+    require_receipt_path: bool,
+    expected_record_id: str | None = None,
+) -> bool:
+    """Verify an external receipt's bytes and its current artifact binding."""
+
+    report_path = str(row["report_path"] or "").strip() if "report_path" in row.keys() else ""
+    report_hash = str(row["report_hash"] or "").strip() if "report_hash" in row.keys() else ""
+    try:
+        payload = json.loads(str(row["payload_json"] or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get("artifact_version_id") or "") != str(artifact["version_id"]):
+        return False
+    if str(payload.get("artifact_hash") or "") != str(artifact["content_hash"]):
+        return False
+    if str(payload.get("source_revision_id") or "") != str(artifact["source_revision_id"]):
+        return False
+    if payload.get("positioning_revision_id") != artifact["positioning_revision_id"]:
+        return False
+    if expected_record_id is not None and str(payload.get("record_id") or "") != expected_record_id:
+        return False
+    if require_report:
+        if not report_path or not _valid_sha256(report_hash):
+            return False
+        report = Path(report_path)
+        if not report.is_file() or sha256_file(report) != report_hash:
+            return False
+    if require_receipt_path:
+        receipt_path = str(payload.get("receipt_path") or "").strip()
+        receipt_hash = str(payload.get("receipt_hash") or "").strip()
+        if not receipt_path or not _valid_sha256(receipt_hash):
+            return False
+        receipt = Path(receipt_path)
+        if not receipt.is_file() or sha256_file(receipt) != receipt_hash:
+            return False
+    return True
+
+
+def _valid_sha256(value: str) -> bool:
+    if len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
 
 
 def _observe_legacy_stage_divergence(

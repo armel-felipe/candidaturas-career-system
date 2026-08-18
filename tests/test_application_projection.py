@@ -90,13 +90,61 @@ class ApplicationProjectionTests(unittest.TestCase):
         self.assertEqual(projection.stage, ApplicationStage.NOTION_PENDING)
         self.assertEqual(projection.next_required_step, "sync_notion")
 
+    def test_status_only_delivery_receipt_cannot_seal_package(self) -> None:
+        self._record_description_saved(self.primary)
+        revision_id = self._create_validated_fit_map(self.primary, label="status-only")
+        cv = self._register_cv(self.primary, revision_id, label="status-only")
+        approved = self._approve_cv(self.primary, cv, revision_id)
+        self._record_status_only_delivery(self.primary.application_id, approved.artifact_id)
+        self._record_notion_sync(self.primary.application_id, approved.artifact_id)
+
+        projection = build_application_projection(self.primary.application_id, self.db)
+
+        self.assertEqual(projection.stage, ApplicationStage.ONEDRIVE_PENDING)
+        self.assertEqual(projection.next_required_step, "deliver_cv_onedrive")
+
+    def test_sync_receipt_for_previous_artifact_cannot_seal_current_package(self) -> None:
+        self._record_description_saved(self.primary)
+        first_revision = self._create_validated_fit_map(self.primary, label="v1")
+        first_cv = self._register_cv(self.primary, first_revision, label="v1")
+        first_approved = self._approve_cv(self.primary, first_cv, first_revision)
+        self._record_delivery(self.primary.application_id, first_approved.artifact_id)
+        self._record_notion_sync(self.primary.application_id, first_approved.artifact_id)
+
+        current_revision = self._create_validated_fit_map(self.primary, label="v2")
+        current_cv = self._register_cv(self.primary, current_revision, label="v2")
+        current_approved = self._approve_cv(self.primary, current_cv, current_revision)
+        self._record_delivery(self.primary.application_id, current_approved.artifact_id)
+
+        projection = build_application_projection(self.primary.application_id, self.db)
+
+        self.assertEqual(projection.stage, ApplicationStage.NOTION_PENDING)
+        self.assertEqual(projection.next_required_step, "sync_notion")
+
+    def test_delivery_receipt_for_previous_artifact_cannot_seal_current_package(self) -> None:
+        self._record_description_saved(self.primary)
+        first_revision = self._create_validated_fit_map(self.primary, label="delivery-v1")
+        first_cv = self._register_cv(self.primary, first_revision, label="delivery-v1")
+        first_approved = self._approve_cv(self.primary, first_cv, first_revision)
+        self._record_delivery(self.primary.application_id, first_approved.artifact_id)
+
+        current_revision = self._create_validated_fit_map(self.primary, label="delivery-v2")
+        current_cv = self._register_cv(self.primary, current_revision, label="delivery-v2")
+        current_approved = self._approve_cv(self.primary, current_cv, current_revision)
+        self._record_notion_sync(self.primary.application_id, current_approved.artifact_id)
+
+        projection = build_application_projection(self.primary.application_id, self.db)
+
+        self.assertEqual(projection.stage, ApplicationStage.ONEDRIVE_PENDING)
+        self.assertEqual(projection.next_required_step, "deliver_cv_onedrive")
+
     def test_delivered_reviewed_cv_and_successful_notion_sync_seal_base_package(self) -> None:
         self._record_description_saved(self.primary)
         revision_id = self._create_validated_fit_map(self.primary)
         cv = self._register_cv(self.primary, revision_id)
         approved = self._approve_cv(self.primary, cv, revision_id)
         self._record_delivery(self.primary.application_id, approved.artifact_id)
-        self._record_notion_sync(self.primary.application_id)
+        self._record_notion_sync(self.primary.application_id, approved.artifact_id)
 
         projection = build_application_projection(self.primary.application_id, self.db)
 
@@ -172,22 +220,22 @@ class ApplicationProjectionTests(unittest.TestCase):
             )
         )
 
-    def _create_validated_fit_map(self, application) -> str:
+    def _create_validated_fit_map(self, application, *, label: str = "default") -> str:
         self.gates.record(
             GateReceipt(
                 application_id=application.application_id,
                 application_fingerprint=application.fingerprint or "",
-                run_id=f"run-fit-{application.application_id}",
+                run_id=f"run-fit-{application.application_id}-{label}",
                 gate="fit_map_draft_valid",
                 validator="fit_map.validate_draft",
-                input_hash=sha256_text(f"draft-input-{application.application_id}"),
-                output_hash=sha256_text(f"draft-output-{application.application_id}"),
+                input_hash=sha256_text(f"draft-input-{application.application_id}-{label}"),
+                output_hash=sha256_text(f"draft-output-{application.application_id}-{label}"),
             )
         )
         revision_id = self.analysis.create_revision(
             application.application_id,
             {"fingerprint": application.fingerprint, "keywords": [], "stories": []},
-            sha256_text(f"fit-map-{application.application_id}"),
+            sha256_text(f"fit-map-{application.application_id}-{label}"),
         )
         for gate, validator in (
             ("fit_map_built", "fit_map.build"),
@@ -198,26 +246,26 @@ class ApplicationProjectionTests(unittest.TestCase):
                 GateReceipt(
                     application_id=application.application_id,
                     application_fingerprint=application.fingerprint or "",
-                    run_id=f"run-fit-{application.application_id}",
+                    run_id=f"run-fit-{application.application_id}-{label}",
                     gate=gate,
                     validator=validator,
-                    input_hash=sha256_text(f"{gate}-input-{application.application_id}"),
-                    output_hash=sha256_text(f"{gate}-output-{application.application_id}"),
+                    input_hash=sha256_text(f"{gate}-input-{application.application_id}-{label}"),
+                    output_hash=sha256_text(f"{gate}-output-{application.application_id}-{label}"),
                     revision_id=revision_id,
                 )
             )
         return revision_id
 
-    def _register_cv(self, application, revision_id: str):
-        path = self.root / f"{application.application_id}.docx"
-        path.write_bytes(f"cv-{application.application_id}".encode("utf-8"))
+    def _register_cv(self, application, revision_id: str, *, label: str = "default"):
+        path = self.root / f"{application.application_id}-{label}.docx"
+        path.write_bytes(f"cv-{application.application_id}-{label}".encode("utf-8"))
         return self.artifacts.register(
             application.application_id,
             "cv",
             path,
             None,
             revision_id,
-            f"run-cv-{application.application_id}",
+            f"run-cv-{application.application_id}-{label}",
         )
 
     def _approve_cv(self, application, cv, revision_id: str):
@@ -246,7 +294,7 @@ class ApplicationProjectionTests(unittest.TestCase):
             GateReceipt(
                 application_id=application.application_id,
                 application_fingerprint=application.fingerprint or "",
-                run_id=f"run-cv-{application.application_id}",
+                run_id=f"run-cv-{application.application_id}-{Path(cv.path).stem}",
                 gate="cv_review_passed",
                 validator="cv.review",
                 input_hash=sha256_file(Path(cv.path)),
@@ -262,13 +310,59 @@ class ApplicationProjectionTests(unittest.TestCase):
 
     def _record_delivery(self, application_id: str, artifact_id: str) -> None:
         self.db.migrate()
+        artifact = self.artifacts._load_record(artifact_id)
+        report_path = self.root / f"delivery-{application_id}-{artifact_id}.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "status": "delivered",
+                    "channel": "onedrive",
+                    "artifact_version_id": artifact_id,
+                    "artifact_hash": artifact.content_hash,
+                    "source_revision_id": artifact.source_revision_id,
+                    "positioning_revision_id": artifact.positioning_revision_id,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
         self.db.get_connection().execute(
             """INSERT INTO deliveries
                (delivery_id, application_id, artifact_version_id, channel, target,
                 status, report_path, report_hash, payload_json, delivered_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                f"delivery-{application_id}",
+                f"delivery-{application_id}-{artifact_id}",
+                application_id,
+                artifact_id,
+                "onedrive",
+                "01_armel/Curriculos/personalizados",
+                "delivered",
+                str(report_path),
+                sha256_file(report_path),
+                json.dumps(
+                    {
+                        "artifact_version_id": artifact_id,
+                        "artifact_hash": artifact.content_hash,
+                        "source_revision_id": artifact.source_revision_id,
+                        "positioning_revision_id": artifact.positioning_revision_id,
+                    },
+                    sort_keys=True,
+                ),
+                utc_now_iso(),
+            ),
+        )
+        self.db.get_connection().commit()
+
+    def _record_status_only_delivery(self, application_id: str, artifact_id: str) -> None:
+        self.db.migrate()
+        self.db.get_connection().execute(
+            """INSERT INTO deliveries
+               (delivery_id, application_id, artifact_version_id, channel, target,
+                status, report_path, report_hash, payload_json, delivered_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                f"status-only-delivery-{application_id}-{artifact_id}",
                 application_id,
                 artifact_id,
                 "onedrive",
@@ -282,21 +376,34 @@ class ApplicationProjectionTests(unittest.TestCase):
         )
         self.db.get_connection().commit()
 
-    def _record_notion_sync(self, application_id: str) -> None:
+    def _record_notion_sync(self, application_id: str, artifact_id: str) -> None:
         self.db.migrate()
+        artifact = self.artifacts._load_record(artifact_id)
         now = utc_now_iso()
+        record_id = f"notion-{application_id}"
+        receipt_path = self.root / f"notion-{application_id}-{artifact_id}.json"
+        receipt_payload = {
+            "status": "succeeded",
+            "record_id": record_id,
+            "artifact_version_id": artifact_id,
+            "artifact_hash": artifact.content_hash,
+            "source_revision_id": artifact.source_revision_id,
+            "positioning_revision_id": artifact.positioning_revision_id,
+        }
+        receipt_path.write_text(json.dumps(receipt_payload, sort_keys=True), encoding="utf-8")
+        sync_payload = {**receipt_payload, "receipt_path": str(receipt_path), "receipt_hash": sha256_file(receipt_path)}
         self.db.get_connection().execute(
             """INSERT INTO notion_records
                (record_id, application_id, notion_page_id, notion_database_id,
                 notion_unique_id, notion_url, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (f"notion-{application_id}", application_id, "page-1", "db-1", None, None, now, now),
+            (record_id, application_id, "page-1", "db-1", None, None, now, now),
         )
         self.db.get_connection().execute(
             """INSERT INTO notion_syncs
                (sync_id, application_id, record_id, action, status, payload_json, synced_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (f"sync-{application_id}", application_id, f"notion-{application_id}", "update", "succeeded", "{}", now),
+            (f"sync-{application_id}-{artifact_id}", application_id, record_id, "update", "succeeded", json.dumps(sync_payload, sort_keys=True), now),
         )
         self.db.get_connection().commit()
 
