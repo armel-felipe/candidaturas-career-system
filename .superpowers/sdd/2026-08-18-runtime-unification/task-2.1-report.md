@@ -104,6 +104,17 @@ Resolved the second independent review round within the same bounded Task 2.1 sc
    - CLI scope validation and active-pointer resolution
    - non-authoritative global workflow-state diagnostics
 
+### Fix round 3
+
+Resolved the final blocker in the same bounded Task 2.1 scope:
+
+1. Updated CLI `workflow reset-state` so that when the reset application matches the
+   current active pointer, the pointer is cleared before returning.
+2. Added a focused CLI regression proving that after
+   `workflow reset-state --application-id <id>`, subsequent unscoped `run-task` and
+   `run-pipeline` calls do not reuse the reset application and instead require
+   explicit scope / no active application resolution.
+
 ### Refactor / integration notes
 
 - Reused the existing `validation_receipts`, `gate_dependencies`, `application_runs`, and
@@ -134,6 +145,23 @@ Ran 20 tests in 1.321s
 OK
 ```
 
+Focused Task 2.1 suite after fix round 3:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_workflow_gates.WorkflowGateTests.test_cli_workflow_reset_state_clears_active_pointer_before_unscoped_commands
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_workflow_gates.py tests/test_linkedin_intake_metadata.py
+```
+
+Result:
+
+```text
+Ran 1 test in 0.225s
+OK
+
+Ran 21 tests in 1.351s
+OK
+```
+
 Bounded neighboring persistence/application verification:
 
 ```bash
@@ -143,7 +171,7 @@ PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_sqlite_persistence.
 Result:
 
 ```text
-Ran 25 tests in 1.347s
+Ran 25 tests in 1.263s
 OK
 ```
 
@@ -177,5 +205,8 @@ OK
   one is provided, instead of always targeting `.career-state/active_application.json`.
 - CLI workflow commands either resolve a concrete application scope or fail with a clear
   validation error before invoking task execution.
+- `workflow reset-state` no longer leaves the reset application implicitly selected through
+  the active pointer; the next unscoped workflow command must resolve a different active app
+  or receive explicit `--application-id`.
 - Runtime diagnosis reports the legacy global workflow-state JSON as non-authoritative and
   surfaces active-pointer/SQLite-derived status instead of stale `completed_states` history.

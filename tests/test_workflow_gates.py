@@ -587,6 +587,97 @@ class WorkflowGateTests(unittest.TestCase):
             self.primary.application_id,
         )
 
+    def test_cli_workflow_reset_state_clears_active_pointer_before_unscoped_commands(
+        self,
+    ) -> None:
+        career_state = self.root / ".career-state"
+        canonical_db = Database(db_path=career_state / "career.db")
+        self.addCleanup(canonical_db.close)
+        ApplicationRepository(canonical_db).create_application(
+            ApplicationIdentity(
+                application_id=self.primary.application_id,
+                company=self.primary.company,
+                role=self.primary.role,
+                notion_id=self.primary.notion_id,
+                fingerprint=self.primary.fingerprint,
+            )
+        )
+        scoped_store = WorkflowStateStore(
+            application_id=self.primary.application_id,
+            database=canonical_db,
+            path=career_state / "applications_v2" / self.primary.application_id / "workflow_state.json",
+        )
+        scoped_store.payload = {
+            "active_job": {"fingerprint": self.primary.fingerprint},
+            "active_intake": {
+                "application_id": self.primary.application_id,
+                "job_description_path": "inbox/job_descriptions/conexa.md",
+                "next_required_step": "fill_fit_map_draft",
+            },
+        }
+        scoped_store.save()
+        pointer_path = career_state / "active_application.json"
+        WorkflowStateStore.write_active_pointer(
+            application_id=self.primary.application_id,
+            active_job={"fingerprint": self.primary.fingerprint},
+            active_intake={
+                "application_id": self.primary.application_id,
+                "job_description_path": "inbox/job_descriptions/conexa.md",
+            },
+            path=pointer_path,
+        )
+        draft = self.root / "fit_map.draft.json"
+        draft.write_text("{}", encoding="utf-8")
+        reset_stdout = io.StringIO()
+        task_stdout = io.StringIO()
+        pipeline_stdout = io.StringIO()
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", career_state / "workflow_state.json"
+        ), mock.patch.object(database_module, "CAREER_STATE", career_state), redirect_stdout(reset_stdout):
+            reset_exit = cli.main(
+                ["workflow", "reset-state", "--application-id", self.primary.application_id]
+            )
+
+        self.assertEqual(reset_exit, 0)
+        self.assertFalse(pointer_path.exists())
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", career_state / "workflow_state.json"
+        ), mock.patch.object(database_module, "CAREER_STATE", career_state), mock.patch.object(
+            cli, "run_task"
+        ) as run_task_mock, redirect_stdout(task_stdout):
+            task_exit = cli.main(
+                [
+                    "workflow",
+                    "run-task",
+                    "fit_map.validate_draft",
+                    "--arguments",
+                    json.dumps({"path": str(draft)}),
+                ]
+            )
+
+        self.assertEqual(task_exit, 1)
+        self.assertFalse(run_task_mock.called)
+        self.assertIn("--application-id", task_stdout.getvalue())
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", career_state / "workflow_state.json"
+        ), mock.patch.object(database_module, "CAREER_STATE", career_state), mock.patch.object(
+            cli, "run_pipeline"
+        ) as run_pipeline_mock, redirect_stdout(pipeline_stdout):
+            pipeline_exit = cli.main(
+                [
+                    "workflow",
+                    "run-pipeline",
+                    "fit_map.validate_draft",
+                ]
+            )
+
+        self.assertEqual(pipeline_exit, 1)
+        self.assertFalse(run_pipeline_mock.called)
+        self.assertIn("--application-id", pipeline_stdout.getvalue())
+
     def test_diagnose_runtime_marks_global_workflow_state_non_authoritative(self) -> None:
         career_state = self.root / ".career-state"
         canonical_db = Database(db_path=career_state / "career.db")

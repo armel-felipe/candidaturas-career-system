@@ -1416,7 +1416,10 @@ def main(argv: list[str] | None = None) -> int:
                     getattr(args, "application_id", None),
                     require_scope=True,
                 )
+                active_application_id = _active_application_id()
                 scoped_state_store.reset()
+                if active_application_id and active_application_id == scoped_state_store.application_id:
+                    WorkflowStateStore.clear_active_pointer()
                 _dump(scoped_state_store.load())
                 return 0
             if args.action == "reset":
