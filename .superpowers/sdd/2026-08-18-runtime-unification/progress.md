@@ -81,6 +81,7 @@
 - Reviewer verdict: rejected (`Spec Compliance: FAIL`, `Task quality: NEEDS REVISION`).
 - Finding: backup hardcoded the entire `workspaces/` directory, copying 42,223 files including non-career caches; tests did not constrain the preservation scope or verify copied-file hashes.
 - Ruling: preserve career recovery data under each bot's `inbox`, `outputs` and selected career state paths, but exclude browser/cache/runtime-only paths. Add a test proving excluded paths are absent and verify destination file hashes after copy. Retain the broad backup outside the worktree as a non-destructive historical snapshot; create a corrected narrow backup after the fix.
+- Fix round 1 review: include-only policy and exclusion test passed, but production did not store/verify destination hashes and the report claimed `workspace_application_present=false` despite the intended fixture. Fix round 2 must add manifest-level source/destination hash verification and correct the evidence report.
 - Additional observation: raw `-uu` inventory is broad but acceptable for Task 0.1 and remains documented as a later filtering concern.
 
 ### Task 0.2: complete
@@ -96,3 +97,10 @@
 - Evidence: focused suite `tests/test_persistence_backup.py` passed 2/2 after the scope change; dry-run for the corrected backup reported `sqlite_database_count=6`, `preserved_directory_count=26`, `preserved_file_count=13838`; real narrow backup completed with manifest at `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow/manifest.json`.
 - Backup path: `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow`
 - Validation: the narrow manifest excludes `workspaces/vagas_bot_01/state/browser/linkedin/Default/Cookies`; the previous broad backup remains preserved and untouched.
+
+### Task 0.2: fix round 2 complete
+
+- Scope correction: preserved-file entries now record both `source_sha256` and `backup_sha256`, and the copy step aborts immediately if destination bytes diverge from the source hash.
+- Evidence: focused suite `tests/test_persistence_backup.py` passed 3/3 after the hash-verification change; dry-run for the corrected backup reported `sqlite_database_count=6`, `preserved_directory_count=26`, `preserved_file_count=13841`; real narrow-v2 backup completed with manifest at `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2/manifest.json`.
+- Backup path: `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2`
+- Validation: live manifest spot-check confirmed `workspaces/vagas_bot_01/state/applications_v2/256/fit_map.json` is present, `workspaces/vagas_bot_01/state/browser/linkedin/Default/Cookies` is absent, and the checked root/workspace files both have matching source/destination hash pairs.

@@ -160,3 +160,83 @@ Observed results:
 ### Outcome
 
 The corrected backup no longer copies the whole workspace tree. It preserves only the explicitly allowed career recovery roots, keeps SQLite discovery restricted to `career.db`, leaves the prior broad backup untouched, and records hashes that match the copied destination bytes for preserved files covered by the focused test.
+
+## Fix Round 2
+
+### Reviewer Finding
+
+The include-only workspace policy was accepted, but the copied-file hash verification was still incomplete in production. `create_backup()` recorded only the source-side hash for preserved files and relied on `copy2()` without recomputing destination bytes, so the manifest could report success without proving the copied file matched the source. The fix-round-1 report also included a manifest spot-check claiming `workspace_application_present=false`, which did not match the intended evidence path.
+
+### Root Cause
+
+The production copy path treated preserved files as a planning artifact rather than a verified backup artifact. `_build_report()` computed a single source hash before any copy, and `_copy_preserved_files()` never updated the entry with a destination hash or compared the copied bytes back to the recorded source hash. Separately, the fix-round-1 spot-check mixed fixture expectations with live-manifest evidence instead of reading an actual preserved workspace application path from the generated backup.
+
+### Fix Applied
+
+- Changed preserved-file manifest entries from a single `sha256` field to explicit `source_sha256`.
+- Updated `_copy_preserved_files()` to recompute `backup_sha256` from the copied destination file after `copy2()`.
+- Added a fail-closed guard: if `backup_sha256 != source_sha256`, the backup raises `ValueError` and does not write `manifest.json`.
+- Extended the focused suite to assert:
+  - manifest entries include `source_sha256` and `backup_sha256`,
+  - source/destination hashes are equal for copied preserved files,
+  - a deliberately corrupted copied file causes `create_backup()` to fail with `Copied file hash mismatch`.
+- Re-ran the manifest spot-check against the real `narrow-v2` backup using an actual workspace application file present in the live manifest.
+
+### Fix-Round Verification
+
+Executed exactly:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_persistence_backup.py
+python3 scripts/backup_persistence.py --root . --destination /opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2 --dry-run
+python3 scripts/backup_persistence.py --root . --destination /opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2
+python3 - <<'PY'
+import json
+from pathlib import Path
+path = Path('/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2/manifest.json')
+payload = json.loads(path.read_text(encoding='utf-8'))
+paths = {entry['path']: entry for entry in payload['preserved_files']}
+workspace_candidates = [
+    entry['path'] for entry in payload['preserved_files']
+    if '/state/applications_v2/' in entry['path'] and not entry['path'].endswith('/.heartbeat.lock')
+]
+workspace_example = workspace_candidates[0] if workspace_candidates else None
+root_example = '.career-state/application_alias_index.json'
+print(json.dumps({
+    'manifest_exists': path.exists(),
+    'preserved_directory_count': payload['summary']['preserved_directory_count'],
+    'preserved_file_count': payload['summary']['preserved_file_count'],
+    'sqlite_database_count': payload['summary']['sqlite_database_count'],
+    'workspace_application_example': workspace_example,
+    'workspace_application_present': workspace_example in paths if workspace_example else False,
+    'workspace_browser_present': 'workspaces/vagas_bot_01/state/browser/linkedin/Default/Cookies' in paths,
+    'root_example_hash_pair_equal': paths[root_example]['source_sha256'] == paths[root_example]['backup_sha256'],
+    'workspace_example_hash_pair_equal': paths[workspace_example]['source_sha256'] == paths[workspace_example]['backup_sha256'] if workspace_example else None,
+}, ensure_ascii=False, sort_keys=True))
+PY
+```
+
+Observed results:
+
+- Focused unit test command: `OK` with 3 tests
+- Narrow-v2 dry-run output:
+
+```json
+{"destination": "/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2", "preserved_directory_count": 26, "preserved_file_count": 13841, "sqlite_database_count": 6, "status": "dry_run"}
+```
+
+- Narrow-v2 real backup output:
+
+```json
+{"destination": "/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2", "manifest": "/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2/manifest.json", "preserved_directory_count": 26, "preserved_file_count": 13841, "sqlite_database_count": 6, "status": "created"}
+```
+
+- Live manifest spot-check:
+
+```json
+{"manifest_exists": true, "preserved_directory_count": 26, "preserved_file_count": 13841, "root_example_hash_pair_equal": true, "sqlite_database_count": 6, "workspace_application_example": "workspaces/vagas_bot_01/state/applications_v2/256/fit_map.json", "workspace_application_present": true, "workspace_browser_present": false, "workspace_example_hash_pair_equal": true}
+```
+
+### Outcome
+
+The backup now proves preserved-file integrity in production instead of only in tests: every copied preserved file recorded in the manifest has both source and destination hashes, and a mismatch aborts the backup before success is reported. The fix-round-1 evidence claim about workspace application presence is superseded by the live `narrow-v2` manifest check above, which uses a real preserved application file from the generated backup.

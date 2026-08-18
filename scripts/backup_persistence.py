@@ -108,7 +108,7 @@ def _directory_digest(entries: list[dict[str, Any]]) -> str:
     for entry in entries:
         digest.update(entry["path"].encode("utf-8"))
         digest.update(b"\0")
-        digest.update(entry["sha256"].encode("utf-8"))
+        digest.update(entry["source_sha256"].encode("utf-8"))
         digest.update(b"\0")
         digest.update(str(entry["size_bytes"]).encode("utf-8"))
         digest.update(b"\n")
@@ -143,7 +143,7 @@ def _build_report(root: Path, destination: Path) -> dict[str, Any]:
                 "backup_path": (
                     Path("files") / _relative_to(source_file, resolved_root)
                 ).as_posix(),
-                "sha256": _file_sha256(source_file),
+                "source_sha256": _file_sha256(source_file),
                 "size_bytes": source_file.stat().st_size,
             }
             directory_files.append(file_entry)
@@ -189,6 +189,13 @@ def _copy_preserved_files(root: Path, destination: Path, report: dict[str, Any])
         backup_path = destination / file_entry["backup_path"]
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, backup_path)
+        backup_sha256 = _file_sha256(backup_path)
+        file_entry["backup_sha256"] = backup_sha256
+        if backup_sha256 != file_entry["source_sha256"]:
+            raise ValueError(
+                f"Copied file hash mismatch for {file_entry['path']}: "
+                f"{file_entry['source_sha256']} != {backup_sha256}"
+            )
 
 
 def _backup_sqlite_databases(root: Path, destination: Path, report: dict[str, Any]) -> None:

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -168,8 +169,16 @@ class PersistenceBackupTests(unittest.TestCase):
 
             copied_output = destination / copied_files["outputs/cv.docx"]["backup_path"]
             self.assertEqual(
-                copied_files["outputs/cv.docx"]["sha256"],
+                copied_files["outputs/cv.docx"]["source_sha256"],
                 self._sha256(copied_output),
+            )
+            self.assertEqual(
+                copied_files["outputs/cv.docx"]["backup_sha256"],
+                self._sha256(copied_output),
+            )
+            self.assertEqual(
+                copied_files["outputs/cv.docx"]["source_sha256"],
+                copied_files["outputs/cv.docx"]["backup_sha256"],
             )
             copied_workspace = destination / copied_files[
                 "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json"
@@ -177,9 +186,51 @@ class PersistenceBackupTests(unittest.TestCase):
             self.assertEqual(
                 copied_files[
                     "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json"
-                ]["sha256"],
+                ]["source_sha256"],
                 self._sha256(copied_workspace),
             )
+            self.assertEqual(
+                copied_files[
+                    "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json"
+                ]["backup_sha256"],
+                self._sha256(copied_workspace),
+            )
+            self.assertEqual(
+                copied_files[
+                    "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json"
+                ]["source_sha256"],
+                copied_files[
+                    "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json"
+                ]["backup_sha256"],
+            )
+
+    def test_create_backup_fails_when_copied_file_hash_does_not_match_source(self):
+        self.assertTrue(
+            SCRIPT_PATH.exists(),
+            f"Missing task script at {SCRIPT_PATH}",
+        )
+        module = load_module()
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            root = Path(temporary_dir)
+            self._build_fixture(root)
+            destination = root / "backups" / "runtime-unification-baseline"
+
+            original_copy2 = module.shutil.copy2
+
+            def corrupting_copy2(source, target, *, follow_symlinks=True):
+                result = original_copy2(source, target, follow_symlinks=follow_symlinks)
+                target_path = Path(target)
+                if target_path.name == "cv.docx":
+                    target_path.write_bytes(target_path.read_bytes() + b"-corrupted")
+                return result
+
+            with mock.patch.object(module.shutil, "copy2", side_effect=corrupting_copy2):
+                with self.assertRaisesRegex(ValueError, "Copied file hash mismatch"):
+                    module.create_backup(root, destination)
+
+            manifest_path = destination / "manifest.json"
+            self.assertFalse(manifest_path.exists())
 
     def test_cli_dry_run_prints_manifest_preview_without_writing_backup(self):
         self.assertTrue(
