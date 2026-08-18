@@ -198,21 +198,26 @@ def _sync_global_active_pointer(
     pointer lets commands without ``--application-id`` discover it without
     copying the application history into global state.
     """
-    from career.workflow.state_store import DEFAULT_STATE_PATH
-
-    if state_store.path.resolve() == DEFAULT_STATE_PATH.resolve():
-        return
     application_payload = _load_state(state_store)
     active_intake = application_payload.get("active_intake")
     if not isinstance(active_intake, dict) or not active_intake.get("job_description_path"):
         return
-    global_store = global_state_store or WorkflowStateStore()
-    global_payload = _load_state(global_store)
-    global_payload["active_job"] = application_payload.get("active_job")
-    global_payload["active_intake"] = dict(active_intake)
-    global_payload["active_application_id"] = active_intake.get("application_id")
-    global_store.payload = global_payload
-    global_store.save()
+    WorkflowStateStore.write_active_pointer(
+        application_id=str(active_intake.get("application_id") or state_store.application_id or ""),
+        active_job=application_payload.get("active_job")
+        if isinstance(application_payload.get("active_job"), dict)
+        else None,
+        active_intake=dict(active_intake),
+    )
+
+
+def _ensure_scoped_state_store(
+    state_store: WorkflowStateStore | None,
+    application_id: str,
+) -> WorkflowStateStore:
+    if state_store is not None and state_store.application_id == application_id:
+        return state_store
+    return WorkflowStateStore.for_application(application_id)
 
 
 def _set_active_job(
@@ -485,7 +490,7 @@ def from_notion_record(
         record_id=record_id,
         preferred_id=application_id,
     )
-    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
+    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="notion_record",
@@ -513,7 +518,7 @@ def from_paste(
         role=role,
         preferred_id=application_id,
     )
-    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
+    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
     output_path = project_service.save_job_description(company, role, text, INBOX / "job_descriptions")
     return _run_ready_pipeline(
         state_store,
@@ -605,7 +610,7 @@ def from_linkedin_job(
         role=result.get("role"),
         preferred_id=application_id,
     )
-    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
+    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_job",
@@ -648,7 +653,7 @@ def from_linkedin_post(
         role=role,
         preferred_id=application_id,
     )
-    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
+    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_post",
@@ -710,7 +715,7 @@ def from_url(
         role=result.get("role"),
         preferred_id=application_id,
     )
-    state_store = state_store or WorkflowStateStore.for_application(app_paths.application_id)
+    state_store = _ensure_scoped_state_store(state_store, app_paths.application_id)
     return _run_ready_pipeline(
         state_store,
         source_type="external_url",

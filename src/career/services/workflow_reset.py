@@ -98,7 +98,12 @@ def operational_reset(*, dry_run: bool = False, backup: bool = True) -> dict[str
     for path in existing_paths:
         actions.append({"action": "remove_file", "path": _relative(path)})
 
-    actions.append({"action": "reset_workflow_state", "path": _relative(state_store.path)})
+    actions.append(
+        {
+            "action": "clear_active_application_pointer",
+            "path": _relative(CAREER_STATE / "active_application.json"),
+        }
+    )
 
     if dry_run:
         return {
@@ -121,20 +126,14 @@ def operational_reset(*, dry_run: bool = False, backup: bool = True) -> dict[str
     for path in existing_paths:
         path.unlink()
 
-    state_store.payload = {
-        **DEFAULT_PAYLOAD,
-        "reset_at": utc_now_iso(),
-        "reset_reason": "operational_reset",
-        "reset_backup_path": _relative(backup_dir) if backup else None,
-    }
-    state_store.save()
+    WorkflowStateStore.clear_active_pointer()
 
     return {
         "status": "reset",
         "backup_enabled": backup,
         "backup_path": _relative(backup_dir) if backup else None,
         "removed_files": [_relative(path) for path in existing_paths],
-        "workflow_state": _relative(state_store.path),
+        "active_pointer": _relative(CAREER_STATE / "active_application.json"),
         "preserved": _preserved_paths(),
         "next_required_step": "run_intake",
         "accepted_commands": [

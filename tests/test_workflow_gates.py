@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from career.services import intake
+from career.services import database as database_module
 from career.services.database import Database
 from career.services.persistence.analysis_repository import AnalysisRepository
 from career.services.persistence.application_repository import (
@@ -14,6 +16,7 @@ from career.services.persistence.application_repository import (
 from career.services.persistence.gate_repository import GateReceipt, GateRepository
 from career.tasks import registry
 from career.utils import sha256_text
+from career.workflow import state_store as state_store_module
 from career.workflow.state_store import WorkflowStateStore
 
 
@@ -357,6 +360,117 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(payload["next_required_step"], "build_fit_map")
         self.assertEqual(len(payload["task_history"]), 1)
         self.assertEqual(payload["task_history"][0]["task"], "fit_map.validate_draft")
+
+    def test_run_task_generates_distinct_implicit_run_ids_per_application(self) -> None:
+        draft = self.root / "fit_map.draft.json"
+        draft.write_text("{}", encoding="utf-8")
+        first_store = WorkflowStateStore(
+            application_id=self.primary.application_id,
+            database=self.db,
+            path=self.root / "app-a" / "workflow_state.json",
+        )
+        second_store = WorkflowStateStore(
+            application_id=self.secondary.application_id,
+            database=self.db,
+            path=self.root / "app-b" / "workflow_state.json",
+        )
+
+        with mock.patch.object(
+            registry.fit_map_service,
+            "validate_draft",
+            return_value={"status": "ok"},
+        ):
+            registry.run_task(
+                "fit_map.validate_draft",
+                arguments={"path": str(draft)},
+                state_store=first_store,
+            )
+            registry.run_task(
+                "fit_map.validate_draft",
+                arguments={"path": str(draft)},
+                state_store=second_store,
+            )
+
+        rows = self.db.fetch_all(
+            """SELECT application_id, run_id
+               FROM validation_receipts
+               ORDER BY application_id, created_at, receipt_id"""
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["application_id"], self.primary.application_id)
+        self.assertEqual(rows[1]["application_id"], self.secondary.application_id)
+        self.assertNotEqual(rows[0]["run_id"], rows[1]["run_id"])
+
+    def test_for_application_defaults_to_canonical_database_without_keyword_argument(self) -> None:
+        career_state = self.root / ".career-state"
+        applications_root = career_state / "applications_v2"
+        canonical_db = Database(db_path=career_state / "career.db")
+        self.addCleanup(canonical_db.close)
+        ApplicationRepository(canonical_db).create_application(
+            ApplicationIdentity(
+                application_id="app-canonical",
+                company="Canonical",
+                role="Director",
+                fingerprint="fp-canonical",
+            )
+        )
+
+        with mock.patch.object(database_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "CAREER_STATE", career_state
+        ):
+            store = WorkflowStateStore.for_application(
+                "app-canonical",
+                root=applications_root,
+            )
+            payload = store.load()
+
+        self.assertEqual(store.application_id, "app-canonical")
+        self.assertIsNotNone(store.database)
+        self.assertEqual(payload["application_id"], "app-canonical")
+
+    def test_sync_global_pointer_avoids_global_workflow_state_write_and_scoped_resume_reads_state(
+        self,
+    ) -> None:
+        job_description = self.root / "inbox" / "job_descriptions" / "conexa.md"
+        job_description.parent.mkdir(parents=True, exist_ok=True)
+        job_description.write_text("Conexa job description", encoding="utf-8")
+        app_store = WorkflowStateStore(
+            application_id=self.primary.application_id,
+            database=self.db,
+            path=self.root / ".career-state" / "applications_v2" / self.primary.application_id / "workflow_state.json",
+        )
+        app_store.payload = {
+            "active_job": {"path": "inbox/job_descriptions/conexa.md", "fingerprint": "fp-conexa"},
+            "active_intake": {
+                "application_id": self.primary.application_id,
+                "source_type": "notion_record",
+                "source_id": "578",
+                "company": "Conexa",
+                "role": "Diretor de Growth",
+                "job_description_path": "inbox/job_descriptions/conexa.md",
+                "next_required_step": "fill_fit_map_draft",
+                "status": "fit_map_template_ready",
+                "updated_at": "2026-08-18T00:00:00+00:00",
+            },
+        }
+        app_store.save()
+        global_store = WorkflowStateStore(path=self.root / ".career-state" / "workflow_state.json")
+
+        with mock.patch.object(intake, "CAREER_STATE", self.root / ".career-state"), mock.patch.object(
+            state_store_module, "CAREER_STATE", self.root / ".career-state"
+        ), mock.patch.object(intake, "ROOT", self.root):
+            intake._sync_global_active_pointer(app_store, global_store)
+            resumed = intake.resume(
+                state_store=WorkflowStateStore(
+                    application_id=self.primary.application_id,
+                    database=self.db,
+                    path=app_store.path,
+                )
+            )
+
+        self.assertFalse(global_store.path.exists())
+        self.assertEqual(resumed["status"], "active_intake_ready")
+        self.assertEqual(resumed["active_intake"]["application_id"], self.primary.application_id)
 
     def _create_fit_map_revision(self, application_id: str, fingerprint: str) -> str:
         return self.analysis_repository.create_revision(

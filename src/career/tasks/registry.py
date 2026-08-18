@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from time import perf_counter
 from typing import Callable, Any
+from uuid import uuid4
 
 from career.paths import CAREER_STATE, INBOX, OUTPUTS, ROOT
 from career.services import fit_map as fit_map_service
@@ -123,7 +123,7 @@ def _record_task_completion(
         GateReceipt(
             application_id=str(state_store.application_id or ""),
             application_fingerprint=str(active_job.get("fingerprint") or ""),
-            run_id=str(arguments.get("run_id") or f"task-{task_name}"),
+            run_id=str(arguments.get("run_id") or f"task-{task_name}-{uuid4().hex}"),
             gate=state_name,
             validator=task_name,
             input_hash=input_fingerprint,
