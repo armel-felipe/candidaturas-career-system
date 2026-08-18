@@ -128,9 +128,9 @@ Resolved the controller-only regression that was not covered by the fork suite:
    existence as gate receipts.
 3. Registered applications remain fully SQLite-projected, and truly scoped operations
    that require database identity continue to fail closed on unknown applications.
-4. Added focused regressions reproducing the controller failures:
-   - `test_application_input_packs_read_application_fit_map`
-   - `test_generation_request_persists_text_outputs_inside_application`
+4. Added the application-shaped compatibility regression to
+   `tests/test_workflow_gates.py`; the existing legacy intake suite also reproduces
+   the two controller paths when present in the checkout.
 
 ### Controller active-pointer compatibility follow-up
 
@@ -145,7 +145,7 @@ Resolved the remaining controller compatibility gap on the unscoped global point
    require database identity still fail closed on unknown applications.
 3. The pointer file remains non-authoritative for gates: no `completed_states`,
    `task_history`, or `fingerprints` are sourced from global compatibility JSON.
-4. Added focused regression:
+4. Added focused regression in `tests/test_workflow_gates.py`:
    - `test_unscoped_global_pointer_unknown_application_returns_metadata_only`
 
 ### Controller global-workflow-state pointer diagnosis fix
@@ -159,7 +159,7 @@ Resolved the final controller diagnosis about stale global workflow-state author
    `.career-state/active_application.json` pointer when discovering the active application.
 3. A legacy/global `workflow_state.json` remains readable only as an explicit file-backed
    compatibility store, never as live selection authority.
-4. Added focused regression:
+4. Added focused regression in `tests/test_workflow_gates.py`:
    - `test_unscoped_default_store_ignores_stale_global_workflow_state_as_pointer`
 
 ### Controller multiagent context-summary compatibility fix
@@ -174,8 +174,9 @@ Resolved the last controller regression in the legacy intake/request suite:
    preserving the explicit `fit_map_path` summary data.
 3. `WorkflowStateStore(application_id=...)`, `GateRepository`, gate recording, and task
    execution remain fail-closed on unknown applications.
-4. Added focused regression:
-   - `test_write_request_with_application_id_without_db_registration_uses_metadata_only_fit_summary`
+4. The existing legacy intake test `test_generation_request_persists_text_outputs_inside_application`
+   verifies the request-builder path in the controller checkout; the implementation change
+   itself is limited to the read-only `_fit_map_summary()` fallback.
 
 ### Refactor / integration notes
 
@@ -237,54 +238,16 @@ Ran 54 tests in 2.887s
 OK
 ```
 
-Controller-targeted suite after active-pointer compatibility fix:
+Controller-targeted suite after the controller compatibility fixes:
 
 ```bash
-PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_intake_persistence.py
 PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions
 ```
 
-Result:
+Result in the controller checkout:
 
 ```text
-Ran 3 tests in 0.102s
-OK
-
-Ran 55 tests in 2.382s
-OK
-```
-
-Controller-targeted suite after removing global workflow-state pointer fallback:
-
-```bash
-PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence.IntakePersistenceCompatibilityTests.test_unscoped_default_store_ignores_stale_global_workflow_state_as_pointer
-PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions
-```
-
-Result:
-
-```text
-Ran 1 test in 0.014s
-OK
-
-Ran 56 tests in 2.964s
-OK
-```
-
-Controller-targeted suite after multiagent context-summary compatibility fix:
-
-```bash
-PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence.IntakePersistenceCompatibilityTests.test_write_request_with_application_id_without_db_registration_uses_metadata_only_fit_summary
-PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions
-```
-
-Result:
-
-```text
-Ran 1 test in 0.032s
-OK
-
-Ran 57 tests in 3.502s
+Ran 61 tests
 OK
 ```
 
