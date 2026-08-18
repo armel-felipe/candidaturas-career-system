@@ -38,7 +38,7 @@ Contrato operacional dos scripts locais:
 Esta skill produz o FIT_MAP — output estruturado interno que alimenta todas as outras skills do projeto.
 Nunca gere CV, FERAS, carta ou seleção Gupy sem ter o FIT_MAP construído primeiro.
 
-Regra dura: esta skill não é apenas analítica. Ela é operacional. Ler este arquivo sem executar os scripts obrigatórios e sem atualizar `.career-state/fit_map.json` conta como execução incompleta.
+Regra dura: esta skill não é apenas analítica. Ela é operacional. Ler este arquivo sem executar os scripts obrigatórios e sem atualizar `.career-state/applications_v2/<application_id>/fit_map.json` conta como execução incompleta.
 
 Critério de conclusão desta skill:
 
@@ -47,7 +47,7 @@ Critério de conclusão desta skill:
 - `scripts/build_fit_map.py` executado com sucesso
 - `scripts/score_fit_map.py` executado com sucesso
 - `scripts/validate_fit_map.py` executado com sucesso
-- `.career-state/fit_map.json` atualizado para a vaga analisada
+- `.career-state/applications_v2/<application_id>/fit_map.json` atualizado para a vaga analisada
 - `scripts/register_keywords.py` executado com sucesso
 - descrição bruta da vaga preservada pelo mecanismo definido nesta skill
 - bloco visível `Validação operacional da execução` preenchido com status real de cada etapa obrigatória
@@ -64,7 +64,7 @@ Comportamentos proibidos nesta skill:
 - preencher a validação operacional com base em intenção, plano ou leitura da skill em vez de comandos realmente executados
 - estimar ou declarar nota final antes da execução bem-sucedida de `scripts/score_fit_map.py`
 - tentar ler ou inventar arquivo bruto presumido por nome, como `*_raw.txt`, sem que ele tenha sido realmente criado no runtime
-- reutilizar `fit_map.json` ativo como resposta final quando a vaga foi colada na conversa e ainda não passou por novo `save_job_description.py` nesta execução
+- reutilizar o FIT_MAP de qualquer outra candidatura quando a vaga foi colada na conversa e ainda não passou por novo intake nesta execução
 
 ---
 
@@ -105,7 +105,7 @@ npm run intake:url -- --url "<url>" --company "<empresa>" --role "<cargo>"
 npm run intake:resume -- --application-id "<id_unico>"
 ```
 
-Se o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/fit_map.draft.json`.
+Se o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/applications_v2/<id_unico>/fit_map.draft.json`.
 Não usar `notion:list`, `grep`, cache local, URL aberta no navegador genérico ou FIT_MAP antigo como substituto do intake.
 
 ### Bloqueador crítico — Verificação de vaga ativa (anti-reuse)
@@ -114,35 +114,35 @@ Não usar `notion:list`, `grep`, cache local, URL aberta no navegador genérico 
 
 Sintomas do erro (já ocorreu em produção):
 - `npm run fit-map:summary` retorna cargo/empresa de vaga antiga
-- `.career-state/fit_map.json` tem `matches_active_job = false` mas o agente ignora
+- o FIT_MAP local da candidatura tem `matches_active_job = false` mas o agente ignora
 - Agente declara "FIT_MAP finalizado" com score de vaga que não é a atual
 
 **Protocolo obrigatório de verificação antes de qualquer análise ou entrega:**
 
 ```bash
-# 1. Verificar se FIT_MAP ativo corresponde à vaga atual
-npm run fit-map:status
+# 1. Verificar se o FIT_MAP da candidatura corresponde à vaga atual
+npm run fit-map:status -- --application-id "<id_unico>"
 
 # 2. Se matches_active_job = false, o FIT_MAP é STALE — bloquear e re-analisar
 # 3. Se draft tem placeholders > 0, a vaga ativa ainda não foi analisada
 ```
 
 Regras duras:
-- Se `fit_map.json.matches_active_job = false`, **NÃO** entregar score, **NÃO** usar `.career-state/fit_map.json` como base, **NÃO** prosseguir para CV/FERAS/carta
-- Se `draft.placeholder_count > 0`, a próxima ação obrigatória é editar `.career-state/fit_map.draft.json` — não entregar análise textual
-- Se o usuário reclamar que a análise não é da vaga correta, executar imediatamente `npm run fit-map:status` e `npm run intake:resume -- --application-id "<id_unico>"` para diagnosticar drift
+- Se o FIT_MAP da candidatura indicar `matches_active_job = false`, **NÃO** entregar score, **NÃO** usá-lo como base, **NÃO** prosseguir para CV/FERAS/carta
+- Se `draft.placeholder_count > 0`, a próxima ação obrigatória é editar `.career-state/applications_v2/<id_unico>/fit_map.draft.json` — não entregar análise textual
+- Se o usuário reclamar que a análise não é da vaga correta, executar imediatamente `npm run fit-map:status -- --application-id "<id_unico>"` e `npm run intake:resume -- --application-id "<id_unico>"` para diagnosticar drift
 - Nunca confiar em estado de sessão anterior sem revalidar fingerprint da descrição ativa
 - Quando houver dúvida sobre qual vaga deve ser executada, exigir/consultar o `application_id` no SQLite canônico; nunca ler `workflow_state.json` global para selecioná-la
 O campo `delivery_plan` do intake orienta as próximas skills: CV, FERAS, carta, habilidades e update no Notion.
 Nesta etapa, o agente deve editar o draft no filesystem. É execução parcial/falha operacional responder com o template do JSON, pedir que o usuário preencha campos, sugerir `nano`/editor, ou listar passos para preenchimento sem persistir o arquivo.
 Em modo multiagente/local pequeno, gerar/ler o request da própria candidatura com `npm run multiagent:request -- fit-map --application-id "<id_unico>"` e seguir as `Operational Rules` antes de editar.
-Depois de qualquer edição de `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`. Se o JSON estiver inválido ou a validação falhar, corrigir e reexecutar antes de responder ao usuário.
+Depois de qualquer edição de `.career-state/applications_v2/<id_unico>/fit_map.draft.json`, executar `npm run validate:fit-map:draft -- --application-id "<id_unico>"`. Se o JSON estiver inválido ou a validação falhar, corrigir e reexecutar antes de responder ao usuário.
 
 Regra de contexto compacto:
-- editar e validar `.career-state/fit_map.draft.json` no filesystem; não colar o draft, FIT_MAP ou diff completo na conversa
-- `npm run validate:fit-map:draft` e `npm run validate:fit-map` retornam resumo compacto por padrão; usar `--full` apenas em manutenção explícita
-- após `npm run fit-map:finalize`, rodar `npm run fit-map:summary` e `npm run validate:fit-map:quality` antes de entregar análise feita por modelo local
-- em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`, análise de vaga não termina no intake, extração, template, guard, leitura de request ou `validate:fit-map:draft`; continuar até `fit_map.json` final validado, resumo oficial e menu de próximos passos
+- editar e validar o draft local no filesystem; não colar o draft, FIT_MAP ou diff completo na conversa
+- `npm run validate:fit-map:draft -- --application-id "<id_unico>"` e `npm run validate:fit-map -- --application-id "<id_unico>"` retornam resumo compacto por padrão; usar `--full` apenas em manutenção explícita
+- após `npm run fit-map:finalize -- --application-id "<id_unico>"`, rodar `npm run fit-map:summary -- --application-id "<id_unico>"` e `npm run validate:fit-map:quality -- --application-id "<id_unico>"` antes de entregar análise feita por modelo local
+- em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`, análise de vaga não termina no intake, extração, template, guard, leitura de request ou validação do draft; continuar até `.career-state/applications_v2/<id_unico>/fit_map.json` final validado, resumo oficial e menu de próximos passos
 - quando precisar inspecionar JSON, usar campos específicos ou projeções pequenas; nunca `cat` no FIT_MAP/draft/registry/cache
 - a resposta ao usuário deve citar paths, contagens, nota e blockers, não payloads internos
 
@@ -157,8 +157,8 @@ Quando a vaga vier por texto colado em chat, a ordem inicial e obrigatória e es
    - `../career-system/references/autoconhecimento.md`
    - `../career-system/references/perfil_restricoes.md`
 3. Extrair keywords, competencias da vaga e dor central.
-4. Gerar o template canônico com `npm run fit-map:template` e preencher `.career-state/fit_map.draft.json`.
-5. Validar o draft com `npm run validate:fit-map:draft`.
+4. Gerar o template canônico com `npm run fit-map:template -- --application-id "<id_unico>"` e preencher `.career-state/applications_v2/<id_unico>/fit_map.draft.json`.
+5. Validar o draft com `npm run validate:fit-map:draft -- --application-id "<id_unico>"`.
 6. Canonizar, pontuar e validar o FIT_MAP; so depois registrar keywords ATS e fechar a associacao final da descricao da vaga com `--fit-map`, se necessario.
 
 Regra anti-loop:
@@ -168,15 +168,15 @@ Regra anti-loop:
 
 Politica anti-travamento:
 - depois do Passo 1, nao gastar mais de 1 bloco de resposta apenas analisando texto sem executar o proximo comando concreto
-- se a vaga ja estiver salva e as 4 referencias obrigatorias ja tiverem sido lidas, a proxima acao obrigatoria e preencher `.career-state/fit_map.draft.json`; nao ficar recalculando nota em texto livre antes disso
+- se a vaga ja estiver salva e as 4 referencias obrigatorias ja tiverem sido lidas, a proxima acao obrigatoria e preencher `.career-state/applications_v2/<id_unico>/fit_map.draft.json`; nao ficar recalculando nota em texto livre antes disso
 - a nota de aderencia pode ser preparada como classificacao item a item no draft, mas a nota final oficial so existe depois do pipeline `validate draft -> build -> score -> validate`; nao refazer a matematica repetidamente na conversa
-- antes de preencher `.career-state/fit_map.draft.json`, nao escrever subtotais nem nota final na conversa; classificar itens, evidencias e severidades diretamente no draft
-- em caso de duvida sobre retomada ou estado misto, executar `npm run fit-map:status` e seguir exatamente `next_required_step`
-- se `next_required_step` for `preencher .career-state/fit_map.draft.json`, executar `npm run fit-map:resume` e então editar o draft; nao entregar mais uma análise textual antes da persistência
+- antes de preencher o draft local, nao escrever subtotais nem nota final na conversa; classificar itens, evidencias e severidades diretamente no draft
+- em caso de duvida sobre retomada ou estado misto, executar `npm run fit-map:status -- --application-id "<id_unico>"` e seguir exatamente `next_required_step`
+- se `next_required_step` for preencher o draft local, executar `npm run fit-map:resume -- --application-id "<id_unico>"` e então editar o draft; nao entregar mais uma análise textual antes da persistência
 - se a vaga veio de seleção numérica da lista salva do LinkedIn, resolver a URL salva, executar `npm run intake:linkedin-job -- --url "<url>"` e seguir até FIT_MAP final; não pedir confirmação adicional para prosseguir
 - se o draft foi lido e ainda tem placeholders, não resumir o template para o usuário; usar a descrição salva e as referências obrigatórias para substituir os placeholders no próprio arquivo
-- se o draft ficar com JSON inválido por patch parcial, executar `npm run fit-map:template`, regenerar o request se necessário e recomeçar a edição a partir do template válido
-- depois de `npm run fit-map:template`, executar `npm run fit-map:guard`; se retornar `guard=blocked`, a próxima ação deve ser o `required_next_command`, sem explicar o workflow nem continuar análise em texto livre
+- se o draft ficar com JSON inválido por patch parcial, executar `npm run fit-map:template -- --application-id "<id_unico>"`, regenerar o request se necessário e recomeçar a edição a partir do template válido
+- depois de `npm run fit-map:template -- --application-id "<id_unico>"`, executar `npm run fit-map:guard -- --application-id "<id_unico>"`; se retornar `guard=blocked`, a próxima ação deve ser o `required_next_command`, sem explicar o workflow nem continuar análise em texto livre
 - nessa etapa, nao consultar `--help` dos scripts nem reutilizar draft de outra vaga como ponto de partida; o ponto de partida obrigatorio e o template canônico recem-gerado
 - se houver erro objetivo de arquivo, caminho ou comando, corrigir e reexecutar imediatamente no mesmo fluxo; nao transformar o erro em longa explicacao
 - se o agente passar 2 respostas consecutivas sem avancar de etapa, ele deve interromper a exposicao, declarar `execucao parcial/bloqueada` e rodar o proximo comando ou informar o bloqueio real
@@ -485,12 +485,12 @@ Para cada keyword, registrar:
 Antes de preencher qualquer campo do draft, executar:
 
 ```bash
-npm run fit-map:template
-npm run fit-map:guard
+npm run fit-map:template -- --application-id "<id_unico>"
+npm run fit-map:guard -- --application-id "<id_unico>"
 ```
 
 Regra dura deste passo:
-- o caminho canônico do draft é `.career-state/fit_map.draft.json`
+- o caminho canônico do draft é `.career-state/applications_v2/<id_unico>/fit_map.draft.json`
 - não criar drafts paralelos em `inbox/`, `outputs/` ou arquivos temporários arbitrários
 - o agente deve preencher o template existente, não inventar um JSON do zero
 - se `fit-map:guard` retornar bloqueado, qualquer resposta sem edição do draft é execução parcial
@@ -558,7 +558,7 @@ npm run fit-map:check:score-draft
 npm run fit-map:check:complete-draft
 ```
 
-Esses checkpoints validam partes do mesmo `.career-state/fit_map.draft.json` e servem para forcar persistencia incremental: extracao, evidencias, nota estruturada e fechamento do draft.
+Esses checkpoints validam partes do mesmo draft local e servem para forcar persistencia incremental: extracao, evidencias, nota estruturada e fechamento do draft.
 
 Regra de linguagem para drafts em português:
 - keywords, competências, objeções e histórias devem ser escritas com ortografia portuguesa correta e acentos quando forem texto de exibição
@@ -568,25 +568,25 @@ Regra de linguagem para drafts em português:
 
 ### Passo 8.1 — Validar o draft do FIT_MAP
 
-Depois de preencher `.career-state/fit_map.draft.json`, executar:
+Depois de preencher `.career-state/applications_v2/<id_unico>/fit_map.draft.json`, executar:
 
 ```bash
-npm run validate:fit-map:draft
+npm run validate:fit-map:draft -- --application-id "<id_unico>"
 ```
 
 Regra de encerramento:
-- se o draft falhar, corrigir o próprio `.career-state/fit_map.draft.json` e reexecutar
+- se o draft falhar, corrigir o próprio draft local e reexecutar
 - não pular direto para `build_fit_map.py`
 
 ### Passo 8.2 — Canonizar e salvar o FIT_MAP
 
-1. Usar o draft já validado em `.career-state/fit_map.draft.json`.
+1. Usar o draft já validado em `.career-state/applications_v2/<id_unico>/fit_map.draft.json`.
 2. Executar:
 
 ```bash
-npm run fit-map:build
-npm run fit-map:score
-npm run validate:fit-map
+npm run fit-map:build -- --application-id "<id_unico>"
+npm run fit-map:score -- --application-id "<id_unico>"
+npm run validate:fit-map -- --application-id "<id_unico>"
 ```
 
 3. Somente após validação bem-sucedida considerar o FIT_MAP ativo.
@@ -599,10 +599,10 @@ Regra de qualidade do estado salvo: `FIT_MAP valid` só tem valor operacional se
 
 ### Passo 9 — Registrar keywords ATS no histórico
 
-Após canonizar, salvar e validar `.career-state/fit_map.json`, atualizar o registro persistente de keywords:
+Após canonizar, salvar e validar o FIT_MAP local, atualizar o registro persistente de keywords:
 
 ```bash
-python scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
+python scripts/register_keywords.py --fit-map .career-state/applications_v2/<id_unico>/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Esse registro alimenta CVs futuros e a adaptação do LinkedIn. Ele não autoriza usar keywords sem evidência; gaps continuam gaps.
@@ -616,7 +616,7 @@ Quando a vaga vier de texto colado pelo usuário, garantir que a descrição bru
 Usar o script:
 
 ```bash
-python scripts/save_job_description.py --fit-map .career-state/fit_map.json --text-file <arquivo_com_texto_bruto_da_vaga>
+python scripts/save_job_description.py --fit-map .career-state/applications_v2/<id_unico>/fit_map.json --text-file <arquivo_com_texto_bruto_da_vaga>
 ```
 
 Esse arquivo é obrigatório caso o usuário peça posteriormente para criar registro em `Aplicações` no Notion, porque a criação deve preencher `Descrição da Vaga` além de nome e nota.
@@ -713,7 +713,7 @@ Exibir obrigatoriamente um bloco de status ao final da análise. Este bloco não
 | `scripts/build_fit_map.py` | executado / não executado | comando executado ou erro objetivo |
 | `scripts/score_fit_map.py` | executado / não executado | comando executado ou erro objetivo |
 | `scripts/validate_fit_map.py` | executado / não executado | comando executado ou erro objetivo |
-| `.career-state/fit_map.json` atualizado para a vaga analisada | executado / não executado | caminho + cargo/empresa salvos ou motivo da ausência |
+| FIT_MAP local da candidatura atualizado | executado / não executado | caminho + cargo/empresa salvos ou motivo da ausência |
 | `scripts/register_keywords.py` | executado / não executado | comando executado ou erro objetivo |
 | `scripts/save_job_description.py` ou fluxo equivalente definido na skill | executado / não executado | comando executado ou erro objetivo |
 
@@ -722,7 +722,7 @@ Regras deste bloco:
 - nunca marcar `executado` sem evidência objetiva
 - leitura de arquivo, intenção declarada ou planejamento não contam como evidência
 - se houver falha de script, mostrar o erro de forma resumida na coluna `Evidência objetiva`
-- se `validate_fit_map_draft.py`, `build_fit_map.py` ou `validate_fit_map.py` falharem por draft incompleto, shape inválido ou placeholder, o agente deve corrigir `.career-state/fit_map.draft.json` e reexecutar; nunca mascarar a falha com resumo manual
+- se `validate_fit_map_draft.py`, `build_fit_map.py` ou `validate_fit_map.py` falharem por draft incompleto, shape inválido ou placeholder, o agente deve corrigir o draft local e reexecutar; nunca mascarar a falha com resumo manual
 
 **8. Próximos passos sugeridos**
 Quais documentos faz sentido gerar (CV qual persona, FERAS qual formato, carta, Gupy).
@@ -824,17 +824,17 @@ Se o usuário pedir documentos em sessões separadas, pergunte se há um FIT_MAP
 Quando acionada pelo maestro, esta skill deve operar como `fit-map-agent`.
 
 Entrada obrigatoria:
-- ler primeiro `.career-state/agent_requests/fit-map_request.json` ou `.career-state/agent_requests/fit-map_request.md`
+- ler primeiro `.career-state/applications_v2/<id_unico>/requests/manual_agent_requests/fit-map_request.json` ou o `.md` correspondente
 - usar somente os arquivos listados em `allowed_files`
 - executar somente comandos listados em `allowed_commands`
 
 Saida obrigatoria:
-- preencher somente `.career-state/fit_map.draft.json`
-- rodar as validacoes do request, especialmente `npm run validate:fit-map:draft`
+- preencher somente `.career-state/applications_v2/<id_unico>/fit_map.draft.json`
+- rodar as validacoes do request, especialmente `npm run validate:fit-map:draft -- --application-id "<id_unico>"`
 - retornar status estruturado com `files_written`, `commands_executed`, `validation_result` e `blocker_reason`
 
 Proibido neste modo:
-- editar `.career-state/fit_map.json`
-- rodar `npm run fit-map:finalize`
+- editar o FIT_MAP final local diretamente
+- rodar `npm run fit-map:finalize -- --application-id "<id_unico>"`
 - escrever score final na conversa antes dos gates
 - criar scripts temporarios na raiz para gerar ou reparar JSON

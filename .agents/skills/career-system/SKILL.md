@@ -48,7 +48,7 @@ Ler a skill é pré-requisito, não conclusão. A execução só conta como conc
 ### Fluxo padrão
 
 1. `career-fit-analysis` gera e canoniza o draft dentro de `.career-state/applications_v2/<application_id>/`, com `--application-id "<application_id>"` em cada comando; qualquer FIT_MAP global é somente espelho posterior.
-2. `cv-generator`, `feras-pitch`, `cover-letter` e `habilidades-chave` consomem o FIT_MAP ativo.
+2. `cv-generator`, `feras-pitch`, `cover-letter` e `habilidades-chave` consomem o FIT_MAP da candidatura identificada por `application_id`.
 3. `output-reviewer` roda obrigatoriamente após toda skill de produção antes de entregar.
 4. `networking-message` sempre pergunta o perfil do destinatário antes de gerar mensagem.
 5. `linkedin-job-extractor` salva a descrição completa de vagas ou postagens de vaga do LinkedIn antes de acionar análise, CV ou Notion.
@@ -79,12 +79,12 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - use `npm run agent:guard -- --application-id "<id>" --fingerprint "<sha256>"` após interrupção, output truncado ou dúvida sobre a próxima ação autorizada; o guard bloqueia sem ambos
 - use `npm run intake:resume -- --application-id "<id>"` para retomar e seguir `next_required_step`; ponteiros globais servem apenas para descoberta e nunca selecionam a vaga de execução
 - quando o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/applications_v2/<application_id>/fit_map.draft.json`; não entregar análise textual nem reaproveitar FIT_MAP antigo
-- preencher `.career-state/fit_map.draft.json` significa o agente editar o arquivo persistido; é proibido responder com instruções para o usuário preencher o template, imprimir o JSON bruto do template ou tratar placeholders como entrega
+- preencher `.career-state/applications_v2/<application_id>/fit_map.draft.json` significa o agente editar o arquivo persistido; é proibido responder com instruções para o usuário preencher o template, imprimir o JSON bruto do template ou tratar placeholders como entrega
 - em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map --application-id "<application_id>"` e seguir as `Operational Rules`
-- em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`, não parar após intake, extração, template, guard, leitura de request ou `validate:fit-map:draft`; continuar até `fit_map.json` final validado, `fit-map:summary`, `validate:fit-map:quality` e menu de próximos passos
+- em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`, não parar após intake, extração, template, guard, leitura de request ou `validate:fit-map:draft`; continuar até `.career-state/applications_v2/<application_id>/fit_map.json` validado, `fit-map:summary -- --application-id "<application_id>"`, `validate:fit-map:quality -- --application-id "<application_id>"` e menu de próximos passos
 - quando o usuário escolher uma vaga por número depois de listar vagas salvas do LinkedIn, resolver a URL em `inbox/linkedin_saved_jobs.json`, executar `npm run intake:linkedin-job -- --url "<url>"` e seguir até o FIT_MAP final sem pedir nova confirmação para prosseguir
-- após qualquer edição de `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`; se falhar, corrigir e reexecutar antes de responder ao usuário
-- se `.career-state/fit_map.draft.json` ficar com JSON inválido, executar `npm run fit-map:template` para resetar o template da vaga ativa antes de continuar
+- após qualquer edição de `.career-state/applications_v2/<application_id>/fit_map.draft.json`, executar `npm run validate:fit-map:draft -- --application-id "<application_id>"`; se falhar, corrigir e reexecutar antes de responder ao usuário
+- se o draft local ficar com JSON inválido, executar `npm run fit-map:template -- --application-id "<application_id>"` para resetar o template da mesma candidatura antes de continuar
 - quando o draft analítico já estiver preenchido, prefira `npm run fit-map:finalize`
 - use `npm run fit-map:summary`, `npm run fit-map:draft-summary`, `npm run workflow:summary` e `npm run registry:summary` para inspeções compactas antes de abrir qualquer JSON grande
 - se houver suspeita de estado contaminado, active_intake quebrado, FIT_MAP/draft de outra vaga ou pedido explícito de recomeçar limpo, incluindo gatilhos como "reinicie", "reiniciar", "limpa tudo" ou "resetar estado", usar `npm run workflow:reset -- --dry-run` primeiro; executar `npm run workflow:reset` somente com confirmação explícita do usuário
@@ -133,8 +133,8 @@ Política de contexto compacto:
 Gate global para CV em DOCX:
 
 ```bash
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
-python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
+python3 scripts/register_keywords.py --fit-map .career-state/applications_v2/<application_id>/fit_map.json --cv outputs/<cv>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
+python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/applications_v2/<application_id>/fit_map.json --registry .career-state/applications_v2/<application_id>/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 ```
 
 Regras:
@@ -181,7 +181,7 @@ Se qualquer passo obrigatório falhar ou não puder ser executado, o agente deve
 Comportamentos proibidos:
 
 - usar a skill apenas como guia conceitual sem executar seus passos operacionais
-- declarar que construiu FIT_MAP sem atualizar `.career-state/fit_map.json`
+- declarar que construiu FIT_MAP sem atualizar `.career-state/applications_v2/<application_id>/fit_map.json`
 - declarar que calculou nota final quando o cálculo exigido pela skill não foi produzido
 - prosseguir para skills dependentes usando estado antigo, incompleto ou não validado
 - marcar script, validação ou arquivo como concluído sem evidência real de execução
@@ -197,10 +197,10 @@ Comportamentos proibidos:
 - se o agente estiver recalculando nota, reexplicando workflow ou reenumerando passos ja completos, ele deve encerrar esse bloco e voltar ao pipeline operacional
 - mensagens como `continue`, `ta rodando?`, `travou?` e equivalentes exigem resposta curta com `ultimo passo concluido`, `passo atual` e `proximo comando`
 - para CV, se o formato de saída já estiver explícito no pedido, não perguntar de novo: executar o pipeline correspondente no mesmo turno
-- antes de `.career-state/fit_map.draft.json` estar preenchido, nao escrever subtotais nem nota final na conversa; classificar os itens diretamente no draft
+- antes de `.career-state/applications_v2/<application_id>/fit_map.draft.json` estar preenchido, nao escrever subtotais nem nota final na conversa; classificar os itens diretamente no draft
 - se houver duvida sobre o estado atual, executar `npm run fit-map:status` e seguir `next_required_step`
-- se `next_required_step` for `preencher .career-state/fit_map.draft.json`, executar `npm run fit-map:resume`; a resposta seguinte deve editar o draft ou declarar bloqueio real, nunca recalcular nota em texto livre
-- se o agente acabou de ler `.career-state/fit_map.draft.json` e ele ainda contém placeholders, a leitura não conta como progresso; deve editar o arquivo imediatamente
+- se `next_required_step` for preencher o draft local, executar `npm run fit-map:resume -- --application-id "<application_id>"`; a resposta seguinte deve editar o draft ou declarar bloqueio real, nunca recalcular nota em texto livre
+- se o agente acabou de ler o draft local e ele ainda contém placeholders, a leitura não conta como progresso; deve editar o arquivo imediatamente
 - se `npm run fit-map:guard` retornar `blocked=true`, qualquer resposta subsequente sem edição do draft conta como execução parcial/stall
 - ao avaliar logs de benchmarking ou travamento, executar `python3 scripts/diagnose_session_stall.py <session.md>` e tratar `stalled=true` como execucao parcial
 
@@ -277,13 +277,13 @@ Regras:
 - cada agente especialista deve ler primeiro seu request e operar somente nos arquivos e comandos permitidos
 - se a validacao falhar, o agente nao improvisa scripts; devolve `blocked` ou recebe um repair request especifico
 - cada request deve conter `Operational Rules` especificas da etapa; ignorar essas regras conta como execucao parcial/stall
-- `fit-map-agent`: edita `.career-state/fit_map.draft.json` quando houver placeholders; nao delega o preenchimento ao usuario e nao imprime o template bruto como resposta
-- `fit-map-agent`: se o request indicar `Current FIT_MAP.matches_active_job = false`, tratar `.career-state/fit_map.json` como antigo e nao reutilizar
-- `fit-map-agent`: depois de editar, deve rodar `npm run validate:fit-map:draft`; se o JSON quebrar ou a validação falhar, deve corrigir antes de responder
+- `fit-map-agent`: edita `.career-state/applications_v2/<application_id>/fit_map.draft.json` quando houver placeholders; nao delega o preenchimento ao usuario e nao imprime o template bruto como resposta
+- `fit-map-agent`: se o request indicar `Current FIT_MAP.matches_active_job = false`, tratar o FIT_MAP da própria candidatura como inválido e não reutilizá-lo
+- `fit-map-agent`: depois de editar, deve rodar `npm run validate:fit-map:draft -- --application-id "<application_id>"`; se o JSON quebrar ou a validação falhar, deve corrigir antes de responder
 - `cv-agent`: roda `context:assert-active`, `cv:build-content`, `cv:validate-content`, produz DOCX em `outputs/`, roda `validate:docx` e encerra com `cv:deliver` quando OneDrive/rclone estiver configurado; `cv:approve` isolado é gate local/diagnóstico
-- `cv-agent`: usa `.career-state/derived/cv_input_pack.json` e `.career-state/derived/cv_content_seed.json` como contexto primário; referências longas ficam em fallback
-- `cover-letter-agent`: usa `.career-state/derived/cover_letter_input_pack.json` como contexto primário e persiste primeiro `.md`; PDF/entrega só quando a etapa pedir
-- `feras-agent`: usa `.career-state/derived/feras_input_pack.json` como contexto primário e persiste primeiro o artefato local em `outputs/`
+- `cv-agent`: usa `.career-state/applications_v2/<application_id>/derived/cv_input_pack.json` e `cv_content_seed.json` como contexto primário; referências longas ficam em fallback
+- `cover-letter-agent`: usa `.career-state/applications_v2/<application_id>/derived/cover_letter_input_pack.json` como contexto primário e persiste primeiro `.md`; PDF/entrega só quando a etapa pedir
+- `feras-agent`: usa `.career-state/applications_v2/<application_id>/derived/feras_input_pack.json` como contexto primário e persiste primeiro o artefato local em `outputs/`
 - `notion-agent`: prepara somente dry-run ate aprovacao explicita; usa scripts locais, bloqueia mismatch/mojibake e nunca le `.env` ou usa MCP/curl
 - `email-agent`: revisa texto antes do preview, valida anexos, faz dry-run e so cria draft real apos aprovacao explicita; nunca envia email
 - `linkedin-agent`: usa apenas scripts autenticados, persiste a descricao e confirma `active_intake`; se sessao expirar, usa `linkedin:auth`
@@ -336,7 +336,7 @@ Nenhum número, ferramenta, experiência, idioma, certificação ou escopo pode 
 
 ## FIT_MAP Local
 
-O FIT_MAP ativo deve ser JSON válido em `.career-state/fit_map.json` com os campos mínimos:
+O FIT_MAP da candidatura deve ser JSON válido em `.career-state/applications_v2/<application_id>/fit_map.json` com os campos mínimos:
 
 ```json
 {
@@ -507,13 +507,13 @@ Regra global para drafts de email:
 Depois de toda análise de vaga, registrar as keywords extraídas:
 
 ```bash
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
+python3 scripts/register_keywords.py --fit-map .career-state/applications_v2/<application_id>/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Depois de todo CV gerado, atualizar o mesmo registro com o DOCX final para marcar cobertura real por string exata:
 
 ```bash
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --cv outputs/<cv_gerado>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
+python3 scripts/register_keywords.py --fit-map .career-state/applications_v2/<application_id>/fit_map.json --cv outputs/<cv_gerado>.docx --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
 ```
 
 Use esse histórico para:
@@ -662,14 +662,14 @@ python3 scripts/notion_sync.py prepare-analysis-from-record <id_unico>
 2. **Criação de registro no tracker Aplicações** — fluxo padrão só depois de a vaga ter análise concluída, `FIT_MAP` final válido e decisão explícita de prosseguir. Executar apenas quando o usuário pedir explicitamente para criar/salvar/registrar a candidatura no Notion. Usar sempre o template cadastrado e preencher, no mínimo: `Vaga`, `avaliação de aderencia claude` e `Descrição da Vaga`. A criação também deve anexar ao corpo da página a análise de aderência produzida a partir do FIT_MAP, salvo quando `--no-append-summary` for pedido deliberadamente.
 
 ```bash
-python3 scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
+python3 scripts/notion_sync.py create-from-fit-map --fit-map .career-state/applications_v2/<application_id>/fit_map.json --job-description .career-state/applications_v2/<application_id>/job_description.md
 ```
 
 O template não é opcional. Para listar ou trocar o template:
 
 ```bash
 python3 scripts/notion_sync.py templates
-python3 scripts/notion_sync.py create-from-fit-map --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --template-id <template_id>
+python3 scripts/notion_sync.py create-from-fit-map --fit-map .career-state/applications_v2/<application_id>/fit_map.json --job-description .career-state/applications_v2/<application_id>/job_description.md --template-id <template_id>
 ```
 
 Quando `NOTION_APPLICATIONS_TEMPLATE_ID` estiver preenchido no `.env`, `create-from-fit-map` usa esse template automaticamente.
@@ -687,10 +687,10 @@ Na criação, o corpo da página deve receber:
 3. **Atualização de página já existente no tracker Aplicações** — quando a vaga nasceu no Notion e o usuário pedir para registrar/devolver a análise, atualizar a mesma página em vez de criar duplicata:
 
 ```bash
-python3 scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --dry-run
-python3 scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
-python3 scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga> --dry-run
-python3 scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/fit_map.json --job-description <arquivo_com_descricao_da_vaga>
+python3 scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/applications_v2/<application_id>/fit_map.json --job-description .career-state/applications_v2/<application_id>/job_description.md --dry-run
+python3 scripts/notion_sync.py update-from-fit-map <page_id> --fit-map .career-state/applications_v2/<application_id>/fit_map.json --job-description .career-state/applications_v2/<application_id>/job_description.md
+python3 scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/applications_v2/<application_id>/fit_map.json --job-description .career-state/applications_v2/<application_id>/job_description.md --dry-run
+python3 scripts/notion_sync.py update-from-fit-map-record <id_unico> --fit-map .career-state/applications_v2/<application_id>/fit_map.json --job-description .career-state/applications_v2/<application_id>/job_description.md
 ```
 
 4. **Registro ou atualização apenas da descrição extraída** — exceção deliberada para captura precoce, quando o usuário pedir "atualize a vaga ID/Notion `<número>` com a descrição extraída" ou "crie/faça/registre a vaga no Notion" antes de haver FIT_MAP:

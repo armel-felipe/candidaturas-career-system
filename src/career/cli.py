@@ -222,12 +222,14 @@ def build_parser() -> argparse.ArgumentParser:
     habilidades = subparsers.add_parser("habilidades-chave")
     habilidades_sub = habilidades.add_subparsers(dest="action", required=True)
     habilidades_check = habilidades_sub.add_parser("check")
-    habilidades_check.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    habilidades_check.add_argument("--application-id", required=True)
+    habilidades_check.add_argument("--fit-map")
     habilidades_validate = habilidades_sub.add_parser("validate")
     habilidades_validate.add_argument("--artifact", required=True)
     habilidades_validate.add_argument("--mode", choices=["gupy", "mercado_livre"], required=True)
     habilidades_validate.add_argument("--expected-count", type=int)
-    habilidades_validate.add_argument("--fit-map", default=str(CAREER_STATE / "fit_map.json"))
+    habilidades_validate.add_argument("--application-id", required=True)
+    habilidades_validate.add_argument("--fit-map")
 
     project = subparsers.add_parser("project")
     project_sub = project.add_subparsers(dest="action", required=True)
@@ -415,6 +417,20 @@ def _require_application_paths(application_id: str | None):
     if paths is None:
         raise CareerError("explicit_application_scope_required: pass --application-id")
     return paths
+
+
+def _require_application_fit_map(
+    application_id: str | None,
+    supplied_path: str | None,
+):
+    """Resolve the FIT_MAP for one application and reject path injection."""
+    paths = _require_application_paths(application_id)
+    canonical_path = paths.fit_map.resolve()
+    if supplied_path is not None and Path(supplied_path).resolve() != canonical_path:
+        raise CareerError(
+            "--fit-map must equal the application FIT_MAP selected by --application-id"
+        )
+    return canonical_path
 
 
 def _state_store_for_application(
@@ -1018,8 +1034,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.command == "habilidades-chave":
+        fit_map_path = _require_application_fit_map(
+            args.application_id,
+            args.fit_map,
+        )
         if args.action == "check":
-            _dump(habilidades_chave_service.check_environment(Path(args.fit_map)))
+            _dump(habilidades_chave_service.check_environment(fit_map_path))
             return 0
         if args.action == "validate":
             _dump(
@@ -1027,7 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
                     artifact=Path(args.artifact),
                     mode=args.mode,
                     expected_count=args.expected_count,
-                    fit_map_path=Path(args.fit_map),
+                    fit_map_path=fit_map_path,
                 )
             )
             return 0

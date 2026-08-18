@@ -62,3 +62,53 @@ existing application-local JSON packs remain compatibility materializations;
 they are no longer allowed to choose an application. The pre-existing,
 untracked `tests/test_intake_persistence.py` was preserved and excluded from
 evidence because it asserts the retired legacy database location.
+
+## Bounded correction after `a8375d1`
+
+### RED
+
+`tests/test_identity_firewall_request_and_habilidades.py` was added before the
+CLI correction. Its first run failed for the intended reasons: `habilidades-chave
+check` invoked `check_environment` without an application scope and the parser
+rejected `--application-id`, demonstrating that the command still selected the
+root FIT_MAP.
+
+### GREEN
+
+- `multiagent.write_request()` accepts only an explicit `application_id`, builds
+  compact input through `ApplicationPaths`, writes the request under that
+  application, and no longer retains the unscoped allowed-file, derived-summary
+  or compact-input helpers.
+- The request's FIT_MAP summary, allowlist, expected outputs and derived-context
+  metadata are all application-local. The remaining fallback reference files are
+  immutable skill references only.
+- `habilidades-chave check|validate` require `--application-id`; their FIT_MAP is
+  resolved from `application_context.paths_for()`. A supplied `--fit-map` must
+  equal that canonical application path, so a root or foreign path is rejected
+  before any FIT_MAP reader runs.
+- `AGENTS.md`, `career-system`, and `career-fit-analysis` now show scoped request,
+  FIT_MAP and draft commands. Root FIT_MAP/workflow mentions are retained only
+  where they explicitly describe read-only compatibility mirrors or prohibit a
+  global fallback.
+
+### Reproducible verification
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q \
+  tests.test_identity_firewall_request_and_habilidades \
+  tests.test_intake_runtime_scope tests.test_intake_sqlite_scope \
+  tests.test_application_projection tests.test_workflow_gates \
+  tests.test_linkedin_intake_metadata
+```
+
+Result: `Ran 57 tests ... OK`.
+
+`python3 -m py_compile src/career/cli.py src/career/services/multiagent.py` and
+`git diff --check` also passed.
+
+### Deliberate residual
+
+This correction does not migrate the remaining application-local derived JSON
+packs into SQLite materializers; that is Task 3.2. The root JSON files remain
+compatibility mirrors and are not a permitted source for the request or Gupy
+execution paths covered here.

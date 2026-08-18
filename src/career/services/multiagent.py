@@ -218,13 +218,27 @@ def _scoped_allowed_files_for(
                 )
             ],
         ]
-    elif contract.step in {"cover-letter", "feras", "habilidades"}:
+    elif contract.step in {"cv", "cover-letter", "feras", "habilidades"}:
         input_name = {
+            "cv": "cv_input_pack.json",
             "cover-letter": "cover_letter_input_pack.json",
             "feras": "feras_input_pack.json",
             "habilidades": "habilidades_input_pack.json",
         }[contract.step]
-        files = [app_paths.fit_map, derived / input_name, derived / "reference_digest.json", derived / "manifest.json"]
+        files = [
+            app_paths.fit_map,
+            derived / input_name,
+            derived / "reference_digest.json",
+            derived / "manifest.json",
+        ]
+        if contract.step == "cv":
+            files.extend(
+                [
+                    derived / "cv_content_seed.json",
+                    Path(".agents/skills/cv-generator/SKILL.md"),
+                    Path("scripts/docx/generate_custom_cv.js"),
+                ]
+            )
     else:
         files = [Path(item) for item in contract.allowed_files if item.startswith(".agents/")]
     if active and isinstance(active.get("job_description_path"), str):
@@ -271,20 +285,19 @@ def _prepare_scoped_compact_inputs(step: str, app_paths) -> None:
 def _fit_map_summary(
     active: dict[str, Any] | None = None,
     *,
-    fit_map_path: Path | None = None,
-    state_store: WorkflowStateStore | None = None,
+    fit_map_path: Path,
+    state_store: WorkflowStateStore,
 ) -> dict[str, Any]:
-    fit_map_path = fit_map_path or CAREER_STATE / "fit_map.json"
     if not fit_map_path.exists():
         return {"exists": False}
     payload = read_json(fit_map_path)
     active_fingerprint = active.get("fingerprint") if isinstance(active, dict) else None
     try:
-        state = (state_store or WorkflowStateStore()).load()
+        state = state_store.load()
     except ValueError as exc:
         expected_application = (
             str(state_store.application_id).strip()
-            if state_store is not None and state_store.application_id is not None
+            if state_store.application_id is not None
             else ""
         )
         if not expected_application or str(exc) != f"unknown application: {expected_application}":
@@ -469,20 +482,22 @@ def write_request(
     )
     if cellular_context:
         request_extras.update(cellular_context)
-    application_id = str(request_extras.get("application_id") or "").strip()
-    app_paths = application_context_service.paths_for(application_id) if application_id else None
-    if app_paths and not cellular_context:
-        derived_context_service.configure_derived_dir(app_paths.derived_dir)
-        derived_context_service.configure_state_store_path(app_paths.workflow_state)
-    active = _active_intake(app_paths.workflow_state if app_paths else None)
+    if cellular_context and cellular_context["application_id"] != scoped_application_id:
+        raise ValidationFailure("cellular request application_id does not match explicit scope")
+    app_paths = application_context_service.paths_for(scoped_application_id)
+    state_store = WorkflowStateStore.for_application(
+        scoped_application_id,
+        database=database or application_context_service.canonical_database(),
+    )
+    active = _active_intake(state_store)
+    if fingerprint and str((active or {}).get("fingerprint") or "").strip() != str(fingerprint):
+        raise ValidationFailure("request fingerprint does not match application intake")
     if not cellular_context:
-        _prepare_compact_inputs_for_step(step, active)
+        _prepare_scoped_compact_inputs(step, app_paths)
     request_id = uuid.uuid4().hex
     if step in {"notion-update", "email-draft"}:
         request_extras["pending_action_path"] = (
-            f".career-state/applications_v2/{application_id}/pending_actions/{request_id}.json"
-            if application_id
-            else f".career-state/pending_actions/{request_id}.json"
+            f".career-state/applications_v2/{scoped_application_id}/pending_actions/{request_id}.json"
         )
     payload = {
         "request_id": request_id,
@@ -493,17 +508,17 @@ def write_request(
         "active_intake": active,
         "fit_map": _fit_map_summary(
             active,
-            fit_map_path=app_paths.fit_map if app_paths else None,
-            state_store=WorkflowStateStore.for_application(application_id) if application_id else None,
+            fit_map_path=app_paths.fit_map,
+            state_store=state_store,
         ),
         "cellular": bool(cellular_context),
-        "application_id": application_id or None,
+        "application_id": scoped_application_id,
         "run_id": cellular_context.get("run_id") if cellular_context else None,
         "node_id": cellular_context.get("node_id") if cellular_context else None,
         "manifest_path": cellular_context.get("manifest_path") if cellular_context else None,
         "read_allowlist": cellular_context.get("read_allowlist", []) if cellular_context else [],
         "write_allowlist": cellular_context.get("write_allowlist", []) if cellular_context else [],
-        "allowed_files": cellular_context["read_allowlist"] if cellular_context else _allowed_files_for(contract, active),
+        "allowed_files": cellular_context["read_allowlist"] if cellular_context else _scoped_allowed_files_for(contract, active, app_paths),
         "fallback_reference_files": [] if cellular_context else _fallback_reference_files_for(contract),
         "derived_context": (
             {
@@ -511,10 +526,10 @@ def write_request(
                 "manifest_path": cellular_context["manifest_path"],
             }
             if cellular_context
-            else _derived_context_payload(contract)
+            else _scoped_derived_context_payload(contract, app_paths)
         ),
         "allowed_commands": [] if cellular_context else list(contract.allowed_commands),
-        "expected_outputs": cellular_context["write_allowlist"] if cellular_context else list(contract.expected_outputs),
+        "expected_outputs": cellular_context["write_allowlist"] if cellular_context else _scoped_expected_outputs_for(contract, app_paths),
         "forbidden_actions": list(contract.forbidden_actions),
         "validation_commands": list(contract.validation_commands),
         "operational_rules": cellular_operational_rules(cellular_context) if cellular_context else _operational_rules(contract),
@@ -535,7 +550,7 @@ def write_request(
         },
         "extras": request_extras,
     }
-    base_request_dir = app_paths.requests_dir / "manual_agent_requests" if app_paths else REQUEST_DIR
+    base_request_dir = app_paths.requests_dir / "manual_agent_requests"
     json_path = base_request_dir / f"{step}_request.json"
     md_path = base_request_dir / f"{step}_request.md"
     write_json(json_path, payload)
@@ -662,74 +677,10 @@ def _request_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _relative_path(path: Path) -> str:
-    return str(path.resolve().relative_to(ROOT.resolve()))
-
-
-def _allowed_files_for(
-    contract: AgentContract,
-    active: dict[str, Any] | None,
-    *,
-    app_paths=None,
-) -> list[str]:
-    files = list(contract.allowed_files)
-    if contract.step == "fit-map":
-        files = derived_context_service.fit_map_compact_files()
-    elif contract.step == "cv":
-        files = derived_context_service.cv_compact_files() + [
-            ".agents/skills/cv-generator/SKILL.md",
-            "scripts/docx/generate_custom_cv.js",
-        ]
-    elif contract.step == "cover-letter":
-        files = [
-            ".career-state/fit_map.json",
-            ".career-state/derived/cover_letter_input_pack.json",
-            ".career-state/derived/reference_digest.json",
-            ".career-state/derived/manifest.json",
-            ".agents/skills/cover-letter/SKILL.md",
-        ]
-    elif contract.step == "feras":
-        files = [
-            ".career-state/fit_map.json",
-            ".career-state/derived/feras_input_pack.json",
-            ".career-state/derived/reference_digest.json",
-            ".career-state/derived/manifest.json",
-            ".agents/skills/feras-pitch/SKILL.md",
-        ]
-    elif contract.step == "habilidades":
-        files = [
-            ".career-state/fit_map.json",
-            ".career-state/derived/habilidades_input_pack.json",
-            ".career-state/derived/manifest.json",
-            ".agents/skills/habilidades-chave/SKILL.md",
-        ]
-    if contract.step in {"fit-map", "notion-update"} and active:
-        job_description_path = active.get("job_description_path")
-        if isinstance(job_description_path, str) and job_description_path.strip():
-            files.insert(2 if contract.step == "fit-map" else 1, job_description_path)
-    return _relative_existing(tuple(files))
-
-
 def _fallback_reference_files_for(contract: AgentContract) -> list[str]:
     if contract.step == "fit-map":
         return _relative_existing(tuple(derived_context_service.fit_map_fallback_reference_files()))
     return []
-
-
-def _derived_context_payload(contract: AgentContract) -> dict[str, Any] | None:
-    if contract.step not in {"fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update"}:
-        return None
-    try:
-        return derived_context_service.derived_summary()
-    except ValidationFailure:
-        return {"status": "blocked", "missing_outputs": ["derived_context_unavailable"]}
-
-
-def _prepare_compact_inputs_for_step(step: str, active: dict[str, Any] | None) -> None:
-    if step in {"fit-map", "notion-update", "cover-letter", "feras", "habilidades"} and active:
-        derived_context_service.build_all_for_fit_map()
-    elif step == "cv":
-        derived_context_service.build_all_for_fit_map()
 
 
 def _non_stop_contract(contract: AgentContract) -> list[str]:

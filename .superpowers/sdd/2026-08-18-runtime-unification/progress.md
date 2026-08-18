@@ -216,6 +216,14 @@
 - Initial implementation `4938b59` and hardening `978c015` were independently reviewed and rejected. Required fixes: route operational persistence to `control-plane/career.db`; remove global-pointer fallback from resume/request/supervisor/CLI execution paths; add explicit CLI application/fingerprint propagation; validate active-intake identity; cover public intake entrypoints and make the evidence reproducible from tracked files.
 - Correction `def2e60`/`8dda98f` was re-reviewed and rejected. Remaining blockers: propagate the canonical database and application-scoped state through real public intake execution; make `write_request`, supervisor database construction, and all execution paths explicit; remove remaining undocumented unscoped `intake:resume` instructions; add an end-to-end paste regression instead of mocking the pipeline.
 - Correction `4945ad5` was re-reviewed and rejected for remaining identity leaks: supervisor auto-finalization still invokes global FIT_MAP/tasks, derived context still falls back to global state for downstream producers, several CLI/database defaults remain legacy/global, and documentation/tests do not cover those routes. These are treated as the final Task 3.1 identity-firewall hardening gate before Task 3.2.
+- Hardening `a8375d1` was re-reviewed and rejected: explicit multiagent requests still call an unscoped helper, non-cellular requests still build global allowed-file/context paths, and the Gupy/habilidades CLI still defaults to the global FIT_MAP. Documentation also contradicts the scoped CLI contract. These remain Task 3.1 blockers because they can recreate the original wrong-vacancy output.
+
+### Task 3.1: bounded correction committed
+
+- Scope: removed the remaining non-cellular multiagent global-context route and made `habilidades-chave` application-scoped; no Task 3.2 materializer work was included.
+- TDD: `tests.test_identity_firewall_request_and_habilidades` initially failed because `habilidades-chave check` read the global FIT_MAP and did not accept `--application-id`; it now covers successful scoped request generation, missing-scope rejection, canonical Gupy path resolution, and foreign-path rejection.
+- Verification: focused plus neighboring runtime suite passed 57/57. `py_compile` and `git diff --check` passed.
+- Documentation: AGENTS, career-system and career-fit-analysis now prescribe per-application paths/commands; root-state references are explicitly read-only compatibility descriptions.
 
 ### Task 3.1: correction round complete, awaiting independent re-review
 
