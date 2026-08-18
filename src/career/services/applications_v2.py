@@ -278,7 +278,7 @@ def _current_validated_fit_map_revision(application_id: str, db: Database) -> st
 
 def _latest_cv_for_revision(application_id: str, revision_id: str, db: Database):
     return db.fetch_one(
-        """SELECT version_id, status, content_hash, source_revision_id,
+        """SELECT version_id, status, run_id, content_hash, source_revision_id,
                       positioning_revision_id
              FROM artifact_versions
             WHERE application_id = ?
@@ -307,6 +307,7 @@ def _has_verified_onedrive_delivery(application_id: str, artifact, db: Database)
     return _receipt_row_matches_artifact(
         row,
         artifact,
+        application_id=application_id,
         require_report=True,
         require_receipt_path=False,
     )
@@ -330,6 +331,7 @@ def _has_verified_notion_sync(application_id: str, artifact, db: Database) -> bo
     return _receipt_row_matches_artifact(
         row,
         artifact,
+        application_id=application_id,
         require_report=False,
         require_receipt_path=True,
         expected_record_id=str(row["record_id"]),
@@ -340,6 +342,7 @@ def _receipt_row_matches_artifact(
     row,
     artifact,
     *,
+    application_id: str,
     require_report: bool,
     require_receipt_path: bool,
     expected_record_id: str | None = None,
@@ -354,31 +357,82 @@ def _receipt_row_matches_artifact(
         return False
     if not isinstance(payload, dict):
         return False
-    if str(payload.get("artifact_version_id") or "") != str(artifact["version_id"]):
-        return False
-    if str(payload.get("artifact_hash") or "") != str(artifact["content_hash"]):
-        return False
-    if str(payload.get("source_revision_id") or "") != str(artifact["source_revision_id"]):
-        return False
-    if payload.get("positioning_revision_id") != artifact["positioning_revision_id"]:
-        return False
-    if expected_record_id is not None and str(payload.get("record_id") or "") != expected_record_id:
+    if not _semantic_receipt_matches(
+        payload,
+        artifact,
+        application_id=application_id,
+        expected_record_id=expected_record_id,
+    ):
         return False
     if require_report:
         if not report_path or not _valid_sha256(report_hash):
             return False
-        report = Path(report_path)
-        if not report.is_file() or sha256_file(report) != report_hash:
+        report_payload = _read_verified_json(Path(report_path), report_hash)
+        if report_payload is None or not _semantic_receipt_matches(
+            report_payload,
+            artifact,
+            application_id=application_id,
+            expected_record_id=expected_record_id,
+        ):
             return False
     if require_receipt_path:
         receipt_path = str(payload.get("receipt_path") or "").strip()
         receipt_hash = str(payload.get("receipt_hash") or "").strip()
         if not receipt_path or not _valid_sha256(receipt_hash):
             return False
-        receipt = Path(receipt_path)
-        if not receipt.is_file() or sha256_file(receipt) != receipt_hash:
+        receipt_payload = _read_verified_json(Path(receipt_path), receipt_hash)
+        if receipt_payload is None or not _semantic_receipt_matches(
+            receipt_payload,
+            artifact,
+            application_id=application_id,
+            expected_record_id=expected_record_id,
+        ):
             return False
     return True
+
+
+def _semantic_receipt_matches(
+    payload: dict[str, Any],
+    artifact,
+    *,
+    application_id: str,
+    expected_record_id: str | None,
+) -> bool:
+    required_fields = {
+        "application_id",
+        "artifact_version_id",
+        "artifact_hash",
+        "source_revision_id",
+        "positioning_revision_id",
+        "run_id",
+    }
+    if not required_fields.issubset(payload):
+        return False
+    if str(payload["application_id"]) != application_id:
+        return False
+    if str(payload["artifact_version_id"]) != str(artifact["version_id"]):
+        return False
+    if str(payload["artifact_hash"]) != str(artifact["content_hash"]):
+        return False
+    if str(payload["source_revision_id"]) != str(artifact["source_revision_id"]):
+        return False
+    if payload["positioning_revision_id"] != artifact["positioning_revision_id"]:
+        return False
+    if str(payload["run_id"]) != str(artifact["run_id"]):
+        return False
+    if expected_record_id is not None and str(payload.get("record_id") or "") != expected_record_id:
+        return False
+    return True
+
+
+def _read_verified_json(path: Path, expected_hash: str) -> dict[str, Any] | None:
+    if not path.is_file() or sha256_file(path) != expected_hash:
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _valid_sha256(value: str) -> bool:

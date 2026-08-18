@@ -138,6 +138,23 @@ class ApplicationProjectionTests(unittest.TestCase):
         self.assertEqual(projection.stage, ApplicationStage.ONEDRIVE_PENDING)
         self.assertEqual(projection.next_required_step, "deliver_cv_onedrive")
 
+    def test_integrity_valid_but_semantically_unrelated_delivery_report_cannot_seal(self) -> None:
+        self._record_description_saved(self.primary)
+        revision_id = self._create_validated_fit_map(self.primary, label="unrelated-report")
+        cv = self._register_cv(self.primary, revision_id, label="unrelated-report")
+        approved = self._approve_cv(self.primary, cv, revision_id)
+        self._record_delivery(
+            self.primary.application_id,
+            approved.artifact_id,
+            report_payload={"unrelated": True},
+        )
+        self._record_notion_sync(self.primary.application_id, approved.artifact_id)
+
+        projection = build_application_projection(self.primary.application_id, self.db)
+
+        self.assertEqual(projection.stage, ApplicationStage.ONEDRIVE_PENDING)
+        self.assertEqual(projection.next_required_step, "deliver_cv_onedrive")
+
     def test_delivered_reviewed_cv_and_successful_notion_sync_seal_base_package(self) -> None:
         self._record_description_saved(self.primary)
         revision_id = self._create_validated_fit_map(self.primary)
@@ -308,22 +325,28 @@ class ApplicationProjectionTests(unittest.TestCase):
             report_path=report,
         )
 
-    def _record_delivery(self, application_id: str, artifact_id: str) -> None:
+    def _record_delivery(
+        self,
+        application_id: str,
+        artifact_id: str,
+        *,
+        report_payload: dict[str, object] | None = None,
+    ) -> None:
         self.db.migrate()
         artifact = self.artifacts._load_record(artifact_id)
         report_path = self.root / f"delivery-{application_id}-{artifact_id}.json"
+        report = report_payload or {
+            "status": "delivered",
+            "channel": "onedrive",
+            "application_id": application_id,
+            "run_id": artifact.run_id,
+            "artifact_version_id": artifact_id,
+            "artifact_hash": artifact.content_hash,
+            "source_revision_id": artifact.source_revision_id,
+            "positioning_revision_id": artifact.positioning_revision_id,
+        }
         report_path.write_text(
-            json.dumps(
-                {
-                    "status": "delivered",
-                    "channel": "onedrive",
-                    "artifact_version_id": artifact_id,
-                    "artifact_hash": artifact.content_hash,
-                    "source_revision_id": artifact.source_revision_id,
-                    "positioning_revision_id": artifact.positioning_revision_id,
-                },
-                sort_keys=True,
-            ),
+            json.dumps(report, sort_keys=True),
             encoding="utf-8",
         )
         self.db.get_connection().execute(
@@ -346,6 +369,8 @@ class ApplicationProjectionTests(unittest.TestCase):
                         "artifact_hash": artifact.content_hash,
                         "source_revision_id": artifact.source_revision_id,
                         "positioning_revision_id": artifact.positioning_revision_id,
+                        "application_id": application_id,
+                        "run_id": artifact.run_id,
                     },
                     sort_keys=True,
                 ),
@@ -385,6 +410,8 @@ class ApplicationProjectionTests(unittest.TestCase):
         receipt_payload = {
             "status": "succeeded",
             "record_id": record_id,
+            "application_id": application_id,
+            "run_id": artifact.run_id,
             "artifact_version_id": artifact_id,
             "artifact_hash": artifact.content_hash,
             "source_revision_id": artifact.source_revision_id,

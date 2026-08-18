@@ -118,3 +118,43 @@ PYTHONPATH=src ./scripts/python.sh -m unittest -q \
 ```
 
 Observed: `Ran 76 tests ... OK`.
+
+## Fix round 2 — semantic delivery receipt validation
+
+Independent review found a remaining gap: a delivery report with internally
+valid bytes and a matching `report_hash` could still contain unrelated JSON and
+seal the package. The projection now parses the verified JSON at
+`deliveries.report_path` and requires all of these fields in both the persisted
+payload and the report itself:
+
+- `application_id`;
+- `run_id` bound to the current approved artifact;
+- `artifact_version_id` and `artifact_hash`;
+- `source_revision_id`;
+- `positioning_revision_id`.
+
+The same semantic validator is used for the Notion receipt file, in addition to
+its receipt hash and canonical Notion-record/application join. Therefore a
+report can be byte-integrity-valid but is still rejected when its meaning does
+not describe the current approved artifact and provenance.
+
+Added regression coverage for an integrity-valid but semantically unrelated
+OneDrive report. The existing healthy receipt helper remains semantic-valid and
+continues to seal the package.
+
+Fix-round verification:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q \
+  tests/test_application_projection.py \
+  tests/test_workflow_gates.py \
+  tests/test_artifact_provenance.py \
+  tests/test_application_repository.py \
+  tests/test_analysis_revisions.py \
+  tests/test_sqlite_persistence.py \
+  tests/test_database.py
+```
+
+Observed: `Ran 77 tests ... OK`.
+
+`py_compile` and `git diff --check` also passed.
