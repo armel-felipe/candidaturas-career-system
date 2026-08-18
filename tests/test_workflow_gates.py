@@ -10,6 +10,7 @@ from unittest import mock
 
 from career import cli
 from career.services import intake
+from career.services import application_context as application_context_module
 from career.services import project as project_module
 from career.services import database as database_module
 from career.services.database import Database
@@ -409,7 +410,7 @@ class WorkflowGateTests(unittest.TestCase):
     def test_for_application_defaults_to_canonical_database_without_keyword_argument(self) -> None:
         career_state = self.root / ".career-state"
         applications_root = career_state / "applications_v2"
-        canonical_db = Database(db_path=career_state / "career.db")
+        canonical_db = Database(db_path=self.root / "control-plane" / "career.db")
         self.addCleanup(canonical_db.close)
         ApplicationRepository(canonical_db).create_application(
             ApplicationIdentity(
@@ -685,7 +686,7 @@ class WorkflowGateTests(unittest.TestCase):
         self,
     ) -> None:
         career_state = self.root / ".career-state"
-        canonical_db = Database(db_path=career_state / "career.db")
+        canonical_db = Database(db_path=self.root / "control-plane" / "career.db")
         self.addCleanup(canonical_db.close)
         ApplicationRepository(canonical_db).create_application(
             ApplicationIdentity(
@@ -725,10 +726,25 @@ class WorkflowGateTests(unittest.TestCase):
         reset_stdout = io.StringIO()
         task_stdout = io.StringIO()
         pipeline_stdout = io.StringIO()
+        canonical_db = Database(self.root / "control-plane" / "career.db")
+        self.addCleanup(canonical_db.close)
+        ApplicationRepository(canonical_db).create_application(
+            ApplicationIdentity(
+                application_id=self.primary.application_id,
+                company=self.primary.company,
+                role=self.primary.role,
+                notion_id=self.primary.notion_id,
+                fingerprint=self.primary.fingerprint,
+            )
+        )
 
         with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
             state_store_module, "DEFAULT_STATE_PATH", career_state / "workflow_state.json"
-        ), mock.patch.object(database_module, "CAREER_STATE", career_state), redirect_stdout(reset_stdout):
+        ), mock.patch.object(database_module, "CAREER_STATE", career_state), mock.patch.object(
+            application_context_module, "ROOT", self.root
+        ), mock.patch.object(application_context_module, "CAREER_STATE", career_state), mock.patch.object(
+            application_context_module, "APPLICATIONS_DIR", career_state / "applications_v2"
+        ), redirect_stdout(reset_stdout):
             reset_exit = cli.main(
                 ["workflow", "reset-state", "--application-id", self.primary.application_id]
             )
@@ -739,6 +755,10 @@ class WorkflowGateTests(unittest.TestCase):
         with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
             state_store_module, "DEFAULT_STATE_PATH", career_state / "workflow_state.json"
         ), mock.patch.object(database_module, "CAREER_STATE", career_state), mock.patch.object(
+            application_context_module, "ROOT", self.root
+        ), mock.patch.object(application_context_module, "CAREER_STATE", career_state), mock.patch.object(
+            application_context_module, "APPLICATIONS_DIR", career_state / "applications_v2"
+        ), mock.patch.object(
             cli, "run_task"
         ) as run_task_mock, redirect_stdout(task_stdout):
             task_exit = cli.main(
@@ -774,7 +794,7 @@ class WorkflowGateTests(unittest.TestCase):
 
     def test_diagnose_runtime_marks_global_workflow_state_non_authoritative(self) -> None:
         career_state = self.root / ".career-state"
-        canonical_db = Database(db_path=career_state / "career.db")
+        canonical_db = Database(db_path=self.root / "control-plane" / "career.db")
         self.addCleanup(canonical_db.close)
         ApplicationRepository(canonical_db).create_application(
             ApplicationIdentity(

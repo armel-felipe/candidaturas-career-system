@@ -115,10 +115,14 @@ class WorkflowStateStore:
         database: Database | None = None,
         root: Path | None = None,
     ) -> "WorkflowStateStore":
+        state_path = application_context.paths_for(
+            application_id,
+            root=root or application_context.APPLICATIONS_DIR,
+        ).workflow_state
         return cls(
             application_id=application_id,
-            database=database,
-            path=application_context.paths_for(application_id, root=root).workflow_state,
+            database=database or cls._canonical_database_for_state_path(state_path),
+            path=state_path,
         )
 
     @classmethod
@@ -147,8 +151,23 @@ class WorkflowStateStore:
 
     def _database(self) -> Database:
         if self.database is None:
-            self.database = Database()
+            # Operational state projection must use the shared control-plane
+            # database.  The deprecated .career-state default is reserved for
+            # explicitly injected migration/compatibility adapters.
+            self.database = self._canonical_database_for_state_path(self.path)
         return self.database
+
+    @staticmethod
+    def _canonical_database_for_state_path(state_path: Path) -> Database:
+        """Resolve control-plane storage beside a scoped compatibility path."""
+        path = state_path.resolve()
+        if path.parent.parent.name == "applications_v2":
+            workspace_root = path.parent.parent.parent.parent
+        elif path.parent.name == ".career-state":
+            workspace_root = path.parent.parent
+        else:
+            workspace_root = application_context.ROOT
+        return application_context.canonical_database(root=workspace_root)
 
     def _resolved_application_id(self) -> str | None:
         if self.application_id:

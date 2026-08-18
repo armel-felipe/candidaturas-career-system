@@ -36,6 +36,7 @@ import uuid
 from career.paths import CAREER_STATE, OUTPUTS, ROOT
 from career.services import application_context as application_context_service
 from career.services import derived_context as derived_context_service
+from career.services.database import Database
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, write_text
 from career.workflow.state_store import WorkflowStateStore
 
@@ -169,10 +170,102 @@ def _relative_existing(paths: tuple[str, ...]) -> list[str]:
     return existing
 
 
-def _active_intake(state_path: Path | None = None) -> dict[str, Any] | None:
-    payload = WorkflowStateStore(path=state_path).load() if state_path else WorkflowStateStore().load()
+def _active_intake(state_store: WorkflowStateStore) -> dict[str, Any] | None:
+    """Load only the application-scoped intake mirror for a request."""
+    payload = state_store.load()
     active = payload.get("active_intake")
-    return active if isinstance(active, dict) else None
+    if not isinstance(active, dict):
+        return None
+    application_id = str(state_store.application_id or "").strip()
+    if str(active.get("application_id") or "").strip() != application_id:
+        raise ValidationFailure("active_intake application_id does not match request scope")
+    return active
+
+
+def _scoped_relative_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _scoped_allowed_files_for(
+    contract: AgentContract,
+    active: dict[str, Any] | None,
+    app_paths,
+) -> list[str]:
+    """Build request inputs from one application directory, never globals."""
+    derived = app_paths.derived_dir
+    if contract.step == "fit-map":
+        files = [
+            app_paths.fit_map_draft,
+            app_paths.job_description,
+            *[
+                derived / name
+                for name in (
+                    "active_context.json",
+                    "job_extract.json",
+                    "job_sections.json",
+                    "job_requirements.json",
+                    "job_responsibilities.json",
+                    "job_company_context.json",
+                    "job_keywords.json",
+                    "reference_digest.json",
+                    "candidate_evidence_pack.json",
+                    "candidate_evidence_by_theme.json",
+                    "fit_map_seed.json",
+                    "manifest.json",
+                )
+            ],
+        ]
+    elif contract.step in {"cover-letter", "feras", "habilidades"}:
+        input_name = {
+            "cover-letter": "cover_letter_input_pack.json",
+            "feras": "feras_input_pack.json",
+            "habilidades": "habilidades_input_pack.json",
+        }[contract.step]
+        files = [app_paths.fit_map, derived / input_name, derived / "reference_digest.json", derived / "manifest.json"]
+    else:
+        files = [Path(item) for item in contract.allowed_files if item.startswith(".agents/")]
+    if active and isinstance(active.get("job_description_path"), str):
+        files.append(app_paths.job_description)
+    return [
+        _scoped_relative_path(path) if path.exists() else f"{_scoped_relative_path(path)} (missing_ok)"
+        for path in files
+    ]
+
+
+def _scoped_expected_outputs_for(contract: AgentContract, app_paths) -> list[str]:
+    names = {
+        "feras": "feras_formal.md",
+        "habilidades": "habilidades_gupy.md",
+        "cover-letter": "cover_letter.md",
+    }
+    if contract.step in names:
+        return [_scoped_relative_path(app_paths.app_dir / names[contract.step])]
+    return list(contract.expected_outputs)
+
+
+def _scoped_derived_context_payload(contract: AgentContract, app_paths) -> dict[str, Any] | None:
+    if contract.step not in {"fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update"}:
+        return None
+    manifest_path = app_paths.derived_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return {"status": "blocked", "missing_outputs": ["derived_context_unavailable"]}
+    manifest = read_json(manifest_path)
+    if not isinstance(manifest, dict) or manifest.get("application_id") != app_paths.application_id:
+        return {"status": "blocked", "missing_outputs": ["derived_context_scope_mismatch"]}
+    return {
+        "status": "ok",
+        "application_id": app_paths.application_id,
+        "manifest_path": _scoped_relative_path(manifest_path),
+        "fingerprint": manifest.get("fingerprint"),
+    }
+
+
+def _prepare_scoped_compact_inputs(step: str, app_paths) -> None:
+    if step in {"fit-map", "notion-update", "cover-letter", "feras", "habilidades", "cv"}:
+        derived_context_service.build_all_for_fit_map(app_paths)
 
 
 def _fit_map_summary(
@@ -336,7 +429,15 @@ def cellular_operational_rules(context: dict[str, Any]) -> list[str]:
     ]
 
 
-def write_request(step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None) -> dict[str, Any]:
+def write_request(
+    step: str,
+    *,
+    application_id: str | None = None,
+    fingerprint: str | None = None,
+    objective: str | None = None,
+    extras: dict[str, Any] | None = None,
+    database: Database | None = None,
+) -> dict[str, Any]:
     contract = CONTRACTS.get(step)
     if not contract:
         raise ValidationFailure(f"Unknown multiagent step: {step}")
@@ -352,6 +453,15 @@ def write_request(step: str, *, objective: str | None = None, extras: dict[str, 
             validation_commands=tuple(contract.get("rules", ())),
         )
     request_extras = dict(extras or {})
+    scoped_application_id = str(application_id or "").strip()
+    if not scoped_application_id:
+        raise ValidationFailure("write_request requires explicit application_id")
+    embedded_application_id = str(request_extras.get("application_id") or "").strip()
+    if embedded_application_id and embedded_application_id != scoped_application_id:
+        raise ValidationFailure("request application_id does not match extras")
+    request_extras["application_id"] = scoped_application_id
+    if fingerprint:
+        request_extras["fingerprint"] = str(fingerprint)
     cellular_context = (
         validate_cellular_request_context(request_extras)
         if request_extras.get("cellular") is True
@@ -552,7 +662,16 @@ def _request_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _allowed_files_for(contract: AgentContract, active: dict[str, Any] | None) -> list[str]:
+def _relative_path(path: Path) -> str:
+    return str(path.resolve().relative_to(ROOT.resolve()))
+
+
+def _allowed_files_for(
+    contract: AgentContract,
+    active: dict[str, Any] | None,
+    *,
+    app_paths=None,
+) -> list[str]:
     files = list(contract.allowed_files)
     if contract.step == "fit-map":
         files = derived_context_service.fit_map_compact_files()
@@ -852,8 +971,18 @@ def maestro(step: str | None = None, *, objective: str | None = None, extras: di
     if clean.get("status") != "ok":
         return clean
     runbook = write_runbook()
+    application_id = str((extras or {}).get("application_id") or "").strip()
+    if not application_id:
+        raise ValidationFailure("maestro requires explicit application_id in extras")
     if step:
-        request = write_request(step, objective=objective, extras=extras)
+        request = write_request(
+            step, application_id=application_id, objective=objective, extras=extras
+        )
         return {"status": "ok", "runbook": runbook, "request": request}
-    requests = [write_request(step_name) for step_name in CONTRACTS]
+    requests = [
+        write_request(
+            step_name, application_id=application_id, objective=objective, extras=extras
+        )
+        for step_name in CONTRACTS
+    ]
     return {"status": "ok", "runbook": runbook, "requests": requests}

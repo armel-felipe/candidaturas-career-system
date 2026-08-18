@@ -230,16 +230,24 @@ def guard(
     }
 
 
-def evaluate_notion(record_id: int, state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
+def evaluate_notion(
+    record_id: int,
+    state_store: WorkflowStateStore | None = None,
+    *,
+    database=None,
+) -> dict[str, Any]:
     # A Notion evaluation creates/resumes a cellular application.  Passing the
     # legacy global store here makes intake persist the job in the global state
     # while the application identity is written to applications_v2.  Resolve
     # the application first, then guard the same scoped state that intake used.
-    intake_result = intake_service.from_notion_record(record_id)
+    runtime_database = database or (
+        state_store.database if state_store is not None and state_store.database is not None else None
+    ) or application_context_service.canonical_database()
+    intake_result = intake_service.from_notion_record(record_id, database=runtime_database)
     application_id = str(intake_result.get("application_id") or "").strip()
     fingerprint = str(intake_result.get("fingerprint") or "").strip()
     scoped_state_store = (
-        WorkflowStateStore.for_application(application_id)
+        WorkflowStateStore.for_application(application_id, database=runtime_database)
         if application_id
         else state_store or WorkflowStateStore()
     )
@@ -247,6 +255,7 @@ def evaluate_notion(record_id: int, state_store: WorkflowStateStore | None = Non
         state_store=scoped_state_store,
         application_id=application_id,
         fingerprint=fingerprint,
+        database=runtime_database,
     )
     if guard_result.get("status") != "ok":
         raise ValidationFailure(f"agent guard blocked after intake: {guard_result.get('reason')}")
@@ -254,6 +263,7 @@ def evaluate_notion(record_id: int, state_store: WorkflowStateStore | None = Non
         "status": "ok",
         "record_id": record_id,
         "intake": {
+            "application_id": application_id,
             "status": intake_result.get("status"),
             "job_description_path": intake_result.get("job_description_path"),
             "next_required_step": intake_result.get("next_required_step"),
@@ -264,16 +274,30 @@ def evaluate_notion(record_id: int, state_store: WorkflowStateStore | None = Non
     }
 
 
-def evaluate_notion_local(record_id: int, state_store: WorkflowStateStore | None = None) -> dict[str, Any]:
+def evaluate_notion_local(
+    record_id: int,
+    state_store: WorkflowStateStore | None = None,
+    *,
+    database=None,
+) -> dict[str, Any]:
     """Deterministic entrypoint for smaller/local models.
 
     Runs the mechanical setup the model repeatedly skips, then returns the
     single compact request it must read before editing the draft.
     """
-    state_store = state_store or WorkflowStateStore()
+    runtime_database = database or (
+        state_store.database if state_store is not None and state_store.database is not None else None
+    ) or application_context_service.canonical_database()
     local_map = multiagent_service.write_local_model_map()
-    evaluation = evaluate_notion(record_id, state_store=state_store)
-    fit_map_request = multiagent_service.write_request("fit-map")
+    evaluation = evaluate_notion(record_id, state_store=state_store, database=runtime_database)
+    application_id = str(evaluation.get("intake", {}).get("application_id") or "").strip()
+    fingerprint = str(evaluation.get("intake", {}).get("fingerprint") or "").strip()
+    fit_map_request = multiagent_service.write_request(
+        "fit-map",
+        application_id=application_id,
+        fingerprint=fingerprint,
+        database=runtime_database,
+    )
     return {
         "status": "ok",
         "record_id": record_id,

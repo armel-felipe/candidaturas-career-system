@@ -105,7 +105,7 @@ class HarnessSupervisor:
     def __init__(self, root: Path | None = None, runner: SubprocessAgentRunner | None = None):
         self.root = root
         self.runner = runner or (SubprocessAgentRunner(root) if root else None)
-        self.db = Database()
+        self.db = application_context_service.canonical_database(root=root)
         self.classifier = Classifier()
         self.router = Router()
         self.menu = MenuBuilder()
@@ -303,7 +303,21 @@ class HarnessSupervisor:
 
     def prepare_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None) -> dict[str, Any]:
         from career.services import multiagent as multiagent_service
-        request = multiagent_service.write_request(step, objective=objective, extras=extras)
+        request_extras = dict(extras or {})
+        application_id = str(request_extras.get("application_id") or "").strip()
+        if not application_id:
+            return {
+                "status": "blocked",
+                "step": step,
+                "blocker_reason": "explicit_application_scope_required",
+            }
+        request = multiagent_service.write_request(
+            step,
+            application_id=application_id,
+            objective=objective,
+            extras=request_extras,
+            database=self.db,
+        )
         validation = multiagent_service.validate_request(step, request_path=self.root / request["request_json"] if self.root else None)
         result: dict[str, Any] = {
             "status": "prepared" if validation.get("status") == "ok" else "blocked",
@@ -392,6 +406,11 @@ class HarnessSupervisor:
             "finished_at": utc_now_iso(), "run_dir": str(run_dir.relative_to(self.root)), "isolation": isolation,
         }
         specialist_run.finish(payload, isolation)
+        persisted_outputs = _mirror_application_outputs(
+            self.root, step, request_payload
+        )
+        if persisted_outputs:
+            payload["persisted_outputs"] = persisted_outputs
         status = "completed"
         if result.returncode != 0 or isolation.get("status") != "ok":
             status = "blocked"
@@ -649,7 +668,7 @@ class HarnessSupervisor:
                 "status": "blocked",
                 "blocker_reason": "explicit_application_scope_required",
             }
-        resume = intake_service.resume(application_id=application_id)
+        resume = intake_service.resume(application_id=application_id, database=self.db)
         next_step = str(resume.get("next_required_step") or "")
         if "fill_fit_map" in next_step or "draft" in next_step:
             specialist = self.execute_specialist(

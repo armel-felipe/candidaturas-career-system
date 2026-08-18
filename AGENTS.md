@@ -146,7 +146,7 @@ Regra operacional:
 - se `.career-state/fit_map.draft.json` ficar com JSON inválido, executar `npm run fit-map:template` para resetar o template da vaga ativa antes de continuar
 - `intake:resume -- --application-id "<id_unico>"` é o comando padrão para retomar trabalho interrompido e descobrir o próximo passo; ponteiro global é apenas metadado de descoberta e nunca seleciona execução
 - o JSON de saída do intake inclui `delivery_plan` para CV, FERAS, carta, habilidades e atualização no Notion
-- se qualquer comando `intake:*` falhar, é proibido abrir `.env`, copiar token, montar `curl`, criar script temporário ou abrir Notion no navegador; executar `npm run intake:resume` e relatar o bloqueio objetivo
+- se qualquer comando `intake:*` falhar, é proibido abrir `.env`, copiar token, montar `curl`, criar script temporário ou abrir Notion no navegador; executar `npm run intake:resume -- --application-id "<id_unico>"` e relatar o bloqueio objetivo
 - se `agent:guard` retornar `allowed_next_action = fill_fit_map_draft`, a única próxima ação autorizada é preencher `.career-state/fit_map.draft.json`
 
 Regra para URL externa não-LinkedIn:

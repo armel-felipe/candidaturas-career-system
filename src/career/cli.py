@@ -79,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_maestro.add_argument("step", nargs="?", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     agent_maestro.add_argument("--objective")
     agent_maestro.add_argument("--extras", default="{}")
+    agent_maestro.add_argument("--application-id", required=True)
 
     multiagent = subparsers.add_parser("multiagent")
     multiagent_sub = multiagent.add_subparsers(dest="action", required=True)
@@ -88,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     multiagent_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     multiagent_request.add_argument("--objective")
     multiagent_request.add_argument("--extras", default="{}")
-    multiagent_request.add_argument("--application-id")
+    multiagent_request.add_argument("--application-id", required=True)
     multiagent_validate_request = multiagent_sub.add_parser("validate-request")
     multiagent_validate_request.add_argument("step", choices=["fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update", "email-draft", "linkedin"])
     multiagent_validate_request.add_argument("--application-id")
@@ -735,14 +736,17 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if result.get("status") == "ok" else 1
             if args.action == "maestro":
                 supervisor = HarnessSupervisor(Path.cwd())
+                extras = json.loads(args.extras)
+                if args.application_id:
+                    extras["application_id"] = args.application_id
                 result = (
                     supervisor.prepare_specialist(
                         args.step,
                         objective=args.objective,
-                        extras=json.loads(args.extras),
+                        extras=extras,
                     )
                     if args.step
-                    else supervisor.prepare_all_specialists()
+                    else supervisor.prepare_all_specialists(extras=extras)
                 )
                 _dump(result)
                 return 0 if result.get("status") != "blocked" else 1

@@ -91,6 +91,7 @@ def start_intake(source: JobSource, *, database: Database | None = None) -> Appl
     if not isinstance(source, JobSource):
         raise TypeError("start_intake requires JobSource")
     fingerprint = sha256_text(source.text)
+    runtime_database = database or application_context_service.canonical_database()
     paths, record = application_context_service.persist_intake(
         source_type=source.source_type,
         source_id=source.source_id,
@@ -102,7 +103,7 @@ def start_intake(source: JobSource, *, database: Database | None = None) -> Appl
         preferred_id=source.preferred_id or source.application_id,
         source_url=source.source_url,
         source_metadata=source.source_metadata,
-        database=database,
+        database=runtime_database,
     )
     capture_source(
         paths,
@@ -115,7 +116,7 @@ def start_intake(source: JobSource, *, database: Database | None = None) -> Appl
     )
     compatibility_store = WorkflowStateStore.for_application(
         record.application_id,
-        database=database,
+        database=runtime_database,
     )
     compatibility_store.payload = {
         "active_job": {
@@ -296,10 +297,16 @@ def _sync_global_active_pointer(
 def _ensure_scoped_state_store(
     state_store: WorkflowStateStore | None,
     application_id: str,
+    *,
+    database: Database,
 ) -> WorkflowStateStore:
     if state_store is not None and state_store.application_id == application_id:
+        if state_store.database is None:
+            state_store.database = database
+        elif state_store.database.db_path.resolve() != database.db_path.resolve():
+            raise ValidationFailure("application state store database does not match intake database")
         return state_store
-    return WorkflowStateStore.for_application(application_id)
+    return WorkflowStateStore.for_application(application_id, database=database)
 
 
 def _set_active_job(
@@ -474,10 +481,22 @@ def _status_payload(
     }
     if extra:
         payload["extract"] = {key: value for key, value in extra.items() if not str(key).startswith("_")}
-    try:
-        payload["derived_context"] = derived_context_service.derived_summary()
-    except ValidationFailure:
-        payload["derived_context"] = {"status": "blocked", "missing_outputs": ["derived_context_unavailable"]}
+    application_id = str(payload.get("application_id") or "").strip()
+    if application_id:
+        manifest_path = application_context_service.paths_for(application_id).derived_dir / "manifest.json"
+        manifest = read_json(manifest_path) if manifest_path.is_file() else {}
+        payload["derived_context"] = (
+            {
+                "status": "ok",
+                "application_id": application_id,
+                "manifest_path": _relative(manifest_path),
+                "fingerprint": manifest.get("fingerprint"),
+            }
+            if isinstance(manifest, dict) and manifest.get("application_id") == application_id
+            else {"status": "blocked", "missing_outputs": ["derived_context_unavailable"]}
+        )
+    else:
+        payload["derived_context"] = {"status": "blocked", "missing_outputs": ["derived_context_scope_required"]}
     return payload
 
 
@@ -559,7 +578,9 @@ def from_notion_record(
     state_store: WorkflowStateStore | None = None,
     *,
     application_id: str | None = None,
+    database: Database | None = None,
 ) -> dict[str, Any]:
+    runtime_database = database or application_context_service.canonical_database()
     token, database_id = notion_service.notion_config()
     result = notion_service.prepare_analysis_from_record(
         token,
@@ -581,10 +602,13 @@ def from_notion_record(
             source_url=str(result.get("source_url") or result.get("url") or "") or None,
             source_metadata=result,
             preferred_id=application_id,
-        )
+        ),
+        database=runtime_database,
     )
     app_paths = application_context_service.paths_for(application.application_id)
-    state_store = _ensure_scoped_state_store(state_store, application.application_id)
+    state_store = _ensure_scoped_state_store(
+        state_store, application.application_id, database=runtime_database
+    )
     return _run_ready_pipeline(
         state_store,
         source_type="notion_record",
@@ -604,7 +628,9 @@ def from_paste(
     text: str,
     state_store: WorkflowStateStore | None = None,
     application_id: str | None = None,
+    database: Database | None = None,
 ) -> dict[str, Any]:
+    runtime_database = database or application_context_service.canonical_database()
     application = start_intake(
         JobSource(
             source_type="pasted_text",
@@ -613,10 +639,13 @@ def from_paste(
             role=role,
             text=text,
             preferred_id=application_id,
-        )
+        ),
+        database=runtime_database,
     )
     app_paths = application_context_service.paths_for(application.application_id)
-    state_store = _ensure_scoped_state_store(state_store, application.application_id)
+    state_store = _ensure_scoped_state_store(
+        state_store, application.application_id, database=runtime_database
+    )
     output_path = project_service.save_job_description(company, role, text, INBOX / "job_descriptions")
     write_text(app_paths.saved_job_description, _relative(output_path) + "\n")
     return _run_ready_pipeline(
@@ -685,7 +714,9 @@ def from_linkedin_job(
     *,
     metadata_hints: dict[str, str] | None = None,
     application_id: str | None = None,
+    database: Database | None = None,
 ) -> dict[str, Any]:
+    runtime_database = database or application_context_service.canonical_database()
     command = ["npm", "run", "linkedin:extract:authenticated", "--", "--url", url, "--headless"]
     hints = _saved_job_metadata_hints_for_url(url)
     hints.update({key: value for key, value in (metadata_hints or {}).items() if value})
@@ -714,10 +745,13 @@ def from_linkedin_job(
             source_url=url,
             source_metadata=result,
             preferred_id=application_id,
-        )
+        ),
+        database=runtime_database,
     )
     app_paths = application_context_service.paths_for(application.application_id)
-    state_store = _ensure_scoped_state_store(state_store, application.application_id)
+    state_store = _ensure_scoped_state_store(
+        state_store, application.application_id, database=runtime_database
+    )
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_job",
@@ -736,7 +770,9 @@ def from_linkedin_post(
     role: str,
     state_store: WorkflowStateStore | None = None,
     application_id: str | None = None,
+    database: Database | None = None,
 ) -> dict[str, Any]:
+    runtime_database = database or application_context_service.canonical_database()
     stdout, result = _run_command(
         [
             "npm",
@@ -764,10 +800,13 @@ def from_linkedin_post(
             source_url=url,
             source_metadata=result,
             preferred_id=application_id,
-        )
+        ),
+        database=runtime_database,
     )
     app_paths = application_context_service.paths_for(application.application_id)
-    state_store = _ensure_scoped_state_store(state_store, application.application_id)
+    state_store = _ensure_scoped_state_store(
+        state_store, application.application_id, database=runtime_database
+    )
     return _run_ready_pipeline(
         state_store,
         source_type="linkedin_post",
@@ -786,7 +825,9 @@ def from_url(
     role: str | None,
     state_store: WorkflowStateStore | None = None,
     application_id: str | None = None,
+    database: Database | None = None,
 ) -> dict[str, Any]:
+    runtime_database = database or application_context_service.canonical_database()
     parsed = urlparse(url)
     host = parsed.hostname.replace("www.", "") if parsed.hostname else ""
     path = parsed.path or ""
@@ -798,11 +839,19 @@ def from_url(
                 state_store=state_store,
                 metadata_hints=hints,
                 application_id=application_id,
+                database=runtime_database,
             )
         if any(marker in path for marker in ["/feed/update/", "/posts/", "/pulse/"]):
             if not company or not role:
                 raise ValidationFailure("LinkedIn post intake requires --company and --role.")
-            return from_linkedin_post(url=url, company=company, role=role, state_store=state_store, application_id=application_id)
+            return from_linkedin_post(
+                url=url,
+                company=company,
+                role=role,
+                state_store=state_store,
+                application_id=application_id,
+                database=runtime_database,
+            )
     command = ["npm", "run", "url:extract", "--", "--url", url]
     if company:
         command.extend(["--fallback-company", company])
@@ -833,10 +882,13 @@ def from_url(
             source_url=url,
             source_metadata=result,
             preferred_id=application_id,
-        )
+        ),
+        database=runtime_database,
     )
     app_paths = application_context_service.paths_for(application.application_id)
-    state_store = _ensure_scoped_state_store(state_store, application.application_id)
+    state_store = _ensure_scoped_state_store(
+        state_store, application.application_id, database=runtime_database
+    )
     return _run_ready_pipeline(
         state_store,
         source_type="external_url",
@@ -848,7 +900,12 @@ def from_url(
     )
 
 
-def resume(state_store: WorkflowStateStore | None = None, *, application_id: str | None = None) -> dict[str, Any]:
+def resume(
+    state_store: WorkflowStateStore | None = None,
+    *,
+    application_id: str | None = None,
+    database: Database | None = None,
+) -> dict[str, Any]:
     application_id = str(application_id or "").strip()
     if not application_id:
         return {
@@ -863,10 +920,10 @@ def resume(state_store: WorkflowStateStore | None = None, *, application_id: str
             "application_id": application_id,
         }
     # A global state store is discovery metadata, not an execution scope.
-    state_store = (
-        state_store
-        if state_store is not None and state_store.application_id == application_id
-        else WorkflowStateStore.for_application(application_id)
+    runtime_database = database or (state_store.database if state_store and state_store.database else None)
+    runtime_database = runtime_database or application_context_service.canonical_database()
+    state_store = _ensure_scoped_state_store(
+        state_store, application_id, database=runtime_database
     )
     payload = state_store.load()
     active = payload.get("active_intake")

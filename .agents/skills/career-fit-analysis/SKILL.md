@@ -102,7 +102,7 @@ cat <arquivo> | npm run intake:paste -- --company "<empresa>" --role "<cargo>" -
 npm run intake:linkedin-job -- --url "<url-da-vaga>"
 npm run intake:linkedin-post -- --url "<url-da-postagem>" --company "<empresa>" --role "<cargo>"
 npm run intake:url -- --url "<url>" --company "<empresa>" --role "<cargo>"
-npm run intake:resume
+npm run intake:resume -- --application-id "<id_unico>"
 ```
 
 Se o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/fit_map.draft.json`.
@@ -130,7 +130,7 @@ npm run fit-map:status
 Regras duras:
 - Se `fit_map.json.matches_active_job = false`, **NÃO** entregar score, **NÃO** usar `.career-state/fit_map.json` como base, **NÃO** prosseguir para CV/FERAS/carta
 - Se `draft.placeholder_count > 0`, a próxima ação obrigatória é editar `.career-state/fit_map.draft.json` — não entregar análise textual
-- Se o usuário reclamar que a análise não é da vaga correta, executar imediatamente `npm run fit-map:status` e `npm run intake:resume` para diagnosticar drift
+- Se o usuário reclamar que a análise não é da vaga correta, executar imediatamente `npm run fit-map:status` e `npm run intake:resume -- --application-id "<id_unico>"` para diagnosticar drift
 - Nunca confiar em estado de sessão anterior sem revalidar fingerprint da descrição ativa
 - Quando houver dúvida sobre qual vaga está ativa, ler `.career-state/workflow_state.json` e `inbox/job_descriptions/` para confirmar o path da descrição salva
 O campo `delivery_plan` do intake orienta as próximas skills: CV, FERAS, carta, habilidades e update no Notion.

@@ -42,7 +42,7 @@ Após qualquer intake:
 ### Passo 2 — Confirmar estado de intake
 
 ```bash
-npm run intake:resume
+npm run intake:resume -- --application-id "<id_unico>"
 ```
 
 ### Passo 3 — Ler as 4 referências obrigatórias (se ainda não lidas nesta sessão)
@@ -56,7 +56,7 @@ npm run intake:resume
 
 ```bash
 # O intake já recria o template. Se for retomada antiga, use:
-npm run intake:resume
+npm run intake:resume -- --application-id "<id_unico>"
 ```
 
 Preencher o `.career-state/fit_map.draft.json` com a análise completa seguindo o schema do career-fit-analysis:
