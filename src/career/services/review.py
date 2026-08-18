@@ -12,6 +12,10 @@ from career.cells.capabilities import (
     canonical_subprocess_environment,
 )
 from career.schemas.review import CvPolishReportSchema, CvReviewReportSchema
+from career.services.database import Database
+from career.services.persistence.application_repository import ApplicationRepository
+from career.services.persistence.artifact_repository import ArtifactRecord, ArtifactRepository
+from career.services.persistence.gate_repository import GateReceipt, GateRepository
 from career.utils import sha256_file, write_json
 
 
@@ -142,6 +146,65 @@ def review_cv(
     CvReviewReportSchema(report).validate()
     write_json(report_path, report)
     return report
+
+
+def record_approved_cv_provenance(
+    *,
+    artifact: Path,
+    report_path: Path,
+    application_id: str,
+    source_revision_id: str,
+    run_id: str,
+    database: Database,
+) -> ArtifactRecord:
+    """Publish a CV only after the objective report approved that exact file.
+
+    The report is evidence, not a receipt.  This function creates the immutable
+    artifact provenance, records the SQLite gate receipt, and then attaches that
+    receipt to the artifact in that order.
+    """
+    artifact = Path(artifact).resolve()
+    report_path = Path(report_path).resolve()
+    if not artifact.is_file():
+        raise ValueError("artifact path must exist before review provenance is recorded")
+    if not report_path.is_file():
+        raise ValueError("review report path must exist before review provenance is recorded")
+    report = legacy_review_output.read_json(report_path)
+    CvReviewReportSchema(report).validate()
+    if report.get("kind") != "cv":
+        raise ValueError("review provenance only supports cv reports")
+    if report.get("approved_for_delivery") is not True:
+        raise ValueError("approved review report is required before publishing artifact")
+    if Path(str(report["artifact"])).resolve() != artifact:
+        raise ValueError("approved review report points to a different artifact path")
+
+    application = ApplicationRepository(database).resolve(application_id=application_id)
+    artifacts = ArtifactRepository(database)
+    artifact_record = artifacts.register(
+        application.application_id,
+        "cv",
+        artifact,
+        None,
+        source_revision_id,
+        run_id,
+    )
+    receipt_id = GateRepository(database).record(
+        GateReceipt(
+            application_id=application.application_id,
+            application_fingerprint=str(application.fingerprint or ""),
+            run_id=run_id,
+            gate="cv_review_passed",
+            validator="cv.review",
+            input_hash=sha256_file(artifact),
+            output_hash=sha256_file(report_path),
+            revision_id=source_revision_id,
+        )
+    )
+    return artifacts.mark_review_passed(
+        artifact_record.artifact_id,
+        receipt_id=receipt_id,
+        report_path=report_path,
+    )
 
 
 def approve_cv(

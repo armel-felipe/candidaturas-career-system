@@ -17,6 +17,7 @@ class SQLitePersistenceTests(unittest.TestCase):
         "004_legacy_compatibility.py",
         "005_reference_versioning_and_payload_hashes.py",
         "006_gate_receipt_scope_and_idempotency.py",
+        "007_artifact_review_provenance.py",
     ]
 
     def setUp(self) -> None:
@@ -29,7 +30,7 @@ class SQLitePersistenceTests(unittest.TestCase):
     def test_migrate_registers_schema_and_runtime_pragmas(self) -> None:
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 6)
+        self.assertEqual(applied, 7)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(self._pragma("foreign_keys"), 1)
         self.assertEqual(self._pragma("busy_timeout"), 10000)
@@ -60,6 +61,7 @@ class SQLitePersistenceTests(unittest.TestCase):
             "gate_dependencies",
             "artifact_versions",
             "artifact_contents",
+            "artifact_version_dependencies",
             "notion_records",
             "notion_syncs",
             "deliveries",
@@ -132,7 +134,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 6)
+        self.assertEqual(applied, 7)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(
             self._columns("resource_locks"),
@@ -186,7 +188,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 2)
+        self.assertEqual(applied, 3)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertTrue(
             {"logical_key", "content_hash"}.issubset(self._columns("reference_documents"))
@@ -404,7 +406,7 @@ class SQLitePersistenceTests(unittest.TestCase):
                    )"""
             )
             migration_dir = Path(__file__).resolve().parent.parent / "src" / "career" / "services" / "persistence" / "migrations"
-            for version in self.EXPECTED_VERSIONS[:-2]:
+            for version in self.EXPECTED_VERSIONS[:-3]:
                 migration_path = migration_dir / version
                 checksum = self.database._migration_checksum(migration_path)
                 conn.execute(

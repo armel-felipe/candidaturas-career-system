@@ -55,6 +55,52 @@ def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def publish_approved_review_provenance(
+    *,
+    report: dict,
+    artifact: Path,
+    report_path: Path,
+    application_id: str | None,
+    source_revision_id: str | None,
+    run_id: str | None,
+    control_db_path: Path | None,
+):
+    """Publish a passed CV review to SQLite when all provenance selectors exist.
+
+    Existing invocations without SQLite selectors keep their legacy report-only
+    behavior.  A report with ``approved_for_delivery=false`` is deliberately not
+    a receipt and produces no SQLite artifact or gate write.
+    """
+    selectors = (application_id, source_revision_id, run_id, control_db_path)
+    if all(value is None for value in selectors):
+        return None
+    if any(value is None or not str(value).strip() for value in selectors):
+        raise ValueError(
+            "application-id, source-revision-id, run-id, and control-db are required together"
+        )
+    if report.get("approved_for_delivery") is not True:
+        return None
+
+    source_root = str(ROOT / "src")
+    if source_root not in sys.path:
+        sys.path.insert(0, source_root)
+    from career.services.database import Database
+    from career.services.review import record_approved_cv_provenance
+
+    database = Database(db_path=Path(control_db_path))
+    try:
+        return record_approved_cv_provenance(
+            artifact=Path(artifact),
+            report_path=Path(report_path),
+            application_id=str(application_id),
+            source_revision_id=str(source_revision_id),
+            run_id=str(run_id),
+            database=database,
+        )
+    finally:
+        database.close()
+
+
 def docx_text(path: Path) -> str:
     if not path.exists():
         return ""
@@ -820,6 +866,10 @@ def main() -> int:
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     parser.add_argument("--translation-registry", default=str(DEFAULT_TRANSLATION_REGISTRY))
     parser.add_argument("--report", required=True)
+    parser.add_argument("--application-id")
+    parser.add_argument("--source-revision-id")
+    parser.add_argument("--run-id")
+    parser.add_argument("--control-db")
     args = parser.parse_args()
 
     artifact = Path(args.artifact)
@@ -833,8 +883,23 @@ def main() -> int:
 
     report = build_cv_review(artifact, fit_map, registry, translation_registry_path)
     write_json(Path(args.report), report)
+    try:
+        published_artifact = publish_approved_review_provenance(
+            report=report,
+            artifact=artifact,
+            report_path=Path(args.report),
+            application_id=args.application_id,
+            source_revision_id=args.source_revision_id,
+            run_id=args.run_id,
+            control_db_path=Path(args.control_db) if args.control_db else None,
+        )
+    except ValueError as exc:
+        print(f"Review provenance was not published: {exc}")
+        return 2
 
     print(f"Review report written: {args.report}")
+    if published_artifact is not None:
+        print(f"SQLite artifact provenance recorded: {published_artifact.artifact_id}")
     print(f"Approved for delivery: {'yes' if report['approved_for_delivery'] else 'no'}")
     print(
         "Blocker checks: "
