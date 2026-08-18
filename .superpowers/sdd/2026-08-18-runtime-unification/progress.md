@@ -82,6 +82,143 @@
 - Finding: backup hardcoded the entire `workspaces/` directory, copying 42,223 files including non-career caches; tests did not constrain the preservation scope or verify copied-file hashes.
 - Ruling: preserve career recovery data under each bot's `inbox`, `outputs` and selected career state paths, but exclude browser/cache/runtime-only paths. Add a test proving excluded paths are absent and verify destination file hashes after copy. Retain the broad backup outside the worktree as a non-destructive historical snapshot; create a corrected narrow backup after the fix.
 - Fix round 1 review: include-only policy and exclusion test passed, but production did not store/verify destination hashes and the report claimed `workspace_application_present=false` despite the intended fixture. Fix round 2 must add manifest-level source/destination hash verification and correct the evidence report.
+
+### Task 0.2: complete
+
+- Final commit: `ccc6716` (`fix: verify preserved backup file hashes`).
+- Task review: fix round 2 passed; no new breakage.
+- Evidence: `tests/test_persistence_backup.py` passed 3/3; corrected backup created at `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2` with 6 career databases, 26 included directories, 13,841 preserved files, and matching source/destination hashes.
+- Excluded runtime browser/cache paths were verified absent; the earlier broad backup remains preserved and was not deleted.
+
+### Task 1.1: in review — fix round 1
+
+- Implementer commit: `32f1975` (`feat: add sqlite schema migration foundation`).
+- Reviewer verdict: request changes (`Spec compliance: partial`).
+- High finding: legacy `ALTER TABLE` compatibility upgrades remain inline in `_initialize_schema()` and are not represented by the versioned migration ledger; a caller of `migrate()` alone can report schema migrations current while missing required compatibility columns.
+- Medium finding: existing `tests/test_database.py` asserts the pre-migration exact table list/count and is a likely suite regression after the new migrations.
+- Ruling: add a versioned compatibility migration path with a legacy-database fixture, remove hidden upgrade behavior from `init_schema()`/`_initialize_schema()`, update the existing database tests to assert the consolidated contract and idempotence, and rerun focused plus legacy database tests.
+- Fix round 1 review: prior findings passed, but migration checksums were calculated from raw bytes and can falsely drift between LF and CRLF checkouts. Fix round 2 must normalize line endings before hashing and test equivalent LF/CRLF migration content.
+
+### Task 1.1: complete
+
+- Final commit: `1090c01` (`fix: normalize migration checksum line endings`).
+- Task review: fix round 2 passed; no new breakage.
+- Evidence: `tests/test_sqlite_persistence.py tests/test_database.py` passed 10/10; legacy compatibility migration, integrity checks and LF/CRLF checksum regressions passed; live control DB remained read-only.
+
+### Task 1.2: in review — fix round 1
+
+- Implementer commit: `29f4721` (`feat: add canonical application resolver`).
+- Reviewer verdict: request changes.
+- High finding: `ensure_application()` can reset existing stage, funil stage, CV language and status because identity upsert writes dataclass defaults.
+- High finding: explicit application_id legacy fallback can ignore conflicting Notion/fingerprint/company-role selectors.
+- Medium finding: file identity is written before SQLite and alias writes are not serialized strongly enough for concurrent writers.
+- Ruling: SQLite is canonical and must be written before compatibility files; existing non-identity state must be preserved; all supplied selectors must agree; use an immediate transaction/unique alias conflict path and add refresh, conflicting-selector, write-failure and concurrent-alias tests.
+- Fix round 1 review: all three findings passed; no new blocker.
+
+### Task 1.2: complete
+
+- Final commit: `3965afb` (`fix: harden application resolver integrity`).
+- Task review: fix round 1 passed.
+- Evidence: repository/intake tests passed 19/19; refresh preserves workflow fields, conflicting selectors fail closed, SQLite registration precedes compatibility files, and duplicate alias conflict prevents identity file creation.
+
+### Task 1.3: in review — fix round 1
+
+- Implementer commit: `9f597b6` (`Add versioned analysis and reference repositories`).
+- Reviewer verdict: request changes.
+- High finding: reference versioning is not first-class queryable; synthetic `reference_key` and `keyword_translations.keyword` prefixes break logical-key retrieval.
+- High finding: reference upsert has a read-before-write race under concurrent bots.
+- Medium finding: FIT_MAP stores caller-provided hash rather than a derived payload hash.
+- Medium finding: malformed structured entries become opaque JSON strings instead of failing closed.
+- Open gap: `get_current()` writes dimensions/objections but does not expose/load them.
+- Ruling: add additive migration for logical/content hashes and translation history, provide current/version retrieval APIs, make reference upsert immediate and idempotent, derive payload hashes in the database, reject malformed normalized text, and expose all normalized FIT_MAP fields needed for recovery.
+
+### Task 1.3: complete
+
+- Final commit: `e92535b` (`Fix versioned persistence integrity and retrieval`), after fix round 1.
+- Task review: fix round 1 passed; no material regression found.
+- Evidence: focused analysis, SQLite migration, database and application repository tests passed 30/30 in the controller run; reviewer independently ran the relevant subset (17/17) with `OK`.
+- Verification: reference versions are queryable by kind/logical key/content hash; upsert uses an immediate transaction; FIT_MAP and positioning payload hashes are derived from canonical persisted payloads; malformed required entries fail closed; dimensions and objections are reloaded; migration 005 is idempotent and checksum-integrated with legacy backfill coverage.
+
+### Task 2.1: in progress
+
+- Implementer: `Nietzsche` (`01a01582-2687-7f71-9581-4bcbc8e17c3b`).
+- Scope: transactional, application-scoped gate receipts; registry enforcement; read-only SQLite-derived workflow projection; focused regression suite.
+- Acceptance gate: independent review must confirm identity/fingerprint/hash binding, idempotence, FK/transaction behavior, fail-closed transitions, and absence of global JSON authority.
+- Initial review: rejected. Findings: the new `WorkflowStateStore` constructor broke existing application-scoped callers; remaining runtime paths still call mutable/unscoped JSON store methods; and the default `run_id` was not unique per execution/application.
+- Fix ruling: preserve compatible application-scoped construction while removing global authority, replace or explicitly fence remaining mutable callers, generate a unique execution run_id when omitted, and add regression tests for each repro before re-review.
+- Fix round 1 review: rejected. Remaining regressions: arbitrary legacy/temp store paths were inferred as application IDs and the explicit global mirror path was ignored; CLI `reset-state`/`run-task` still used an unscoped store; and `project.py` still treated global `workflow_state.json` as live state.
+- Fix round 2 ruling: constrain application inference to canonical `applications_v2/<id>` paths or explicit IDs, honor caller-provided compatibility mirror paths without making them authoritative, route CLI commands through explicit application scope/pointer handling, and remove global JSON reads from runtime diagnostics. Add regressions for all three paths.
+- Fix round 2 review: rejected on one blocker: `workflow reset-state --application-id` left the active pointer intact, so a subsequent unscoped pipeline still reused the reset application.
+- Fix round 3 ruling: clear the active pointer when it targets the reset application and add a reset-then-unscoped-run regression; preserve all prior compatibility fixes.
+- Controller integration check found two compatibility regressions not visible in the isolated reviewer suite: canonical-shaped temporary application stores without a SQLite row raised during metadata-only reads, breaking legacy intake tests.
+- Additional fix: unknown application on metadata-only `WorkflowStateStore.load()` now returns a neutral gate projection plus local intake/job metadata; gate/task operations remain fail-closed. Implementer commit: `99b0718`.
+
+### Task 2.1: complete
+
+- Final controller commits: `27d58a7`, `170e335`, `271605c`, `a966dc3`, `34aa7fa`, `8d4b3df`, `497ba0f`, `2b536f3` (the first four are the reviewed implementation/fix sequence; the remaining commits integrate controller-only compatibility and evidence corrections without staging unrelated user changes).
+- Task review: PASS after independent gate-core review, three compatibility fix rounds, controller integration regressions, and final evidence-report review.
+- Evidence: controller-targeted suite passed 61/61:
+  `PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_intake_persistence tests.test_workflow_gates tests.test_linkedin_intake_metadata tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions`.
+- Acceptance result: receipts are application-scoped, idempotent and fail-closed; registered application projections are SQLite-authoritative; legacy/global JSON is non-authoritative; active-pointer and temporary-store compatibility reads are metadata-only; unscoped CLI reset/run paths cannot reuse a reset application; request summaries do not weaken gate/task validation.
+
+### Task 2.2: in progress
+
+- Initial implementer `Kuhn` (`01a015d3-614c-7263-a82c-6a995254136f`) stopped at the usage limit before producing a commit; no partial commit was accepted.
+- Replacement implementer: `Hume` (`01a01649-80c3-7ce0-9034-ffd5f9705a4c`).
+- Scope: immutable artifact provenance, path/content hashes, source revision/dependency binding, and review-output integration.
+- Acceptance gate: independent review must confirm artifacts cannot be publishable without a valid source revision/review dependency and become invalid after path mutation; no artifact file alone may satisfy a gate.
+- Implementer commit awaiting review: `d0729d8` (`Implement artifact provenance and review receipts`).
+- Initial review: rejected. Finding: approved review reports did not carry/verify the reviewed artifact SHA-256, so replacing a DOCX at the same path could still publish a receipt for unreviewed bytes.
+- Fix ruling: objective review must emit the artifact digest; SQLite opt-in provenance publication must require and compare it before creating the review receipt, with a post-review mutation regression. Legacy report-only mode may remain compatible but cannot publish to SQLite without the digest.
+- Fix round 1 review: rejected. `CvReviewReportSchema` made `artifact_sha256` mandatory for legacy report-only callers, breaking `scripts/selftest_phases.py --phase 12` before its expected validation behavior.
+- Fix ruling: keep the field optional in the legacy report schema, but require a valid current digest inside `record_approved_cv_provenance` and `mark_review_passed` before any SQLite publication.
+- Fix round 2 review: PASS. Digest binding, mutation invalidation, legacy report-only compatibility, dependency/isolation behavior and migration 007 were independently verified; focused artifact tests 13/13, phase-12 selftest passed, and persistence suite 65/65.
+
+### Task 2.2: complete
+
+- Final commits: `d0729d8` (`Implement artifact provenance and review receipts`), `2879339` (`Bind review receipts to reviewed artifact bytes`), `39e93a6` (`Preserve legacy review reports without digest`).
+- Task review: PASS after two independent review/fix rounds; controller integration completed without staging the pre-existing `scripts/review_output.py` change.
+- Evidence in controller checkout: combined suite passed 74/74:
+  `PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_artifact_provenance tests.test_workflow_gates tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions tests.test_intake_persistence tests.test_linkedin_intake_metadata`.
+  `PYTHONPATH=src ./scripts/python.sh scripts/selftest_phases.py --phase 12` returned `{"phase": 12, "status": "ok"}`.
+- Acceptance result: artifact registration, dependency completeness, review receipts and current-byte hash validation are SQLite-backed and fail-closed; stale or mutated files cannot publish; legacy report-only validation remains compatible but cannot create SQLite provenance without a digest.
+
+### Task 2.3: in progress
+
+- Implementer: `Ohm` (`01a0165f-07c7-7121-a2d8-4f556394634d`).
+- Scope: derive application stage, next action and compatibility projection exclusively from SQLite applications, receipts, revisions and artifact provenance.
+- Acceptance gate: independent review must confirm legacy stage/JSON contradictions cannot advance a projection, file existence alone cannot close a package, and projections remain isolated by application_id.
+- Implementer commit awaiting review: `46e389f` (`Derive application stages from SQLite provenance`).
+- Initial review: rejected. Findings: raw `deliveries`/`notion_syncs` status rows with null hashes or no artifact linkage could seal the base package; tests encoded this shortcut.
+- Fix ruling: add/consume verifiable delivery and Notion-sync receipts bound to the current approved artifact/revision, require report/hash/dependency integrity, and add regressions for status-only, missing-hash and stale-sync cases.
+- Fix round 1 review: rejected. OneDrive report path/hash integrity was checked, but report JSON content was not semantically validated; arbitrary JSON with an updated hash could still seal the package.
+- Fix ruling: parse and validate OneDrive receipt content against the current artifact version/id/hash and FIT_MAP/positioning revision IDs; add an integrity-valid-but-unrelated report regression.
+
+### Task 2.3: complete
+
+- Final commits: `46e389f` (`Derive application stages from SQLite provenance`), `562e629` (`Require verified delivery and sync receipts`), `7f1e1cd` (`Validate delivery receipt semantics before sealing`).
+- Task review: PASS after two independent review/fix rounds; the final review verified semantic OneDrive/Notion receipt linkage and no status-only shortcut.
+- Evidence: controller combined suite passed 86/86:
+  `PYTHONPATH=src ./scripts/python.sh -m unittest -q tests.test_application_projection tests.test_artifact_provenance tests.test_workflow_gates tests.test_sqlite_persistence tests.test_database tests.test_application_repository tests.test_analysis_revisions tests.test_intake_persistence tests.test_linkedin_intake_metadata`.
+- Acceptance result: stage/next action is SQLite-derived and application-scoped; stale JSON is observation-only; CV file presence does not advance state; current approved artifact, verified OneDrive receipt and semantically linked Notion receipt are all required to seal the base package.
+
+## Phase 2 gate
+
+- [x] Transactional, application-scoped gate receipts implemented and reviewed.
+- [x] Artifact provenance, dependency validation and mutation invalidation implemented and reviewed.
+- [x] SQLite-derived application projection implemented and reviewed.
+- [x] Controller integration suite passed 86/86 without changing user-owned unrelated files.
+
+### Task 3.1: in progress
+
+- Scope: make intake and guard identity-first and SQLite-scoped, with explicit application/fingerprint validation before draft or derived-context writes.
+- Acceptance gate: focused intake regressions, neighboring application/projection tests, independent review, and diff inspection must prove that global active pointers and JSON mirrors cannot select or authorize agent execution.
+
+## Phase 0 gate
+
+- [x] Read-only persistence inventory completed and reviewed.
+- [x] Restorable backup created, narrowed to career recovery data, hash-verified and reviewed.
+- [ ] Phase 0 full-suite/operational verification remains to be run after later code phases; no cutover is authorized yet.
 - Additional observation: raw `-uu` inventory is broad but acceptable for Task 0.1 and remains documented as a later filtering concern.
 
 ### Task 0.2: complete
