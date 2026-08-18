@@ -316,6 +316,14 @@ class ArtifactRepository:
         artifact_path = str(Path(str(report["artifact"])).resolve())
         if artifact.path != artifact_path:
             raise ValueError("approved review report points to a different artifact path")
+        reviewed_artifact_hash = self._required_sha256(
+            report.get("artifact_sha256"),
+            "approved review report artifact_sha256",
+        )
+        if reviewed_artifact_hash != artifact.content_hash:
+            raise ValueError(
+                "approved review report artifact_sha256 does not match artifact bytes"
+            )
         report_hash = sha256_file(report_path)
         receipt = self.database.fetch_one(
             """
@@ -769,6 +777,12 @@ class ArtifactRepository:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{field_name} is required")
         return value.strip()
+
+    def _required_sha256(self, value: object, field_name: str) -> str:
+        text = self._required_text(value if isinstance(value, str) else None, field_name)
+        if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+            raise ValueError(f"{field_name} is required")
+        return text
 
 
 def _optional_str(value: object | None) -> str | None:

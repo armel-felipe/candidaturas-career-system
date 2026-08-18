@@ -402,6 +402,84 @@ class ArtifactProvenanceTests(unittest.TestCase):
         )
         self.assertEqual(receipt, {"gate": "cv_review_passed", "result": "passed"})
 
+    def test_review_publication_rejects_artifact_mutated_after_objective_review(self) -> None:
+        source_revision_id = self._create_validated_fit_map(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        artifact_path = self._write_docx(
+            "felipe_armel_cv_conexa_diretor_growth.docx",
+            b"docx-reviewed-v1",
+        )
+        report_path = self._write_review_report(artifact_path, approved=True)
+
+        artifact_path.write_bytes(b"docx-replaced-v2")
+
+        with self.assertRaisesRegex(ValueError, "artifact_sha256"):
+            record_approved_cv_provenance(
+                artifact=artifact_path,
+                report_path=report_path,
+                application_id=self.primary.application_id,
+                source_revision_id=source_revision_id,
+                run_id="run-cv-mutated",
+                database=self.db,
+            )
+        self.assertEqual(
+            self.db.fetch_all(
+                "SELECT version_id FROM artifact_versions WHERE application_id = ?",
+                (self.primary.application_id,),
+            ),
+            [],
+        )
+
+        self.assertEqual(
+            self.db.fetch_all(
+                "SELECT receipt_id FROM validation_receipts WHERE gate = 'cv_review_passed'"
+            ),
+            [],
+        )
+
+    def test_mark_review_passed_rejects_report_for_other_artifact_bytes(self) -> None:
+        source_revision_id = self._create_validated_fit_map(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        artifact_path = self._write_docx(
+            "felipe_armel_cv_conexa_diretor_growth.docx",
+            b"docx-reviewed-v1",
+        )
+        report_path = self._write_review_report(artifact_path, approved=True)
+
+        artifact_path.write_bytes(b"docx-replaced-v2")
+        artifact = self.artifacts.register(
+            self.primary.application_id,
+            "cv",
+            artifact_path,
+            None,
+            source_revision_id,
+            "run-cv-mutated",
+        )
+        receipt_id = self.gates.record(
+            GateReceipt(
+                application_id=self.primary.application_id,
+                application_fingerprint=self.primary.fingerprint or "",
+                run_id="run-cv-mutated",
+                gate="cv_review_passed",
+                validator="cv.review",
+                input_hash=sha256_file(artifact_path),
+                output_hash=sha256_file(report_path),
+                revision_id=source_revision_id,
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "artifact_sha256"):
+            self.artifacts.mark_review_passed(
+                artifact.artifact_id,
+                receipt_id=receipt_id,
+                report_path=report_path,
+            )
+        self.assertEqual(self.artifacts._load_record(artifact.artifact_id).status, "draft")
+
     def test_review_output_publisher_treats_report_without_approval_as_non_receipt(self) -> None:
         source_revision_id = self._create_validated_fit_map(
             self.primary.application_id,
@@ -431,6 +509,19 @@ class ArtifactProvenanceTests(unittest.TestCase):
             ),
             [],
         )
+
+        approved_report = self._write_review_report(artifact_path, approved=True)
+        published = publish_approved_review_provenance(
+            report=json.loads(approved_report.read_text(encoding="utf-8")),
+            artifact=artifact_path,
+            report_path=approved_report,
+            application_id=self.primary.application_id,
+            source_revision_id=source_revision_id,
+            run_id="run-cv-script",
+            control_db_path=self.db.db_path,
+        )
+        self.assertIsNotNone(published)
+        self.assertEqual(published.status, "review_passed")
 
     def _create_validated_fit_map(self, application_id: str, fingerprint: str) -> str:
         source_revision_id = self.analysis.create_revision(
@@ -509,6 +600,7 @@ class ArtifactProvenanceTests(unittest.TestCase):
         report = {
             "kind": "cv",
             "artifact": str(artifact_path.resolve()),
+            "artifact_sha256": sha256_file(artifact_path),
             "company": "Conexa",
             "role": "Diretor de Growth",
             "approved": approved,

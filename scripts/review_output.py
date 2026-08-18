@@ -825,6 +825,7 @@ def build_cv_review(
     return {
         "kind": "cv",
         "artifact": str(artifact),
+        "artifact_sha256": sha256_file(artifact) if artifact.is_file() else "",
         "company": company,
         "role": role,
         "approved": approved,

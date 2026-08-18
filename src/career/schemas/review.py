@@ -12,7 +12,7 @@ class CvReviewReportSchema:
 
     def validate(self) -> dict[str, Any]:
         ensure(isinstance(self.payload, dict), "CV review report must be an object")
-        for key in ["kind", "artifact", "company", "role"]:
+        for key in ["kind", "artifact", "artifact_sha256", "company", "role"]:
             ensure(isinstance(self.payload.get(key), str), f"{key} must be a string")
         ensure(isinstance(self.payload.get("approved"), bool), "approved must be boolean")
         ensure(isinstance(self.payload.get("approved_for_delivery"), bool), "approved_for_delivery must be boolean")

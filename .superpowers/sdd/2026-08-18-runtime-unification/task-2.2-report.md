@@ -154,3 +154,56 @@ only the requested review report as an output; no Task 2.2 runtime path reads
 or writes `workflow_state.json`, `active_application.json`, or another JSON
 state authority. All test databases were temporary; `control-plane/career.db`
 was not modified.
+
+## Fix round 1 — reviewed-artifact digest binding
+
+Independent review found that an approved report identified its artifact only
+by path. Replacing the file at that path after objective review allowed the
+SQLite publication path to bind the receipt to different bytes.
+
+### RED
+
+Added two real regressions: one mutates the DOCX after report generation and
+calls `record_approved_cv_provenance()`, the other registers the new bytes and
+calls `ArtifactRepository.mark_review_passed()` with the old report. Before the
+fix both failed because no `ValueError` was raised:
+
+```text
+FAIL: test_review_publication_rejects_artifact_mutated_after_objective_review
+FAIL: test_mark_review_passed_rejects_report_for_other_artifact_bytes
+```
+
+### GREEN
+
+- `build_cv_review()` now emits `artifact_sha256` from the exact DOCX bytes it
+  reviewed; the CLI writes that completed report before optional SQLite
+  publication.
+- `CvReviewReportSchema` requires the field. Report-only callers may still
+  produce a blocked report with an empty digest when the file is absent, but a
+  SQLite publication requires a lower-case SHA-256 digest.
+- Both `record_approved_cv_provenance()` and
+  `ArtifactRepository.mark_review_passed()` compare the report digest with the
+  current artifact bytes before creating an artifact, a receipt, or an approval
+  update. Missing or mismatched digests fail closed.
+- The regression asserts that the post-review mutation creates neither an
+  artifact nor a `cv_review_passed` receipt. The script publisher is also
+  exercised for both blocked and approved reports.
+
+Verification:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q \
+  tests/test_artifact_provenance.py \
+  tests/test_analysis_revisions.py \
+  tests/test_workflow_gates.py \
+  tests/test_application_repository.py \
+  tests/test_sqlite_persistence.py \
+  tests/test_database.py
+```
+
+Result:
+
+```text
+Ran 63 tests in 4.763s
+OK
+```

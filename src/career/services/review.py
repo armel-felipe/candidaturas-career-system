@@ -177,6 +177,11 @@ def record_approved_cv_provenance(
         raise ValueError("approved review report is required before publishing artifact")
     if Path(str(report["artifact"])).resolve() != artifact:
         raise ValueError("approved review report points to a different artifact path")
+    reviewed_artifact_hash = _required_reviewed_artifact_hash(report)
+    if reviewed_artifact_hash != sha256_file(artifact):
+        raise ValueError(
+            "approved review report artifact_sha256 does not match current artifact bytes"
+        )
 
     application = ApplicationRepository(database).resolve(application_id=application_id)
     artifacts = ArtifactRepository(database)
@@ -205,6 +210,13 @@ def record_approved_cv_provenance(
         receipt_id=receipt_id,
         report_path=report_path,
     )
+
+
+def _required_reviewed_artifact_hash(report: dict) -> str:
+    value = report.get("artifact_sha256")
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ValueError("approved review report artifact_sha256 is required")
+    return value
 
 
 def approve_cv(
