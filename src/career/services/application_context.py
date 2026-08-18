@@ -12,6 +12,12 @@ from typing import Any
 
 from career.paths import CAREER_STATE, ROOT
 from career.services.database import Database
+from career.services.persistence.application_repository import (
+    ApplicationIdentity,
+    ApplicationNotFoundError,
+    ApplicationRecord,
+    ApplicationRepository,
+)
 from career.utils import read_json, utc_now_iso, write_json
 
 
@@ -380,6 +386,22 @@ def ensure_application(
     )
     write_json(paths.identity, identity)
     _update_alias_index(application_id, aliases)
+    _repository().create_application(
+        ApplicationIdentity(
+            application_id=application_id,
+            company=str(identity.get("company") or ""),
+            role=str(identity.get("role") or ""),
+            notion_id=str(aliases.get("notion_record_id"))
+            if aliases.get("notion_record_id")
+            else None,
+            source_type=source_type,
+            aliases={
+                ("notion_id" if key == "notion_record_id" else str(key)): str(value)
+                for key, value in aliases.items()
+                if value
+            },
+        )
+    )
     if not paths.state.exists():
         write_json(
             paths.state,
@@ -403,6 +425,80 @@ def _update_alias_index(application_id: str, aliases: dict[str, Any]) -> None:
         if value:
             index[f"{key}:{value}"] = application_id
     write_json(ALIAS_INDEX, payload)
+
+
+def _repository(database: Database | None = None) -> ApplicationRepository:
+    return ApplicationRepository(database or Database())
+
+
+def _legacy_record_from_files(application_id: str) -> ApplicationRecord:
+    paths = paths_for(application_id)
+    if not paths.identity.exists():
+        raise ApplicationNotFoundError(
+            f"no application matched application_id={application_id}"
+        )
+    identity = read_json(paths.identity)
+    aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
+    source_metadata = (
+        read_json(paths.source_metadata) if paths.source_metadata.exists() else {}
+    )
+    notion_id = None
+    if aliases.get("notion_id"):
+        notion_id = str(aliases["notion_id"])
+    elif aliases.get("notion_record_id"):
+        notion_id = str(aliases["notion_record_id"])
+    return ApplicationRecord(
+        application_id=application_id,
+        company=str(identity.get("company") or ""),
+        role=str(identity.get("role") or ""),
+        notion_id=notion_id,
+        fingerprint=str(source_metadata.get("job_fingerprint"))
+        if source_metadata.get("job_fingerprint")
+        else None,
+        source_type=str(identity.get("source_type") or "legacy"),
+        source_url=str(identity.get("source_url"))
+        if identity.get("source_url")
+        else None,
+        stage="legacy_file_projection",
+        funil_stage="legacy_file_projection",
+        score=None,
+        cv_language="pt",
+        status="legacy",
+        created_at=str(identity.get("created_at") or ""),
+        updated_at=str(identity.get("updated_at") or ""),
+        job_description_path=_relative(paths.job_description)
+        if paths.job_description.exists()
+        else None,
+        fit_map_path=_relative(paths.fit_map) if paths.fit_map.exists() else None,
+        cv_path=None,
+        aliases={str(key): str(value) for key, value in aliases.items() if value},
+    )
+
+
+def resolve_application(
+    *,
+    application_id: str | None = None,
+    notion_id: str | None = None,
+    fingerprint: str | None = None,
+    company: str | None = None,
+    role: str | None = None,
+    database: Database | None = None,
+) -> ApplicationRecord:
+    try:
+        return _repository(database).resolve(
+            application_id=application_id,
+            notion_id=notion_id,
+            fingerprint=fingerprint,
+            company=company,
+            role=role,
+        )
+    except ApplicationNotFoundError:
+        explicit_application_id = str(application_id or "").strip()
+        if explicit_application_id:
+            return _legacy_record_from_files(
+                validate_application_id(explicit_application_id)
+            )
+        raise
 
 
 def register_session(
