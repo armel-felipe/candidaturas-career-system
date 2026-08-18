@@ -35,3 +35,18 @@ inside one SQLite transaction before compatibility source/draft/context files
 are materialized. Guards reject absent scope, unknown applications, and
 fingerprint mismatches before consulting the FIT_MAP guard. Active pointers
 remain discovery-only and `resolve_active_application()` fails closed.
+
+## Follow-up scope hardening
+
+An additional regression verifies that a caller which supplies both an explicit
+`application_id` and a legacy global `WorkflowStateStore` cannot smuggle that
+global pointer into agent execution. The guard discards the unscoped store and
+loads the declared application's SQLite-backed projection instead.
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q \
+  tests.test_intake_persistence tests.test_intake_sqlite_scope \
+  tests.test_application_repository tests.test_application_projection \
+  tests.test_workflow_gates tests.test_linkedin_intake_metadata
+# Ran 62 tests: OK
+```

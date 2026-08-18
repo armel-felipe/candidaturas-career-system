@@ -115,9 +115,10 @@ def guard(
             "application_id": application_id,
             "forbidden_actions": FORBIDDEN_ACTIONS,
         }
-    state_store = state_store or WorkflowStateStore.for_application(
-        application_id, database=database
-    )
+    if state_store is None or state_store.application_id is None:
+        state_store = WorkflowStateStore.for_application(
+            application_id, database=database
+        )
     forbidden_files = forbidden_root_files()
     active = _active_intake_payload(state_store)
     application_root = (

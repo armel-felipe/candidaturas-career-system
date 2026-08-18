@@ -97,6 +97,40 @@ class IntakeSQLiteScopeTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertIn("required", result["reason"])
 
+    def test_guard_discards_global_store_when_explicit_scope_is_declared(self):
+        record = self._start(
+            self._source(
+                application_id="notion_578",
+                company="Conexa",
+                role="Diretor de Growth",
+                text="Descricao Conexa " * 80,
+            )
+        )
+        global_state = WorkflowStateStore(path=self.career_state / "workflow_state.json")
+        global_state.payload = {
+            "active_intake": {
+                "application_id": "notion_other",
+                "fingerprint": "global-fingerprint",
+                "job_description_path": "wrong.md",
+            }
+        }
+        global_state.save()
+
+        with self._guard_context(), mock.patch.object(
+            agent_guard.fit_map_service,
+            "progress_guard",
+            return_value={"next_required_step": "preencher .career-state/fit_map.draft.json"},
+        ):
+            result = agent_guard.guard(
+                application_id=record.application_id,
+                fingerprint=record.fingerprint,
+                state_store=global_state,
+                database=self.database,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["active_intake"]["application_id"], record.application_id)
+
     def test_guard_rejects_fingerprint_mismatch_before_consulting_draft_or_context(self):
         source = self._source(
             application_id="notion_578",
