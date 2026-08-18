@@ -16,6 +16,7 @@ class SQLitePersistenceTests(unittest.TestCase):
         "003_gates_artifacts_integrations.sql",
         "004_legacy_compatibility.py",
         "005_reference_versioning_and_payload_hashes.py",
+        "006_gate_receipt_scope_and_idempotency.py",
     ]
 
     def setUp(self) -> None:
@@ -28,12 +29,21 @@ class SQLitePersistenceTests(unittest.TestCase):
     def test_migrate_registers_schema_and_runtime_pragmas(self) -> None:
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 5)
+        self.assertEqual(applied, 6)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(self._pragma("foreign_keys"), 1)
         self.assertEqual(self._pragma("busy_timeout"), 10000)
         self.assertEqual(self._pragma("synchronous"), 2)
         self.assertEqual(self._pragma("journal_mode"), "wal")
+        self.assertTrue(
+            {
+                "application_id",
+                "gate",
+                "input_hash",
+                "output_hash",
+                "application_fingerprint",
+            }.issubset(self._columns("validation_receipts"))
+        )
 
         tables = self._table_names()
         for table_name in (
@@ -122,7 +132,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 5)
+        self.assertEqual(applied, 6)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(
             self._columns("resource_locks"),
@@ -176,7 +186,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 1)
+        self.assertEqual(applied, 2)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertTrue(
             {"logical_key", "content_hash"}.issubset(self._columns("reference_documents"))
@@ -210,6 +220,67 @@ class SQLitePersistenceTests(unittest.TestCase):
             positioning_row["payload_hash"],
             sha256_text(str(positioning_row["payload_json"])),
         )
+
+    def test_migrate_006_backfills_validation_receipt_scope_columns(self) -> None:
+        self.database.migrate()
+        created_at = "2026-08-18T00:00:00+00:00"
+        self.database.execute(
+            """INSERT INTO applications
+               (id, company, role, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ("app-1", "Acme", "Director", created_at, created_at),
+        )
+        self.database.execute(
+            """INSERT INTO application_runs
+               (run_id, application_id, graph_json, status, contract_version, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("run-1", "app-1", "{}", "completed", "v1", created_at, created_at),
+        )
+        self.database.execute(
+            """INSERT INTO cell_nodes
+               (run_id, node_id, status, requires_json, latest_attempt, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("run-1", "fit_map_draft_valid", "completed", "[]", 1, created_at, created_at),
+        )
+        self.database.execute(
+            """INSERT INTO validation_receipts
+               (receipt_id, run_id, node_id, attempt, validator, result, report_path,
+                report_sha256, details_json, created_at, application_id, gate, input_hash,
+                output_hash, application_fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "receipt-1",
+                "run-1",
+                "fit_map_draft_valid",
+                1,
+                "fit_map.validate_draft",
+                "passed",
+                None,
+                None,
+                "{}",
+                created_at,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        )
+
+        self.database.close()
+        self._reopen_without_migration("006_gate_receipt_scope_and_idempotency.py")
+
+        applied = self.database.migrate()
+
+        self.assertEqual(applied, 1)
+        row = self.database.fetch_one(
+            """SELECT application_id, gate
+               FROM validation_receipts
+               WHERE receipt_id = ?""",
+            ("receipt-1",),
+        )
+        self.assertEqual(row["application_id"], "app-1")
+        self.assertEqual(row["gate"], "fit_map_draft_valid")
 
     def test_transaction_rolls_back_and_foreign_keys_are_enforced(self) -> None:
         self.database.migrate()
@@ -270,6 +341,16 @@ class SQLitePersistenceTests(unittest.TestCase):
         ).fetchall()
         return {row[1] for row in rows}
 
+    def _reopen_without_migration(self, version: str) -> None:
+        conn = sqlite3.connect(str(self.db_path))
+        try:
+            conn.execute("DELETE FROM schema_migrations WHERE version = ?", (version,))
+            conn.commit()
+        finally:
+            conn.close()
+        self.database = Database(db_path=self.db_path)
+        self.addCleanup(self.database.close)
+
     def _seed_legacy_compatibility_schema(self, db_path: Path) -> None:
         conn = sqlite3.connect(db_path)
         try:
@@ -323,7 +404,7 @@ class SQLitePersistenceTests(unittest.TestCase):
                    )"""
             )
             migration_dir = Path(__file__).resolve().parent.parent / "src" / "career" / "services" / "persistence" / "migrations"
-            for version in self.EXPECTED_VERSIONS[:-1]:
+            for version in self.EXPECTED_VERSIONS[:-2]:
                 migration_path = migration_dir / version
                 checksum = self.database._migration_checksum(migration_path)
                 conn.execute(

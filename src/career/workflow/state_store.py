@@ -3,49 +3,57 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from time import sleep
 
 from career.paths import CAREER_STATE
 from career.services import application_context
-from career.utils import read_json, write_json
+from career.services.database import Database
+from career.services.persistence.gate_repository import GateRepository
 
 
 DEFAULT_STATE_PATH = CAREER_STATE / "workflow_state.json"
-DEFAULT_PAYLOAD = {"completed_states": [], "task_history": [], "fingerprints": {}, "active_job": None}
+DEFAULT_PAYLOAD = {
+    "completed_states": [],
+    "task_history": [],
+    "fingerprints": {},
+    "active_job": None,
+}
 
 
 @dataclass
 class WorkflowStateStore:
+    application_id: str | None = None
+    database: Database | None = None
     path: Path = DEFAULT_STATE_PATH
     payload: dict[str, Any] = field(default_factory=dict)
 
     def load(self) -> dict[str, Any]:
-        if self.path.exists():
-            last_error: Exception | None = None
-            for _ in range(5):
-                try:
-                    self.payload = read_json(self.path)
-                    break
-                except (PermissionError, OSError) as exc:
-                    last_error = exc
-                    sleep(0.1)
-            else:
-                raise last_error  # type: ignore[misc]
-        else:
-            self.payload = dict(DEFAULT_PAYLOAD)
-        self.payload.setdefault("completed_states", [])
-        self.payload.setdefault("task_history", [])
-        self.payload.setdefault("fingerprints", {})
-        self.payload.setdefault("active_job", None)
+        if not self.application_id or self.database is None:
+            raise ValueError(
+                "workflow state requires an application-scoped store backed by SQLite"
+            )
+        repository = GateRepository(self.database)
+        self.payload = {
+            **DEFAULT_PAYLOAD,
+            **repository.compatibility_payload(self.application_id),
+        }
         return self.payload
 
     def save(self) -> None:
-        write_json(self.path, self.payload)
+        raise RuntimeError("workflow state store is a read-only SQLite projection")
 
     def reset(self) -> None:
-        self.payload = dict(DEFAULT_PAYLOAD)
-        self.save()
+        raise RuntimeError("workflow state store is a read-only SQLite projection")
 
     @classmethod
-    def for_application(cls, application_id: str) -> "WorkflowStateStore":
-        return cls(path=application_context.paths_for(application_id).workflow_state)
+    def for_application(
+        cls,
+        application_id: str,
+        *,
+        database: Database,
+        root: Path | None = None,
+    ) -> "WorkflowStateStore":
+        return cls(
+            application_id=application_id,
+            database=database,
+            path=application_context.paths_for(application_id, root=root).workflow_state,
+        )
