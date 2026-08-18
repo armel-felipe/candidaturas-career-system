@@ -129,8 +129,8 @@ Resolved the controller-only regression that was not covered by the fork suite:
 3. Registered applications remain fully SQLite-projected, and truly scoped operations
    that require database identity continue to fail closed on unknown applications.
 4. Added the application-shaped compatibility regression to
-   `tests/test_workflow_gates.py`; the existing legacy intake suite also reproduces
-   the two controller paths when present in the checkout.
+   `tests/test_workflow_gates.py`; the existing legacy intake suite separately
+   exercises the request-builder compatibility path when present in the checkout.
 
 ### Controller active-pointer compatibility follow-up
 
