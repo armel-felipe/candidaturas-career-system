@@ -99,7 +99,7 @@ class ApplicationRepository:
         aliases = dict(identity.aliases)
         if identity.notion_id:
             aliases.setdefault("notion_id", str(identity.notion_id))
-        with self.database.transaction() as conn:
+        with self.database.transaction(immediate=True) as conn:
             existing = conn.execute(
                 "SELECT created_at FROM applications WHERE id = ?",
                 (application_id,),
@@ -120,10 +120,6 @@ class ApplicationRepository:
                      role = excluded.role,
                      source_type = excluded.source_type,
                      source_url = COALESCE(excluded.source_url, applications.source_url),
-                     stage = excluded.stage,
-                     funil_stage = excluded.funil_stage,
-                     cv_language = excluded.cv_language,
-                     status = excluded.status,
                      updated_at = excluded.updated_at""",
                 (
                     application_id,

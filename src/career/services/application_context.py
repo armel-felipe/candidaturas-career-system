@@ -365,27 +365,27 @@ def ensure_application(
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    identity = read_json(paths.identity) if paths.identity.exists() else {}
-    aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
+    existing_identity = read_json(paths.identity) if paths.identity.exists() else {}
+    aliases = (
+        dict(existing_identity.get("aliases"))
+        if isinstance(existing_identity.get("aliases"), dict)
+        else {}
+    )
     if record_id is not None:
         aliases["notion_record_id"] = str(record_id)
     if source_id:
         aliases[f"{source_type}_source_id"] = source_id
-    identity.update(
-        {
-            "kind": "application_identity",
-            "application_id": application_id,
-            "created_at": identity.get("created_at") or utc_now_iso(),
-            "updated_at": utc_now_iso(),
-            "source_type": source_type,
-            "source_id": source_id,
-            "company": company or identity.get("company") or "",
-            "role": role or identity.get("role") or "",
-            "aliases": aliases,
-        }
-    )
-    write_json(paths.identity, identity)
-    _update_alias_index(application_id, aliases)
+    identity = {
+        "kind": "application_identity",
+        "application_id": application_id,
+        "created_at": existing_identity.get("created_at") or utc_now_iso(),
+        "updated_at": utc_now_iso(),
+        "source_type": source_type,
+        "source_id": source_id,
+        "company": company or existing_identity.get("company") or "",
+        "role": role or existing_identity.get("role") or "",
+        "aliases": aliases,
+    }
     _repository().create_application(
         ApplicationIdentity(
             application_id=application_id,
@@ -395,6 +395,9 @@ def ensure_application(
             if aliases.get("notion_record_id")
             else None,
             source_type=source_type,
+            source_url=str(existing_identity.get("source_url"))
+            if existing_identity.get("source_url")
+            else None,
             aliases={
                 ("notion_id" if key == "notion_record_id" else str(key)): str(value)
                 for key, value in aliases.items()
@@ -402,6 +405,8 @@ def ensure_application(
             },
         )
     )
+    write_json(paths.identity, identity)
+    _update_alias_index(application_id, aliases)
     if not paths.state.exists():
         write_json(
             paths.state,
@@ -428,7 +433,8 @@ def _update_alias_index(application_id: str, aliases: dict[str, Any]) -> None:
 
 
 def _repository(database: Database | None = None) -> ApplicationRepository:
-    return ApplicationRepository(database or Database())
+    repository_database = database or Database(db_path=CAREER_STATE / "career.db")
+    return ApplicationRepository(repository_database)
 
 
 def _legacy_record_from_files(application_id: str) -> ApplicationRecord:
@@ -484,6 +490,15 @@ def resolve_application(
     role: str | None = None,
     database: Database | None = None,
 ) -> ApplicationRecord:
+    explicit_application_id = str(application_id or "").strip()
+    sole_application_selector = bool(explicit_application_id) and not any(
+        (
+            str(notion_id or "").strip(),
+            str(fingerprint or "").strip(),
+            str(company or "").strip(),
+            str(role or "").strip(),
+        )
+    )
     try:
         return _repository(database).resolve(
             application_id=application_id,
@@ -493,8 +508,7 @@ def resolve_application(
             role=role,
         )
     except ApplicationNotFoundError:
-        explicit_application_id = str(application_id or "").strip()
-        if explicit_application_id:
+        if sole_application_selector:
             return _legacy_record_from_files(
                 validate_application_id(explicit_application_id)
             )

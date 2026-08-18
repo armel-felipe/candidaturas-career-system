@@ -94,3 +94,30 @@ Result:
 
 - The legacy compatibility path is intentionally narrow: it only falls back for explicit `application_id`, not for inferred/implicit active job state.
 - This task does not introduce stage derivation from receipts/artifacts; that remains for Task 2.3.
+
+## Fix Round 1
+
+Reviewer concerns addressed:
+
+1. `create_application` no longer resets progressed workflow fields on refresh. The upsert now preserves `stage`, `funil_stage`, `cv_language`, and `status` for existing rows while still refreshing identity fields.
+2. `resolve_application(...)` legacy fallback is now allowed only when `application_id` is the sole explicit selector. Any combined selector set must resolve through SQLite and fail closed if not found.
+3. `ensure_application(...)` now registers in SQLite before writing compatibility files. Registration uses `Database.transaction(immediate=True)` through `ApplicationRepository.create_application(...)`, and a duplicate Notion alias failure leaves no new `identity.json`.
+
+Additional tests added in this round:
+
+- refresh of an existing row preserves progressed workflow fields
+- legacy fallback is rejected for `application_id + notion_id`
+- legacy fallback is rejected for `application_id + fingerprint`
+- deterministic duplicate Notion ID conflict in `ensure_application(...)` leaves the conflicting compatibility identity file absent
+
+Fix Round 1 verification:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_application_repository.py
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_application_repository.py tests/test_intake_persistence.py
+```
+
+Results:
+
+- `Ran 13 tests ... OK`
+- `Ran 19 tests ... OK`
