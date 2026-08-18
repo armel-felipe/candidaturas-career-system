@@ -502,39 +502,8 @@ def _scoped_pack(
 def build_all_for_fit_map(
     application_paths: ApplicationPaths | None = None,
 ) -> dict[str, Any]:
-    if application_paths is not None:
-        return normalize_job(application_paths)
-    active = resolve_active_job_context()
-    memory_service.build_memory_bundle()
-    active_context = build_active_context(active)
-    job_extract = build_job_extract(active)
-    job_sections = build_job_sections(active, job_extract=job_extract)
-    job_requirements = build_job_requirements(active, job_sections=job_sections)
-    job_responsibilities = build_job_responsibilities(active, job_sections=job_sections)
-    job_company_context = build_job_company_context(active, job_extract=job_extract, job_sections=job_sections)
-    job_keywords = build_job_keywords(active, job_extract=job_extract, job_sections=job_sections)
-    reference_digest = build_reference_digest(active, job_keywords=job_keywords)
-    evidence_pack = build_candidate_evidence_pack(active, job_keywords=job_keywords)
-    evidence_by_theme = build_candidate_evidence_by_theme(active, evidence_pack=evidence_pack)
-    fit_map_seed = build_fit_map_seed(active, job_extract=job_extract, job_keywords=job_keywords, reference_digest=reference_digest, evidence_pack=evidence_pack)
-    cv_input_pack = build_cv_input_pack(active)
-    cv_content_seed = build_cv_content_seed(active, cv_input_pack=cv_input_pack)
-    habilidades_input_pack = build_habilidades_input_pack(active)
-    feras_input_pack = build_feras_input_pack(active)
-    cover_letter_input_pack = build_cover_letter_input_pack(active)
-    manifest = write_manifest(active, {
-        "active_context": ACTIVE_CONTEXT_PATH, "job_extract": JOB_EXTRACT_PATH,
-        "job_sections": JOB_SECTIONS_PATH, "job_requirements": JOB_REQUIREMENTS_PATH,
-        "job_responsibilities": JOB_RESPONSIBILITIES_PATH, "job_company_context": JOB_COMPANY_CONTEXT_PATH,
-        "job_keywords": JOB_KEYWORDS_PATH, "reference_digest": REFERENCE_DIGEST_PATH,
-        "candidate_evidence_pack": CANDIDATE_EVIDENCE_PACK_PATH,
-        "candidate_evidence_by_theme": CANDIDATE_EVIDENCE_BY_THEME_PATH,
-        "fit_map_seed": FIT_MAP_SEED_PATH, "cv_input_pack": CV_INPUT_PACK_PATH,
-        "cv_content_seed": CV_CONTENT_SEED_PATH, "habilidades_input_pack": HABILIDADES_INPUT_PACK_PATH,
-        "feras_input_pack": FERAS_INPUT_PACK_PATH, "cover_letter_input_pack": COVER_LETTER_INPUT_PACK_PATH,
-    })
-    return {"status": "ok", "job_description_path": _relative(active.job_description_path),
-            "fingerprint": active.fingerprint, "manifest": manifest}
+    ensure(application_paths is not None, "explicit_application_scope_required")
+    return normalize_job(application_paths)
 
 
 def build_active_context(active: ActiveJobContext | None = None) -> dict[str, Any]:
@@ -809,10 +778,13 @@ def write_manifest(active: ActiveJobContext, outputs: dict[str, Path]) -> dict[s
     return payload
 
 
-def validate_manifest() -> dict[str, Any]:
-    active = resolve_active_job_context()
-    ensure(DERIVED_MANIFEST_PATH.exists(), "derived_manifest_missing")
-    manifest = read_json(DERIVED_MANIFEST_PATH)
+def validate_manifest(application_paths: ApplicationPaths | None = None) -> dict[str, Any]:
+    active = resolve_active_job_context(application_paths)
+    assert application_paths is not None
+    manifest_path = application_paths.derived_dir / "manifest.json"
+    ensure(manifest_path.exists(), "derived_manifest_missing")
+    manifest = read_json(manifest_path)
+    ensure(manifest.get("application_id") == application_paths.application_id, "derived_manifest_scope_mismatch")
     ensure(manifest.get("fingerprint") == active.fingerprint, "derived_manifest_stale_for_active_job")
     required = ["active_context", "job_extract", "job_sections", "job_requirements", "job_responsibilities",
                 "job_company_context", "job_keywords", "reference_digest", "candidate_evidence_pack",
@@ -824,9 +796,11 @@ def validate_manifest() -> dict[str, Any]:
             "fingerprint": manifest.get("fingerprint"), "missing_outputs": missing, "outputs": outputs}
 
 
-def derived_summary() -> dict[str, Any]:
-    active = resolve_active_job_context()
-    manifest_status = validate_manifest() if DERIVED_MANIFEST_PATH.exists() else {"status": "blocked", "missing_outputs": ["manifest"]}
+def derived_summary(application_paths: ApplicationPaths | None = None) -> dict[str, Any]:
+    active = resolve_active_job_context(application_paths)
+    assert application_paths is not None
+    manifest_path = application_paths.derived_dir / "manifest.json"
+    manifest_status = validate_manifest(application_paths) if manifest_path.exists() else {"status": "blocked", "missing_outputs": ["manifest"]}
     outputs = manifest_status.get("outputs", {}) if isinstance(manifest_status.get("outputs"), dict) else {}
     return {"status": manifest_status.get("status"), "job_description_path": _relative(active.job_description_path),
             "fingerprint": active.fingerprint, "compact_files": fit_map_compact_files(),
@@ -835,13 +809,20 @@ def derived_summary() -> dict[str, Any]:
             "missing_outputs": manifest_status.get("missing_outputs", [])}
 
 
-def context_doctor() -> dict[str, Any]:
-    active = resolve_active_job_context()
-    files = [ACTIVE_CONTEXT_PATH, JOB_EXTRACT_PATH, JOB_SECTIONS_PATH, JOB_REQUIREMENTS_PATH,
-             JOB_RESPONSIBILITIES_PATH, JOB_COMPANY_CONTEXT_PATH, JOB_KEYWORDS_PATH, REFERENCE_DIGEST_PATH,
-             CANDIDATE_EVIDENCE_PACK_PATH, CANDIDATE_EVIDENCE_BY_THEME_PATH, FIT_MAP_SEED_PATH,
-             CV_INPUT_PACK_PATH, CV_CONTENT_SEED_PATH, HABILIDADES_INPUT_PACK_PATH, FERAS_INPUT_PACK_PATH,
-             COVER_LETTER_INPUT_PACK_PATH]
+def context_doctor(application_paths: ApplicationPaths | None = None) -> dict[str, Any]:
+    active = resolve_active_job_context(application_paths)
+    assert application_paths is not None
+    files = [
+        application_paths.derived_dir / name
+        for name in (
+            "active_context.json", "job_extract.json", "job_sections.json",
+            "job_requirements.json", "job_responsibilities.json", "job_company_context.json",
+            "job_keywords.json", "reference_digest.json", "candidate_evidence_pack.json",
+            "candidate_evidence_by_theme.json", "fit_map_seed.json", "cv_input_pack.json",
+            "cv_content_seed.json", "habilidades_input_pack.json", "feras_input_pack.json",
+            "cover_letter_input_pack.json",
+        )
+    ]
     report = []
     large = []
     for path in files:
@@ -878,19 +859,32 @@ def cv_compact_files() -> list[str]:
             ".career-state/memory/profile_facts.json", ".career-state/memory/application_rules.json"]
 
 
-def resolve_active_job_context() -> ActiveJobContext:
-    payload = WorkflowStateStore(path=ACTIVE_STATE_STORE_PATH).load() if ACTIVE_STATE_STORE_PATH else WorkflowStateStore().load()
-    active = payload.get("active_intake")
-    ensure(isinstance(active, dict), "active_intake_missing")
-    job_description_rel = active.get("job_description_path")
-    ensure(isinstance(job_description_rel, str) and job_description_rel.strip(), "active_intake_missing_job_description_path")
-    job_description_path = ROOT / job_description_rel
-    ensure(job_description_path.exists(), f"active_job_description_missing: {job_description_rel}")
-    fingerprint = sha256_file(job_description_path)
-    return ActiveJobContext(job_description_path=job_description_path, fingerprint=fingerprint,
-                           company=str(active.get("company") or ""), role=str(active.get("role") or ""),
-                           source_type=str(active.get("source_type") or ""),
-                           source_id=str(active.get("source_id") or "") or None)
+def resolve_active_job_context(
+    application_paths: ApplicationPaths | None = None,
+) -> ActiveJobContext:
+    """Resolve context from a declared application boundary only.
+
+    The legacy active-state mirror is intentionally not consulted here: it is
+    allowed to describe a recent application for a human, never to select an
+    artifact-producing runtime action.
+    """
+    ensure(application_paths is not None, "explicit_application_scope_required")
+    app_root = application_paths.app_dir.resolve()
+    job_description_path = application_paths.job_description.resolve()
+    try:
+        job_description_path.relative_to(app_root)
+    except ValueError as exc:
+        raise ValidationFailure("application_job_description_path_escapes_scope") from exc
+    ensure(job_description_path.is_file(), "application_job_description_missing")
+    identity = read_json(application_paths.identity) if application_paths.identity.is_file() else {}
+    return ActiveJobContext(
+        job_description_path=job_description_path,
+        fingerprint=sha256_file(job_description_path),
+        company=str(identity.get("company") or ""),
+        role=str(identity.get("role") or ""),
+        source_type=str(identity.get("source_type") or "application_source"),
+        source_id=str(identity.get("source_id") or "") or None,
+    )
 
 
 def _validate_job_extract(payload: dict[str, Any]) -> None:

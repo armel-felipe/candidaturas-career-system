@@ -146,13 +146,21 @@ BULLET2_POLICY_BY_FAMILY: dict[str, dict[str, Any]] = {
 }
 
 
-def build_current_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
-    active = derived_context_service.resolve_active_job_context()
-    _ensure_fit_map_matches_active(active)
-    fit_map = read_json(FIT_MAP_PATH)
-    payload = _build_cv_payload(active, fit_map, source_fit_map=str(FIT_MAP_PATH))
+def build_current_cv_content(
+    path: Path | None = None,
+    *,
+    application_paths: ApplicationPaths | None = None,
+) -> dict[str, Any]:
+    if application_paths is None:
+        raise ValidationFailure("explicit_application_scope_required")
+    path = Path(path or application_paths.cv_content)
+    payload = build_cv_content(
+        application_paths,
+        application_paths.fit_map,
+        provenance_service.candidate_facts_revision(),
+    )
     write_json(path, payload)
-    validate_cv_content(path)
+    validate_cv_content(path, application_paths=application_paths)
     return payload
 
 
@@ -346,9 +354,16 @@ def _build_cv_payload(
     return payload
 
 
-def validate_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
+def validate_cv_content(
+    path: Path | None = None,
+    *,
+    application_paths: ApplicationPaths | None = None,
+) -> dict[str, Any]:
+    if application_paths is None:
+        raise ValidationFailure("explicit_application_scope_required")
+    path = Path(path or application_paths.cv_content)
     ensure(path.exists(), f"cv_content_missing: {path}")
-    active = derived_context_service.resolve_active_job_context()
+    active = derived_context_service.resolve_active_job_context(application_paths)
     payload = read_json(path)
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     ensure(metadata.get("job_fingerprint") == active.fingerprint, "cv_content_stale_for_active_job")
@@ -356,7 +371,7 @@ def validate_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     ensure(str(metadata.get("empresa") or "").strip(), "cv_content_missing_empresa_metadata")
     mock_paths = {
         "cv_content": path,
-        "fit_map": FIT_MAP_PATH,
+        "fit_map": application_paths.fit_map,
     }
     applications_v2_service._validate_cv_content_contract(mock_paths)
     return {
@@ -368,16 +383,24 @@ def validate_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     }
 
 
-def active_artifact_status() -> dict[str, Any]:
-    active = derived_context_service.resolve_active_job_context()
-    fit_map_status = fit_map_service.status()
+def active_artifact_status(
+    *, application_paths: ApplicationPaths | None = None,
+) -> dict[str, Any]:
+    if application_paths is None:
+        raise ValidationFailure("explicit_application_scope_required")
+    active = derived_context_service.resolve_active_job_context(application_paths)
+    fit_map_status = fit_map_service.status(
+        draft_path=application_paths.fit_map_draft,
+        fit_map_path=application_paths.fit_map,
+        job_description_path=application_paths.job_description,
+    )
     cv_status = {
-        "exists": CV_CONTENT_PATH.exists(),
-        "path": str(CV_CONTENT_PATH),
+        "exists": application_paths.cv_content.exists(),
+        "path": str(application_paths.cv_content),
         "matches_active_job": False,
     }
-    if CV_CONTENT_PATH.exists():
-        payload = read_json(CV_CONTENT_PATH)
+    if application_paths.cv_content.exists():
+        payload = read_json(application_paths.cv_content)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         cv_status["matches_active_job"] = metadata.get("job_fingerprint") == active.fingerprint
         cv_status["output_name"] = payload.get("output_name")
@@ -392,10 +415,14 @@ def active_artifact_status() -> dict[str, Any]:
     }
 
 
-def invalidate_stale_artifacts() -> dict[str, Any]:
-    active = derived_context_service.resolve_active_job_context()
+def invalidate_stale_artifacts(
+    *, application_paths: ApplicationPaths | None = None,
+) -> dict[str, Any]:
+    if application_paths is None:
+        raise ValidationFailure("explicit_application_scope_required")
+    active = derived_context_service.resolve_active_job_context(application_paths)
     invalidated: list[str] = []
-    for path in (CV_CONTENT_PATH,):
+    for path in (application_paths.cv_content,):
         if not path.exists():
             continue
         payload = read_json(path)

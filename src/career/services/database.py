@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
 
-from career.paths import CAREER_STATE
+from career.paths import CAREER_STATE, ROOT
 
 
 class Database:
@@ -28,7 +28,10 @@ class Database:
         *,
         authority_ledger_path: str | Path | None = None,
     ):
-        self.db_path = Path(db_path or os.path.join(CAREER_STATE, "career.db"))
+        # All operational callers share this control-plane database.  Tests,
+        # migrations and recovery tools retain the explicit ``db_path`` escape
+        # hatch; a missing path must never create a private legacy database.
+        self.db_path = Path(db_path or (ROOT / "control-plane" / "career.db"))
         configured_ledger = authority_ledger_path or os.environ.get(
             "CAREER_AUTHORITY_LEDGER_PATH"
         )

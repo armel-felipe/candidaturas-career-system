@@ -22,6 +22,7 @@ from career.services.router import Router
 from career.services.menu import MenuBuilder
 from career.services.executor import Executor
 from career.services.database import Database
+from career.workflow.state_store import WorkflowStateStore
 
 
 LINKEDIN_JOB_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/(?:jobs(?:/view)?|job)/[^\s]+", re.IGNORECASE)
@@ -425,7 +426,9 @@ class HarnessSupervisor:
             enabled=self._fit_map_auto_finalize_enabled(),
             cellular=bool(cellular_context),
         ):
-            postprocess = self._finalize_fit_map_pipeline()
+            postprocess = self._finalize_fit_map_pipeline(
+                application_id=str(request_payload.get("application_id") or "").strip()
+            )
             payload["postprocess"] = postprocess
             if postprocess.get("status") != "completed":
                 status = "blocked"
@@ -727,25 +730,40 @@ class HarnessSupervisor:
         lines.extend(["", "Responda com o número ou a URL da vaga que você quer analisar."])
         return {"status": "completed", "kind": "linkedin_saved_jobs", "extracted_at": payload.get("extractedAt"), "total": len(jobs), "jobs": jobs, "display_text": "\n".join(lines)}
 
-    def _finalize_fit_map_pipeline(self) -> dict[str, Any]:
+    def _finalize_fit_map_pipeline(self, *, application_id: str | None = None) -> dict[str, Any]:
         if not self.root:
             return {"status": "blocked", "blocker_reason": "harness_root_missing"}
+        application_id = str(application_id or "").strip()
+        if not application_id:
+            return {"status": "blocked", "blocker_reason": "explicit_application_scope_required"}
         from career.services import fit_map as fit_map_service
         from career.tasks.registry import run_task
-        draft_path = CAREER_STATE / "fit_map.draft.json"
-        fit_map_path = CAREER_STATE / "fit_map.json"
+        application_root = self.root / ".career-state" / "applications_v2"
+        app_paths = application_context_service.paths_for(
+            application_id, root=application_root
+        )
+        state_store = WorkflowStateStore.for_application(
+            application_id,
+            database=self.db,
+            root=application_root,
+        )
+        draft_path = app_paths.fit_map_draft
+        fit_map_path = app_paths.fit_map
+        registry_path = app_paths.derived_dir / "keyword_ats_registry.json"
         try:
             results = {
-                "validate_draft": run_task("fit_map.validate_draft", {"path": str(draft_path)}),
-                "build": run_task("fit_map.build", {"draft": str(draft_path), "output": str(fit_map_path)}),
-                "score": run_task("fit_map.score", {"path": str(fit_map_path)}),
-                "validate": run_task("fit_map.validate", {"path": str(fit_map_path)}),
+                "validate_draft": run_task("fit_map.validate_draft", {"path": str(draft_path)}, state_store=state_store),
+                "build": run_task("fit_map.build", {"draft": str(draft_path), "output": str(fit_map_path)}, state_store=state_store),
+                "score": run_task("fit_map.score", {"path": str(fit_map_path)}, state_store=state_store),
+                "validate": run_task("fit_map.validate", {"path": str(fit_map_path)}, state_store=state_store),
             }
             register_command = [
                 str(self.root / "scripts" / "python.sh"),
                 "scripts/register_keywords.py",
                 "--fit-map",
                 str(fit_map_path),
+                "--registry",
+                str(registry_path),
                 "--translation-registry",
                 str(
                     self.root
@@ -757,8 +775,8 @@ class HarnessSupervisor:
                 return {"status": "blocked", "blocker_reason": "register_keywords_failed", "command": register_command, "stderr": (registered.stderr or registered.stdout)[-2000:]}
             summary = fit_map_service.payload_summary(fit_map_path)
             quality = fit_map_service.quality_report(fit_map_path)
-            registry = fit_map_service.registry_summary()
-            return {"status": "completed", "commands_executed": ["fit_map.validate_draft", "fit_map.build", "fit_map.score", "fit_map.validate", "scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json"], "results": results, "summary": {"cargo": summary.get("cargo"), "empresa": summary.get("empresa"), "nota_final": summary.get("nota_final"), "keyword_registration": registry.get("registered"), "quality_status": quality.get("status")}}
+            registry = fit_map_service.registry_summary(registry_path, fit_map_path)
+            return {"status": "completed", "application_id": application_id, "commands_executed": ["fit_map.validate_draft", "fit_map.build", "fit_map.score", "fit_map.validate", "scripts/register_keywords.py --fit-map <application>/fit_map.json --registry <application>/derived/keyword_ats_registry.json"], "results": results, "summary": {"cargo": summary.get("cargo"), "empresa": summary.get("empresa"), "nota_final": summary.get("nota_final"), "keyword_registration": registry.get("registered"), "quality_status": quality.get("status")}}
         except Exception as exc:
             return {"status": "blocked", "blocker_reason": "fit_map_finalize_failed", "error": str(exc)}
 

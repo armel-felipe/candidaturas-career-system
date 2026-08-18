@@ -5,6 +5,7 @@ from typing import Any
 
 from career.paths import OUTPUTS
 from career.services import derived_context as derived_context_service
+from career.services.application_context import ApplicationPaths
 from career.utils import ensure, read_json, utc_now_iso, write_text
 
 
@@ -36,12 +37,17 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
     )
 
 
-def build_current_feras(output_path: Path | None = None) -> dict[str, Any]:
-    active = derived_context_service.resolve_active_job_context()
+def build_current_feras(
+    output_path: Path | None = None,
+    *,
+    application_paths: ApplicationPaths | None = None,
+) -> dict[str, Any]:
+    active = derived_context_service.resolve_active_job_context(application_paths)
+    assert application_paths is not None
     pack = (
-        read_json(derived_context_service.FERAS_INPUT_PACK_PATH)
-        if derived_context_service.FERAS_INPUT_PACK_PATH.exists()
-        else derived_context_service.build_feras_input_pack(active)
+        read_json(application_paths.derived_dir / "feras_input_pack.json")
+        if (application_paths.derived_dir / "feras_input_pack.json").exists()
+        else _materialize_scoped_pack(application_paths, "feras_input_pack.json")
     )
     job = pack.get("job_identity", {}) if isinstance(pack.get("job_identity"), dict) else {}
     cargo = str(job.get("cargo") or active.role or "Cargo")
@@ -112,6 +118,14 @@ def build_current_feras(output_path: Path | None = None) -> dict[str, Any]:
         "keywords_used": keywords_used,
         "keywords_omitted": keywords_omitted,
     }
+
+
+def _materialize_scoped_pack(application_paths: ApplicationPaths, filename: str) -> dict[str, Any]:
+    """Build the compatibility pack only inside the already-selected app."""
+    derived_context_service.build_all_for_fit_map(application_paths)
+    path = application_paths.derived_dir / filename
+    ensure(path.is_file(), "application_derived_pack_missing")
+    return read_json(path)
 
 
 def validate_feras_text(content: str) -> None:

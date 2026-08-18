@@ -26,7 +26,7 @@ Use esta skill como camada orquestradora antes de qualquer rotina de candidatura
 
 - Workspace raiz: resolver pelo diretório atual do projeto.
 - Memória compartilhada: `.agents/skills/career-system/references/`.
-- Estado ativo: `.career-state/fit_map.json`.
+- Estado operacional: candidatura explícita em `control-plane/career.db`; `.career-state/fit_map.json` é somente espelho de compatibilidade e nunca seleciona uma execução.
 - Saídas finais: `outputs/`.
 - Scripts locais: `scripts/`.
 - Registro técnico local de keywords ATS: `.career-state/derived/keyword_ats_registry.json`.
@@ -47,7 +47,7 @@ Ler a skill é pré-requisito, não conclusão. A execução só conta como conc
 
 ### Fluxo padrão
 
-1. `career-fit-analysis` gera um draft analítico, canoniza via `scripts/build_fit_map.py`, calcula a nota via `scripts/score_fit_map.py` e então atualiza `.career-state/fit_map.json`.
+1. `career-fit-analysis` gera e canoniza o draft dentro de `.career-state/applications_v2/<application_id>/`, com `--application-id "<application_id>"` em cada comando; qualquer FIT_MAP global é somente espelho posterior.
 2. `cv-generator`, `feras-pitch`, `cover-letter` e `habilidades-chave` consomem o FIT_MAP ativo.
 3. `output-reviewer` roda obrigatoriamente após toda skill de produção antes de entregar.
 4. `networking-message` sempre pergunta o perfil do destinatário antes de gerar mensagem.
@@ -78,9 +78,9 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - `npm run agent:evaluate-notion-local -- <número>` existe como alias explícito do modo local/menor, mas o comando padrão já é local-safe
 - use `npm run agent:guard -- --application-id "<id>" --fingerprint "<sha256>"` após interrupção, output truncado ou dúvida sobre a próxima ação autorizada; o guard bloqueia sem ambos
 - use `npm run intake:resume -- --application-id "<id>"` para retomar e seguir `next_required_step`; ponteiros globais servem apenas para descoberta e nunca selecionam a vaga de execução
-- quando o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/fit_map.draft.json`; não entregar análise textual nem reaproveitar FIT_MAP antigo
+- quando o intake retornar `next_required_step = fill_fit_map_draft`, a próxima ação é preencher `.career-state/applications_v2/<application_id>/fit_map.draft.json`; não entregar análise textual nem reaproveitar FIT_MAP antigo
 - preencher `.career-state/fit_map.draft.json` significa o agente editar o arquivo persistido; é proibido responder com instruções para o usuário preencher o template, imprimir o JSON bruto do template ou tratar placeholders como entrega
-- em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map` e seguir as `Operational Rules`
+- em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map --application-id "<application_id>"` e seguir as `Operational Rules`
 - em sessão direta Hermes/OpenCode/Codex fora do `HarnessSupervisor`, não parar após intake, extração, template, guard, leitura de request ou `validate:fit-map:draft`; continuar até `fit_map.json` final validado, `fit-map:summary`, `validate:fit-map:quality` e menu de próximos passos
 - quando o usuário escolher uma vaga por número depois de listar vagas salvas do LinkedIn, resolver a URL em `inbox/linkedin_saved_jobs.json`, executar `npm run intake:linkedin-job -- --url "<url>"` e seguir até o FIT_MAP final sem pedir nova confirmação para prosseguir
 - após qualquer edição de `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`; se falhar, corrigir e reexecutar antes de responder ao usuário
@@ -255,10 +255,10 @@ npm run harness:approve -- <approval_id>
 npm run harness:execute-approval -- <approval_id>
 npm run multiagent:runbook
 npm run multiagent:local-model-map
-npm run multiagent:request -- fit-map
-npm run multiagent:request -- cv
-npm run multiagent:request -- cover-letter
-npm run multiagent:request -- feras
+npm run multiagent:request -- fit-map --application-id "<application_id>"
+npm run multiagent:request -- cv --application-id "<application_id>"
+npm run multiagent:request -- cover-letter --application-id "<application_id>"
+npm run multiagent:request -- feras --application-id "<application_id>"
 npm run context:assert-active
 npm run cv:build-content
 npm run cv:validate-content

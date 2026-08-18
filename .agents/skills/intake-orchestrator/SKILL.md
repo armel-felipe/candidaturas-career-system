@@ -16,8 +16,8 @@ Esta skill é a porta de entrada de toda vaga específica.
 Ela transforma qualquer origem em um estado comum:
 
 - descrição salva em `inbox/job_descriptions/`;
-- `active_intake` registrado em `.career-state/workflow_state.json`;
-- `.career-state/fit_map.draft.json` recriado;
+- identidade, descrição e gates registrados no SQLite canônico `control-plane/career.db`;
+- espelhos materializados somente em `.career-state/applications_v2/<application_id>/`;
 - guard executado;
 - `next_required_step` explícito;
 - `delivery_plan` para CV, FERAS, carta, habilidades e Notion.
@@ -84,12 +84,12 @@ npm run intake:resume -- --application-id "<id>"
 
 - Para “avalie vaga Notion <id>”, usar `npm run agent:evaluate-notion -- <id>` antes de qualquer fallback.
 - Se houver interrupção, output truncado ou dúvida após o intake, executar `npm run agent:guard -- --application-id "<id>" --fingerprint "<sha256>"`.
-- Se `agent:guard` retornar `allowed_next_action = fill_fit_map_draft`, a única próxima ação autorizada é preencher `.career-state/fit_map.draft.json`.
-- Se o comando `intake:*` retornar `status = ready_for_model_analysis`, parar o intake e preencher `.career-state/fit_map.draft.json`.
+- Se `agent:guard` retornar `allowed_next_action = fill_fit_map_draft`, a única próxima ação autorizada é preencher `.career-state/applications_v2/<id>/fit_map.draft.json`.
+- Se o comando `intake:*` retornar `status = ready_for_model_analysis`, parar o intake e preencher o draft da mesma `<id>`.
 - Se retornar `next_required_step = fill_fit_map_draft`, não entregar análise textual, não rodar Notion alternativo e não usar FIT_MAP antigo.
-- Preencher o draft é responsabilidade do agente em execução: ler `career-fit-analysis/SKILL.md`, ler as referências obrigatórias e editar `.career-state/fit_map.draft.json`. Nunca pedir que o usuário abra editor, substitua marcadores, preencha campos ou rode esse passo manualmente.
+- Preencher o draft é responsabilidade do agente em execução: ler `career-fit-analysis/SKILL.md`, ler as referências obrigatórias e editar `.career-state/applications_v2/<id>/fit_map.draft.json`. Nunca pedir que o usuário abra editor, substitua marcadores, preencha campos ou rode esse passo manualmente.
 - Nunca imprimir o template bruto do draft na conversa como substituto da edição. Se o draft ainda tiver placeholders, a próxima resposta deve ser acompanhada de edição real do arquivo ou declaração de bloqueio objetivo.
-- Em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map`; seguir as `Operational Rules` antes de editar.
+- Em modo multiagente/local pequeno, depois do intake gerar/ler o request compacto com `npm run multiagent:request -- fit-map --application-id "<id>"`; seguir as `Operational Rules` antes de editar.
 - Após editar `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`; se falhar, corrigir e reexecutar antes de responder ao usuário.
 - Se `intake:*` falhar, não fazer fallback para `.env`, `curl`, API pública do Notion, navegador genérico, `grep` ou cache local.
 - Para falha, executar `npm run intake:resume -- --application-id "<id>"` e relatar o erro objetivo. Sem `application_id`, a retomada deve bloquear; nunca usar ponteiro global como fallback.

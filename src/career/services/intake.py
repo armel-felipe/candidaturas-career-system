@@ -470,9 +470,9 @@ def _status_payload(
         "draft_path": _relative(draft_path),
         "fit_map_path": _relative(fit_map_path),
         "next_required_step": "fill_fit_map_draft",
-        "required_next_command": "editar .career-state/fit_map.draft.json",
+        "required_next_command": "editar o fit_map.draft.json da candidatura declarada",
         "agent_instruction": (
-            "Preencha .career-state/fit_map.draft.json usando career-fit-analysis. "
+            "Preencha o fit_map.draft.json da candidatura declarada usando career-fit-analysis. "
             "Não entregue análise textual, não calcule nota no chat e não use FIT_MAP antigo antes de finalizar."
         ),
         "fit_map_status": fit_status,
@@ -520,6 +520,8 @@ def _run_ready_pipeline(
             "ready intake pipeline requires an explicit application_id-scoped state store"
         )
     application_paths = _paths_from_state_store(state_store)
+    if application_paths is None:
+        raise ValidationFailure("ready intake pipeline requires application-scoped paths")
     job_description_path = _canonical_job_description_path(job_description_path, application_paths)
     if not job_description_path.exists():
         raise ValidationFailure(f"Job description file not found: {job_description_path}")
@@ -536,19 +538,15 @@ def _run_ready_pipeline(
         company=company,
         role=role,
     )
-    if application_paths:
-        payload = _load_state(state_store)
-        active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
-        active["application_id"] = application_paths.application_id
-        active["application_dir"] = _relative(application_paths.app_dir)
-        payload["active_intake"] = active
-        state_store.payload = payload
-        state_store.save()
+    payload = _load_state(state_store)
+    active = payload.get("active_intake") if isinstance(payload.get("active_intake"), dict) else {}
+    active["application_id"] = application_paths.application_id
+    active["application_dir"] = _relative(application_paths.app_dir)
+    payload["active_intake"] = active
+    state_store.payload = payload
+    state_store.save()
     _prepare_template(state_store)
-    if application_paths:
-        derived_context_service.build_all_for_fit_map(application_paths)
-    else:
-        derived_context_service.build_all_for_fit_map()
+    derived_context_service.build_all_for_fit_map(application_paths)
     extra_payload = dict(extra or {})
     if application_paths:
         extra_payload.update(

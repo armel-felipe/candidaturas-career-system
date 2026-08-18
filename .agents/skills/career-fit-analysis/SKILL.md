@@ -20,7 +20,7 @@ Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skil
 
 ## Adaptação Local OpenCode
 
-Leia também `../career-system/SKILL.md` para regras globais e equivalência de caminhos. As referências ficam em `../career-system/references/`. Ao concluir a análise, não grave o FIT_MAP final manualmente. Gere primeiro um draft JSON estruturado no caminho canônico `.career-state/fit_map.draft.json`, valide o draft, e só então canonize com `scripts/build_fit_map.py`, validando em seguida com `scripts/validate_fit_map.py`.
+Leia também `../career-system/SKILL.md` para regras globais e equivalência de caminhos. As referências ficam em `../career-system/references/`. Ao concluir a análise, não grave o FIT_MAP final manualmente. Para a candidatura `<id>`, gere primeiro o draft em `.career-state/applications_v2/<id>/fit_map.draft.json`, execute todos os comandos com `--application-id "<id>"`, valide e só então canonize no mesmo diretório.
 
 Quando esta skill for acionada a partir do orquestrador de candidaturas:
 - leia primeiro `analysis_request.json/md` da candidatura;
@@ -132,10 +132,10 @@ Regras duras:
 - Se `draft.placeholder_count > 0`, a próxima ação obrigatória é editar `.career-state/fit_map.draft.json` — não entregar análise textual
 - Se o usuário reclamar que a análise não é da vaga correta, executar imediatamente `npm run fit-map:status` e `npm run intake:resume -- --application-id "<id_unico>"` para diagnosticar drift
 - Nunca confiar em estado de sessão anterior sem revalidar fingerprint da descrição ativa
-- Quando houver dúvida sobre qual vaga está ativa, ler `.career-state/workflow_state.json` e `inbox/job_descriptions/` para confirmar o path da descrição salva
+- Quando houver dúvida sobre qual vaga deve ser executada, exigir/consultar o `application_id` no SQLite canônico; nunca ler `workflow_state.json` global para selecioná-la
 O campo `delivery_plan` do intake orienta as próximas skills: CV, FERAS, carta, habilidades e update no Notion.
 Nesta etapa, o agente deve editar o draft no filesystem. É execução parcial/falha operacional responder com o template do JSON, pedir que o usuário preencha campos, sugerir `nano`/editor, ou listar passos para preenchimento sem persistir o arquivo.
-Em modo multiagente/local pequeno, gerar/ler `.career-state/agent_requests/fit-map_request.md` com `npm run multiagent:request -- fit-map` e seguir as `Operational Rules` antes de editar.
+Em modo multiagente/local pequeno, gerar/ler o request da própria candidatura com `npm run multiagent:request -- fit-map --application-id "<id_unico>"` e seguir as `Operational Rules` antes de editar.
 Depois de qualquer edição de `.career-state/fit_map.draft.json`, executar `npm run validate:fit-map:draft`. Se o JSON estiver inválido ou a validação falhar, corrigir e reexecutar antes de responder ao usuário.
 
 Regra de contexto compacto:

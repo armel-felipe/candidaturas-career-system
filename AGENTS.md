@@ -110,6 +110,15 @@ Regra operacional:
 
 ## Orquestrador de intake de vagas
 
+### Firewall de identidade (obrigatório)
+
+Toda ação operacional por vaga exige `--application-id`. O banco canônico é
+`control-plane/career.db`; `workflow_state.json`, `.career-state/fit_map*.json`
+e `.career-state/derived/` são espelhos de compatibilidade e nunca podem
+selecionar a vaga de execução. Para uma candidatura `<id>`, os únicos paths de
+execução são `.career-state/applications_v2/<id>/...`; comandos FIT_MAP,
+derived e multiagente devem receber `--application-id "<id>"`.
+
 Toda análise de vaga começa por um comando `intake:*`, que transforma diferentes origens em um estado comum:
 descrição persistida em `inbox/job_descriptions/`, `active_intake` em `.career-state/workflow_state.json`,
 template `.career-state/fit_map.draft.json` recriado, guard executado e `next_required_step` explícito.
@@ -622,10 +631,10 @@ npm run agent:evaluate-notion -- <id_unico>
 npm run agent:evaluate-notion-local -- <id_unico>          # alias explícito
 npm run multiagent:runbook
 npm run multiagent:local-model-map
-npm run multiagent:request -- fit-map
-npm run multiagent:request -- cv
-npm run multiagent:request -- cover-letter
-npm run multiagent:request -- feras
+npm run multiagent:request -- fit-map --application-id "<id_unico>"
+npm run multiagent:request -- cv --application-id "<id_unico>"
+npm run multiagent:request -- cover-letter --application-id "<id_unico>"
+npm run multiagent:request -- feras --application-id "<id_unico>"
 npm run validate:workspace-clean
 ```
 
