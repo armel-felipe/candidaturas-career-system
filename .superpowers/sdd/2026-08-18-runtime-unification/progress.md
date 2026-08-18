@@ -74,6 +74,13 @@
 - Final commit: `f552433` (`fix: keep persistence inventory read-only`).
 - Evidence: focused suite `tests/test_persistence_inventory.py` passed 3/3; live inventory completed with `json_file_count=17806`, `root_app_divergence_count=134`, `hermes_service_count=2`.
 - Task review: spec compliant after fix round; task quality approved.
+
+### Task 0.2: in review — fix round 1
+
+- Implementer commit: `8802137` (`feat: add restorable persistence backup baseline`).
+- Reviewer verdict: rejected (`Spec Compliance: FAIL`, `Task quality: NEEDS REVISION`).
+- Finding: backup hardcoded the entire `workspaces/` directory, copying 42,223 files including non-career caches; tests did not constrain the preservation scope or verify copied-file hashes.
+- Ruling: preserve career recovery data under each bot's `inbox`, `outputs` and selected career state paths, but exclude browser/cache/runtime-only paths. Add a test proving excluded paths are absent and verify destination file hashes after copy. Retain the broad backup outside the worktree as a non-destructive historical snapshot; create a corrected narrow backup after the fix.
 - Additional observation: raw `-uu` inventory is broad but acceptable for Task 0.1 and remains documented as a later filtering concern.
 
 ### Task 0.2: complete
@@ -82,3 +89,10 @@
 - Evidence: focused suite `tests/test_persistence_backup.py` passed 2/2; dry-run reported `sqlite_database_count=6`, `preserved_directory_count=6`, `preserved_file_count=43092`; real backup completed with manifest at `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2/manifest.json`.
 - Backup path: `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2`
 - Ruling: the baseline scopes SQLite backup to `career.db` files in the career-state/control-plane domains, excluding unrelated browser/cache `.db` files discovered during the first live dry-run.
+
+### Task 0.2: fix round 1 complete
+
+- Scope correction: replaced broad `workspaces/` preservation with explicit include-only workspace roots (`inbox`, `outputs`, and selected `state/*` recovery directories) so browser/cache/home trees are not copied.
+- Evidence: focused suite `tests/test_persistence_backup.py` passed 2/2 after the scope change; dry-run for the corrected backup reported `sqlite_database_count=6`, `preserved_directory_count=26`, `preserved_file_count=13838`; real narrow backup completed with manifest at `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow/manifest.json`.
+- Backup path: `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow`
+- Validation: the narrow manifest excludes `workspaces/vagas_bot_01/state/browser/linkedin/Default/Cookies`; the previous broad backup remains preserved and untouched.

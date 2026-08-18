@@ -18,8 +18,19 @@ PRESERVED_DIRECTORIES = (
     "outputs",
     "inbox",
     "control-plane",
-    ".career-control",
-    "workspaces",
+)
+WORKSPACE_PRESERVED_RELATIVE_DIRECTORIES = (
+    "inbox",
+    "outputs",
+    "state/applications_v2",
+    "state/applications",
+    "state/derived",
+    "state/memory",
+    "state/agent_requests",
+    "state/approvals",
+    "state/phase_d_gates",
+    "state/pending_actions",
+    "state/telegram",
 )
 
 
@@ -69,6 +80,13 @@ def _discover_preserved_directories(root: Path) -> list[Path]:
         candidate = root / relative
         if candidate.exists() and candidate.is_dir():
             directories.append(candidate)
+    workspaces_root = root / "workspaces"
+    if workspaces_root.exists() and workspaces_root.is_dir():
+        for workspace_dir in sorted(path for path in workspaces_root.iterdir() if path.is_dir()):
+            for relative in WORKSPACE_PRESERVED_RELATIVE_DIRECTORIES:
+                candidate = workspace_dir / relative
+                if candidate.exists() and candidate.is_dir():
+                    directories.append(candidate)
     return directories
 
 

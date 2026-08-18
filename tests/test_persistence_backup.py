@@ -51,6 +51,47 @@ class PersistenceBackupTests(unittest.TestCase):
         output_path = root / "outputs" / "cv.docx"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"fake-docx")
+
+        workspace_application = (
+            root
+            / "workspaces"
+            / "vagas_bot_01"
+            / "state"
+            / "applications_v2"
+            / "people_meet"
+            / "fit_map.json"
+        )
+        workspace_application.parent.mkdir(parents=True, exist_ok=True)
+        workspace_application.write_text(
+            json.dumps({"company": "People Meet"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        workspace_browser = (
+            root
+            / "workspaces"
+            / "vagas_bot_01"
+            / "state"
+            / "browser"
+            / "linkedin"
+            / "Default"
+            / "Cookies"
+        )
+        workspace_browser.parent.mkdir(parents=True, exist_ok=True)
+        workspace_browser.write_bytes(b"do-not-copy-browser-state")
+
+        workspace_cache = (
+            root
+            / "workspaces"
+            / "vagas_bot_01"
+            / "home"
+            / ".cache"
+            / "mesa_shader_cache_db"
+            / "part0"
+            / "mesa_cache.db"
+        )
+        workspace_cache.parent.mkdir(parents=True, exist_ok=True)
+        workspace_cache.write_bytes(b"do-not-copy-cache")
         return db_path, legacy_path
 
     def test_create_backup_uses_sqlite_backup_and_preserves_legacy_files(self):
@@ -112,6 +153,33 @@ class PersistenceBackupTests(unittest.TestCase):
             }
             self.assertIn(".career-state/workflow_state.json", copied_files)
             self.assertIn("outputs/cv.docx", copied_files)
+            self.assertIn(
+                "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json",
+                copied_files,
+            )
+            self.assertNotIn(
+                "workspaces/vagas_bot_01/state/browser/linkedin/Default/Cookies",
+                copied_files,
+            )
+            self.assertNotIn(
+                "workspaces/vagas_bot_01/home/.cache/mesa_shader_cache_db/part0/mesa_cache.db",
+                copied_files,
+            )
+
+            copied_output = destination / copied_files["outputs/cv.docx"]["backup_path"]
+            self.assertEqual(
+                copied_files["outputs/cv.docx"]["sha256"],
+                self._sha256(copied_output),
+            )
+            copied_workspace = destination / copied_files[
+                "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json"
+            ]["backup_path"]
+            self.assertEqual(
+                copied_files[
+                    "workspaces/vagas_bot_01/state/applications_v2/people_meet/fit_map.json"
+                ]["sha256"],
+                self._sha256(copied_workspace),
+            )
 
     def test_cli_dry_run_prints_manifest_preview_without_writing_backup(self):
         self.assertTrue(
@@ -144,6 +212,14 @@ class PersistenceBackupTests(unittest.TestCase):
             self.assertEqual(payload["status"], "dry_run")
             self.assertEqual(payload["destination"], str(destination.resolve()))
             self.assertFalse(destination.exists())
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        import hashlib
+
+        digest = hashlib.sha256()
+        digest.update(path.read_bytes())
+        return digest.hexdigest()
 
 
 if __name__ == "__main__":

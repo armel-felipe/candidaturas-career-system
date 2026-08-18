@@ -94,3 +94,69 @@ No further code changes were required after the final verification run.
 
 1. The baseline intentionally copies a large legacy footprint (`43092` preserved files), so the real backup command is materially slower than the focused test. That is acceptable for a one-time migration baseline, but later phases may want narrower operational snapshots on top of this full backup.
 2. The scope currently treats `career.db` as the canonical SQLite naming convention for migration sources. If another legacy runtime stores career persistence in a differently named SQLite file, a later migration task will need to extend discovery explicitly rather than broadening back to arbitrary `*.db`.
+
+## Fix Round 1
+
+### Reviewer Finding
+
+The backup scope was too broad because `PRESERVED_DIRECTORIES` included the entire `workspaces/` tree. In practice that pulled in non-career runtime files such as browser state and cache/home content. The original tests also did not prove that excluded paths stayed out of the backup or that copied file hashes matched destination bytes.
+
+### Root Cause
+
+The preservation policy was directory-root based instead of recovery-data based. Once `workspaces/` was treated as a preserved root, `_iter_preserved_files()` accepted any non-SQLite file beneath it. That allowed `state/browser/.../Cookies` and similar files to enter the manifest simply because they were regular files under the workspace tree.
+
+### Fix Applied
+
+- Removed broad `workspaces/` and `.career-control` preservation from the default preserved roots.
+- Added an explicit include-only workspace policy for:
+  - `workspaces/<bot>/inbox`
+  - `workspaces/<bot>/outputs`
+  - `workspaces/<bot>/state/applications_v2`
+  - `workspaces/<bot>/state/applications`
+  - `workspaces/<bot>/state/derived`
+  - `workspaces/<bot>/state/memory`
+  - `workspaces/<bot>/state/agent_requests`
+  - `workspaces/<bot>/state/approvals`
+  - `workspaces/<bot>/state/phase_d_gates`
+  - `workspaces/<bot>/state/pending_actions`
+  - `workspaces/<bot>/state/telegram`
+- Added fixture coverage for a workspace recovery file plus excluded browser/cache paths.
+- Added assertions that:
+  - the recovery file is preserved,
+  - the browser/cache paths are absent from the manifest,
+  - copied destination files hash to the same SHA-256 recorded in the manifest.
+
+### Fix-Round Verification
+
+Executed exactly:
+
+```bash
+PYTHONPATH=src ./scripts/python.sh -m unittest -q tests/test_persistence_backup.py
+python3 scripts/backup_persistence.py --root . --destination /opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow --dry-run
+python3 scripts/backup_persistence.py --root . --destination /opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow
+```
+
+Observed results:
+
+- Focused unit test command: `OK` with 2 tests
+- Narrow dry-run output:
+
+```json
+{"destination": "/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow", "preserved_directory_count": 26, "preserved_file_count": 13838, "sqlite_database_count": 6, "status": "dry_run"}
+```
+
+- Narrow real backup output:
+
+```json
+{"destination": "/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow", "manifest": "/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow/manifest.json", "preserved_directory_count": 26, "preserved_file_count": 13838, "sqlite_database_count": 6, "status": "created"}
+```
+
+- Manifest spot-check:
+
+```json
+{"manifest_exists": true, "preserved_directory_count": 26, "preserved_file_count": 13838, "sqlite_database_count": 6, "workspace_application_present": false, "workspace_browser_present": false}
+```
+
+### Outcome
+
+The corrected backup no longer copies the whole workspace tree. It preserves only the explicitly allowed career recovery roots, keeps SQLite discovery restricted to `career.db`, leaves the prior broad backup untouched, and records hashes that match the copied destination bytes for preserved files covered by the focused test.
