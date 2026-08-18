@@ -19,6 +19,7 @@ from career.paths import CAREER_STATE
 class Database:
     AUTHORITY_LEDGER_KIND = "career_workspace_authority"
     AUTHORITY_LEDGER_VERSION = 1
+    RUNTIME_BUSY_TIMEOUT_MS = 10_000
 
     def __init__(
         self,
@@ -41,11 +42,47 @@ class Database:
     def get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(str(self.db_path), timeout=10.0)
             self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA foreign_keys=ON")
+            self.configure_for_runtime()
         return self._conn
+
+    def configure_for_runtime(self) -> None:
+        conn = self._conn
+        if conn is None:
+            return
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(f"PRAGMA busy_timeout={self.RUNTIME_BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA synchronous=FULL")
+
+    def migrate(self) -> int:
+        conn = self.get_connection()
+        self._ensure_schema_migrations_table(conn)
+        applied = 0
+        for migration_path in self._migration_paths():
+            version = migration_path.name
+            sql = migration_path.read_text(encoding="utf-8")
+            checksum = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+            existing = conn.execute(
+                "SELECT checksum FROM schema_migrations WHERE version = ?",
+                (version,),
+            ).fetchone()
+            if existing is not None:
+                if str(existing["checksum"]) != checksum:
+                    raise RuntimeError(
+                        f"migration checksum mismatch for already applied version {version}"
+                    )
+                continue
+            with self.transaction() as txn:
+                self._execute_sql_script(txn, sql)
+                txn.execute(
+                    """INSERT INTO schema_migrations (version, checksum, applied_at)
+                       VALUES (?, ?, ?)""",
+                    (version, checksum, datetime.now(UTC).isoformat()),
+                )
+            applied += 1
+        return applied
 
     def init_schema(self) -> None:
         self._initialize_schema(verify_authority_ledger=True)
@@ -60,6 +97,7 @@ class Database:
         self._initialize_schema(verify_authority_ledger=False)
 
     def _initialize_schema(self, *, verify_authority_ledger: bool) -> None:
+        self.migrate()
         conn = self.get_connection()
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS applications (
@@ -729,3 +767,30 @@ class Database:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+    def _ensure_schema_migrations_table(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS schema_migrations (
+                   version TEXT PRIMARY KEY,
+                   checksum TEXT NOT NULL,
+                   applied_at TEXT NOT NULL
+               )"""
+        )
+
+    def _migration_paths(self) -> list[Path]:
+        migration_dir = Path(__file__).resolve().parent / "persistence" / "migrations"
+        return sorted(migration_dir.glob("[0-9][0-9][0-9]_*.sql"))
+
+    def _execute_sql_script(self, conn: sqlite3.Connection, script: str) -> None:
+        statement_parts: list[str] = []
+        for line in script.splitlines():
+            statement_parts.append(line)
+            candidate = "\n".join(statement_parts).strip()
+            if not candidate:
+                statement_parts = []
+                continue
+            if sqlite3.complete_statement(candidate):
+                conn.execute(candidate)
+                statement_parts = []
+        if any(part.strip() for part in statement_parts):
+            raise RuntimeError("incomplete SQL statement in migration script")
