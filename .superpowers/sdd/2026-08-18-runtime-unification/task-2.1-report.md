@@ -146,7 +146,7 @@ Resolved the remaining controller compatibility gap on the unscoped global point
 3. The pointer file remains non-authoritative for gates: no `completed_states`,
    `task_history`, or `fingerprints` are sourced from global compatibility JSON.
 4. Added focused regression in `tests/test_workflow_gates.py`:
-   - `test_unscoped_global_pointer_unknown_application_returns_metadata_only`
+   - `test_unknown_active_pointer_is_metadata_only_and_never_a_gate_source`
 
 ### Controller global-workflow-state pointer diagnosis fix
 
@@ -160,7 +160,7 @@ Resolved the final controller diagnosis about stale global workflow-state author
 3. A legacy/global `workflow_state.json` remains readable only as an explicit file-backed
    compatibility store, never as live selection authority.
 4. Added focused regression in `tests/test_workflow_gates.py`:
-   - `test_unscoped_default_store_ignores_stale_global_workflow_state_as_pointer`
+   - `test_unscoped_store_ignores_stale_global_workflow_state_as_pointer`
 
 ### Controller multiagent context-summary compatibility fix
 
