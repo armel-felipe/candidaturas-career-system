@@ -232,6 +232,45 @@ class SupervisorContractTests(unittest.TestCase):
         self.assertNotIn("gap global", serialized)
         self.assertNotIn("objecao global", serialized)
 
+    def test_scoped_fit_map_menu_ignores_contaminated_root_active_intake(self) -> None:
+        """A completed scoped response cannot present another application's pointer."""
+        self._seed_menu_snapshot(self.primary)
+        workflow_state = self.root / ".career-state" / "workflow_state.json"
+        workflow_state.parent.mkdir(parents=True, exist_ok=True)
+        workflow_state.write_text(
+            json.dumps(
+                {
+                    "active_intake": {
+                        "application_id": self.secondary.application_id,
+                        "company": "Instaleap",
+                        "role": "Customer Success Manager",
+                        "job_description_path": "inbox/job_descriptions/instaleap.md",
+                        "next_required_step": "fill_fit_map_draft",
+                        "status": "ready_for_model_analysis",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        decorated = self.supervisor._decorate_result_payload(
+            self.supervisor._pipeline_result(
+                intake={"application_id": self.primary.application_id},
+                specialist={
+                    "status": "completed",
+                    "step": "fit-map",
+                    "application_id": self.primary.application_id,
+                },
+            )
+        )
+
+        serialized = json.dumps(decorated, ensure_ascii=False)
+        self.assertEqual(decorated.get("application_id"), self.primary.application_id)
+        self.assertNotIn("active_intake", decorated)
+        self.assertNotIn("Instaleap", serialized)
+        self.assertNotIn("Customer Success Manager", serialized)
+        self.assertNotIn("instaleap.md", serialized)
+
     def test_completed_fit_map_menu_without_scope_is_blocked(self) -> None:
         decorated = self.supervisor._decorate_result_payload(
             {"status": "completed", "step": "fit-map"}

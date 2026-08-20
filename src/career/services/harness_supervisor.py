@@ -1521,8 +1521,8 @@ class HarnessSupervisor:
         keyword_line = "Keywords ATS registradas: sim." if keyword_registration.get("registered") else "Keywords ATS pendentes de registro."
         payload = {
             "status": result.get("status") or "completed", "kind": "agent_menu", "menu_context": "active_job",
+            "application_id": application_id,
             "headline": "A analise da vaga foi concluida. Posso seguir para a proxima entrega.",
-            "active_intake": self._active_intake_summary() or self._stale_active_intake_summary(),
             "summary_lines": [
                 f"Resumo: {summary.get('cargo') or '-'} | {summary.get('empresa') or '-'}",
                 f"Nota de aderencia: {nota_text}",
