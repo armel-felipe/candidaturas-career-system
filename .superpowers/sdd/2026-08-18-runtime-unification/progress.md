@@ -270,6 +270,26 @@
 
 - Scope: fail-closed supervisor contracts for specialist artifacts and gates, using `task-3.3-brief.md`.
 
+### Task 3.3: review rejected
+
+- Initial implementation commit: `383a950` (`Make supervisor specialist contracts fail closed`).
+- Independent review passed the SQLite contract, artifact/gate checks, audit events and 92-test suite, but found a critical response leak: the supervisor's final decoration calls unscoped `fit_map.payload_summary()`, which reads root `.career-state/fit_map.json` even after a scoped execution. Fix the final summary/menu to use the resolved application snapshot and add a contaminated-global-JSON regression.
+- Correction `72022f0` fixed the root FIT_MAP summary leak but was re-reviewed and rejected because the final menu still exposed global `active_intake`/root `workflow_state.json` and omitted the resolved application_id. Remove global menu fields or derive them from the same SQLite application, include application_id, and add the contaminated-workflow-state regression.
+
+### Task 3.3: complete
+
+- Final commits: `383a950` (`Make supervisor specialist contracts fail closed`), `72022f0` (`Fix scoped supervisor fit map summary`), `7eb8022` (`Fix scoped supervisor menu identity`).
+- Task review: PASS after two correction rounds. Specialist contracts now require application-scoped artifacts, hashes, dependencies and gate/review receipts; failures are auditable and the final response/menu cannot inherit FIT_MAP or workflow state from another application.
+- Evidence: independent review passed 129 Phase 1–3 tests, 3 menu regressions, 6 contract regressions, `py_compile`, and `git diff --check`.
+
+## Phase 3 gate
+
+- [x] Intake and guard persist/validate explicit application identity and fingerprint before context writes.
+- [x] Derived context is materialized from SQLite with pinned revisions, one-way exports and cross-application isolation.
+- [x] Supervisor specialist contracts fail closed on missing/stale/cross-application artifacts or gates, with auditable blockers.
+- [x] Final scoped menu/summary excludes contaminated global FIT_MAP/workflow state and includes application_id.
+- [x] Independent controller-wide Phase 3 verification passed: 132 tests in the integrated persistence/intake/materializer/supervisor suite; negative CLI argparse messages were expected and the process exited `OK`.
+
 ### Task 3.2 correction brief
 
 - Scope: `context_materializer.py`, `derived_context.py`, `multiagent.py`, and tracked materializer regressions only. Do not start Task 3.3.
