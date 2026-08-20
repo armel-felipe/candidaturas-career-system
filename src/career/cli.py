@@ -34,7 +34,7 @@ from career.cells.handlers import (
     production_handler_registry,
     production_validator_registry,
 )
-from career.tasks.registry import run_pipeline, run_task
+from career.tasks.registry import finalize_fit_map, run_pipeline, run_task
 from career.utils import CareerError
 from career.workflow.state_store import WorkflowStateStore
 
@@ -920,13 +920,26 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "finalize":
             draft = str(app_paths.fit_map_draft)
             output = str(app_paths.fit_map)
-            task_results = [
-                ("fit_map.validate_draft", run_task("fit_map.validate_draft", {"path": draft}, state_store=state_store)),
-                ("fit_map.build", run_task("fit_map.build", {"draft": draft, "output": output}, state_store=state_store)),
-                ("fit_map.score", run_task("fit_map.score", {"path": output}, state_store=state_store)),
-                ("fit_map.validate", run_task("fit_map.validate", {"path": output}, state_store=state_store)),
-            ]
-            _dump([_task_cli_summary(task, result) for task, result in task_results])
+            result = finalize_fit_map(
+                state_store=state_store,
+                draft_path=Path(draft),
+                output_path=Path(output),
+            )
+            _dump(
+                {
+                    "application_id": result["application_id"],
+                    "application_revision_id": result["application_revision_id"],
+                    "revision_id": result["revision_id"],
+                    "run_id": result["run_id"],
+                    "receipts": result["receipts"],
+                    "tasks": [
+                        _task_cli_summary("fit_map.validate_draft", result["validate_draft"]),
+                        _task_cli_summary("fit_map.build", Path(result["build"])),
+                        _task_cli_summary("fit_map.score", Path(result["score"])),
+                        _task_cli_summary("fit_map.validate", result["validate"]),
+                    ],
+                }
+            )
             return 0
         if args.action == "status":
             draft = app_paths.fit_map_draft

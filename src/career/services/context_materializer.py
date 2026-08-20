@@ -66,10 +66,10 @@ class ContextMaterializer:
             analysis_revision.application_revision_id if analysis_revision else None
         )
         application_fingerprint = application.fingerprint
-        if revision_id:
-            if analysis_revision is None or not application_revision_id:
+        if analysis_revision is not None:
+            if not application_revision_id:
                 raise ValueError(
-                    "pinned fit_map revision does not prove an application revision"
+                    "fit_map revision does not prove an application revision"
                 )
             linked_revision = self.applications.get_application_revision(
                 application.application_id, application_revision_id
@@ -79,9 +79,18 @@ class ContextMaterializer:
             )
             application_fingerprint = linked_revision.fingerprint
         else:
-            job_description = self.applications.get_latest_job_description(
+            application_revision_id = self.applications.get_current_revision_id(
                 application.application_id
             )
+            if not application_revision_id:
+                raise ValueError("application has no current source revision")
+            linked_revision = self.applications.get_application_revision(
+                application.application_id, application_revision_id
+            )
+            job_description = self.applications.get_job_description_for_application_revision(
+                application.application_id, application_revision_id
+            )
+            application_fingerprint = linked_revision.fingerprint
         references = self._references_for(analysis_revision, pinned=revision_id is not None)
         context = self._context(
             kind=kind,

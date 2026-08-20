@@ -556,8 +556,24 @@ def persist_intake(
     metadata = dict(source_metadata or {})
     source_row_id = f"source_{uuid4().hex}"
     description_id = f"job_{uuid4().hex}"
+    application_revision_id = f"rev_{uuid4().hex}"
     source_url = str(source_url or "").strip() or None
     description_path = _relative(paths.job_description)
+    source_metadata_json = json.dumps(
+        metadata, sort_keys=True, separators=(",", ":"), default=str
+    )
+    source_metadata_hash = hashlib.sha256(
+        source_metadata_json.encode("utf-8")
+    ).hexdigest()
+    revision_payload = {
+        "job_description_id": description_id,
+        "job_source_id": source_row_id,
+        "job_description_hash": fingerprint,
+        "job_description_path": description_path,
+        "source_type": source_type,
+        "source_url": source_url,
+        "source_metadata_hash": source_metadata_hash,
+    }
 
     with repository_database.transaction(immediate=True) as conn:
         existing = conn.execute(
@@ -609,13 +625,6 @@ def persist_intake(
                 (application_id, alias_type, alias_value, now),
             )
         conn.execute(
-            """INSERT OR IGNORE INTO application_revisions
-               (revision_id, application_id, revision_kind, fingerprint, source_hash,
-                payload_json, created_at)
-               VALUES (?, ?, 'intake_identity', ?, ?, '{}', ?)""",
-            (f"rev_{uuid4().hex}", application_id, fingerprint, fingerprint, now),
-        )
-        conn.execute(
             """INSERT INTO job_sources
                (source_id, application_id, source_type, source_url, fingerprint,
                 metadata_json, created_at)
@@ -626,7 +635,7 @@ def persist_intake(
                 source_type,
                 source_url,
                 fingerprint,
-                json.dumps(metadata, sort_keys=True, separators=(",", ":"), default=str),
+                source_metadata_json,
                 now,
             ),
         )
@@ -636,6 +645,25 @@ def persist_intake(
                 content_hash, created_at)
                VALUES (?, ?, ?, NULL, ?, ?, ?)""",
             (description_id, application_id, source_row_id, source_text, fingerprint, now),
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO application_revisions
+               (revision_id, application_id, revision_kind, fingerprint, source_hash,
+                payload_json, created_at)
+               VALUES (?, ?, 'job_description', ?, ?, ?, ?)""",
+            (
+                application_revision_id,
+                application_id,
+                fingerprint,
+                fingerprint,
+                json.dumps(
+                    revision_payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ),
+                now,
+            ),
         )
 
     for directory in (

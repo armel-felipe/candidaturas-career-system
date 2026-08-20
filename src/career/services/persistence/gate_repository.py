@@ -105,18 +105,15 @@ class GateRepository:
                     f"gate {gate} is missing prerequisite receipt {required_gate}"
                 )
 
-        existing = self.database.fetch_one(
-            """
-            SELECT receipt_id
-              FROM validation_receipts
-             WHERE application_id = ?
-               AND gate = ?
-               AND input_hash = ?
-               AND output_hash = ?
-             LIMIT 1
-            """,
-            (application_id, gate, input_hash, output_hash),
+        existing_query, existing_parameters = self._existing_receipt_query(
+            application_id=application_id,
+            gate=gate,
+            input_hash=input_hash,
+            output_hash=output_hash,
+            application_fingerprint=application_fingerprint,
+            revision_id=revision_id,
         )
+        existing = self.database.fetch_one(existing_query, existing_parameters)
         if existing is not None:
             return str(existing["receipt_id"])
 
@@ -137,16 +134,7 @@ class GateRepository:
 
         with self.database.transaction(immediate=True) as conn:
             existing = conn.execute(
-                """
-                SELECT receipt_id
-                  FROM validation_receipts
-                 WHERE application_id = ?
-                   AND gate = ?
-                   AND input_hash = ?
-                   AND output_hash = ?
-                 LIMIT 1
-                """,
-                (application_id, gate, input_hash, output_hash),
+                existing_query, existing_parameters
             ).fetchone()
             if existing is not None:
                 return str(existing["receipt_id"])
@@ -194,6 +182,9 @@ class GateRepository:
         self._ensure_schema()
         application_id = self._required_text(application_id, "application_id")
         gate = self._required_text(gate, "gate")
+        application = self._resolve_application(application_id)
+        if not application.fingerprint:
+            return False
         if revision_id:
             row = self.database.fetch_one(
                 """
@@ -204,12 +195,13 @@ class GateRepository:
                  WHERE vr.application_id = ?
                    AND vr.gate = ?
                    AND vr.result = 'passed'
+                   AND vr.application_fingerprint = ?
                    AND gd.dependency_type = 'fit_map_revision'
                    AND gd.dependency_id = ?
                  ORDER BY vr.created_at DESC, vr.receipt_id DESC
                  LIMIT 1
                 """,
-                (application_id, gate, revision_id),
+                (application_id, gate, application.fingerprint, revision_id),
             )
             return row is not None
         row = self.database.fetch_one(
@@ -219,10 +211,11 @@ class GateRepository:
              WHERE application_id = ?
                AND gate = ?
                AND result = 'passed'
+               AND application_fingerprint = ?
              ORDER BY created_at DESC, receipt_id DESC
              LIMIT 1
             """,
-            (application_id, gate),
+            (application_id, gate, application.fingerprint),
         )
         return row is not None
 
@@ -314,7 +307,7 @@ class GateRepository:
     ) -> None:
         row = self.database.fetch_one(
             """
-            SELECT revision_id
+            SELECT revision_id, application_revision_id, fingerprint
               FROM fit_map_revisions
              WHERE revision_id = ? AND application_id = ?
             """,
@@ -323,6 +316,19 @@ class GateRepository:
         if row is None:
             raise ValueError(
                 f"revision {revision_id} does not belong to application {application_id}"
+            )
+        application = self._resolve_application(application_id)
+        current_application_revision_id = self._applications.get_current_revision_id(
+            application_id
+        )
+        if (
+            not current_application_revision_id
+            or str(row["application_revision_id"] or "")
+            != current_application_revision_id
+            or str(row["fingerprint"] or "") != str(application.fingerprint or "")
+        ):
+            raise ValueError(
+                "revision does not belong to the current application source revision"
             )
 
     def _ensure_run(
@@ -359,6 +365,51 @@ class GateRepository:
             ),
         )
 
+    @staticmethod
+    def _existing_receipt_query(
+        *,
+        application_id: str,
+        gate: str,
+        input_hash: str,
+        output_hash: str,
+        application_fingerprint: str,
+        revision_id: str | None,
+    ) -> tuple[str, tuple[str, ...]]:
+        parameters = (
+            application_id,
+            gate,
+            input_hash,
+            output_hash,
+            application_fingerprint,
+        )
+        if revision_id:
+            return (
+                """SELECT vr.receipt_id
+                     FROM validation_receipts AS vr
+                     JOIN gate_dependencies AS gd
+                       ON gd.receipt_id = vr.receipt_id
+                    WHERE vr.application_id = ?
+                      AND vr.gate = ?
+                      AND vr.input_hash = ?
+                      AND vr.output_hash = ?
+                      AND vr.application_fingerprint = ?
+                      AND gd.dependency_type = 'fit_map_revision'
+                      AND gd.dependency_id = ?
+                    LIMIT 1""",
+                (*parameters, revision_id),
+            )
+        return (
+            """SELECT receipt_id
+                 FROM validation_receipts
+                WHERE application_id = ?
+                  AND gate = ?
+                  AND input_hash = ?
+                  AND output_hash = ?
+                  AND application_fingerprint = ?
+                LIMIT 1""",
+            parameters,
+        )
+
     def _ensure_node_and_next_attempt(
         self, conn, run_id: str, node_id: str, created_at: str
     ) -> int:
@@ -390,13 +441,23 @@ class GateRepository:
     def _latest_fit_map_revision_id(self, application_id: str) -> str | None:
         row = self.database.fetch_one(
             """
-            SELECT revision_id
-              FROM fit_map_revisions
-             WHERE application_id = ?
-             ORDER BY created_at DESC, revision_id DESC
+            SELECT fit.revision_id
+              FROM fit_map_revisions AS fit
+              JOIN application_revisions AS app_revision
+                ON app_revision.revision_id = fit.application_revision_id
+             WHERE fit.application_id = ?
+               AND app_revision.revision_id = (
+                   SELECT current_revision.revision_id
+                     FROM application_revisions AS current_revision
+                    WHERE current_revision.application_id = ?
+                    ORDER BY current_revision.created_at DESC,
+                             current_revision.revision_id DESC
+                    LIMIT 1
+               )
+             ORDER BY fit.created_at DESC, fit.revision_id DESC
              LIMIT 1
             """,
-            (application_id,),
+            (application_id, application_id),
         )
         if row is None:
             return None

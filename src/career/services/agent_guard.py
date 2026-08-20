@@ -61,6 +61,64 @@ def _active_intake_payload(state_store: WorkflowStateStore) -> dict[str, Any] | 
     return active if isinstance(active, dict) else None
 
 
+def _scope_fit_map_guard(
+    value: Any,
+    *,
+    application_id: str,
+    fingerprint: str,
+    application_paths,
+) -> Any:
+    """Translate legacy progress hints into explicit application-scoped hints."""
+    if isinstance(value, dict):
+        return {
+            key: _scope_fit_map_guard(
+                item,
+                application_id=application_id,
+                fingerprint=fingerprint,
+                application_paths=application_paths,
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _scope_fit_map_guard(
+                item,
+                application_id=application_id,
+                fingerprint=fingerprint,
+                application_paths=application_paths,
+            )
+            for item in value
+        ]
+    if not isinstance(value, str):
+        return value
+    replacements = {
+        ".career-state/fit_map.draft.json": _relative(
+            application_paths.fit_map_draft
+        ),
+        ".career-state/fit_map.json": _relative(application_paths.fit_map),
+        "npm run fit-map:template": (
+            f"npm run fit-map:template -- --application-id {application_id}"
+        ),
+        "npm run fit-map:check:extract": (
+            f"npm run fit-map:check:extract -- --application-id {application_id}"
+        ),
+        "npm run fit-map:finalize": (
+            f"npm run fit-map:finalize -- --application-id {application_id}"
+        ),
+        "npm run keywords:register": (
+            f"npm run keywords:register -- --application-id {application_id}"
+        ),
+        "npm run agent:guard": (
+            "npm run agent:guard -- "
+            f"--application-id {application_id} --fingerprint {fingerprint}"
+        ),
+    }
+    scoped = value
+    for old, new in replacements.items():
+        scoped = scoped.replace(old, new)
+    return scoped
+
+
 def guard(
     state_store: WorkflowStateStore | None = None,
     *,
@@ -136,7 +194,10 @@ def guard(
             "reason": "forbidden_temporary_notion_scripts",
             "forbidden_files": forbidden_files,
             "allowed_next_action": "move_or_delete_forbidden_files_then_rerun_agent_guard",
-            "allowed_next_command": "npm run agent:guard",
+            "allowed_next_command": (
+                "npm run agent:guard -- "
+                f"--application-id {application_id} --fingerprint {fingerprint}"
+            ),
             "forbidden_actions": FORBIDDEN_ACTIONS,
         }
 
@@ -179,7 +240,9 @@ def guard(
             "reason": "active_intake_job_description_missing",
             "active_intake": active,
             "allowed_next_action": "rerun_intake",
-            "allowed_next_command": "npm run intake:resume",
+            "allowed_next_command": (
+                f"npm run intake:resume -- --application-id {application_id}"
+            ),
             "forbidden_actions": FORBIDDEN_ACTIONS,
         }
 
@@ -189,44 +252,55 @@ def guard(
         job_description_path=job_path,
     )
     next_step = fit_guard.get("next_required_step")
+    scoped_fit_guard = _scope_fit_map_guard(
+        fit_guard,
+        application_id=application_id,
+        fingerprint=fingerprint,
+        application_paths=application_paths,
+    )
     if next_step == "preencher .career-state/fit_map.draft.json":
         return {
             "status": "ok",
             "active_intake": active,
             "allowed_next_action": "fill_fit_map_draft",
-            "allowed_next_command": "editar .career-state/fit_map.draft.json",
+            "allowed_next_command": f"editar {_relative(application_paths.fit_map_draft)}",
             "must_not_continue_with": FORBIDDEN_ACTIONS + [
                 "deliver_textual_analysis",
                 "run_notion_fallback",
                 "reuse_old_fit_map",
             ],
-            "fit_map_guard": fit_guard,
+            "fit_map_guard": scoped_fit_guard,
         }
     if next_step == "npm run fit-map:finalize":
         return {
             "status": "ok",
             "active_intake": active,
             "allowed_next_action": "finalize_fit_map",
-            "allowed_next_command": "npm run fit-map:finalize",
+            "allowed_next_command": (
+                f"npm run fit-map:finalize -- --application-id {application_id}"
+            ),
             "must_not_continue_with": FORBIDDEN_ACTIONS,
-            "fit_map_guard": fit_guard,
+            "fit_map_guard": scoped_fit_guard,
         }
     if next_step == "python scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json":
         return {
             "status": "ok",
             "active_intake": active,
             "allowed_next_action": "register_keywords",
-            "allowed_next_command": "npm run keywords:register",
+            "allowed_next_command": (
+                f"npm run keywords:register -- --application-id {application_id}"
+            ),
             "must_not_continue_with": FORBIDDEN_ACTIONS,
-            "fit_map_guard": fit_guard,
+            "fit_map_guard": scoped_fit_guard,
         }
     return {
         "status": "ok",
         "active_intake": active,
         "allowed_next_action": "follow_fit_map_guard",
-        "allowed_next_command": fit_guard.get("required_next_command") or next_step,
+        "allowed_next_command": scoped_fit_guard.get("required_next_command")
+        or scoped_fit_guard.get("next_required_step"),
         "must_not_continue_with": FORBIDDEN_ACTIONS,
-        "fit_map_guard": fit_guard,
+        "fit_map_guard": scoped_fit_guard,
     }
 
 
@@ -305,8 +379,14 @@ def evaluate_notion_local(
         "evaluation": evaluation,
         "fit_map_request": fit_map_request,
         "required_next_action": "read_fit_map_request_then_edit_draft",
-        "required_next_file": ".career-state/agent_requests/fit-map_request.md",
-        "required_validation_after_edit": "npm run validate:fit-map:draft",
+        "required_next_file": (
+            ".career-state/applications_v2/"
+            f"{application_id}/requests/manual_agent_requests/fit-map_request.md"
+        ),
+        "required_validation_after_edit": (
+            "npm run validate:fit-map:draft -- "
+            f"--application-id {application_id}"
+        ),
         "do_not": [
             "ask_user_to_fill_draft",
             "reuse_stale_fit_map",

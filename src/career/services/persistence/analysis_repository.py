@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from career.services.database import Database
+from career.services.persistence.application_repository import ApplicationRepository
 from career.utils import json_fingerprint, sha256_text, utc_now_iso
 
 
@@ -97,22 +98,98 @@ class AnalysisRevision:
     created_at: str
 
 
+class StaleAnalysisError(ValueError):
+    """Raised when historical analysis exists but none belongs to current intake."""
+
+
 class AnalysisRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
         self._schema_ready = False
 
     def create_revision(
-        self, application_id: str, fit_map: Mapping[str, Any], source_hash: str
+        self,
+        application_id: str,
+        fit_map: Mapping[str, Any],
+        source_hash: str,
+        *,
+        application_revision_id: str | None = None,
     ) -> str:
         self._ensure_schema()
-        payload, payload_hash = _canonicalize_payload(fit_map)
+        source_hash = str(source_hash or "").strip()
+        if not source_hash:
+            raise ValueError("fit_map revision source_hash is required")
+        explicit_application_revision = application_revision_id is not None
+        application_revision_id = (
+            str(application_revision_id or "").strip()
+            if explicit_application_revision
+            else self._latest_application_revision_id(application_id)
+        )
+        fit_map_payload = _as_payload(fit_map)
+        if explicit_application_revision:
+            if not application_revision_id:
+                raise ValueError("application_revision_id is required")
+            applications = ApplicationRepository(self.database)
+            current_application_revision_id = applications.get_current_revision_id(
+                application_id
+            )
+            if application_revision_id != current_application_revision_id:
+                raise ValueError(
+                    "fit_map finalization requires the current application revision"
+                )
+            application_revision = applications.get_application_revision(
+                application_id, application_revision_id
+            )
+            job_description = applications.get_job_description_for_application_revision(
+                application_id, application_revision_id
+            )
+            if (
+                application_revision.fingerprint != job_description.content_hash
+                or application_revision.source_hash != job_description.content_hash
+            ):
+                raise ValueError(
+                    "application revision does not match its linked job description"
+                )
+            payload_fingerprint = _extract_fingerprint(fit_map_payload)
+            if payload_fingerprint and payload_fingerprint != job_description.content_hash:
+                raise ValueError(
+                    "fit_map fingerprint does not match current job description"
+                )
+            metadata = fit_map_payload.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+                fit_map_payload["metadata"] = metadata
+            metadata["job_fingerprint"] = job_description.content_hash
+            metadata["application_revision_id"] = application_revision_id
+            metadata["job_description_id"] = job_description.description_id
+        payload, payload_hash = _canonicalize_payload(fit_map_payload)
         payload_json = _to_json(payload)
         created_at = utc_now_iso()
         revision_id = f"fit_{uuid4().hex}"
         fingerprint = _extract_fingerprint(payload)
         score_final = _extract_final_score(payload)
-        application_revision_id = self._latest_application_revision_id(application_id)
+        revision_clause = (
+            "application_revision_id = ?"
+            if application_revision_id is not None
+            else "application_revision_id IS NULL"
+        )
+        existing_parameters: tuple[Any, ...] = (
+            (application_id, application_revision_id, source_hash, payload_hash)
+            if application_revision_id is not None
+            else (application_id, source_hash, payload_hash)
+        )
+        existing = self.database.fetch_one(
+            f"""SELECT revision_id FROM fit_map_revisions
+                WHERE application_id = ?
+                  AND {revision_clause}
+                  AND source_hash = ?
+                  AND payload_hash = ?
+                ORDER BY created_at DESC, revision_id DESC
+                LIMIT 1""",
+            existing_parameters,
+        )
+        if existing is not None:
+            return str(existing["revision_id"])
         dimensions = _normalize_dimensions(payload.get("dimensions"))
         keywords = _normalize_keywords(payload.get("keywords"))
         evidence_items = _normalize_evidence(payload.get("evidence"))
@@ -220,16 +297,38 @@ class AnalysisRepository:
 
     def get_current(self, application_id: str) -> AnalysisRevision:
         self._ensure_schema()
-        row = self.database.fetch_one(
-            """SELECT revision_id, application_id, application_revision_id, fingerprint,
-                      source_hash, payload_hash, payload_json, score_final, created_at
-               FROM fit_map_revisions
-               WHERE application_id = ?
-               ORDER BY created_at DESC, revision_id DESC
-               LIMIT 1""",
-            (application_id,),
-        )
+        application_revision_id = self._latest_application_revision_id(application_id)
+        if application_revision_id is None:
+            row = self.database.fetch_one(
+                """SELECT revision_id, application_id, application_revision_id,
+                          fingerprint, source_hash, payload_hash, payload_json,
+                          score_final, created_at
+                     FROM fit_map_revisions
+                    WHERE application_id = ? AND application_revision_id IS NULL
+                    ORDER BY created_at DESC, revision_id DESC
+                    LIMIT 1""",
+                (application_id,),
+            )
+        else:
+            row = self.database.fetch_one(
+                """SELECT revision_id, application_id, application_revision_id,
+                          fingerprint, source_hash, payload_hash, payload_json,
+                          score_final, created_at
+                     FROM fit_map_revisions
+                    WHERE application_id = ? AND application_revision_id = ?
+                    ORDER BY created_at DESC, revision_id DESC
+                    LIMIT 1""",
+                (application_id, application_revision_id),
+            )
         if row is None:
+            historical = self.database.fetch_one(
+                "SELECT revision_id FROM fit_map_revisions WHERE application_id = ? LIMIT 1",
+                (application_id,),
+            )
+            if historical is not None:
+                raise StaleAnalysisError(
+                    "stale analysis for current application revision"
+                )
             raise ValueError(f"no fit_map revision found for {application_id}")
         return self._analysis_revision_from_row(row)
 
@@ -596,6 +695,8 @@ def _extract_final_score(payload: Mapping[str, Any]) -> float | None:
             return float(final)
     for key in ("score_final", "nota_aderencia", "aderencia_score"):
         value = payload.get(key)
+        if isinstance(value, Mapping) and isinstance(value.get("final"), (int, float)):
+            return float(value["final"])
         if isinstance(value, (int, float)):
             return float(value)
     return None

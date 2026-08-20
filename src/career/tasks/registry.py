@@ -11,7 +11,10 @@ from career.services import memory as memory_service
 from career.services import notion as notion_service
 from career.services import project as project_service
 from career.services import review as review_service
+from career.services.persistence.analysis_repository import AnalysisRepository
+from career.services.persistence.application_repository import ApplicationRepository
 from career.services.persistence.gate_repository import GateReceipt, GateRepository
+from career.services.persistence.reference_repository import ReferenceRepository
 from career.utils import json_fingerprint, sha256_file
 from career.workflow.state_machine import TASK_TO_STATE, WorkflowStateMachine
 from career.workflow.state_store import WorkflowStateStore
@@ -268,3 +271,137 @@ def run_pipeline(task_names: list[str], arguments: dict[str, Any] | None = None,
     for task_name in task_names:
         results.append(run_task(task_name, arguments=arguments, state_store=state_store))
     return results
+
+
+def finalize_fit_map(
+    *,
+    state_store: WorkflowStateStore,
+    draft_path: Path,
+    output_path: Path,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Finalize one scoped FIT_MAP and persist its immutable revision lineage.
+
+    Build, score and validation operate on the compatibility file, but their
+    authoritative completion receipts are recorded only after the resulting
+    payload has been stored as an immutable SQLite analysis revision.
+    """
+    if not state_store.application_id or state_store.database is None:
+        raise ValueError(
+            "finalize_fit_map requires an application-scoped WorkflowStateStore"
+        )
+    application_id = str(state_store.application_id)
+    resolved_run_id = str(run_id or "").strip() or f"fit-map-finalize-{uuid4().hex}"
+    draft_path = Path(draft_path)
+    output_path = Path(output_path)
+
+    validate_draft_result = run_task(
+        "fit_map.validate_draft",
+        {"path": str(draft_path), "run_id": resolved_run_id},
+        state_store=state_store,
+    )
+    draft_hash = sha256_file(draft_path)
+    fit_map_service.build_fit_map(draft_path, output_path)
+    built_hash = sha256_file(output_path)
+    fit_map_service.score_fit_map(output_path)
+    scored_hash = sha256_file(output_path)
+    validated_payload = fit_map_service.validate_fit_map(output_path)
+    validation_hash = json_fingerprint(validated_payload)
+
+    applications = ApplicationRepository(state_store.database)
+    application = applications.resolve(application_id=application_id)
+    application_revision_id = applications.get_current_revision_id(application_id)
+    if not application_revision_id:
+        raise ValueError(
+            f"application {application_id} has no current source revision"
+        )
+    source_revision = applications.get_application_revision(
+        application_id, application_revision_id
+    )
+    job_description = applications.get_job_description_for_application_revision(
+        application_id, application_revision_id
+    )
+    if (
+        not application.fingerprint
+        or application.fingerprint != source_revision.fingerprint
+        or application.fingerprint != job_description.content_hash
+    ):
+        raise ValueError(
+            "current application fingerprint does not match its source snapshot"
+        )
+
+    current_references = ReferenceRepository(
+        state_store.database
+    ).list_current_versions()
+    if not current_references:
+        raise ValueError(
+            "fit_map finalization requires at least one canonical reference version"
+        )
+    snapshot = dict(validated_payload)
+    snapshot["reference_versions"] = [
+        {
+            "reference_id": reference.reference_id,
+            "kind": reference.kind,
+            "logical_key": reference.logical_key,
+            "content_hash": reference.content_hash,
+            "source_hash": reference.source_hash,
+        }
+        for reference in current_references
+    ]
+    revision_id = AnalysisRepository(state_store.database).create_revision(
+        application_id,
+        snapshot,
+        source_hash=scored_hash,
+        application_revision_id=application_revision_id,
+    )
+
+    gates = GateRepository(state_store.database)
+    receipt_ids = {
+        "fit_map_built": gates.record(
+            GateReceipt(
+                application_id=application_id,
+                application_fingerprint=application.fingerprint,
+                run_id=resolved_run_id,
+                gate="fit_map_built",
+                validator="fit_map.build",
+                input_hash=draft_hash,
+                output_hash=built_hash,
+                revision_id=revision_id,
+            )
+        ),
+        "fit_map_scored": gates.record(
+            GateReceipt(
+                application_id=application_id,
+                application_fingerprint=application.fingerprint,
+                run_id=resolved_run_id,
+                gate="fit_map_scored",
+                validator="fit_map.score",
+                input_hash=built_hash,
+                output_hash=scored_hash,
+                revision_id=revision_id,
+            )
+        ),
+        "fit_map_validated": gates.record(
+            GateReceipt(
+                application_id=application_id,
+                application_fingerprint=application.fingerprint,
+                run_id=resolved_run_id,
+                gate="fit_map_validated",
+                validator="fit_map.validate",
+                input_hash=scored_hash,
+                output_hash=validation_hash,
+                revision_id=revision_id,
+            )
+        ),
+    }
+    return {
+        "application_id": application_id,
+        "application_revision_id": application_revision_id,
+        "revision_id": revision_id,
+        "run_id": resolved_run_id,
+        "receipts": receipt_ids,
+        "validate_draft": validate_draft_result,
+        "build": str(output_path),
+        "score": str(output_path),
+        "validate": validated_payload,
+    }
