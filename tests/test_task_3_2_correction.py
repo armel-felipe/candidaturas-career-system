@@ -15,6 +15,7 @@ from career.services.persistence.application_repository import (
     ApplicationIdentity,
     ApplicationRepository,
 )
+from career.services.persistence.reference_repository import ReferenceRepository
 from career.utils import read_json, sha256_text, write_json
 
 
@@ -27,10 +28,14 @@ class Task32CorrectionTests(unittest.TestCase):
         self.addCleanup(self.database.close)
         self.applications = ApplicationRepository(self.database)
         self.analysis = AnalysisRepository(self.database)
+        self.references = ReferenceRepository(self.database)
         self.materializer = ContextMaterializer(self.database)
 
     def _create_revision_history(self) -> tuple[str, str]:
         application_id = "notion_578"
+        reference_id = self.references.upsert_version(
+            "candidate_facts", "felipe", "REFERENCE HISTORY", "reference-history"
+        )
         self.applications.create_application(
             ApplicationIdentity(
                 application_id=application_id,
@@ -71,6 +76,7 @@ class Task32CorrectionTests(unittest.TestCase):
             application_id,
             {
                 "metadata": {"job_fingerprint": "fp-v1"},
+                "reference_versions": [{"reference_id": reference_id}],
                 "stories": [
                     {
                         "story_key": "v1",
@@ -112,6 +118,7 @@ class Task32CorrectionTests(unittest.TestCase):
             application_id,
             {
                 "metadata": {"job_fingerprint": "fp-v2"},
+                "reference_versions": [{"reference_id": reference_id}],
                 "stories": [
                     {
                         "story_key": "v2",

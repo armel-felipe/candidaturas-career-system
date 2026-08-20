@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
 from career.services.database import Database
@@ -143,6 +143,53 @@ class ReferenceRepository:
         )
         return tuple(_reference_version_from_row(row) for row in rows)
 
+    def resolve_linked_versions(
+        self, links: Sequence[Mapping[str, Any]]
+    ) -> tuple[ReferenceVersion, ...]:
+        """Resolve immutable references declared by an analysis snapshot.
+
+        A historical materialization must name the exact reference version it
+        consumed.  This API deliberately has no "current" fallback: a missing
+        or malformed link is a provenance failure, not an invitation to use a
+        newer candidate reference.
+        """
+        self._ensure_schema()
+        if not links:
+            raise ValueError("pinned revision has no reference linkage")
+
+        resolved: list[ReferenceVersion] = []
+        seen: set[str] = set()
+        for link in links:
+            if not isinstance(link, Mapping):
+                raise ValueError("reference linkage entries must be mappings")
+            reference_id = _link_text(link, "reference_id")
+            if reference_id:
+                version = self.get_version(reference_id)
+            else:
+                kind = _link_text(link, "kind")
+                logical_key = _link_text(link, "logical_key")
+                content_hash = _link_text(link, "content_hash")
+                if not (kind and logical_key and content_hash):
+                    raise ValueError(
+                        "reference linkage requires reference_id or kind, logical_key and content_hash"
+                    )
+                row = self.database.fetch_one(
+                    """SELECT reference_id, kind, logical_key, reference_key, content_hash,
+                              source_hash, content, created_at, updated_at
+                       FROM reference_documents
+                       WHERE kind = ? AND logical_key = ? AND content_hash = ?""",
+                    (kind, logical_key, content_hash),
+                )
+                if row is None:
+                    raise ValueError("reference linkage does not resolve to a stored version")
+                version = _reference_version_from_row(row)
+
+            _assert_link_matches(link, version)
+            if version.reference_id not in seen:
+                resolved.append(version)
+                seen.add(version.reference_id)
+        return tuple(resolved)
+
     def _ensure_schema(self) -> None:
         if self._schema_ready:
             return
@@ -252,6 +299,28 @@ def _looks_like_candidate_reference(kind: str, payload: Any) -> bool:
         isinstance(payload, Mapping)
         and any(key in payload for key in ("candidate", "experiences", "stack"))
     )
+
+
+def _link_text(link: Mapping[str, Any], key: str) -> str | None:
+    value = link.get(key)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _assert_link_matches(link: Mapping[str, Any], version: ReferenceVersion) -> None:
+    expected_values = {
+        "reference_id": version.reference_id,
+        "kind": version.kind,
+        "logical_key": version.logical_key,
+        "content_hash": version.content_hash,
+        "source_hash": version.source_hash,
+    }
+    for key, actual in expected_values.items():
+        expected = _link_text(link, key)
+        if expected is not None and expected != actual:
+            raise ValueError(f"reference linkage {key} does not match stored version")
 
 
 def _looks_like_keyword_registry(kind: str, payload: Any) -> bool:

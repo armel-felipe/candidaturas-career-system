@@ -82,12 +82,14 @@ class ContextMaterializer:
             job_description = self.applications.get_latest_job_description(
                 application.application_id
             )
+        references = self._references_for(analysis_revision, pinned=revision_id is not None)
         context = self._context(
             kind=kind,
             application=application,
             application_fingerprint=application_fingerprint,
             job_description=job_description,
             analysis_revision=analysis_revision,
+            references=references,
         )
         canonical_payload_hash = _canonical_hash(context)
         return {
@@ -175,8 +177,9 @@ class ContextMaterializer:
         application_fingerprint: str | None,
         job_description,
         analysis_revision,
+        references,
     ) -> dict[str, Any]:
-        references = [
+        serialized_references = [
             {
                 "reference_id": item.reference_id,
                 "kind": item.kind,
@@ -185,7 +188,7 @@ class ContextMaterializer:
                 "source_hash": item.source_hash,
                 "content": item.content,
             }
-            for item in self.references.list_current_versions()
+            for item in references
         ]
         context: dict[str, Any] = {
             "application": {
@@ -204,7 +207,7 @@ class ContextMaterializer:
                 "content": job_description.content,
                 "content_hash": job_description.content_hash,
             },
-            "references": references,
+            "references": serialized_references,
         }
         if analysis_revision is not None:
             context["analysis"] = _analysis_payload(analysis_revision)
@@ -217,6 +220,16 @@ class ContextMaterializer:
         else:
             context["purpose"] = "habilidades_ranking"
         return context
+
+    def _references_for(
+        self, analysis_revision: AnalysisRevision | None, *, pinned: bool
+    ) -> tuple:
+        if not pinned:
+            return self.references.list_current_versions()
+        if analysis_revision is None:
+            raise ValueError("pinned revision has no reference linkage")
+        links = _reference_links_for_revision(analysis_revision)
+        return self.references.resolve_linked_versions(links)
 
 
 def _analysis_payload(revision: AnalysisRevision) -> dict[str, Any]:
@@ -300,6 +313,26 @@ def _analysis_payload(revision: AnalysisRevision) -> dict[str, Any]:
             else None
         ),
     }
+
+
+def _reference_links_for_revision(revision: AnalysisRevision) -> tuple[Mapping[str, Any], ...]:
+    """Read immutable reference links from the pinned analysis/positioning snapshot."""
+    links: list[Mapping[str, Any]] = []
+    for snapshot in (revision.payload, revision.positioning.snapshot if revision.positioning else None):
+        if not isinstance(snapshot, Mapping):
+            continue
+        declared = snapshot.get("reference_versions", snapshot.get("reference_links"))
+        if declared is None:
+            continue
+        if not isinstance(declared, list):
+            raise ValueError("reference linkage must be a list")
+        for link in declared:
+            if not isinstance(link, Mapping):
+                raise ValueError("reference linkage entries must be mappings")
+            links.append(link)
+    if not links:
+        raise ValueError("pinned revision has no reference linkage")
+    return tuple(links)
 
 
 def _is_export_destination_allowed(

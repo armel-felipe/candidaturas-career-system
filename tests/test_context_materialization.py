@@ -29,7 +29,7 @@ class ContextMaterializerTests(unittest.TestCase):
         self.materializer = ContextMaterializer(self.database)
         self._create_application("notion_578", "Conexa", "Diretor de Growth", "Conexa job text")
         self._create_application("notion_999", "Outra", "Diretor de Produto", "Outra job text")
-        self.references.upsert_version(
+        self.candidate_reference_id = self.references.upsert_version(
             "candidate_facts",
             "felipe",
             json.dumps({"facts": ["Escalou operacoes"]}, ensure_ascii=False),
@@ -98,6 +98,7 @@ class ContextMaterializerTests(unittest.TestCase):
                 "stories": [
                     {"story_key": "impact", "title": keyword, "narrative": story}
                 ],
+                "reference_versions": [{"reference_id": self.candidate_reference_id}],
             },
             source_hash=f"source-{fingerprint}",
         )
@@ -139,6 +140,76 @@ class ContextMaterializerTests(unittest.TestCase):
         self.assertEqual(payload["context"]["analysis"]["stories"][0]["narrative"], "Historia de crescimento v1")
         with self.assertRaisesRegex(ValueError, "same application|no fit_map revision"):
             self.materializer.build("notion_578", "cv_input", revision_id="missing")
+
+    def test_pinned_revision_uses_only_its_linked_reference_versions(self) -> None:
+        self._create_application(
+            "notion_references", "Historica", "Diretoria", "Descricao historica"
+        )
+        reference_v1_content = "REFERENCE V1"
+        reference_v1 = self.references.upsert_version(
+            "candidate_facts", "felipe-historico", reference_v1_content, "reference-v1"
+        )
+        reference_v1_version = self.references.get_version(reference_v1)
+        revision_v1 = self.analysis.create_revision(
+            "notion_references",
+            {
+                "metadata": {"job_fingerprint": "fp-reference-v1"},
+                "reference_versions": [
+                    {
+                        "kind": reference_v1_version.kind,
+                        "logical_key": reference_v1_version.logical_key,
+                        "content_hash": reference_v1_version.content_hash,
+                    }
+                ],
+            },
+            source_hash="source-reference-v1",
+        )
+        reference_v2_content = "REFERENCE V2"
+        reference_v2 = self.references.upsert_version(
+            "candidate_facts", "felipe-historico", reference_v2_content, "reference-v2"
+        )
+        reference_v2_version = self.references.get_version(reference_v2)
+        with self.database.transaction(immediate=True) as conn:
+            conn.execute(
+                "UPDATE reference_documents SET created_at = ? WHERE reference_id = ?",
+                ("2100-01-01T00:00:00+00:00", reference_v2),
+            )
+        self.analysis.create_revision(
+            "notion_references",
+            {
+                "metadata": {"job_fingerprint": "fp-reference-v2"},
+                "reference_versions": [
+                    {
+                        "kind": reference_v2_version.kind,
+                        "logical_key": reference_v2_version.logical_key,
+                        "content_hash": reference_v2_version.content_hash,
+                    }
+                ],
+            },
+            source_hash="source-reference-v2",
+        )
+
+        payload = self.materializer.build(
+            "notion_references", "cv_input", revision_id=revision_v1
+        )
+
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertIn(reference_v1_content, serialized)
+        self.assertNotIn(reference_v2_content, serialized)
+        self.assertEqual(
+            payload["context"]["references"][0]["reference_id"], reference_v1
+        )
+
+    def test_pinned_revision_without_reference_linkage_fails_closed(self) -> None:
+        self._create_application("notion_unlinked", "Sem Link", "Diretoria", "Descricao")
+        revision_id = self.analysis.create_revision(
+            "notion_unlinked",
+            {"metadata": {"job_fingerprint": "fp-unlinked"}},
+            source_hash="source-unlinked",
+        )
+
+        with self.assertRaisesRegex(ValueError, "reference.*linkage"):
+            self.materializer.build("notion_unlinked", "feras_input", revision_id=revision_id)
 
     def test_rejects_unknown_and_cross_application_revision_scope(self) -> None:
         with self.assertRaisesRegex(ValueError, "no application matched"):
