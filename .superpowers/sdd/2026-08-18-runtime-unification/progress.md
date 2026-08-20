@@ -217,6 +217,7 @@
 - Correction `def2e60`/`8dda98f` was re-reviewed and rejected. Remaining blockers: propagate the canonical database and application-scoped state through real public intake execution; make `write_request`, supervisor database construction, and all execution paths explicit; remove remaining undocumented unscoped `intake:resume` instructions; add an end-to-end paste regression instead of mocking the pipeline.
 - Correction `4945ad5` was re-reviewed and rejected for remaining identity leaks: supervisor auto-finalization still invokes global FIT_MAP/tasks, derived context still falls back to global state for downstream producers, several CLI/database defaults remain legacy/global, and documentation/tests do not cover those routes. These are treated as the final Task 3.1 identity-firewall hardening gate before Task 3.2.
 - Hardening `a8375d1` was re-reviewed and rejected: explicit multiagent requests still call an unscoped helper, non-cellular requests still build global allowed-file/context paths, and the Gupy/habilidades CLI still defaults to the global FIT_MAP. Documentation also contradicts the scoped CLI contract. These remain Task 3.1 blockers because they can recreate the original wrong-vacancy output.
+- Correction `ad9c2bc` was re-reviewed and rejected. The generated scoped request still instructed the agent to use root `.career-state` paths/commands, and the Gupy CLI accepted an unknown `application_id` and read a locally planted FIT_MAP without a canonical SQLite row. The fix must validate the application through the repository, make the request payload itself entirely application-local, and add real (not mocked) regressions before 3.1 can close.
 
 ### Task 3.1: bounded correction committed
 
@@ -244,6 +245,13 @@
 - TDD: `tests/test_identity_firewall.py` was red before implementation and now covers default DB, unscoped rejection, explicit path materialization, finalizer scope, and CLI scope.
 - Controller verification: 105 tests passed in the focused plus neighboring persistence/intake/gate/projection suite documented in `task-3.1-identity-firewall-report.md`.
 - Deliberate boundary: no Task 3.2 SQLite context materializer was implemented; application-local JSON packs remain non-authoritative compatibility materializations.
+
+### Task 3.1: complete
+
+- Final fix commit: `d9aa5f6` (`Close scoped request and Gupy identity leaks`), independently reviewed PASS.
+- Evidence: real scoped request and Gupy CLI checks plus 112 focused/runtime tests; `py_compile` and `git diff --check` passed.
+- Acceptance: request payloads contain only application-local paths and scoped commands; unknown applications and foreign FIT_MAP paths fail before reads; previous identity-firewall guarantees remain enforced.
+- Residual intentionally deferred: derived packs are still JSON materializations; Task 3.2 replaces them as operational context sources.
 
 ## Phase 0 gate
 
