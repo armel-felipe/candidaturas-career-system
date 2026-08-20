@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from career.paths import CAREER_STATE, ROOT
+from career.services.context_materializer import ContextMaterializer, ExportReceipt
+from career.services.database import Database
 from career.services import provenance as provenance_service
 from career.services.application_context import ApplicationPaths
 from career.services import memory as memory_service
@@ -103,6 +105,50 @@ class DerivedContextBuilder:
 
     def build_all(self, application_id):
         return {name: build_pack(name, application_id, self.db) for name in list_packs()}
+
+    def materialize(
+        self, application_id: str, kind: str, revision_id: str | None = None
+    ) -> dict[str, Any]:
+        """Return an in-memory, canonical context for a scoped specialist."""
+        return dict(
+            ContextMaterializer(self.db).build(
+                application_id, kind, revision_id=revision_id
+            )
+        )
+
+
+def materialize_context(
+    application_id: str,
+    kind: str,
+    *,
+    revision_id: str | None = None,
+    database: Database | None = None,
+) -> dict[str, Any]:
+    """Compatibility boundary: materialize from SQLite, never derived JSON."""
+    from career.services.application_context import canonical_database
+
+    runtime_database = database or canonical_database()
+    return dict(
+        ContextMaterializer(runtime_database).build(
+            application_id, kind, revision_id=revision_id
+        )
+    )
+
+
+def export_materialized_context(
+    application_id: str,
+    kind: str,
+    destination: Path,
+    *,
+    database: Database | None = None,
+) -> ExportReceipt:
+    """Write a compatibility copy; no runtime code reads that copy as authority."""
+    from career.services.application_context import canonical_database
+
+    runtime_database = database or canonical_database()
+    return ContextMaterializer(runtime_database).export_json(
+        application_id, kind, destination
+    )
 
 
 def normalize_job(

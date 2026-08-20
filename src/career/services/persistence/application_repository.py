@@ -87,6 +87,17 @@ class ApplicationProjection:
     updated_at: str
 
 
+@dataclass(frozen=True)
+class JobDescriptionRecord:
+    description_id: str
+    application_id: str
+    source_id: str | None
+    language: str | None
+    content: str
+    content_hash: str
+    created_at: str
+
+
 class ApplicationRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -241,6 +252,42 @@ class ApplicationRepository:
             status=record.status,
             updated_at=record.updated_at,
         )
+
+    def get_latest_job_description(self, application_id: str) -> JobDescriptionRecord:
+        """Load the authoritative intake description for an explicit application."""
+        self.resolve(application_id=application_id)
+        row = self.database.fetch_one(
+            """SELECT description_id, application_id, source_id, language, content,
+                      content_hash, created_at
+               FROM job_descriptions
+               WHERE application_id = ?
+               ORDER BY created_at DESC, description_id DESC
+               LIMIT 1""",
+            (application_id,),
+        )
+        if row is None:
+            raise ValueError(f"no job description found for {application_id}")
+        return JobDescriptionRecord(
+            description_id=str(row["description_id"]),
+            application_id=str(row["application_id"]),
+            source_id=str(row["source_id"]) if row["source_id"] else None,
+            language=str(row["language"]) if row["language"] else None,
+            content=str(row["content"]),
+            content_hash=str(row["content_hash"]),
+            created_at=str(row["created_at"]),
+        )
+
+    def get_current_revision_id(self, application_id: str) -> str | None:
+        """Return the latest canonical application revision without consulting JSON."""
+        self.resolve(application_id=application_id)
+        row = self.database.fetch_one(
+            """SELECT revision_id FROM application_revisions
+               WHERE application_id = ?
+               ORDER BY created_at DESC, revision_id DESC
+               LIMIT 1""",
+            (application_id,),
+        )
+        return str(row["revision_id"]) if row is not None else None
 
     def _ensure_schema(self) -> None:
         if self._schema_ready:

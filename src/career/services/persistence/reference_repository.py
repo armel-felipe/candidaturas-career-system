@@ -123,6 +123,26 @@ class ReferenceRepository:
         )
         return tuple(_reference_version_from_row(row) for row in rows)
 
+    def list_current_versions(self) -> tuple[ReferenceVersion, ...]:
+        """Return the latest immutable version for each reference logical key."""
+        self._ensure_schema()
+        rows = self.database.fetch_all(
+            """SELECT current.reference_id, current.kind, current.logical_key,
+                      current.reference_key, current.content_hash, current.source_hash,
+                      current.content, current.created_at, current.updated_at
+               FROM reference_documents AS current
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM reference_documents AS newer
+                   WHERE newer.kind = current.kind
+                     AND newer.logical_key = current.logical_key
+                     AND (newer.created_at > current.created_at
+                          OR (newer.created_at = current.created_at
+                              AND newer.reference_id > current.reference_id))
+               )
+               ORDER BY current.kind ASC, current.logical_key ASC"""
+        )
+        return tuple(_reference_version_from_row(row) for row in rows)
+
     def _ensure_schema(self) -> None:
         if self._schema_ready:
             return

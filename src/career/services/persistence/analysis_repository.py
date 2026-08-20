@@ -231,7 +231,31 @@ class AnalysisRepository:
         )
         if row is None:
             raise ValueError(f"no fit_map revision found for {application_id}")
+        return self._analysis_revision_from_row(row)
+
+    def get_revision(self, application_id: str, revision_id: str) -> AnalysisRevision:
+        """Load one immutable FIT_MAP revision, rejecting foreign revision IDs."""
+        self._ensure_schema()
+        row = self.database.fetch_one(
+            """SELECT revision_id, application_id, application_revision_id, fingerprint,
+                      source_hash, payload_hash, payload_json, score_final, created_at
+               FROM fit_map_revisions
+               WHERE revision_id = ? AND application_id = ?""",
+            (revision_id, application_id),
+        )
+        if row is None:
+            owner = self.database.fetch_one(
+                "SELECT application_id FROM fit_map_revisions WHERE revision_id = ?",
+                (revision_id,),
+            )
+            if owner is not None:
+                raise ValueError("fit_map revision must belong to the same application")
+            raise ValueError(f"no fit_map revision found for {application_id}")
+        return self._analysis_revision_from_row(row)
+
+    def _analysis_revision_from_row(self, row: Mapping[str, Any]) -> AnalysisRevision:
         revision_id = str(row["revision_id"])
+        application_id = str(row["application_id"])
         positioning_row = self.database.fetch_one(
             """SELECT revision_id, application_id, fit_map_revision_id,
                       source_hash, payload_hash, payload_json, created_at
@@ -248,7 +272,7 @@ class AnalysisRepository:
         )
         return AnalysisRevision(
             revision_id=revision_id,
-            application_id=str(row["application_id"]),
+            application_id=application_id,
             application_revision_id=_optional_str(row["application_revision_id"]),
             fingerprint=_optional_str(row["fingerprint"]),
             source_hash=str(row["source_hash"]),

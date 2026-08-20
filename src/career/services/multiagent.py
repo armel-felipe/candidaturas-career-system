@@ -196,7 +196,28 @@ def _scoped_allowed_files_for(
 ) -> list[str]:
     """Build request inputs from one application directory, never globals."""
     derived = app_paths.derived_dir
-    if contract.step == "fit-map":
+    materialized_names = {
+        "fit-map": "fit_map_seed.json",
+        "cv": "cv_input_pack.json",
+        "feras": "feras_input_pack.json",
+        "habilidades": "habilidades_input_pack.json",
+    }
+    if contract.step in materialized_names:
+        files = [derived / materialized_names[contract.step]]
+        if contract.step == "fit-map":
+            files.insert(0, app_paths.fit_map_draft)
+        else:
+            # This scoped FIT_MAP is compatibility evidence only. The request
+            # context itself is the in-memory SQLite materialization above.
+            files.insert(0, app_paths.fit_map)
+        if contract.step == "cv":
+            files.extend(
+                [
+                    Path(".agents/skills/cv-generator/SKILL.md"),
+                    Path("scripts/docx/generate_custom_cv.js"),
+                ]
+            )
+    elif contract.step == "fit-map":
         files = [
             app_paths.fit_map_draft,
             app_paths.job_description,
@@ -261,7 +282,22 @@ def _scoped_expected_outputs_for(contract: AgentContract, app_paths) -> list[str
     return list(contract.expected_outputs)
 
 
-def _scoped_derived_context_payload(contract: AgentContract, app_paths) -> dict[str, Any] | None:
+def _scoped_derived_context_payload(
+    contract: AgentContract,
+    app_paths,
+    materialized_context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if materialized_context is not None:
+        return {
+            "status": "ok",
+            "application_id": app_paths.application_id,
+            "kind": materialized_context.get("kind"),
+            "canonical_payload_hash": materialized_context.get("canonical_payload_hash"),
+            "source_revision_ids": materialized_context.get("source_revision_ids"),
+            # This object is supplied directly by SQLite materialization. The
+            # JSON export is a compatibility copy and is never read here.
+            "context": materialized_context.get("context"),
+        }
     if contract.step not in {"fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update"}:
         return None
     manifest_path = app_paths.derived_dir / "manifest.json"
@@ -278,9 +314,35 @@ def _scoped_derived_context_payload(contract: AgentContract, app_paths) -> dict[
     }
 
 
-def _prepare_scoped_compact_inputs(step: str, app_paths) -> None:
-    if step in {"fit-map", "notion-update", "cover-letter", "feras", "habilidades", "cv"}:
+def _prepare_scoped_compact_inputs(
+    step: str,
+    app_paths,
+    *,
+    database: Database,
+) -> dict[str, Any] | None:
+    materialized_kinds = {
+        "fit-map": ("fit_map_seed", "fit_map_seed.json"),
+        "cv": ("cv_input", "cv_input_pack.json"),
+        "feras": ("feras_input", "feras_input_pack.json"),
+        "habilidades": ("habilidades_input", "habilidades_input_pack.json"),
+    }
+    if step in materialized_kinds:
+        kind, filename = materialized_kinds[step]
+        payload = derived_context_service.materialize_context(
+            app_paths.application_id, kind, database=database
+        )
+        # Compatibility export is deliberately a terminal write, not input to
+        # this request builder or any subsequent authority resolution.
+        derived_context_service.export_materialized_context(
+            app_paths.application_id,
+            kind,
+            app_paths.derived_dir / filename,
+            database=database,
+        )
+        return payload
+    if step in {"notion-update", "cover-letter"}:
         derived_context_service.build_all_for_fit_map(app_paths)
+    return None
 
 
 def _fit_map_summary(
@@ -493,8 +555,16 @@ def write_request(
     active = _active_intake(state_store)
     if fingerprint and str((active or {}).get("fingerprint") or "").strip() != str(fingerprint):
         raise ValidationFailure("request fingerprint does not match application intake")
+    materialized_context = None
     if not cellular_context:
-        _prepare_scoped_compact_inputs(step, app_paths)
+        prepared_context = _prepare_scoped_compact_inputs(
+            step,
+            app_paths,
+            database=database or application_context_service.canonical_database(),
+        )
+        materialized_context = (
+            prepared_context if isinstance(prepared_context, dict) else None
+        )
     request_id = uuid.uuid4().hex
     if step in {"notion-update", "email-draft"}:
         request_extras["pending_action_path"] = (
@@ -527,7 +597,9 @@ def write_request(
                 "manifest_path": cellular_context["manifest_path"],
             }
             if cellular_context
-            else _scoped_derived_context_payload(contract, app_paths)
+            else _scoped_derived_context_payload(
+                contract, app_paths, materialized_context
+            )
         ),
         "allowed_commands": [] if cellular_context else list(contract.allowed_commands),
         "expected_outputs": cellular_context["write_allowlist"] if cellular_context else _scoped_expected_outputs_for(contract, app_paths),

@@ -84,7 +84,7 @@ class IdentityFirewallRequestAndHabilidadesTests(unittest.TestCase):
                     database=self.database,
                 )
 
-        prepare.assert_called_once_with("feras", paths)
+        prepare.assert_called_once_with("feras", paths, database=self.database)
         payload = read_json(self.root / result["request_json"])
         self.assertEqual(payload["application_id"], record.application_id)
         self.assertEqual(payload["fit_map"]["cargo"], "Diretor de Growth scoped")
