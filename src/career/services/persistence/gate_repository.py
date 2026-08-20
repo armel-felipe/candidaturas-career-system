@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -60,7 +61,12 @@ class GateRepository:
         self._schema_ready = False
         self._applications = ApplicationRepository(database)
 
-    def record(self, receipt: GateReceipt) -> str:
+    def record(
+        self,
+        receipt: GateReceipt,
+        *,
+        conn: sqlite3.Connection | None = None,
+    ) -> str:
         self._ensure_schema()
         application_id = self._required_text(receipt.application_id, "application_id")
         application_fingerprint = self._required_text(
@@ -90,7 +96,9 @@ class GateRepository:
         revision_id = receipt.revision_id
         if gate in REVISION_BOUND_GATES:
             revision_id = self._required_text(revision_id, "revision_id")
-            self._ensure_revision_matches_application(application_id, revision_id)
+            self._ensure_revision_matches_application(
+                application_id, revision_id, conn=conn
+            )
         elif revision_id:
             raise ValueError(f"gate {gate} does not accept a revision binding")
 
@@ -99,7 +107,10 @@ class GateRepository:
             required_gate, bind_revision = prerequisite
             required_revision = revision_id if bind_revision else None
             if not self.is_satisfied(
-                application_id, required_gate, revision_id=required_revision
+                application_id,
+                required_gate,
+                revision_id=required_revision,
+                conn=conn,
             ):
                 raise ValueError(
                     f"gate {gate} is missing prerequisite receipt {required_gate}"
@@ -113,10 +124,6 @@ class GateRepository:
             application_fingerprint=application_fingerprint,
             revision_id=revision_id,
         )
-        existing = self.database.fetch_one(existing_query, existing_parameters)
-        if existing is not None:
-            return str(existing["receipt_id"])
-
         created_at = utc_now_iso()
         receipt_id = f"gate_{uuid4().hex}"
         node_id = gate
@@ -132,22 +139,24 @@ class GateRepository:
             separators=(",", ":"),
         )
 
-        with self.database.transaction(immediate=True) as conn:
-            existing = conn.execute(
+        def persist(target: sqlite3.Connection) -> str:
+            existing = target.execute(
                 existing_query, existing_parameters
             ).fetchone()
             if existing is not None:
                 return str(existing["receipt_id"])
 
-            self._ensure_run(conn, application_id, run_id, created_at)
-            attempt = self._ensure_node_and_next_attempt(conn, run_id, node_id, created_at)
-            conn.execute(
+            self._ensure_run(target, application_id, run_id, created_at)
+            attempt = self._ensure_node_and_next_attempt(
+                target, run_id, node_id, created_at
+            )
+            target.execute(
                 """
                 INSERT INTO validation_receipts
                     (receipt_id, application_id, run_id, node_id, attempt, validator,
                      gate, result, report_path, report_sha256, details_json, created_at,
-                     input_hash, output_hash, application_fingerprint)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)
+                     input_hash, output_hash, application_fingerprint, revision_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     receipt_id,
@@ -163,10 +172,11 @@ class GateRepository:
                     input_hash,
                     output_hash,
                     application_fingerprint,
+                    revision_id,
                 ),
             )
             if revision_id:
-                conn.execute(
+                target.execute(
                     """
                     INSERT INTO gate_dependencies
                         (receipt_id, dependency_type, dependency_id, created_at)
@@ -174,10 +184,20 @@ class GateRepository:
                     """,
                     (receipt_id, "fit_map_revision", revision_id, created_at),
                 )
-        return receipt_id
+            return receipt_id
+
+        if conn is not None:
+            return persist(conn)
+        with self.database.transaction(immediate=True) as transaction:
+            return persist(transaction)
 
     def is_satisfied(
-        self, application_id: str, gate: str, revision_id: str | None = None
+        self,
+        application_id: str,
+        gate: str,
+        revision_id: str | None = None,
+        *,
+        conn: sqlite3.Connection | None = None,
     ) -> bool:
         self._ensure_schema()
         application_id = self._required_text(application_id, "application_id")
@@ -186,25 +206,24 @@ class GateRepository:
         if not application.fingerprint:
             return False
         if revision_id:
-            row = self.database.fetch_one(
+            row = self._fetch_one(
+                conn,
                 """
                 SELECT vr.receipt_id
                   FROM validation_receipts AS vr
-                  JOIN gate_dependencies AS gd
-                    ON gd.receipt_id = vr.receipt_id
                  WHERE vr.application_id = ?
                    AND vr.gate = ?
                    AND vr.result = 'passed'
                    AND vr.application_fingerprint = ?
-                   AND gd.dependency_type = 'fit_map_revision'
-                   AND gd.dependency_id = ?
+                   AND vr.revision_id = ?
                  ORDER BY vr.created_at DESC, vr.receipt_id DESC
                  LIMIT 1
                 """,
                 (application_id, gate, application.fingerprint, revision_id),
             )
             return row is not None
-        row = self.database.fetch_one(
+        row = self._fetch_one(
+            conn,
             """
             SELECT receipt_id
               FROM validation_receipts
@@ -293,8 +312,11 @@ class GateRepository:
     def _ensure_schema(self) -> None:
         if self._schema_ready:
             return
-        self.database.migrate()
+        self._applications.ensure_schema()
         self._schema_ready = True
+
+    def ensure_schema(self) -> None:
+        self._ensure_schema()
 
     def _resolve_application(self, application_id: str):
         try:
@@ -303,9 +325,14 @@ class GateRepository:
             raise ValueError(f"unknown application: {application_id}") from exc
 
     def _ensure_revision_matches_application(
-        self, application_id: str, revision_id: str
+        self,
+        application_id: str,
+        revision_id: str,
+        *,
+        conn: sqlite3.Connection | None = None,
     ) -> None:
-        row = self.database.fetch_one(
+        row = self._fetch_one(
+            conn,
             """
             SELECT revision_id, application_revision_id, fingerprint
               FROM fit_map_revisions
@@ -386,15 +413,12 @@ class GateRepository:
             return (
                 """SELECT vr.receipt_id
                      FROM validation_receipts AS vr
-                     JOIN gate_dependencies AS gd
-                       ON gd.receipt_id = vr.receipt_id
                     WHERE vr.application_id = ?
                       AND vr.gate = ?
                       AND vr.input_hash = ?
                       AND vr.output_hash = ?
                       AND vr.application_fingerprint = ?
-                      AND gd.dependency_type = 'fit_map_revision'
-                      AND gd.dependency_id = ?
+                      AND vr.revision_id = ?
                     LIMIT 1""",
                 (*parameters, revision_id),
             )
@@ -406,6 +430,7 @@ class GateRepository:
                   AND input_hash = ?
                   AND output_hash = ?
                   AND application_fingerprint = ?
+                  AND revision_id IS NULL
                 LIMIT 1""",
             parameters,
         )
@@ -463,6 +488,26 @@ class GateRepository:
             return None
         return str(row["revision_id"])
 
+    def receipt_for_revision(
+        self, application_id: str, gate: str, revision_id: str
+    ) -> GateReceipt:
+        self._ensure_schema()
+        row = self.database.fetch_one(
+            """SELECT application_id, application_fingerprint, run_id, gate,
+                      validator, input_hash, output_hash, revision_id
+                 FROM validation_receipts
+                WHERE application_id = ? AND gate = ? AND revision_id = ?
+                  AND result = 'passed'
+                ORDER BY created_at DESC, receipt_id DESC
+                LIMIT 1""",
+            (application_id, gate, revision_id),
+        )
+        if row is None:
+            raise ValueError(
+                f"revision {revision_id} has no passed receipt for {gate}"
+            )
+        return GateReceipt(**row)
+
     def _list_receipts(self, application_id: str) -> list[dict[str, Any]]:
         return self.database.fetch_all(
             """
@@ -487,3 +532,13 @@ class GateRepository:
         if not text:
             raise ValueError(f"{field_name} is required")
         return text
+
+    def _fetch_one(
+        self,
+        conn: sqlite3.Connection | None,
+        sql: str,
+        parameters: tuple[Any, ...],
+    ) -> dict[str, Any] | sqlite3.Row | None:
+        if conn is not None:
+            return conn.execute(sql, parameters).fetchone()
+        return self.database.fetch_one(sql, parameters)

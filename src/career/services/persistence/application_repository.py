@@ -352,6 +352,9 @@ class ApplicationRepository:
         self.database.migrate()
         self._schema_ready = True
 
+    def ensure_schema(self) -> None:
+        self._ensure_schema()
+
     def _candidate_for_application_id(self, application_id: str) -> str:
         value = _validate_application_id(application_id)
         row = self.database.fetch_one("SELECT id FROM applications WHERE id = ?", (value,))

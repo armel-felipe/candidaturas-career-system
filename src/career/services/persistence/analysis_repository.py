@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Mapping
 from uuid import uuid4
@@ -114,6 +116,7 @@ class AnalysisRepository:
         source_hash: str,
         *,
         application_revision_id: str | None = None,
+        conn: sqlite3.Connection | None = None,
     ) -> str:
         self._ensure_schema()
         source_hash = str(source_hash or "").strip()
@@ -197,7 +200,12 @@ class AnalysisRepository:
         stories = _normalize_stories(payload.get("stories"))
         scores = _normalize_scores(payload.get("scores"))
 
-        with self.database.transaction(immediate=True) as conn:
+        transaction = (
+            self.database.transaction(immediate=True)
+            if conn is None
+            else nullcontext(conn)
+        )
+        with transaction as conn:
             conn.execute(
                 """INSERT INTO fit_map_revisions
                    (revision_id, application_id, application_revision_id,
@@ -457,6 +465,9 @@ class AnalysisRepository:
             return
         self.database.migrate()
         self._schema_ready = True
+
+    def ensure_schema(self) -> None:
+        self._ensure_schema()
 
     def _latest_application_revision_id(self, application_id: str) -> str | None:
         row = self.database.fetch_one(

@@ -34,7 +34,12 @@ from career.cells.handlers import (
     production_handler_registry,
     production_validator_registry,
 )
-from career.tasks.registry import finalize_fit_map, run_pipeline, run_task
+from career.tasks.registry import (
+    finalize_fit_map,
+    run_fit_map_stage,
+    run_pipeline,
+    run_task,
+)
 from career.utils import CareerError
 from career.workflow.state_store import WorkflowStateStore
 
@@ -904,18 +909,38 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "build":
             draft = str(app_paths.fit_map_draft)
             output = str(app_paths.fit_map)
-            result = run_task("fit_map.build", {"draft": draft, "output": output}, state_store=state_store)
-            print(result)
+            result = run_fit_map_stage(
+                "build",
+                state_store=state_store,
+                draft_path=Path(draft),
+                output_path=Path(output),
+            )
+            print(result["result"])
             return 0
         if args.action == "score":
             path = str(app_paths.fit_map)
-            result = run_task("fit_map.score", {"path": path}, state_store=state_store)
-            print(result)
+            result = run_fit_map_stage(
+                "score",
+                state_store=state_store,
+                draft_path=app_paths.fit_map_draft,
+                output_path=Path(path),
+            )
+            print(result["result"])
             return 0
         if args.action == "validate":
             path = str(app_paths.fit_map)
-            result = run_task("fit_map.validate", {"path": path}, state_store=state_store)
-            _dump(result if args.full else _fit_map_payload_summary("fit_map.validate", result))
+            result = run_fit_map_stage(
+                "validate",
+                state_store=state_store,
+                draft_path=app_paths.fit_map_draft,
+                output_path=Path(path),
+            )
+            payload = result["result"]
+            _dump(
+                payload
+                if args.full
+                else _fit_map_payload_summary("fit_map.validate", payload)
+            )
             return 0
         if args.action == "finalize":
             draft = str(app_paths.fit_map_draft)
