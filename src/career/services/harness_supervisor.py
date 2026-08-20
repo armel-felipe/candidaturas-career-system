@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -8,6 +9,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from career.paths import CAREER_STATE
 from career.services import application_context as application_context_service
@@ -22,7 +24,19 @@ from career.services.router import Router
 from career.services.menu import MenuBuilder
 from career.services.executor import Executor
 from career.services.database import Database
+from career.services.persistence.analysis_repository import AnalysisRepository
+from career.services.persistence.application_repository import (
+    ApplicationNotFoundError,
+    ApplicationRepository,
+)
+from career.services.persistence.artifact_repository import ArtifactRepository
+from career.services.persistence.gate_repository import (
+    REVISION_BOUND_GATES,
+    GateRepository,
+)
+from career.services.workflow import WorkflowService
 from career.workflow.state_store import WorkflowStateStore
+from career.utils import sha256_text
 
 
 LINKEDIN_JOB_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/(?:jobs(?:/view)?|job)/[^\s]+", re.IGNORECASE)
@@ -100,6 +114,73 @@ class DispatchDecision:
         payload = asdict(self)
         payload["parameters"] = self.parameters or {}
         return payload
+
+
+@dataclass(frozen=True)
+class SpecialistContract:
+    """Immutable proof requirements for one completed specialist step.
+
+    Files produced by an agent are only candidates.  Completion is granted
+    exclusively when this declared SQLite-backed contract can be proven.
+    """
+
+    step: str
+    required_artifacts: tuple[str, ...] = ()
+    required_gates: tuple[str, ...] = ()
+    validator: str = "harness_supervisor.contract"
+
+
+@dataclass(frozen=True)
+class SpecialistResult:
+    status: str
+    application_id: str | None
+    run_id: str
+    step: str
+    source_revision_id: str | None
+    positioning_revision_id: str | None
+    artifact_ids: tuple[str, ...] = ()
+    missing_artifacts: tuple[str, ...] = ()
+    missing_gates: tuple[str, ...] = ()
+    blocker_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "application_id": self.application_id,
+            "run_id": self.run_id,
+            "step": self.step,
+            "source_revision_id": self.source_revision_id,
+            "positioning_revision_id": self.positioning_revision_id,
+            "artifact_ids": list(self.artifact_ids),
+            "missing_artifacts": list(self.missing_artifacts),
+            "missing_gates": list(self.missing_gates),
+            "blocker_reason": self.blocker_reason,
+        }
+
+
+DEFAULT_SPECIALIST_CONTRACTS: dict[str, SpecialistContract] = {
+    "fit-map": SpecialistContract(
+        step="fit-map",
+        required_gates=("fit_map_validated",),
+    ),
+    "cv": SpecialistContract(
+        step="cv",
+        required_artifacts=("cv",),
+        required_gates=("cv_review_passed",),
+    ),
+    "cover-letter": SpecialistContract(
+        step="cover-letter",
+        required_artifacts=("cover_letter",),
+    ),
+    "feras": SpecialistContract(
+        step="feras",
+        required_artifacts=("feras",),
+    ),
+    "habilidades": SpecialistContract(
+        step="habilidades",
+        required_artifacts=("gupy_skills",),
+    ),
+}
 
 
 class HarnessSupervisor:
@@ -357,7 +438,370 @@ class HarnessSupervisor:
         from career.services import multiagent as multiagent_service
         return {"status": "prepared", "requests": [self.prepare_specialist(step) for step in multiagent_service.CONTRACTS]}
 
-    def execute_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None, model: str | None = None, variant: str | None = None) -> dict[str, Any]:
+    def execute_specialist(
+        self,
+        application_id: str,
+        contract: SpecialistContract | None = None,
+        *,
+        run_id: str | None = None,
+        objective: str | None = None,
+        extras: dict[str, Any] | None = None,
+        model: str | None = None,
+        variant: str | None = None,
+    ) -> SpecialistResult | dict[str, Any]:
+        """Validate a scoped completion contract or execute the legacy runner path.
+
+        The typed form is the authoritative Task 3.3 interface:
+        ``execute_specialist(application_id, SpecialistContract(...))``.  The
+        string-only form deliberately remains as a compatibility adapter for
+        the existing conversation pipeline while it is migrated in later
+        phases; it cannot be selected by a global pointer because its caller
+        must still provide ``extras.application_id``.
+        """
+        if isinstance(contract, SpecialistContract):
+            return self._execute_scoped_contract(
+                application_id,
+                contract,
+                run_id=run_id,
+            )
+        return self._execute_pipeline_specialist(
+            application_id,
+            objective=objective,
+            extras=extras,
+            model=model,
+            variant=variant,
+        )
+
+    def _execute_scoped_contract(
+        self,
+        application_id: str,
+        contract: SpecialistContract,
+        *,
+        run_id: str | None,
+    ) -> SpecialistResult:
+        scoped_application_id = str(application_id or "").strip()
+        resolved_run_id = str(run_id or "").strip() or f"supervisor_contract_{utc_now_iso()}"
+        if not scoped_application_id:
+            return SpecialistResult(
+                status="blocked",
+                application_id=None,
+                run_id=resolved_run_id,
+                step=contract.step,
+                source_revision_id=None,
+                positioning_revision_id=None,
+                blocker_reason="explicit_application_scope_required",
+            )
+
+        applications = ApplicationRepository(self.db)
+        try:
+            application = applications.resolve(application_id=scoped_application_id)
+        except (ApplicationNotFoundError, ValueError):
+            return SpecialistResult(
+                status="blocked",
+                application_id=scoped_application_id,
+                run_id=resolved_run_id,
+                step=contract.step,
+                source_revision_id=None,
+                positioning_revision_id=None,
+                blocker_reason="unknown_application",
+            )
+
+        analysis = AnalysisRepository(self.db)
+        try:
+            current_analysis = analysis.get_current(application.application_id)
+        except ValueError:
+            return self._blocked_contract_result(
+                application_id=application.application_id,
+                application_fingerprint=application.fingerprint,
+                run_id=resolved_run_id,
+                contract=contract,
+                source_revision_id=None,
+                positioning_revision_id=None,
+                reason="missing_current_fit_map_revision",
+            )
+
+        source_revision_id = current_analysis.revision_id
+        positioning_revision_id = (
+            current_analysis.positioning.revision_id
+            if current_analysis.positioning is not None
+            else None
+        )
+        artifacts = ArtifactRepository(self.db)
+        artifact_ids: list[str] = []
+        missing_artifacts: list[str] = []
+        artifact_failure_reason: str | None = None
+        for kind in contract.required_artifacts:
+            candidates = self._current_artifact_candidates(
+                application.application_id,
+                kind,
+                source_revision_id=source_revision_id,
+                positioning_revision_id=positioning_revision_id,
+            )
+            if not candidates:
+                missing_artifacts.append(kind)
+                continue
+            valid_candidate = None
+            invalid_reason = None
+            for artifact_id in candidates:
+                validation = artifacts.validate_path(artifact_id)
+                if validation.valid:
+                    valid_candidate = artifact_id
+                    break
+                invalid_reason = validation.reason
+            if valid_candidate is None:
+                missing_artifacts.append(kind)
+                artifact_failure_reason = artifact_failure_reason or invalid_reason or "invalid_artifact_provenance"
+                continue
+            artifact_ids.append(valid_candidate)
+
+        gates = GateRepository(self.db)
+        missing_gates = [
+            gate
+            for gate in contract.required_gates
+            if not gates.is_satisfied(
+                application.application_id,
+                gate,
+                revision_id=source_revision_id if gate in REVISION_BOUND_GATES else None,
+            )
+        ]
+        if missing_artifacts or missing_gates:
+            return self._blocked_contract_result(
+                application_id=application.application_id,
+                application_fingerprint=application.fingerprint,
+                run_id=resolved_run_id,
+                contract=contract,
+                source_revision_id=source_revision_id,
+                positioning_revision_id=positioning_revision_id,
+                reason=(
+                    artifact_failure_reason
+                    if missing_artifacts and artifact_failure_reason
+                    else "missing_required_artifact"
+                    if missing_artifacts
+                    else "missing_required_gate"
+                ),
+                missing_artifacts=tuple(missing_artifacts),
+                missing_gates=tuple(missing_gates),
+            )
+
+        result = SpecialistResult(
+            status="completed",
+            application_id=application.application_id,
+            run_id=resolved_run_id,
+            step=contract.step,
+            source_revision_id=source_revision_id,
+            positioning_revision_id=positioning_revision_id,
+            artifact_ids=tuple(artifact_ids),
+        )
+        self._record_contract_event(
+            application_id=application.application_id,
+            application_fingerprint=application.fingerprint,
+            event="specialist_contract_completed",
+            result=result,
+            validator=contract.validator,
+        )
+        return result
+
+    def _current_artifact_candidates(
+        self,
+        application_id: str,
+        kind: str,
+        *,
+        source_revision_id: str,
+        positioning_revision_id: str | None,
+    ) -> tuple[str, ...]:
+        rows = self.db.fetch_all(
+            """SELECT version_id
+                 FROM artifact_versions
+                WHERE application_id = ?
+                  AND kind = ?
+                  AND source_revision_id = ?
+                  AND COALESCE(positioning_revision_id, '') = COALESCE(?, '')
+                ORDER BY created_at DESC, version_id DESC""",
+            (application_id, kind, source_revision_id, positioning_revision_id),
+        )
+        return tuple(str(row["version_id"]) for row in rows)
+
+    def _blocked_contract_result(
+        self,
+        *,
+        application_id: str,
+        application_fingerprint: str | None,
+        run_id: str,
+        contract: SpecialistContract,
+        source_revision_id: str | None,
+        positioning_revision_id: str | None,
+        reason: str,
+        missing_artifacts: tuple[str, ...] = (),
+        missing_gates: tuple[str, ...] = (),
+    ) -> SpecialistResult:
+        result = SpecialistResult(
+            status="blocked",
+            application_id=application_id,
+            run_id=run_id,
+            step=contract.step,
+            source_revision_id=source_revision_id,
+            positioning_revision_id=positioning_revision_id,
+            missing_artifacts=missing_artifacts,
+            missing_gates=missing_gates,
+            blocker_reason=reason,
+        )
+        self._record_contract_event(
+            application_id=application_id,
+            application_fingerprint=application_fingerprint,
+            event="specialist_contract_blocked",
+            result=result,
+            validator=contract.validator,
+        )
+        return result
+
+    def _record_contract_event(
+        self,
+        *,
+        application_id: str,
+        application_fingerprint: str | None,
+        event: str,
+        result: SpecialistResult,
+        validator: str,
+    ) -> None:
+        result_payload = result.to_dict()
+        result_hash = sha256_text(json.dumps(result_payload, sort_keys=True))
+        self._record_contract_receipt(
+            application_id=application_id,
+            application_fingerprint=application_fingerprint,
+            result=result,
+            validator=validator,
+            output_hash=result_hash,
+        )
+        WorkflowService(self.db).record_event(
+            application_id,
+            event,
+            fingerprint=application_fingerprint,
+            metadata={
+                "application_id": application_id,
+                "run_id": result.run_id,
+                "step": result.step,
+                "validator": validator,
+                "reason": result.blocker_reason,
+                "source_revision_id": result.source_revision_id,
+                "positioning_revision_id": result.positioning_revision_id,
+                "artifact_ids": list(result.artifact_ids),
+                "missing_artifacts": list(result.missing_artifacts),
+                "missing_gates": list(result.missing_gates),
+                "result_hash": result_hash,
+            },
+        )
+
+    def _record_contract_receipt(
+        self,
+        *,
+        application_id: str,
+        application_fingerprint: str | None,
+        result: SpecialistResult,
+        validator: str,
+        output_hash: str,
+    ) -> None:
+        """Persist a non-gate receipt for contract evidence.
+
+        ``GateRepository.record`` intentionally accepts only successful named
+        gates.  A failed supervisor contract must still be durable evidence,
+        so this writes a distinct ``specialist_contract`` receipt that cannot
+        satisfy a production gate (consumers require ``result = 'passed'`` and
+        a declared gate name).
+        """
+        created_at = utc_now_iso()
+        contract_input = {
+            "application_id": application_id,
+            "step": result.step,
+            "source_revision_id": result.source_revision_id,
+            "positioning_revision_id": result.positioning_revision_id,
+            "missing_artifacts": list(result.missing_artifacts),
+            "missing_gates": list(result.missing_gates),
+        }
+        input_hash = sha256_text(json.dumps(contract_input, sort_keys=True))
+        details = {
+            **contract_input,
+            "validator": validator,
+            "reason": result.blocker_reason,
+            "artifact_ids": list(result.artifact_ids),
+        }
+        with self.db.transaction(immediate=True) as conn:
+            existing_run = conn.execute(
+                "SELECT application_id FROM application_runs WHERE run_id = ?",
+                (result.run_id,),
+            ).fetchone()
+            if existing_run is None:
+                conn.execute(
+                    """INSERT INTO application_runs
+                           (run_id, application_id, graph_json, status,
+                            contract_version, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        result.run_id,
+                        application_id,
+                        "{}",
+                        result.status,
+                        "supervisor-contract-v1",
+                        created_at,
+                        created_at,
+                    ),
+                )
+            elif str(existing_run["application_id"]) != application_id:
+                raise ValueError("contract run_id belongs to another application")
+
+            node_id = "specialist_contract"
+            node = conn.execute(
+                "SELECT latest_attempt FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+                (result.run_id, node_id),
+            ).fetchone()
+            attempt = int(node["latest_attempt"] or 0) + 1 if node else 1
+            if node is None:
+                conn.execute(
+                    """INSERT INTO cell_nodes
+                           (run_id, node_id, status, requires_json, latest_attempt,
+                            created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        result.run_id,
+                        node_id,
+                        result.status,
+                        "[]",
+                        attempt,
+                        created_at,
+                        created_at,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE cell_nodes
+                           SET latest_attempt = ?, status = ?, updated_at = ?
+                         WHERE run_id = ? AND node_id = ?""",
+                    (attempt, result.status, created_at, result.run_id, node_id),
+                )
+            conn.execute(
+                """INSERT INTO validation_receipts
+                       (receipt_id, application_id, run_id, node_id, attempt,
+                        validator, gate, result, report_path, report_sha256,
+                        details_json, created_at, input_hash, output_hash,
+                        application_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)""",
+                (
+                    f"contract_{uuid4().hex}",
+                    application_id,
+                    result.run_id,
+                    node_id,
+                    attempt,
+                    validator,
+                    "specialist_contract",
+                    result.status,
+                    json.dumps(details, sort_keys=True, separators=(",", ":")),
+                    created_at,
+                    input_hash,
+                    output_hash,
+                    application_fingerprint,
+                ),
+            )
+
+    def _execute_pipeline_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None, model: str | None = None, variant: str | None = None) -> dict[str, Any]:
         if not self.root or not self.runner:
             raise ValueError("HarnessSupervisor requires root and runner to execute specialists.")
         application_id = str((extras or {}).get("application_id") or "").strip()
@@ -440,6 +884,19 @@ class HarnessSupervisor:
                 status = "completed" if auto_execution.get("status") == "completed" else "blocked"
                 if status == "blocked":
                     payload["blocker_reason"] = str(auto_execution.get("blocker_reason") or "approved_action_auto_execution_failed")
+        contract = DEFAULT_SPECIALIST_CONTRACTS.get(step)
+        if status == "completed" and contract is not None:
+            contract_result = self._execute_scoped_contract(
+                application_id,
+                contract,
+                run_id=str(request.get("request_id") or ""),
+            )
+            payload["contract"] = contract_result.to_dict()
+            if contract_result.status != "completed":
+                status = "blocked"
+                payload["blocker_reason"] = str(
+                    contract_result.blocker_reason or "specialist_contract_failed"
+                )
         return {**prepared, "status": status, "execution": payload}
 
     @staticmethod
