@@ -57,15 +57,35 @@ class ContextMaterializer:
         if kind not in SUPPORTED_CONTEXT_KINDS:
             raise ValueError(f"unsupported context kind: {kind}")
         application = self.applications.resolve(application_id=application_id)
-        job_description = self.applications.get_latest_job_description(application.application_id)
         analysis_revision = self._analysis_for(
             application.application_id,
             kind=kind,
             revision_id=revision_id,
         )
+        application_revision_id = (
+            analysis_revision.application_revision_id if analysis_revision else None
+        )
+        application_fingerprint = application.fingerprint
+        if revision_id:
+            if analysis_revision is None or not application_revision_id:
+                raise ValueError(
+                    "pinned fit_map revision does not prove an application revision"
+                )
+            linked_revision = self.applications.get_application_revision(
+                application.application_id, application_revision_id
+            )
+            job_description = self.applications.get_job_description_for_application_revision(
+                application.application_id, application_revision_id
+            )
+            application_fingerprint = linked_revision.fingerprint
+        else:
+            job_description = self.applications.get_latest_job_description(
+                application.application_id
+            )
         context = self._context(
             kind=kind,
             application=application,
+            application_fingerprint=application_fingerprint,
             job_description=job_description,
             analysis_revision=analysis_revision,
         )
@@ -74,9 +94,8 @@ class ContextMaterializer:
             "kind": kind,
             "application_id": application.application_id,
             "source_revision_ids": {
-                "application_revision_id": self.applications.get_current_revision_id(
-                    application.application_id
-                ),
+                "application_revision_id": application_revision_id
+                or self.applications.get_current_revision_id(application.application_id),
                 "job_description_id": job_description.description_id,
                 "fit_map_revision_id": (
                     analysis_revision.revision_id if analysis_revision else None
@@ -106,10 +125,17 @@ class ContextMaterializer:
         application_id: str,
         kind: str,
         destination: Path,
+        *,
+        temporary_root: Path | None = None,
     ) -> ExportReceipt:
         payload = self.build(application_id, kind)
         target = Path(destination).resolve()
-        if not _is_export_destination_allowed(target, application_id):
+        if not _is_export_destination_allowed(
+            target,
+            application_id,
+            workspace_root=self.database.db_path.resolve().parent.parent,
+            temporary_root=temporary_root,
+        ):
             raise ValueError(
                 "export destination must be application-scoped or temporary"
             )
@@ -141,7 +167,15 @@ class ContextMaterializer:
                 return None
             raise
 
-    def _context(self, *, kind: str, application, job_description, analysis_revision) -> dict[str, Any]:
+    def _context(
+        self,
+        *,
+        kind: str,
+        application,
+        application_fingerprint: str | None,
+        job_description,
+        analysis_revision,
+    ) -> dict[str, Any]:
         references = [
             {
                 "reference_id": item.reference_id,
@@ -159,7 +193,7 @@ class ContextMaterializer:
                 "company": application.company,
                 "role": application.role,
                 "notion_id": application.notion_id,
-                "fingerprint": application.fingerprint,
+                "fingerprint": application_fingerprint,
                 "source_type": application.source_type,
                 "source_url": application.source_url,
                 "cv_language": application.cv_language,
@@ -268,13 +302,30 @@ def _analysis_payload(revision: AnalysisRevision) -> dict[str, Any]:
     }
 
 
-def _is_export_destination_allowed(destination: Path, application_id: str) -> bool:
-    parts = destination.parts
-    scoped_parts = ("applications_v2", application_id)
-    if any(parts[index : index + 2] == scoped_parts for index in range(len(parts) - 1)):
-        return True
+def _is_export_destination_allowed(
+    destination: Path,
+    application_id: str,
+    *,
+    workspace_root: Path,
+    temporary_root: Path | None,
+) -> bool:
+    canonical_application_root = (
+        workspace_root.resolve()
+        / ".career-state"
+        / "applications_v2"
+        / application_id
+    )
     try:
-        destination.relative_to(Path(tempfile.gettempdir()).resolve())
+        destination.relative_to(canonical_application_root)
+        return True
+    except ValueError:
+        pass
+    if temporary_root is None:
+        return False
+    declared_temporary_root = Path(temporary_root).resolve()
+    try:
+        declared_temporary_root.relative_to(Path(tempfile.gettempdir()).resolve())
+        destination.relative_to(declared_temporary_root)
         return True
     except ValueError:
         return False

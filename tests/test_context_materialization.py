@@ -66,6 +66,20 @@ class ContextMaterializerTests(unittest.TestCase):
                     "2026-08-20T00:00:00+00:00",
                 ),
             )
+            conn.execute(
+                """INSERT INTO application_revisions
+                   (revision_id, application_id, revision_kind, fingerprint, source_hash, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    f"description-revision-{application_id}",
+                    application_id,
+                    "job_description",
+                    f"intake-{application_id}",
+                    f"description-{application_id}",
+                    json.dumps({"job_description_id": f"job-{application_id}"}),
+                    "2999-01-01T00:00:00+00:00",
+                ),
+            )
 
     def _create_analysis(self, application_id: str, fingerprint: str, keyword: str, story: str) -> str:
         revision_id = self.analysis.create_revision(

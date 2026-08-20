@@ -10,6 +10,7 @@ from unittest import mock
 from career import cli
 from career.services import application_context, intake, multiagent
 from career.services.database import Database
+from career.services.persistence.analysis_repository import AnalysisRepository
 from career.utils import CareerError, ValidationFailure, read_json, write_json
 
 
@@ -57,6 +58,19 @@ class IdentityFirewallRequestAndHabilidadesTests(unittest.TestCase):
                 "empresa": "Conexa scoped",
             },
         )
+        AnalysisRepository(self.database).create_revision(
+            record.application_id,
+            {
+                "metadata": {"job_fingerprint": record.fingerprint},
+                "stories": [
+                    {
+                        "story_key": "canonical",
+                        "narrative": "Canonical SQLite story",
+                    }
+                ],
+            },
+            source_hash=record.fingerprint,
+        )
         return record, paths
 
     def test_explicit_multiagent_request_uses_only_its_application_paths(self):
@@ -68,8 +82,6 @@ class IdentityFirewallRequestAndHabilidadesTests(unittest.TestCase):
                 {"cargo": "GLOBAL WRONG VACANCY", "empresa": "Wrong"},
             )
             with mock.patch.object(
-                multiagent, "_prepare_scoped_compact_inputs"
-            ) as prepare, mock.patch.object(
                 multiagent.derived_context_service,
                 "configure_derived_dir",
                 side_effect=AssertionError("global derived adapter must not run"),
@@ -84,10 +96,13 @@ class IdentityFirewallRequestAndHabilidadesTests(unittest.TestCase):
                     database=self.database,
                 )
 
-        prepare.assert_called_once_with("feras", paths, database=self.database)
         payload = read_json(self.root / result["request_json"])
         self.assertEqual(payload["application_id"], record.application_id)
-        self.assertEqual(payload["fit_map"]["cargo"], "Diretor de Growth scoped")
+        self.assertEqual(payload["fit_map"]["cargo"], "Diretor de Growth")
+        self.assertIn(
+            "Canonical SQLite story",
+            str(payload["derived_context"]["context"]),
+        )
         self.assertTrue(
             all(
                 ".career-state/fit_map.json" not in item
@@ -95,9 +110,8 @@ class IdentityFirewallRequestAndHabilidadesTests(unittest.TestCase):
                 for item in payload["allowed_files"]
             )
         )
-        self.assertIn(
-            ".career-state/applications_v2/notion_578/fit_map.json",
-            payload["allowed_files"],
+        self.assertFalse(
+            any(item.endswith("fit_map.json") or "/derived/" in item for item in payload["allowed_files"])
         )
         self.assertTrue((self.root / result["request_json"]).is_file())
 

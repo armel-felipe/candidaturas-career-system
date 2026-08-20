@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -95,6 +96,17 @@ class JobDescriptionRecord:
     language: str | None
     content: str
     content_hash: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class ApplicationRevisionRecord:
+    revision_id: str
+    application_id: str
+    revision_kind: str
+    fingerprint: str | None
+    source_hash: str | None
+    payload: dict[str, Any]
     created_at: str
 
 
@@ -267,15 +279,60 @@ class ApplicationRepository:
         )
         if row is None:
             raise ValueError(f"no job description found for {application_id}")
-        return JobDescriptionRecord(
-            description_id=str(row["description_id"]),
+        return self._job_description_from_row(row)
+
+    def get_application_revision(
+        self, application_id: str, revision_id: str
+    ) -> ApplicationRevisionRecord:
+        """Load one immutable application revision within an explicit scope."""
+        self.resolve(application_id=application_id)
+        row = self.database.fetch_one(
+            """SELECT revision_id, application_id, revision_kind, fingerprint,
+                      source_hash, payload_json, created_at
+               FROM application_revisions
+               WHERE revision_id = ? AND application_id = ?""",
+            (revision_id, application_id),
+        )
+        if row is None:
+            raise ValueError("application revision must belong to the same application")
+        try:
+            payload = json.loads(str(row["payload_json"] or "{}"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("application revision payload is invalid") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("application revision payload must be an object")
+        return ApplicationRevisionRecord(
+            revision_id=str(row["revision_id"]),
             application_id=str(row["application_id"]),
-            source_id=str(row["source_id"]) if row["source_id"] else None,
-            language=str(row["language"]) if row["language"] else None,
-            content=str(row["content"]),
-            content_hash=str(row["content_hash"]),
+            revision_kind=str(row["revision_kind"]),
+            fingerprint=str(row["fingerprint"]) if row["fingerprint"] else None,
+            source_hash=str(row["source_hash"]) if row["source_hash"] else None,
+            payload=payload,
             created_at=str(row["created_at"]),
         )
+
+    def get_job_description_for_application_revision(
+        self, application_id: str, revision_id: str
+    ) -> JobDescriptionRecord:
+        """Load only the description explicitly linked by an application revision."""
+        revision = self.get_application_revision(application_id, revision_id)
+        description_id = str(revision.payload.get("job_description_id") or "").strip()
+        if not description_id:
+            raise ValueError(
+                "application revision does not prove a linked job description"
+            )
+        row = self.database.fetch_one(
+            """SELECT description_id, application_id, source_id, language, content,
+                      content_hash, created_at
+               FROM job_descriptions
+               WHERE description_id = ? AND application_id = ?""",
+            (description_id, application_id),
+        )
+        if row is None:
+            raise ValueError(
+                "application revision references a missing job description"
+            )
+        return self._job_description_from_row(row)
 
     def get_current_revision_id(self, application_id: str) -> str | None:
         """Return the latest canonical application revision without consulting JSON."""
@@ -367,6 +424,18 @@ class ApplicationRepository:
             fit_map_path=str(row["fit_map_path"]) if row["fit_map_path"] else None,
             cv_path=str(row["cv_path"]) if row["cv_path"] else None,
             aliases=aliases,
+        )
+
+    @staticmethod
+    def _job_description_from_row(row: sqlite3.Row | dict[str, Any]) -> JobDescriptionRecord:
+        return JobDescriptionRecord(
+            description_id=str(row["description_id"]),
+            application_id=str(row["application_id"]),
+            source_id=str(row["source_id"]) if row["source_id"] else None,
+            language=str(row["language"]) if row["language"] else None,
+            content=str(row["content"]),
+            content_hash=str(row["content_hash"]),
+            created_at=str(row["created_at"]),
         )
 
     def _aliases_for(self, application_id: str) -> dict[str, str]:

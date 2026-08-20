@@ -194,76 +194,19 @@ def _scoped_allowed_files_for(
     active: dict[str, Any] | None,
     app_paths,
 ) -> list[str]:
-    """Build request inputs from one application directory, never globals."""
-    derived = app_paths.derived_dir
-    materialized_names = {
-        "fit-map": "fit_map_seed.json",
-        "cv": "cv_input_pack.json",
-        "feras": "feras_input_pack.json",
-        "habilidades": "habilidades_input_pack.json",
-    }
-    if contract.step in materialized_names:
-        files = [derived / materialized_names[contract.step]]
-        if contract.step == "fit-map":
-            files.insert(0, app_paths.fit_map_draft)
-        else:
-            # This scoped FIT_MAP is compatibility evidence only. The request
-            # context itself is the in-memory SQLite materialization above.
-            files.insert(0, app_paths.fit_map)
-        if contract.step == "cv":
-            files.extend(
-                [
-                    Path(".agents/skills/cv-generator/SKILL.md"),
-                    Path("scripts/docx/generate_custom_cv.js"),
-                ]
-            )
-    elif contract.step == "fit-map":
-        files = [
-            app_paths.fit_map_draft,
-            app_paths.job_description,
-            *[
-                derived / name
-                for name in (
-                    "active_context.json",
-                    "job_extract.json",
-                    "job_sections.json",
-                    "job_requirements.json",
-                    "job_responsibilities.json",
-                    "job_company_context.json",
-                    "job_keywords.json",
-                    "reference_digest.json",
-                    "candidate_evidence_pack.json",
-                    "candidate_evidence_by_theme.json",
-                    "fit_map_seed.json",
-                    "manifest.json",
-                )
-            ],
-        ]
-    elif contract.step in {"cv", "cover-letter", "feras", "habilidades"}:
-        input_name = {
-            "cv": "cv_input_pack.json",
-            "cover-letter": "cover_letter_input_pack.json",
-            "feras": "feras_input_pack.json",
-            "habilidades": "habilidades_input_pack.json",
-        }[contract.step]
-        files = [
-            app_paths.fit_map,
-            derived / input_name,
-            derived / "reference_digest.json",
-            derived / "manifest.json",
-        ]
-        if contract.step == "cv":
-            files.extend(
-                [
-                    derived / "cv_content_seed.json",
-                    Path(".agents/skills/cv-generator/SKILL.md"),
-                    Path("scripts/docx/generate_custom_cv.js"),
-                ]
-            )
-    else:
-        files = [Path(item) for item in contract.allowed_files if item.startswith(".agents/")]
-    if active and isinstance(active.get("job_description_path"), str):
-        files.append(app_paths.job_description)
+    """Expose only static instructions; specialist context is embedded from SQLite."""
+    files = [
+        Path(item)
+        for item in contract.allowed_files
+        if item.startswith(".agents/") or item.startswith("scripts/")
+    ]
+    if contract.step == "cv":
+        files.extend(
+            [
+                Path(".agents/skills/cv-generator/SKILL.md"),
+                Path("scripts/docx/generate_custom_cv.js"),
+            ]
+        )
     return [
         _scoped_relative_path(path) if path.exists() else f"{_scoped_relative_path(path)} (missing_ok)"
         for path in files
@@ -298,20 +241,9 @@ def _scoped_derived_context_payload(
             # JSON export is a compatibility copy and is never read here.
             "context": materialized_context.get("context"),
         }
-    if contract.step not in {"fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update"}:
-        return None
-    manifest_path = app_paths.derived_dir / "manifest.json"
-    if not manifest_path.is_file():
-        return {"status": "blocked", "missing_outputs": ["derived_context_unavailable"]}
-    manifest = read_json(manifest_path)
-    if not isinstance(manifest, dict) or manifest.get("application_id") != app_paths.application_id:
-        return {"status": "blocked", "missing_outputs": ["derived_context_scope_mismatch"]}
-    return {
-        "status": "ok",
-        "application_id": app_paths.application_id,
-        "manifest_path": _scoped_relative_path(manifest_path),
-        "fingerprint": manifest.get("fingerprint"),
-    }
+    if contract.step in {"fit-map", "cv", "cover-letter", "feras", "habilidades", "notion-update"}:
+        return {"status": "blocked", "missing_outputs": ["sqlite_context_unavailable"]}
+    return None
 
 
 def _prepare_scoped_compact_inputs(
@@ -350,10 +282,17 @@ def _fit_map_summary(
     *,
     fit_map_path: Path,
     state_store: WorkflowStateStore,
+    materialized_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if not fit_map_path.exists():
-        return {"exists": False}
-    payload = read_json(fit_map_path)
+    if materialized_context is None:
+        return {"exists": False, "authority": "sqlite_context_unavailable"}
+    context = materialized_context.get("context")
+    if not isinstance(context, dict):
+        return {"exists": False, "authority": "sqlite_context_invalid"}
+    analysis = context.get("analysis")
+    if not isinstance(analysis, dict):
+        return {"exists": False, "authority": "sqlite_analysis_unavailable"}
+    application = context.get("application") if isinstance(context.get("application"), dict) else {}
     active_fingerprint = active.get("fingerprint") if isinstance(active, dict) else None
     try:
         state = state_store.load()
@@ -373,25 +312,21 @@ def _fit_map_summary(
             "active_intake": active if isinstance(active, dict) else None,
             "active_application_id": expected_application or None,
         }
-    task_fingerprints = state.get("fingerprints") if isinstance(state.get("fingerprints"), dict) else {}
-    fit_map_task = None
-    for task_name in ("fit_map.validate", "fit_map.score", "fit_map.build"):
-        task_payload = task_fingerprints.get(task_name)
-        if isinstance(task_payload, dict):
-            fit_map_task = task_payload
-            break
-    fit_map_fingerprint = fit_map_task.get("active_job_fingerprint") if isinstance(fit_map_task, dict) else None
+    fit_map_fingerprint = analysis.get("fingerprint")
     matches_active_job = bool(active_fingerprint and fit_map_fingerprint == active_fingerprint)
+    analysis_payload = analysis.get("payload") if isinstance(analysis.get("payload"), dict) else {}
     return {
         "exists": True,
-        "cargo": payload.get("cargo"),
-        "empresa": payload.get("empresa"),
-        "nota_final": (payload.get("nota_aderencia") or {}).get("final")
-        if isinstance(payload.get("nota_aderencia"), dict)
-        else None,
+        "cargo": application.get("role"),
+        "empresa": application.get("company"),
+        "nota_final": analysis.get("score_final")
+        or ((analysis_payload.get("nota_aderencia") or {}).get("final")
+            if isinstance(analysis_payload.get("nota_aderencia"), dict)
+            else None),
         "active_job_fingerprint": active_fingerprint,
         "fit_map_job_fingerprint": fit_map_fingerprint,
         "matches_active_job": matches_active_job,
+        "authority": "sqlite_materialized",
     }
 
 
@@ -581,6 +516,7 @@ def write_request(
             active,
             fit_map_path=app_paths.fit_map,
             state_store=state_store,
+            materialized_context=materialized_context,
         ),
         "cellular": bool(cellular_context),
         "application_id": scoped_application_id,
@@ -803,21 +739,18 @@ def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
         "Nunca imprimir FIT_MAP, draft, registry, cache Notion, descrição longa ou diff gigante na conversa.",
         "Ao validar, reportar somente passed/failed, contagens, paths e erros objetivos; não colar payload validado.",
         "Para JSON, preferir projeções pequenas ou leitura segmentada; não usar cat em artefatos grandes.",
+        "Use Derived Context.context, materializado em memória a partir do SQLite, como contexto primário; exports de compatibilidade não são entrada operacional.",
     ]
     if contract.step == "fit-map":
         rules.extend(
             [
                 (
-                    "Caminho feliz: ler primeiro os arquivos compactos em "
-                    f"{_scoped_relative_path(app_paths.derived_dir)} e usar "
-                    f"{_scoped_relative_path(app_paths.job_description)} apenas como fallback."
+                    "Caminho feliz: usar o contexto SQLite embutido neste request; só consultar uma fonte adicional quando houver lacuna objetiva."
                 ),
-                "Ler active_intake.job_description_path antes de editar o draft somente se os arquivos derivados nao forem suficientes.",
-                "Usar reference_digest, candidate_evidence_pack e fit_map_seed como contexto primario.",
+                "Não usar FIT_MAP local ou packs exportados para substituir o contexto materializado.",
                 "Arquivos de referencia longa ficam em Fallback Reference Files; abrir apenas se evidence_pack ou digest nao resolverem uma lacuna objetiva.",
                 (
-                    "Se Current FIT_MAP.matches_active_job for false, tratar "
-                    f"{_scoped_relative_path(app_paths.fit_map)} como antigo e nao reutilizar."
+                    "Se o resumo SQLite não corresponder à candidatura ativa, bloquear e não reutilizar contexto antigo."
                 ),
                 (
                     "Se fit-map:status indicar draft.valid_json=false, rodar "
@@ -854,17 +787,14 @@ def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
         rules.extend(
             [
                 (
-                    "Usar "
-                    f"{_scoped_relative_path(app_paths.derived_dir / 'cv_input_pack.json')} como contexto primario; "
-                    "nao reabrir referencias longas no caminho feliz."
+                    "Usar o contexto SQLite embutido como contexto primário; não reabrir referências longas no caminho feliz."
                 ),
                 (
                     f"Gerar {_scoped_relative_path(app_paths.cv_content)} antes do DOCX e validar "
                     "se ele pertence a vaga ativa."
                 ),
                 (
-                    f"Confirmar que {_scoped_relative_path(app_paths.fit_map)} existe e pertence "
-                    "a vaga ativa antes de gerar CV."
+                    "Confirmar que a análise SQLite embutida pertence à vaga ativa antes de gerar CV."
                 ),
                 (
                     "Rodar npm run context:assert-active "
@@ -889,9 +819,7 @@ def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
         rules.extend(
             [
                 (
-                    "Usar "
-                    f"{_scoped_relative_path(app_paths.derived_dir / 'cover_letter_input_pack.json')} como contexto primario; "
-                    "nao reler referencias longas no caminho feliz."
+                    "Usar o contexto SQLite embutido como contexto primário; não reler referências longas no caminho feliz."
                 ),
                 "Persistir primeiro a carta em Markdown e depois converter/entregar o PDF se a etapa pedir.",
                 "Bloquear se o pack estiver faltando, se houver placeholders ou se o texto usar claims nao defensaveis.",
@@ -902,9 +830,7 @@ def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
         rules.extend(
             [
                 (
-                    "Usar "
-                    f"{_scoped_relative_path(app_paths.derived_dir / 'feras_input_pack.json')} como contexto primario; "
-                    "nao reler referencias longas no caminho feliz."
+                    "Usar o contexto SQLite embutido como contexto primário; não reler referências longas no caminho feliz."
                 ),
                 "Persistir o FERAS em arquivo local antes de qualquer exibicao longa na conversa.",
                 "A entrega precisa conter FERAS estruturado, pitch fluido e auditoria de keywords usadas/omitidas.",
@@ -915,8 +841,7 @@ def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
         rules.extend(
             [
                 (
-                    "Usar "
-                    f"{_scoped_relative_path(app_paths.derived_dir / 'habilidades_input_pack.json')} como contexto primario."
+                    "Usar o contexto SQLite embutido como contexto primário."
                 ),
                 "Gerar arquivos separados para Gupy e Mercado Livre.",
                 "Validar cada arquivo contra seu catalogo e contagem esperada.",
