@@ -251,6 +251,7 @@ def _scoped_allowed_files_for(
 
 def _scoped_expected_outputs_for(contract: AgentContract, app_paths) -> list[str]:
     names = {
+        "fit-map": "fit_map.draft.json",
         "feras": "feras_formal.md",
         "habilidades": "habilidades_gupy.md",
         "cover-letter": "cover_letter.md",
@@ -532,11 +533,15 @@ def write_request(
         "expected_outputs": cellular_context["write_allowlist"] if cellular_context else _scoped_expected_outputs_for(contract, app_paths),
         "forbidden_actions": list(contract.forbidden_actions),
         "validation_commands": list(contract.validation_commands),
-        "operational_rules": cellular_operational_rules(cellular_context) if cellular_context else _operational_rules(contract),
+        "operational_rules": (
+            cellular_operational_rules(cellular_context)
+            if cellular_context
+            else _operational_rules(contract, app_paths)
+        ),
         "non_stop_contract": (
             ["Complete only this cell node; never continue into another node or a legacy/global pipeline."]
             if cellular_context
-            else _non_stop_contract(contract)
+            else _non_stop_contract(contract, app_paths)
         ),
         "completion_contract": {
             "status_values": ["completed", "blocked"],
@@ -683,26 +688,41 @@ def _fallback_reference_files_for(contract: AgentContract) -> list[str]:
     return []
 
 
-def _non_stop_contract(contract: AgentContract) -> list[str]:
+def _non_stop_contract(contract: AgentContract, app_paths) -> list[str]:
+    application_id = app_paths.application_id
     if contract.step == "fit-map":
         return [
             "Pedido do usuario: avaliar/analisar vaga.",
             "Nao parar depois de extrair/salvar a descricao, gerar template, rodar guard, ler request ou validar draft.",
-            "Se rodando via HarnessSupervisor especialista: parar somente apos escrever .career-state/fit_map.draft.json e validate:fit-map:draft passar; o harness finaliza automaticamente.",
-            "Se rodando como Hermes/OpenCode/Codex direto no workspace: continuar ate .career-state/fit_map.json existir para a vaga ativa, fit-map:summary passar e validate:fit-map:quality passar.",
+            (
+                "Se rodando via HarnessSupervisor especialista: parar somente apos escrever "
+                f"{_scoped_relative_path(app_paths.fit_map_draft)} e rodar "
+                f"npm run validate:fit-map:draft -- --application-id {application_id}; "
+                "o harness finaliza automaticamente."
+            ),
+            (
+                "Se rodando como Hermes/OpenCode/Codex direto no workspace: continuar ate "
+                f"{_scoped_relative_path(app_paths.fit_map)} existir, rodar "
+                f"npm run fit-map:summary -- --application-id {application_id} e "
+                f"npm run validate:fit-map:quality -- --application-id {application_id}."
+            ),
             "Resposta final esperada: resumo curto da aderencia com nota oficial e menu: registrar no Notion, gerar CV, pitch FERAS, carta ou habilidades.",
             "Se nao conseguir chegar nesse estado, declarar execucao parcial/bloqueada com o ultimo comando executado e blocker_reason objetivo.",
         ]
     if contract.step == "cv":
         return [
-            "Pedido de CV nao termina em texto: termina com DOCX validado em outputs/ e cv:deliver/cv:approve executado conforme configuracao.",
+            (
+                "Pedido de CV nao termina em texto: termina com DOCX validado em outputs/ e "
+                f"cv:deliver/cv:approve executado com --application-id {application_id}, conforme configuracao."
+            ),
         ]
     return [
         "Nao tratar comando intermediario bem-sucedido como conclusao se Expected Outputs ainda nao existir ou validacao obrigatoria nao passou.",
     ]
 
 
-def _operational_rules(contract: AgentContract) -> list[str]:
+def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
+    application_id = app_paths.application_id
     rules = [
         "Ler este request antes de qualquer arquivo longo.",
         "Operar somente nos arquivos e comandos permitidos.",
@@ -715,13 +735,26 @@ def _operational_rules(contract: AgentContract) -> list[str]:
     if contract.step == "fit-map":
         rules.extend(
             [
-                "Caminho feliz: ler primeiro os arquivos compactos em .career-state/derived/ e usar active_intake.job_description_path apenas como fallback.",
+                (
+                    "Caminho feliz: ler primeiro os arquivos compactos em "
+                    f"{_scoped_relative_path(app_paths.derived_dir)} e usar "
+                    f"{_scoped_relative_path(app_paths.job_description)} apenas como fallback."
+                ),
                 "Ler active_intake.job_description_path antes de editar o draft somente se os arquivos derivados nao forem suficientes.",
                 "Usar reference_digest, candidate_evidence_pack e fit_map_seed como contexto primario.",
                 "Arquivos de referencia longa ficam em Fallback Reference Files; abrir apenas se evidence_pack ou digest nao resolverem uma lacuna objetiva.",
-                "Se Current FIT_MAP.matches_active_job for false, tratar .career-state/fit_map.json como antigo e nao reutilizar.",
-                "Se fit-map:status indicar draft.valid_json=false, rodar npm run fit-map:template antes de editar.",
-                "Se .career-state/fit_map.draft.json tiver placeholders, a proxima acao e editar o arquivo.",
+                (
+                    "Se Current FIT_MAP.matches_active_job for false, tratar "
+                    f"{_scoped_relative_path(app_paths.fit_map)} como antigo e nao reutilizar."
+                ),
+                (
+                    "Se fit-map:status indicar draft.valid_json=false, rodar "
+                    f"npm run fit-map:template -- --application-id {application_id} antes de editar."
+                ),
+                (
+                    f"Se {_scoped_relative_path(app_paths.fit_map_draft)} tiver placeholders, "
+                    "a proxima acao e editar o arquivo."
+                ),
                 "Preferir substituir o JSON inteiro por um objeto completo e valido; nao aplicar patches parciais que quebrem a estrutura.",
                 "Leitura do draft sem edicao nao conta como progresso.",
                 "Intake concluido nao e conclusao da analise; e apenas pre-requisito para preencher o draft.",
@@ -731,22 +764,51 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Nao pedir ao usuario para abrir editor, preencher campos ou substituir marcadores.",
                 "Nao colar o JSON bruto do template na conversa.",
                 "Nao colar o FIT_MAP/draft completo nem diffs longos na conversa; usar o arquivo como fonte de verdade.",
-                "Depois de qualquer edicao, rodar npm run validate:fit-map:draft antes de responder.",
+                (
+                    "Depois de qualquer edicao, rodar npm run validate:fit-map:draft "
+                    f"-- --application-id {application_id} antes de responder."
+                ),
                 "Se a validacao falhar, corrigir o arquivo e reexecutar; nao entregar proximos passos ao usuario.",
-                "Se estiver rodando como sessao local direta, fora do HarnessSupervisor, depois de validate:fit-map:draft passar execute npm run fit-map:finalize, npm run fit-map:summary e npm run validate:fit-map:quality antes de responder.",
+                (
+                    "Se estiver rodando como sessao local direta, fora do HarnessSupervisor, depois de "
+                    "validate:fit-map:draft passar execute "
+                    f"npm run fit-map:finalize -- --application-id {application_id}, "
+                    f"npm run fit-map:summary -- --application-id {application_id} e "
+                    f"npm run validate:fit-map:quality -- --application-id {application_id} antes de responder."
+                ),
             ]
         )
     elif contract.step == "cv":
         rules.extend(
             [
-                "Usar .career-state/derived/cv_input_pack.json como contexto primario; nao reabrir referencias longas no caminho feliz.",
-                "Gerar .career-state/cv_content.json antes do DOCX e validar se ele pertence a vaga ativa.",
-                "Confirmar que .career-state/fit_map.json existe e pertence a vaga ativa antes de gerar CV.",
-                "Rodar npm run context:assert-active antes do DOCX; se acusar stale, regenerar artefatos em vez de reaproveitar estado residual.",
-                "Rodar npm run cv:build-content e npm run cv:validate-content antes do DOCX.",
+                (
+                    "Usar "
+                    f"{_scoped_relative_path(app_paths.derived_dir / 'cv_input_pack.json')} como contexto primario; "
+                    "nao reabrir referencias longas no caminho feliz."
+                ),
+                (
+                    f"Gerar {_scoped_relative_path(app_paths.cv_content)} antes do DOCX e validar "
+                    "se ele pertence a vaga ativa."
+                ),
+                (
+                    f"Confirmar que {_scoped_relative_path(app_paths.fit_map)} existe e pertence "
+                    "a vaga ativa antes de gerar CV."
+                ),
+                (
+                    "Rodar npm run context:assert-active "
+                    f"-- --application-id {application_id} antes do DOCX; se acusar stale, "
+                    "regenerar artefatos em vez de reaproveitar estado residual."
+                ),
+                (
+                    f"Rodar npm run cv:build-content -- --application-id {application_id} e "
+                    f"npm run cv:validate-content -- --application-id {application_id} antes do DOCX."
+                ),
                 "Gerar ou atualizar o conteudo/DOCX em outputs/; nao entregar apenas texto na conversa.",
-                "Rodar npm run validate:docx no DOCX gerado.",
-                "Rodar npm run cv:deliver -- --artifact outputs/<cv>.docx no artefato final quando OneDrive/rclone estiver configurado.",
+                f"Rodar npm run validate:docx -- --application-id {application_id} no DOCX gerado.",
+                (
+                    "Rodar npm run cv:deliver -- --artifact outputs/<cv>.docx "
+                    f"--application-id {application_id} no artefato final quando OneDrive/rclone estiver configurado."
+                ),
                 "Se cv:deliver falhar por reprovação do gate, corrigir o artefato e reexecutar; se falhar só por rclone, declarar arquivo local aprovado e entrega remota bloqueada.",
                 "Nao limpar outputs/_tmp antes de output_review_report.json e polish_review.json estarem coerentes com o artefato final.",
             ]
@@ -754,7 +816,11 @@ def _operational_rules(contract: AgentContract) -> list[str]:
     elif contract.step == "cover-letter":
         rules.extend(
             [
-                "Usar .career-state/derived/cover_letter_input_pack.json como contexto primario; nao reler referencias longas no caminho feliz.",
+                (
+                    "Usar "
+                    f"{_scoped_relative_path(app_paths.derived_dir / 'cover_letter_input_pack.json')} como contexto primario; "
+                    "nao reler referencias longas no caminho feliz."
+                ),
                 "Persistir primeiro a carta em Markdown e depois converter/entregar o PDF se a etapa pedir.",
                 "Bloquear se o pack estiver faltando, se houver placeholders ou se o texto usar claims nao defensaveis.",
                 "Responder com caminho, status e validacao objetiva; nao colar a carta completa na conversa como substituto do arquivo.",
@@ -763,7 +829,11 @@ def _operational_rules(contract: AgentContract) -> list[str]:
     elif contract.step == "feras":
         rules.extend(
             [
-                "Usar .career-state/derived/feras_input_pack.json como contexto primario; nao reler referencias longas no caminho feliz.",
+                (
+                    "Usar "
+                    f"{_scoped_relative_path(app_paths.derived_dir / 'feras_input_pack.json')} como contexto primario; "
+                    "nao reler referencias longas no caminho feliz."
+                ),
                 "Persistir o FERAS em arquivo local antes de qualquer exibicao longa na conversa.",
                 "A entrega precisa conter FERAS estruturado, pitch fluido e auditoria de keywords usadas/omitidas.",
                 "Bloquear se houver placeholders, claims nao defensaveis ou tom promocional.",
@@ -772,7 +842,10 @@ def _operational_rules(contract: AgentContract) -> list[str]:
     elif contract.step == "habilidades":
         rules.extend(
             [
-                "Usar .career-state/derived/habilidades_input_pack.json como contexto primario.",
+                (
+                    "Usar "
+                    f"{_scoped_relative_path(app_paths.derived_dir / 'habilidades_input_pack.json')} como contexto primario."
+                ),
                 "Gerar arquivos separados para Gupy e Mercado Livre.",
                 "Validar cada arquivo contra seu catalogo e contagem esperada.",
                 "Nunca converter texto de um catalogo para parecer item do outro.",
@@ -781,8 +854,12 @@ def _operational_rules(contract: AgentContract) -> list[str]:
     elif contract.step == "notion-update":
         rules.extend(
             [
-                "Usar .career-state/derived/job_extract.json e o FIT_MAP ativo como contexto primario para o dry-run.",
-                "Resolver a origem pelo estado ativo e preferir atualizar a mesma pagina quando a vaga nasceu no Notion.",
+                (
+                    "Usar "
+                    f"{_scoped_relative_path(app_paths.derived_dir / 'job_extract.json')} e "
+                    f"{_scoped_relative_path(app_paths.fit_map)} como contexto primario para o dry-run."
+                ),
+                "Resolver a origem pela candidatura declarada e preferir atualizar a mesma pagina quando a vaga nasceu no Notion.",
                 "Executar o dry-run primeiro e gravar a pending action canonica.",
                 "Se a policy notion_write=explicit_request e o usuario pediu explicitamente criar/atualizar/salvar no Notion, o harness pode executar a escrita real sem segunda confirmacao.",
                 "Se o pedido for de previa, preview ou dry-run, manter apenas o dry-run e nao disparar a escrita real.",
@@ -812,7 +889,10 @@ def _operational_rules(contract: AgentContract) -> list[str]:
                 "Usar intake:linkedin-job ou intake:linkedin-post quando a extracao alimentar analise/FIT_MAP.",
                 "Se a sessao estiver expirada, rodar ou solicitar npm run linkedin:auth; nao usar browser/web_search generico.",
                 "Confirmar que a descricao foi persistida em inbox/job_descriptions/ ou inbox/linkedin_posts/.",
-                "Confirmar active_intake e allowed_next_action com npm run agent:guard quando a extracao for para analise.",
+                (
+                    "Confirmar active_intake e allowed_next_action com npm run agent:guard "
+                    f"-- --application-id {application_id} --fingerprint <fingerprint> quando a extracao for para analise."
+                ),
                 "Nao analisar a URL diretamente e nao inventar dados ausentes.",
             ]
         )

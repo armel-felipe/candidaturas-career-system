@@ -33,6 +33,8 @@ class IdentityFirewallRequestAndHabilidadesTests(unittest.TestCase):
             intake, "CAREER_STATE", self.career_state
         ), mock.patch.object(intake, "INBOX", self.root / "inbox"), mock.patch.object(
             multiagent, "ROOT", self.root
+        ), mock.patch.object(
+            application_context, "canonical_database", return_value=self.database
         ):
             yield
 
@@ -118,7 +120,7 @@ class IdentityFirewallRequestAndHabilidadesTests(unittest.TestCase):
 
     def test_habilidades_cli_uses_application_fit_map_and_rejects_foreign_override(self):
         with self._application_runtime():
-            paths = application_context.paths_for("notion_578")
+            _record, paths = self._application()
             foreign_fit_map = self.career_state / "fit_map.json"
             with mock.patch.object(
                 cli.habilidades_chave_service,

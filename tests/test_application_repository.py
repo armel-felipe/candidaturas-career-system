@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -127,7 +128,7 @@ class ApplicationRepositoryTests(unittest.TestCase):
                 "fp-latest",
                 "fp-latest",
                 "{}",
-                "2026-08-19T12:00:00+00:00",
+                (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
             ),
         )
 

@@ -255,18 +255,18 @@ npm run cv:deliver -- --artifact outputs/<cv>.docx                # aprova e ent
 ## Artefatos compactos derivados — comandos exatos
 
 ```bash
-npm run derive:cv-input-pack
-npm run derive:cv-content-seed
-npm run derive:feras-input-pack
-npm run derive:cover-letter-input-pack
-npm run derive:all-for-fit-map
-npm run context:validate
-npm run context:doctor
-npm run context:invalidate-stale
+npm run derive:cv-input-pack -- --application-id "<id>"
+npm run derive:cv-content-seed -- --application-id "<id>"
+npm run derive:feras-input-pack -- --application-id "<id>"
+npm run derive:cover-letter-input-pack -- --application-id "<id>"
+npm run derive:all-for-fit-map -- --application-id "<id>"
+npm run context:validate -- --application-id "<id>"
+npm run context:doctor -- --application-id "<id>"
+npm run context:invalidate-stale -- --application-id "<id>"
 ```
 
 Regra global para artefatos compactos:
-- os arquivos derivados em `.career-state/derived/` são a primeira camada de contexto para modelos locais
+- os arquivos derivados em `.career-state/applications_v2/<id>/derived/` são a primeira camada de contexto para modelos locais; `.career-state/derived/` é somente espelho de compatibilidade
 - `job_description`, FIT_MAP completo e referências longas viram fallback; não leitura inicial obrigatória
 - `context:assert-active` e `context:invalidate-stale` existem para impedir reaproveitamento silencioso de artefatos de outra vaga
 - quando `context:doctor` marcar `oversized_outputs`, a manutenção correta é reduzir payload e não empurrar mais contexto para o agente

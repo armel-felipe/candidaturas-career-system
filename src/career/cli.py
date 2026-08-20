@@ -27,6 +27,7 @@ from career.services import project as project_service
 from career.services import review as review_service
 from career.services import workflow_reset as workflow_reset_service
 from career.services.database import Database
+from career.services.persistence.application_repository import ApplicationNotFoundError
 from career.services.session_memory import SessionMemoryService
 from career.cells.executor import CellExecutor
 from career.cells.handlers import (
@@ -423,8 +424,19 @@ def _require_application_fit_map(
     application_id: str | None,
     supplied_path: str | None,
 ):
-    """Resolve the FIT_MAP for one application and reject path injection."""
+    """Resolve a canonical application before accepting its materialized FIT_MAP."""
     paths = _require_application_paths(application_id)
+    try:
+        record = application_context_service.resolve_application(
+            application_id=paths.application_id,
+            allow_legacy=False,
+        )
+    except ApplicationNotFoundError as exc:
+        raise CareerError(
+            "application_id is not registered in canonical SQLite; refusing FIT_MAP access"
+        ) from exc
+    if record.application_id != paths.application_id:
+        raise CareerError("canonical SQLite application identity does not match --application-id")
     canonical_path = paths.fit_map.resolve()
     if supplied_path is not None and Path(supplied_path).resolve() != canonical_path:
         raise CareerError(

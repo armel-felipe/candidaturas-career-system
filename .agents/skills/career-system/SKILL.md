@@ -426,14 +426,14 @@ npm run context:invalidate-stale     # invalida contexto se fingerprint não bat
 
 ## Artefatos Compactos Derivados
 
-Os arquivos derivados em `.career-state/derived/` são a primeira camada de contexto para modelos locais. Comandos:
+Os arquivos derivados em `.career-state/applications_v2/<application_id>/derived/` são a primeira camada de contexto para modelos locais; `.career-state/derived/` é somente espelho de compatibilidade. Comandos:
 
 ```bash
-npm run derive:cv-input-pack
-npm run derive:cv-content-seed
-npm run derive:feras-input-pack
-npm run derive:cover-letter-input-pack
-npm run derive:all-for-fit-map
+npm run derive:cv-input-pack -- --application-id "<application_id>"
+npm run derive:cv-content-seed -- --application-id "<application_id>"
+npm run derive:feras-input-pack -- --application-id "<application_id>"
+npm run derive:cover-letter-input-pack -- --application-id "<application_id>"
+npm run derive:all-for-fit-map -- --application-id "<application_id>"
 ```
 
 ## CV em DOCX — Comandos de Geração
