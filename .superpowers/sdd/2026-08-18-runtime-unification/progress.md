@@ -253,6 +253,28 @@
 - Acceptance: request payloads contain only application-local paths and scoped commands; unknown applications and foreign FIT_MAP paths fail before reads; previous identity-firewall guarantees remain enforced.
 - Residual intentionally deferred: derived packs are still JSON materializations; Task 3.2 replaces them as operational context sources.
 
+### Task 3.2: in progress — review rejected
+
+- Initial implementation commit: `22a7bc2` (`Implement SQLite context materializers`).
+- Independent review found three blockers: multiagent requests still expose exported JSON/FIT_MAP as operational context; pinned revisions combine an old FIT_MAP with the latest description/revision; and scoped export accepts lookalike `applications_v2` paths outside the canonical workspace. Tests did not cover these historical-continuity and contaminated-JSON cases.
+- Ruling: repair the request contract and revision joins before accepting the materializer; export must be canonical-path or explicitly temporary, and JSON must be output-only.
+- Correction `7bdfaf8` passed the authority/export checks but was re-reviewed and rejected because pinned v1 materializations still loaded current v2 reference-document versions. The final fix must either resolve references through the pinned revision linkage or fail closed when no historical linkage exists, with a two-reference-version regression.
+
+### Task 3.2: complete
+
+- Final commits: `22a7bc2` (`Implement SQLite context materializers`), `7bdfaf8` (`Close SQLite context authority leaks`), `9c39cd4` (`Fix pinned context reference provenance`).
+- Task review: PASS after two correction rounds. Evidence: 119 focused/neighborhood tests, independent SQLite v1/v2 reproduction for all four kinds, `py_compile`, and `git diff --check`.
+- Acceptance: materializers use canonical SQLite content; requests consume in-memory context; JSON exports are output-only; pinned revisions use exact reference linkage or fail closed; exports cannot target lookalike application trees; cross-application isolation holds.
+
+### Task 3.3: in progress
+
+- Scope: fail-closed supervisor contracts for specialist artifacts and gates, using `task-3.3-brief.md`.
+
+### Task 3.2 correction brief
+
+- Scope: `context_materializer.py`, `derived_context.py`, `multiagent.py`, and tracked materializer regressions only. Do not start Task 3.3.
+- Acceptance: pinned materializers use the revision-linked source/description/FIT_MAP payload or fail closed; request payload contains canonical in-memory context without treating JSON exports as primary; exports cannot target lookalike paths; contaminated JSON and v1/v2 revision regressions are covered with real execution.
+
 ## Phase 0 gate
 
 - [x] Read-only persistence inventory completed and reviewed.
