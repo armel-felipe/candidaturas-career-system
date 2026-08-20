@@ -18,6 +18,7 @@ from career.services.persistence.application_repository import (
 )
 from career.services.persistence.artifact_repository import ArtifactRepository
 from career.services.persistence.gate_repository import GateReceipt, GateRepository
+from career.paths import CAREER_STATE
 from career.utils import sha256_file, sha256_text
 
 
@@ -191,6 +192,56 @@ class SupervisorContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["blocker_reason"], "explicit_application_scope_required")
 
+    def test_scoped_fit_map_menu_uses_sqlite_snapshot_not_contaminated_root_json(self) -> None:
+        self._seed_menu_snapshot(self.primary)
+        root_fit_map = CAREER_STATE / "fit_map.json"
+        original = root_fit_map.read_bytes() if root_fit_map.exists() else None
+        self.addCleanup(self._restore_root_fit_map, root_fit_map, original)
+        root_fit_map.parent.mkdir(parents=True, exist_ok=True)
+        root_fit_map.write_text(
+            json.dumps(
+                {
+                    "cargo": "Customer Success Manager",
+                    "empresa": "Instaleap",
+                    "nota_aderencia": {"final": 1.0},
+                    "gaps_sem_cobertura": ["gap global"],
+                    "objecoes": ["objecao global"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        scoped_pipeline_result = self.supervisor._pipeline_result(
+            intake={"application_id": self.primary.application_id},
+            specialist={
+                "status": "completed",
+                "step": "fit-map",
+                "application_id": self.primary.application_id,
+            },
+        )
+        decorated = self.supervisor._decorate_result_payload(scoped_pipeline_result)
+
+        serialized = json.dumps(decorated, ensure_ascii=False)
+        self.assertIn("Conexa", serialized)
+        self.assertIn("Diretor", serialized)
+        self.assertIn("8.7/10", serialized)
+        self.assertIn("Gaps mapeados: 1 | Objecoes mapeadas: 1", serialized)
+        self.assertNotIn("Instaleap", serialized)
+        self.assertNotIn("Customer Success Manager", serialized)
+        self.assertNotIn("1.0/10", serialized)
+        self.assertNotIn("gap global", serialized)
+        self.assertNotIn("objecao global", serialized)
+
+    def test_completed_fit_map_menu_without_scope_is_blocked(self) -> None:
+        decorated = self.supervisor._decorate_result_payload(
+            {"status": "completed", "step": "fit-map"}
+        )
+
+        self.assertEqual(decorated["status"], "blocked")
+        self.assertEqual(
+            decorated["blocker_reason"], "explicit_application_scope_required"
+        )
+
     def _application(self, application_id: str, fingerprint: str, company: str):
         return self.applications.create_application(
             ApplicationIdentity(
@@ -200,6 +251,68 @@ class SupervisorContractTests(unittest.TestCase):
                 fingerprint=fingerprint,
             )
         )
+
+    def _seed_menu_snapshot(self, application) -> str:
+        description_id = f"description-{application.application_id}"
+        application_revision_id = f"application-revision-{application.application_id}"
+        description = "Descricao canonica da vaga de Diretor na Conexa"
+        with self.db.transaction(immediate=True) as conn:
+            conn.execute(
+                """INSERT INTO job_descriptions
+                   (description_id, application_id, source_id, language, content,
+                    content_hash, created_at)
+                   VALUES (?, ?, NULL, ?, ?, ?, ?)""",
+                (
+                    description_id,
+                    application.application_id,
+                    "pt",
+                    description,
+                    sha256_text(description),
+                    "2026-08-20T00:00:00+00:00",
+                ),
+            )
+            conn.execute(
+                """INSERT INTO application_revisions
+                   (revision_id, application_id, revision_kind, fingerprint,
+                    source_hash, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    application_revision_id,
+                    application.application_id,
+                    "job_description",
+                    application.fingerprint,
+                    sha256_text(description),
+                    json.dumps({"job_description_id": description_id}),
+                    "2099-01-01T00:00:00+00:00",
+                ),
+            )
+        return self.analysis.create_revision(
+            application.application_id,
+            {
+                "metadata": {"job_fingerprint": application.fingerprint},
+                "scores": {"final": 8.7},
+                "dimensions": {
+                    "estrategia": {
+                        "score": 8.7,
+                        "gap_summary": "Aprofundar contexto clinico",
+                    }
+                },
+                "objections": [
+                    {
+                        "objection_key": "healthcare",
+                        "objection_text": "Experiencia setorial",
+                    }
+                ],
+            },
+            source_hash=sha256_text(f"menu-fit-map-{application.application_id}"),
+        )
+
+    @staticmethod
+    def _restore_root_fit_map(path: Path, original: bytes | None) -> None:
+        if original is None:
+            path.unlink(missing_ok=True)
+            return
+        path.write_bytes(original)
 
     def _validated_revision(self, application) -> str:
         run_id = f"run-fit-{application.application_id}"

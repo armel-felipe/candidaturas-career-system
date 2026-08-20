@@ -1504,10 +1504,17 @@ class HarnessSupervisor:
     def _build_agent_menu_for_result(self, result: dict[str, Any]) -> dict[str, Any] | None:
         if not self._result_has_completed_fit_map(result):
             return None
-        from career.services import fit_map as fit_map_service
-        summary = fit_map_service.payload_summary()
-        if summary.get("status") != "ok":
-            return None
+        application_id = self._result_application_id(result)
+        if not application_id:
+            return self._blocked_summary_result(
+                result, "explicit_application_scope_required"
+            )
+        try:
+            summary = self._materialized_fit_map_summary(application_id)
+        except (ApplicationNotFoundError, ValueError):
+            return self._blocked_summary_result(
+                result, "fit_map_summary_context_unavailable", application_id
+            )
         nota_final = summary.get("nota_final")
         nota_text = f"{float(nota_final):.1f}/10" if isinstance(nota_final, (int, float)) else "n/d"
         keyword_registration = summary.get("keyword_registration") or {}
@@ -1531,6 +1538,75 @@ class HarnessSupervisor:
             ]}],
         }
         return self._finalize_menu_payload(payload)
+
+    @staticmethod
+    def _result_application_id(result: dict[str, Any]) -> str | None:
+        direct = str(result.get("application_id") or "").strip()
+        if direct:
+            return direct
+        specialist = result.get("specialist")
+        if isinstance(specialist, dict):
+            nested = str(specialist.get("application_id") or "").strip()
+            if nested:
+                return nested
+        intake = result.get("intake")
+        if isinstance(intake, dict):
+            nested = str(intake.get("application_id") or "").strip()
+            if nested:
+                return nested
+        return None
+
+    def _materialized_fit_map_summary(self, application_id: str) -> dict[str, Any]:
+        """Build menu fields from the application's canonical SQLite snapshot.
+
+        Compatibility FIT_MAP JSON is intentionally not read here: a final
+        scoped response must describe the same application that completed the
+        specialist run.
+        """
+        from career.services.context_materializer import ContextMaterializer
+
+        payload = ContextMaterializer(self.db).build(application_id, "fit_map_seed")
+        context = payload.get("context")
+        if not isinstance(context, dict):
+            raise ValueError("materialized fit_map context is missing")
+        application = context.get("application")
+        analysis = context.get("analysis")
+        if not isinstance(application, dict) or not isinstance(analysis, dict):
+            raise ValueError("materialized fit_map context is incomplete")
+        dimensions = analysis.get("dimensions")
+        objections = analysis.get("objections")
+        keyword_count = self.db.fetch_one(
+            "SELECT COUNT(*) AS count FROM keyword_registry WHERE application_id = ?",
+            (application_id,),
+        )
+        registered_count = int(keyword_count["count"]) if keyword_count else 0
+        return {
+            "cargo": application.get("role"),
+            "empresa": application.get("company"),
+            "nota_final": analysis.get("score_final"),
+            "gaps_count": sum(
+                1
+                for item in dimensions or ()
+                if isinstance(item, dict) and str(item.get("gap_summary") or "").strip()
+            ),
+            "objecoes_count": len(objections) if isinstance(objections, list) else 0,
+            "keyword_registration": {
+                "registered": registered_count > 0,
+                "count": registered_count,
+            },
+        }
+
+    @staticmethod
+    def _blocked_summary_result(
+        result: dict[str, Any], reason: str, application_id: str | None = None
+    ) -> dict[str, Any]:
+        return {
+            "status": "blocked",
+            "kind": "fit_map_summary_blocked",
+            "step": result.get("step") or "fit-map",
+            "application_id": application_id,
+            "blocker_reason": reason,
+        }
 
     @staticmethod
     def _result_has_completed_fit_map(result: dict[str, Any]) -> bool:
