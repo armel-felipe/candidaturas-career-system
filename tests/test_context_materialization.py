@@ -115,7 +115,13 @@ class ContextMaterializerTests(unittest.TestCase):
         return revision_id
 
     def test_builds_all_context_kinds_from_canonical_records_with_bound_metadata(self) -> None:
-        for kind in ("fit_map_seed", "cv_input", "feras_input", "habilidades_input"):
+        for kind in (
+            "fit_map_seed",
+            "cv_input",
+            "feras_input",
+            "habilidades_input",
+            "cover_letter_input",
+        ):
             payload = self.materializer.build("notion_578", kind)
 
             self.assertEqual(payload["kind"], kind)
@@ -254,6 +260,70 @@ class ContextMaterializerTests(unittest.TestCase):
         self.assertNotEqual(conexa["canonical_payload_hash"], outra["canonical_payload_hash"])
         self.assertEqual(conexa["context"]["analysis"]["keywords"][0]["keyword"], "Growth revisado")
         self.assertEqual(outra["context"]["analysis"]["keywords"][0]["keyword"], "Produto")
+
+    def test_context_carries_the_scoped_positioning_pack(self) -> None:
+        self._create_application(
+            "notion_positioned", "Posicionada", "Diretoria", "Descricao posicionada"
+        )
+        evidence_reference = self.references.upsert_version(
+            "candidate_evidence",
+            "candidate",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "candidate": {"name": "Felipe Armel"},
+                    "stories": [
+                        {
+                            "story_id": "story_positioned",
+                            "title": "História posicionada",
+                            "context": "Contexto",
+                            "actions": ["Ação"],
+                            "results": ["Resultado"],
+                            "metrics": [],
+                            "capabilities": ["operações"],
+                            "allowed_claims": ["Claim posicionado"],
+                            "source_refs": [{"path": "autoconhecimento.md", "lines": "1-2"}],
+                            "artifact_guidance": {"cv": "Caso"},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            "candidate-evidence-positioned",
+        )
+        analysis_revision = self.analysis.create_revision(
+            "notion_positioned",
+            {
+                "metadata": {"job_fingerprint": "intake-notion_positioned"},
+                "keywords": [{"keyword": "operações", "coverage": "covered_exact"}],
+                "reference_versions": [{"reference_id": evidence_reference}],
+            },
+            source_hash="source-positioned",
+        )
+        self.analysis.create_positioning_revision(
+            "notion_positioned",
+            analysis_revision,
+            {
+                "thesis": "Tese posicionada",
+                "persona": "Persona posicionada",
+                "stories": [
+                    {
+                        "story_key": "story_positioned",
+                        "story_id": "story_positioned",
+                        "narrative": "Narrativa",
+                    }
+                ],
+                "claims": ["Claim posicionado"],
+            },
+        )
+
+        payload = self.materializer.build("notion_positioned", "feras_input")
+
+        pack = payload["context"]["positioning_pack"]
+        self.assertEqual(pack["application_id"], "notion_positioned")
+        self.assertEqual(pack["candidate_evidence_revision_id"], evidence_reference)
+        self.assertEqual([story["story_id"] for story in pack["stories"]], ["story_positioned"])
+        self.assertEqual(payload["source_revision_ids"]["positioning_revision_id"], pack["positioning_revision_id"])
 
 
 if __name__ == "__main__":

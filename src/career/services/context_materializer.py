@@ -20,11 +20,18 @@ from career.services.persistence.analysis_repository import (
 )
 from career.services.persistence.application_repository import ApplicationRepository
 from career.services.persistence.reference_repository import ReferenceRepository
+from career.services.positioning_pack import build_positioning_pack
 from career.utils import sha256_file, sha256_text, utc_now_iso
 
 
 SUPPORTED_CONTEXT_KINDS = frozenset(
-    {"fit_map_seed", "cv_input", "feras_input", "habilidades_input"}
+    {
+        "fit_map_seed",
+        "cv_input",
+        "feras_input",
+        "habilidades_input",
+        "cover_letter_input",
+    }
 )
 
 
@@ -92,6 +99,7 @@ class ContextMaterializer:
             )
             application_fingerprint = linked_revision.fingerprint
         references = self._references_for(analysis_revision, pinned=revision_id is not None)
+        positioning_pack = self._positioning_pack_for(analysis_revision)
         context = self._context(
             kind=kind,
             application=application,
@@ -99,6 +107,7 @@ class ContextMaterializer:
             job_description=job_description,
             analysis_revision=analysis_revision,
             references=references,
+            positioning_pack=positioning_pack,
         )
         canonical_payload_hash = _canonical_hash(context)
         return {
@@ -114,6 +123,11 @@ class ContextMaterializer:
                 "positioning_revision_id": (
                     analysis_revision.positioning.revision_id
                     if analysis_revision and analysis_revision.positioning
+                    else None
+                ),
+                "candidate_evidence_revision_id": (
+                    positioning_pack["candidate_evidence_revision_id"]
+                    if positioning_pack
                     else None
                 ),
             },
@@ -187,6 +201,7 @@ class ContextMaterializer:
         job_description,
         analysis_revision,
         references,
+        positioning_pack,
     ) -> dict[str, Any]:
         serialized_references = [
             {
@@ -218,6 +233,8 @@ class ContextMaterializer:
             },
             "references": serialized_references,
         }
+        if positioning_pack is not None:
+            context["positioning_pack"] = positioning_pack
         if analysis_revision is not None:
             context["analysis"] = _analysis_payload(analysis_revision)
         if kind == "fit_map_seed":
@@ -226,9 +243,29 @@ class ContextMaterializer:
             context["purpose"] = "cv_generation"
         elif kind == "feras_input":
             context["purpose"] = "feras_generation"
-        else:
+        elif kind == "habilidades_input":
             context["purpose"] = "habilidades_ranking"
+        else:
+            context["purpose"] = "cover_letter_generation"
         return context
+
+    def _positioning_pack_for(
+        self, analysis_revision: AnalysisRevision | None
+    ) -> dict[str, Any] | None:
+        if analysis_revision is None or analysis_revision.positioning is None:
+            return None
+        try:
+            self.references.get_current("candidate_evidence", "candidate")
+        except ValueError:
+            # Older persisted analyses may predate the structured evidence
+            # reference. Keep their context backward-compatible until the
+            # reference is explicitly registered.
+            return None
+        return build_positioning_pack(
+            analysis_revision.application_id,
+            self.database,
+            positioning_revision_id=analysis_revision.positioning.revision_id,
+        )
 
     def _references_for(
         self, analysis_revision: AnalysisRevision | None, *, pinned: bool

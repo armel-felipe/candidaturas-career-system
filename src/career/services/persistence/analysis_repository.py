@@ -460,6 +460,27 @@ class AnalysisRepository:
                 )
         return revision_id
 
+    def get_current_for_positioning(
+        self, application_id: str, positioning_revision_id: str
+    ) -> AnalysisRevision:
+        """Load the FIT_MAP revision that owns one positioning revision."""
+        self._ensure_schema()
+        row = self.database.fetch_one(
+            """SELECT fit_map_revision_id
+               FROM positioning_revisions
+               WHERE revision_id = ? AND application_id = ?""",
+            (positioning_revision_id, application_id),
+        )
+        if row is None:
+            owner = self.database.fetch_one(
+                "SELECT application_id FROM positioning_revisions WHERE revision_id = ?",
+                (positioning_revision_id,),
+            )
+            if owner is not None:
+                raise ValueError("positioning revision must belong to the same application")
+            raise ValueError(f"no positioning revision found for {application_id}")
+        return self.get_revision(application_id, str(row["fit_map_revision_id"]))
+
     def _ensure_schema(self) -> None:
         if self._schema_ready:
             return
