@@ -359,34 +359,87 @@ def _candidate_facts(payload: Mapping[str, Any]) -> list[tuple[str, str, Any]]:
                 value = item.get(field)
                 if _is_scalar(value):
                     facts.append((f"experience.{experience_id}.{field}", str(value), value))
+    stories = payload.get("stories")
+    if isinstance(stories, list):
+        for index, story in enumerate(stories):
+            if not isinstance(story, Mapping):
+                continue
+            story_id = str(story.get("story_id") or f"story_{index}")
+            for field in ("title", "experience_id", "context"):
+                value = story.get(field)
+                if _is_scalar(value) and str(value).strip():
+                    facts.append((f"story.{story_id}.{field}", str(value), value))
+            capabilities = story.get("capabilities")
+            if isinstance(capabilities, list):
+                for capability_index, capability in enumerate(capabilities):
+                    if _is_scalar(capability) and str(capability).strip():
+                        facts.append(
+                            (
+                                f"story.{story_id}.capability.{capability_index}",
+                                str(capability),
+                                capability,
+                            )
+                        )
     return facts
 
 
 def _candidate_evidence(payload: Mapping[str, Any]) -> list[tuple[str, str, Any]]:
     evidence: list[tuple[str, str, Any]] = []
     experiences = payload.get("experiences")
-    if not isinstance(experiences, list):
-        return evidence
-    for item in experiences:
-        if not isinstance(item, Mapping):
-            continue
-        experience_id = str(item.get("id") or item.get("company") or f"experience_{len(evidence)}")
-        for field in ("scope_bullet", "result_bullet"):
-            value = item.get(field)
-            if isinstance(value, str) and value:
-                evidence.append((f"experience.{experience_id}.{field}", value, value))
-        leverage = item.get("leverage")
-        if isinstance(leverage, Mapping):
-            for leverage_key, leverage_value in leverage.items():
-                if isinstance(leverage_value, str) and leverage_value:
-                    evidence.append(
-                        (
-                            f"experience.{experience_id}.leverage.{leverage_key}",
-                            leverage_value,
-                            leverage_value,
+    if isinstance(experiences, list):
+        for item in experiences:
+            if not isinstance(item, Mapping):
+                continue
+            experience_id = str(item.get("id") or item.get("company") or f"experience_{len(evidence)}")
+            for field in ("scope_bullet", "result_bullet"):
+                value = item.get(field)
+                if isinstance(value, str) and value:
+                    evidence.append((f"experience.{experience_id}.{field}", value, value))
+            leverage = item.get("leverage")
+            if isinstance(leverage, Mapping):
+                for leverage_key, leverage_value in leverage.items():
+                    if isinstance(leverage_value, str) and leverage_value:
+                        evidence.append(
+                            (
+                                f"experience.{experience_id}.leverage.{leverage_key}",
+                                leverage_value,
+                                leverage_value,
+                            )
                         )
-                    )
+    stories = payload.get("stories")
+    if isinstance(stories, list):
+        for index, story in enumerate(stories):
+            if not isinstance(story, Mapping):
+                continue
+            story_id = str(story.get("story_id") or f"story_{index}")
+            _append_story_evidence(evidence, story_id, story)
     return evidence
+
+
+def _append_story_evidence(
+    evidence: list[tuple[str, str, Any]], story_id: str, story: Mapping[str, Any]
+) -> None:
+    for field in ("context",):
+        value = story.get(field)
+        if isinstance(value, str) and value.strip():
+            evidence.append((f"story.{story_id}.{field}", value, value))
+    for field in ("actions", "results", "metrics", "allowed_claims"):
+        values = story.get(field)
+        if not isinstance(values, list):
+            continue
+        for index, value in enumerate(values):
+            if _is_scalar(value) and str(value).strip():
+                evidence.append((f"story.{story_id}.{field[:-1]}.{index}", str(value), value))
+    source_refs = story.get("source_refs")
+    if isinstance(source_refs, list):
+        for index, source_ref in enumerate(source_refs):
+            if not isinstance(source_ref, Mapping):
+                continue
+            path = source_ref.get("path")
+            lines = source_ref.get("lines")
+            if isinstance(path, str) and isinstance(lines, str) and path.strip() and lines.strip():
+                value = f"{path.strip()}:{lines.strip()}"
+                evidence.append((f"story.{story_id}.source_ref.{index}", value, source_ref))
 
 
 def _flatten_group(prefix: str, value: Any) -> list[tuple[str, str, Any]]:

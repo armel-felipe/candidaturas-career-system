@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "candidate": {
+    "name": "Felipe Armel Dias da Silva"
+  },
+  "sources": [
+    ".agents/skills/career-system/references/autoconhecimento.md",
+    ".agents/skills/career-system/references/perfil_restricoes.md"
+  ],
+  "stories": [
+    {
+      "story_id": "sanofi_process_automation",
+      "title": "Automação e eficiência em produção farmacêutica",
+      "experience_id": "sanofi_operador_producao",
+      "context": "Atuação em produção e controles operacionais de uma planta farmacêutica.",
+      "actions": ["Implementei processos de controle de produtividade e eficiência dos equipamentos."],
+      "results": ["Fui efetivado em cinco meses de um programa de estágio de um ano por desempenho."],
+      "metrics": ["180 POPs escritos", "5 meses"],
+      "capabilities": ["produção", "controle operacional", "melhoria contínua"],
+      "allowed_claims": ["Construiu controles operacionais e documentação em produção farmacêutica."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "53-65"}],
+      "artifact_guidance": {"cv": "Evidência de base industrial e disciplina operacional.", "feras": "Começo de carreira com responsabilidade assumida rapidamente.", "interview": "Resposta sobre aprendizado rápido e melhoria de processo."},
+      "cv_facts": {"company": "Sanofi-Aventis", "role": "Operador de Produção", "period": "fev/1998 — jun/2000", "scope_bullet": "Atuei em produção farmacêutica, controles operacionais, validação de processos e documentação da área.", "result_bullet": "Escrevi mais de 180 POPs e fui efetivado em cinco meses por desempenho.", "focus_terms": ["produção", "qualidade", "processos"], "leverage": {"default": "Estruturei controles operacionais e documentação para dar previsibilidade à rotina produtiva."}}
+    },
+    {
+      "story_id": "essencis_value_analysis",
+      "title": "Análise de valor para expansão e M&A",
+      "experience_id": "essencis_analista_negocios",
+      "context": "Avaliação de projetos de expansão e aquisição para novos negócios.",
+      "actions": ["Montei planos de negócios e analisei projetos com fluxo de caixa descontado, VPL e payback."],
+      "results": ["Aprovei um projeto de aquisição em estágio de engenharia."],
+      "metrics": [],
+      "capabilities": ["análise financeira", "viabilidade de projetos", "decisão executiva"],
+      "allowed_claims": ["Defendeu decisões de investimento com análise de valor e viabilidade financeira."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "83-88"}],
+      "artifact_guidance": {"cv": "Evidência de business case e análise de investimentos.", "feras": "Aprendizado de valor aplicado a decisões reais.", "interview": "Resposta sobre trade-offs e defesa de investimento."},
+      "cv_facts": {"company": "Essencis", "role": "Analista de Negócios", "period": "nov/2001 — abr/2002", "scope_bullet": "Avaliei projetos de expansão e aquisições, estruturando planos de negócios para decisão do conselho.", "result_bullet": "Aprovei um projeto de aquisição em estágio de engenharia com análise de viabilidade.", "focus_terms": ["business case", "M&A", "viabilidade"], "leverage": {"default": "Usei DCF, VPL e payback para transformar alternativas de expansão em decisões comparáveis de valor."}}
+    },
+    {
+      "story_id": "trifil_process_systems",
+      "title": "Gestão por objetivos na operação industrial",
+      "experience_id": "trifil_processos_sistemas",
+      "context": "A planta precisava desdobrar objetivos, indicadores e planos de ação nas áreas produtivas.",
+      "actions": ["Implantei um sistema de gestão por objetivos com PDCA, KPIs e planos de ação."],
+      "results": ["Apoiei gerentes com análises e estratificações para execução produtiva."],
+      "metrics": ["40% de redução nos custos de produção da tinturaria", "12% de melhoria de eficiência"],
+      "capabilities": ["gestão por indicadores", "PDCA", "eficiência industrial"],
+      "allowed_claims": ["Conectou indicadores e planos de ação à melhoria da eficiência industrial."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "128-133"}],
+      "artifact_guidance": {"cv": "Evidência de transformação e performance industrial.", "feras": "Como indicadores viraram rotina de execução.", "interview": "Resposta sobre implantação de gestão por objetivos."}
+    },
+    {
+      "story_id": "trifil_expedicao",
+      "title": "Acurácia e produtividade na expedição",
+      "experience_id": "trifil_expedicao",
+      "context": "O centro de expedição precisava ganhar acurácia, produtividade e organização sem interromper a operação.",
+      "actions": ["Implantei endereçamento, coletores RF/Wi-Fi, inventário rotativo e redesenho de layout."],
+      "results": ["Elevei a acurácia e a produtividade, reduzindo perdas e refugos."],
+      "metrics": ["85% para 98% de acurácia", "35% de produtividade", "30% de redução de perdas e refugos"],
+      "capabilities": ["expedição", "WMS", "inventário", "melhoria operacional"],
+      "allowed_claims": ["Liderou melhoria de expedição com WMS, inventário e indicadores operacionais."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "134-145"}],
+      "artifact_guidance": {"cv": "Evidência factual de logística física e armazenagem.", "feras": "Como eliminou retrabalho na expedição.", "interview": "Resposta sobre acurácia e produtividade."}
+    },
+    {
+      "story_id": "trifil_materials_sourcing",
+      "title": "Strategic Sourcing e planejamento de materiais",
+      "experience_id": "trifil_materiais",
+      "context": "A operação precisava equilibrar disponibilidade, compras, capacidade e capital imobilizado.",
+      "actions": ["Implantei Strategic Sourcing e defini regras para alterações do plano de produção."],
+      "results": ["Reduzi custos de compras e faltas de produtos, aumentando o giro do estoque."],
+      "metrics": ["150K SKUs", "27% de redução em compras", "40% de redução de faltas", "8 para 6 meses de giro"],
+      "capabilities": ["supply chain", "strategic sourcing", "planejamento de materiais"],
+      "allowed_claims": ["Conectou sourcing, materiais e estoque para melhorar custo e disponibilidade."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "146-152"}],
+      "artifact_guidance": {"cv": "Evidência de materiais e compras industriais.", "feras": "Decisões de custo versus disponibilidade.", "interview": "Resposta sobre gestão de estoque e sourcing."}
+    },
+    {
+      "story_id": "trifil_commercial_intelligence",
+      "title": "Inteligência comercial orientada por margem",
+      "experience_id": "trifil_inteligencia_comercial",
+      "context": "A diretoria comercial precisava de dados confiáveis para decidir canais, preços e alocação de estoque.",
+      "actions": ["Normalizei dados do ERP e automatizei relatórios e alocação de estoque com Excel/VBA."],
+      "results": ["Reduzi o tempo de reporte e aumentei o faturamento anual com decisões orientadas por margem."],
+      "metrics": ["4 horas para 14 minutos", "R$80M para R$120M de faturamento anual"],
+      "capabilities": ["business intelligence", "pricing", "Excel/VBA", "canais de vendas"],
+      "allowed_claims": ["Transformou dados comerciais em decisões de margem, receita e canais."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "153-162"}],
+      "artifact_guidance": {"cv": "Evidência de dados comerciais e alocação de estoque.", "feras": "Da informação fragmentada à decisão diária.", "interview": "Resposta sobre BI e decisão de negócio."}
+    },
+    {
+      "story_id": "trifil_sop",
+      "title": "Criação da área de S&OP",
+      "experience_id": "trifil_sop",
+      "context": "A empresa precisava integrar demanda, capacidade, estoque, produção e nível de serviço.",
+      "actions": ["Criei a área de S&OP e desenvolvi um simulador em Excel/VBA para validar MRP e cenários."],
+      "results": ["Reduzi gastos gerais de fabricação enquanto mantive a meta anual de custos."],
+      "metrics": ["40K SKUs", "R$8M de redução de GGF", "R$4,6M de economia realizada até agosto"],
+      "capabilities": ["S&OP", "MRP", "capacity planning", "trade-offs financeiros"],
+      "allowed_claims": ["Criou uma função de S&OP conectando capacidade, estoque, serviço e custo."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "163-175"}],
+      "artifact_guidance": {"cv": "Evidência de planejamento integrado e manufatura.", "feras": "Como transformou cenários em decisões executivas.", "interview": "Resposta sobre S&OP e trade-offs."}
+    },
+    {
+      "story_id": "vivareal_sales_operations",
+      "title": "Planejamento comercial e operações",
+      "experience_id": "vivareal_planejamento_operacoes",
+      "context": "A operação comercial precisava organizar dados, SDR, canais, pricing e qualidade para escalar.",
+      "actions": ["Estruturei dashboards, pipeline de SDR, metas e processos de operação e CS."],
+      "results": ["Aumentei conversão, reduzi custo de vendas e estruturei a área de CS."],
+      "metrics": ["18% para 50% de conversão inbound", "40% de redução de custo de vendas", "91 pessoas na área de CS"],
+      "capabilities": ["planejamento comercial", "SDR", "pricing", "operações"],
+      "allowed_claims": ["Desenhou operações comerciais e de CS com dados, funil e governança."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "177-195"}],
+      "artifact_guidance": {"cv": "Evidência de planejamento comercial e desenho de operação.", "feras": "Arquiteto de uma área sem reivindicar gestão que não exerceu.", "interview": "Resposta sobre transformação de funil e operação."}
+    },
+    {
+      "story_id": "renault_lead_conversion",
+      "title": "Internalização e conversão de leads",
+      "experience_id": "renault_cs",
+      "context": "A operação terceirizada precisava ser internalizada com mais controle de qualidade, SLA e conversão.",
+      "actions": ["Conduzi a transição de dois BPOs e estruturei dados, discadores e governança de funil."],
+      "results": ["Aumentei a conversão de leads com uma operação própria mais eficiente."],
+      "metrics": ["40 PAs para 8 pessoas", "24% para 46% de conversão"],
+      "capabilities": ["customer success", "BPO transition", "funnel governance", "ROI"],
+      "allowed_claims": ["Internalizou uma operação de leads com governança, dados e controle de SLA."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "197-208"}],
+      "artifact_guidance": {"cv": "Evidência de transformação de operação comercial.", "feras": "Como uma transição operacional virou resultado comercial.", "interview": "Resposta sobre internalização e ROI."}
+    },
+    {
+      "story_id": "ifood_marketplace_operations",
+      "title": "Dados, pricing e escala logística",
+      "experience_id": "ifood_head_operacoes",
+      "context": "A operação logística precisava equilibrar oferta, demanda, preço e nível de serviço em tempo real.",
+      "actions": ["Modelei dados, criei indicadores e conduzi testes controlados de pricing, incentivos e capacidade."],
+      "results": ["Gerei savings, reduzi custo de distribuição e reduzi cancelamentos."],
+      "metrics": ["R$70M/ano de saving", "80% de redução no custo de distribuição", "14 para 2 dias", "60% de redução de cancelamentos"],
+      "capabilities": ["pricing", "data-driven operations", "fleet planning", "marketplace"],
+      "allowed_claims": ["Liderou operações de marketplace com dados, pricing e experimentação controlada."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "210-228"}],
+      "artifact_guidance": {"cv": "Evidência de operações digitais e decisões orientadas por dados.", "feras": "Como conectou oferta, demanda e experiência.", "interview": "Resposta sobre pricing e escala operacional."}
+    },
+    {
+      "story_id": "ifood_executive_sop",
+      "title": "S&OP executivo e expansão logística",
+      "experience_id": "ifood_diretor_operacoes",
+      "context": "A logística precisava expandir cobertura mantendo custo, disponibilidade, agrupamento e EBITDA sob controle.",
+      "actions": ["Conduzi S&OP executivo, cenários e trade-offs entre supply, operação, marketing, produto e finanças."],
+      "results": ["Escalei cobertura e disponibilidade, mantendo disciplina financeira em operação nacional."],
+      "metrics": ["240 pessoas", "400 para 800 cidades", "5% para 1% de indisponibilidade", "R$300M de budget anual"],
+      "capabilities": ["liderança executiva", "S&OP", "EBITDA", "expansão logística"],
+      "allowed_claims": ["Conectou S&OP, expansão e disciplina financeira em operação logística de grande escala."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "230-252"}],
+      "artifact_guidance": {"cv": "Evidência de escala, liderança e planejamento integrado.", "feras": "Como decisões multifuncionais protegeram a expansão.", "interview": "Resposta sobre S&OP, budget e trade-offs."}
+    },
+    {
+      "story_id": "wehandle_digital_operations",
+      "title": "Transformação digital em CX e suporte",
+      "experience_id": "wehandle_head_operacoes",
+      "context": "A operação precisava escalar suporte, CX e backoffice reduzindo custo e melhorando experiência.",
+      "actions": ["Conduzi migrações de plataforma, automação, WhatsApp, integrações via API e criação da área de CX."],
+      "results": ["Reduzi custo e tempo de atendimento, elevando CSAT e impacto na margem."],
+      "metrics": ["R$4,14 para R$3,61 por atendimento", "85% para 92% de CSAT", "20 para 8 minutos", "15% de impacto na margem bruta"],
+      "capabilities": ["CX", "automação", "IA aplicada", "transformação digital"],
+      "allowed_claims": ["Liderou transformação de suporte e CX com automação, dados e integração com produto."],
+      "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "254-275"}],
+      "artifact_guidance": {"cv": "Evidência de transformação operacional e CX.", "feras": "Reposicionamento como executivo que constrói contexto e impacto.", "interview": "Resposta sobre escala, automação e margem."}
+    }
+  ],
+  "facts": {
+    "education": [
+      "MBA Corporate Strategy — BSP Business School São Paulo (2017)",
+      "Engenheiro Químico — Faculdades Oswaldo Cruz (2014)",
+      "Six Sigma Green Belt — Setec Consulting (2020)"
+    ],
+    "stack": ["Excel/VBA", "SQL", "Python", "Databricks", "Grafana", "Tableau", "Power BI", "Metabase"]
+  }
+}

@@ -226,6 +226,7 @@ def test_candidate_facts_revision_covers_every_canonical_normalize_source(tmp_pa
         derived_context.CAREER_KEYWORDS_PATH,
         derived_context.SELF_KNOWLEDGE_PATH,
         derived_context.PROFILE_RESTRICTIONS_PATH,
+        provenance.CANDIDATE_EVIDENCE_PATH,
     }.issubset(provenance.CANDIDATE_FACT_SOURCES)
     normalized = derived_context.normalize_job(paths)
 
