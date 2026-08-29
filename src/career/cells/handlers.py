@@ -26,6 +26,8 @@ from career.services import habilidades_chave as habilidades_service
 from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.application_context import ApplicationPaths
+from career.services.database import Database
+from career.services.positioning_pack import artifact_provenance, build_positioning_pack
 from career.paths import ROOT
 from career.utils import read_json, write_json
 
@@ -300,11 +302,13 @@ def _compose_cv(context: CellExecutionContext) -> CellOutput:
         if int(metadata.get("compose_attempt") or 0) != context.attempt:
             raise ValueError("repaired CV content belongs to another compose attempt")
     else:
+        positioning_pack = _positioning_pack_for_application(context)
         payload = cv_content_service.build_cv_content(
             context.paths,
             fit_map_path,
             candidate_revision,
             language=language,
+            positioning_pack=positioning_pack,
         )
     return CellOutput(
         artifacts={"cv_content.json": _json_bytes(payload)},
@@ -457,6 +461,23 @@ def _normalized_packs_for_application(context: CellExecutionContext) -> tuple[di
     return normalized, handover, evidence, normalized_hash
 
 
+def _positioning_pack_for_application(
+    context: CellExecutionContext,
+) -> dict[str, Any] | None:
+    if context.control_db_path is None:
+        return None
+    database = Database(context.control_db_path)
+    try:
+        try:
+            return build_positioning_pack(context.application_id, database)
+        except ValueError as exc:
+            if "candidate evidence reference is missing" in str(exc):
+                return None
+            raise
+    finally:
+        database.close()
+
+
 def _selected_evidence(evidence: Mapping[str, Any]) -> list[dict[str, str]]:
     items = evidence.get("evidence_items") if isinstance(evidence.get("evidence_items"), list) else []
     sources = evidence.get("sources") if isinstance(evidence.get("sources"), list) else []
@@ -526,6 +547,7 @@ def _branch_output(
     normalized_hash: str,
     normalized_handover: Mapping[str, Any],
     normalized_evidence: Mapping[str, Any],
+    positioning_pack: Mapping[str, Any] | None = None,
 ) -> CellOutput:
     if not content.strip():
         raise ValueError(f"{kind} output is empty")
@@ -550,6 +572,14 @@ def _branch_output(
         "normalized_pack_sha256": normalized_hash,
         "selected_evidence": _selected_evidence(normalized_evidence),
     }
+    positioning_metadata = (
+        artifact_provenance(positioning_pack)
+        if positioning_pack is not None
+        else None
+    )
+    if positioning_metadata is not None:
+        handover["positioning_provenance"] = positioning_metadata
+        evidence["positioning_provenance"] = positioning_metadata
     return CellOutput(
         artifacts={
             artifact_name: content_bytes,
@@ -564,18 +594,27 @@ def _branch_output(
 def _generate_feras(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
     normalized, normalized_handover, evidence, normalized_hash = _normalized_packs_for_application(context)
-    content = feras_service.build_from_fit_map(fit_map, normalized_pack=normalized)
+    positioning_pack = _positioning_pack_for_application(context)
+    normalized_with_positioning = dict(normalized)
+    if positioning_pack is not None:
+        normalized_with_positioning["positioning_pack"] = positioning_pack
+    content = feras_service.build_from_fit_map(fit_map, normalized_pack=normalized_with_positioning)
     feras_service.validate_feras_text(content)
     return _branch_output(
         context, artifact_name="feras.md", content=content, kind="feras", fit_map_hash=fit_map_hash,
         normalized_hash=normalized_hash, normalized_handover=normalized_handover, normalized_evidence=evidence,
+        positioning_pack=positioning_pack,
     )
 
 
 def _generate_cover_letter(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
     normalized, normalized_handover, evidence, normalized_hash = _normalized_packs_for_application(context)
-    content = cover_letter_service.build_from_fit_map(fit_map, normalized_pack=normalized)
+    positioning_pack = _positioning_pack_for_application(context)
+    normalized_with_positioning = dict(normalized)
+    if positioning_pack is not None:
+        normalized_with_positioning["positioning_pack"] = positioning_pack
+    content = cover_letter_service.build_from_fit_map(fit_map, normalized_pack=normalized_with_positioning)
     cover_letter_service.validate_cover_letter_text(content)
     return _branch_output(
         context,
@@ -586,13 +625,18 @@ def _generate_cover_letter(context: CellExecutionContext) -> CellOutput:
         normalized_hash=normalized_hash,
         normalized_handover=normalized_handover,
         normalized_evidence=evidence,
+        positioning_pack=positioning_pack,
     )
 
 
 def _generate_habilidades(context: CellExecutionContext) -> CellOutput:
     fit_map, fit_map_hash = _fit_map_for_application(context)
     normalized, normalized_handover, evidence, normalized_hash = _normalized_packs_for_application(context)
-    content = habilidades_service.build_from_fit_map(fit_map, normalized_pack=normalized)
+    positioning_pack = _positioning_pack_for_application(context)
+    normalized_with_positioning = dict(normalized)
+    if positioning_pack is not None:
+        normalized_with_positioning["positioning_pack"] = positioning_pack
+    content = habilidades_service.build_from_fit_map(fit_map, normalized_pack=normalized_with_positioning)
     return _branch_output(
         context,
         artifact_name="habilidades.md",
@@ -602,6 +646,7 @@ def _generate_habilidades(context: CellExecutionContext) -> CellOutput:
         normalized_hash=normalized_hash,
         normalized_handover=normalized_handover,
         normalized_evidence=evidence,
+        positioning_pack=positioning_pack,
     )
 
 

@@ -13,6 +13,7 @@ from career.services.persistence.artifact_repository import (
     ArtifactRecord,
     ArtifactRepository,
 )
+from career.services.positioning_pack import build_positioning_pack
 
 
 POST_ARTIFACT_KINDS = frozenset({"feras", "gupy_skills", "cover_letter"})
@@ -45,7 +46,8 @@ def create_post_artifact(
         revision.revision_id,
         source_positioning_revision,
     )
-    content = _build_content(kind, revision.payload)
+    positioning_pack = _try_positioning_pack(application.application_id, db)
+    content = _build_content(kind, revision.payload, positioning_pack=positioning_pack)
     artifacts = ArtifactRepository(db)
     return artifacts.register(
         application.application_id,
@@ -55,6 +57,17 @@ def create_post_artifact(
         revision.revision_id,
         f"post-{uuid4().hex}",
         positioning_revision_id=positioning_revision_id,
+        candidate_evidence_reference_id=(
+            positioning_pack["candidate_evidence_revision_id"]
+            if positioning_pack is not None
+            else None
+        ),
+        positioning_story_ids=(
+            [story["story_id"] for story in positioning_pack["stories"]]
+            if positioning_pack is not None
+            else None
+        ),
+        positioning_claim_ids=(positioning_pack.get("claims") if positioning_pack else None),
     )
 
 
@@ -149,10 +162,31 @@ def _resolve_positioning_revision(
     return requested_revision_id
 
 
-def _build_content(kind: str, fit_map: Mapping[str, Any]) -> str:
+def _build_content(
+    kind: str,
+    fit_map: Mapping[str, Any],
+    *,
+    positioning_pack: Mapping[str, Any] | None = None,
+) -> str:
     payload = dict(fit_map)
+    normalized_pack = {"positioning_pack": dict(positioning_pack)} if positioning_pack else None
     if kind == "feras":
-        return feras.build_from_fit_map(payload)
+        return feras.build_from_fit_map(payload, normalized_pack=normalized_pack)
     if kind == "gupy_skills":
-        return habilidades_chave.build_from_fit_map(payload)
-    return cover_letter.build_from_fit_map(payload)
+        return habilidades_chave.build_from_fit_map(payload, normalized_pack=normalized_pack)
+    return cover_letter.build_from_fit_map(payload, normalized_pack=normalized_pack)
+
+
+def _try_positioning_pack(application_id: str, database: Database) -> dict[str, Any] | None:
+    try:
+        return build_positioning_pack(application_id, database)
+    except ValueError as exc:
+        if any(
+            message in str(exc)
+            for message in (
+                "candidate evidence reference is missing",
+                "application has no positioning revision",
+            )
+        ):
+            return None
+        raise

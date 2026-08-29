@@ -6,6 +6,7 @@ from typing import Any
 
 from career.paths import CAREER_STATE, ROOT
 from career.utils import ValidationFailure, read_json
+from career.services.positioning_pack import artifact_claim_text, artifact_provenance, validate_positioning_pack
 
 
 def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, Any] | None = None) -> str:
@@ -26,11 +27,33 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
     keyword_pack = (normalized_pack or {}).get("job_keywords") or {}
     normalized_keywords = [str(item).strip() for item in keyword_pack.get("top_focus_terms", []) if str(item).strip()]
     evidence_line = ", ".join(normalized_keywords[:3]) or "contexto normalizado da vaga"
-    return "\n".join(
+    content = "\n".join(
         [f"# Habilidades-chave — {cargo} — {empresa}", "", "## Habilidades priorizadas"]
         + [f"- {skill}" for skill in skills[:15]]
         + ["", "## Evidência", f"- Seleção derivada do FIT_MAP aprovado e do contexto: {evidence_line}.", ""]
     )
+    positioning = (normalized_pack or {}).get("positioning_pack")
+    if isinstance(positioning, dict):
+        content += "\n## Estratégia de posicionamento\n- " + artifact_claim_text(positioning) + "\n"
+    return content
+
+
+def build_from_positioning_pack(pack: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_positioning_pack(pack)
+    capabilities = [
+        str(capability).strip()
+        for story in validated["stories"]
+        for capability in (story.get("capabilities") or [])
+        if str(capability).strip()
+    ]
+    content = "\n".join(
+        [
+            "Habilidades derivadas do posicionamento:",
+            *[f"- {item}" for item in dict.fromkeys(capabilities)],
+            f"- Claim: {artifact_claim_text(validated)}",
+        ]
+    )
+    return {"content": content, "provenance": artifact_provenance(validated)}
 
 
 def validate_cellular_artifact(content: str, fit_map: dict[str, Any] | None = None, evidence: dict[str, Any] | None = None) -> None:

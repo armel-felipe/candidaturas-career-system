@@ -4,7 +4,7 @@ import json
 import mimetypes
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Sequence
 from uuid import uuid4
 
 from career.schemas.review import CvReviewReportSchema
@@ -78,6 +78,9 @@ class ArtifactRepository:
         run_id: str,
         *,
         positioning_revision_id: str | None = None,
+        candidate_evidence_reference_id: str | None = None,
+        positioning_story_ids: Sequence[str] | None = None,
+        positioning_claim_ids: Sequence[str] | None = None,
     ) -> ArtifactRecord:
         self._ensure_schema()
         application_id = self._required_text(application_id, "application_id")
@@ -120,6 +123,17 @@ class ArtifactRepository:
                 application_id,
                 source_revision_id,
                 positioning_revision_id,
+            )
+        story_ids = self._normalize_optional_ids(positioning_story_ids, "positioning_story_ids")
+        claim_ids = self._normalize_optional_ids(positioning_claim_ids, "positioning_claim_ids")
+        candidate_evidence_reference_id = (
+            self._required_text(candidate_evidence_reference_id, "candidate_evidence_reference_id")
+            if candidate_evidence_reference_id is not None
+            else None
+        )
+        if (story_ids or claim_ids) and candidate_evidence_reference_id is None:
+            raise ValueError(
+                "positioning story and claim dependencies require candidate evidence reference"
             )
         path_text = str(resolved_path) if resolved_path is not None else None
 
@@ -201,6 +215,23 @@ class ArtifactRepository:
                     "positioning_revision",
                     positioning_revision_id,
                     created_at,
+                )
+            if candidate_evidence_reference_id is not None:
+                self._attach_dependency_txn(
+                    conn,
+                    artifact_id,
+                    application_id,
+                    "candidate_evidence_reference",
+                    candidate_evidence_reference_id,
+                    created_at,
+                )
+            for story_id in story_ids:
+                self._attach_dependency_txn(
+                    conn, artifact_id, application_id, "positioning_story", story_id, created_at
+                )
+            for claim_id in claim_ids:
+                self._attach_dependency_txn(
+                    conn, artifact_id, application_id, "positioning_claim", claim_id, created_at
                 )
         return self._load_record(artifact_id)
 
@@ -817,6 +848,20 @@ class ArtifactRepository:
             ).fetchone()
             if row is None:
                 raise ValueError("validation receipt dependency is unknown for this application")
+        elif dependency_type == "candidate_evidence_reference":
+            row = conn.execute(
+                """SELECT 1 FROM reference_documents
+                   WHERE reference_id = ? AND kind = 'candidate_evidence'""",
+                (dependency_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("candidate evidence dependency is unknown")
+        elif dependency_type in {"positioning_story", "positioning_claim"}:
+            # Story and claim IDs are immutable identifiers carried by the
+            # candidate-evidence snapshot. Their owning reference is attached
+            # alongside them above; the dependency table preserves the exact
+            # projection used by the artifact without a new schema column.
+            pass
         else:
             raise ValueError(f"unsupported dependency type: {dependency_type}")
 
@@ -839,6 +884,16 @@ class ArtifactRepository:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{field_name} is required")
         return value.strip()
+
+    def _normalize_optional_ids(
+        self, values: Sequence[str] | None, field_name: str
+    ) -> tuple[str, ...]:
+        if values is None:
+            return ()
+        normalized = tuple(self._required_text(str(value), field_name) for value in values)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError(f"{field_name} contains duplicate IDs")
+        return normalized
 
     def _required_sha256(self, value: object, field_name: str) -> str:
         text = self._required_text(value if isinstance(value, str) else None, field_name)

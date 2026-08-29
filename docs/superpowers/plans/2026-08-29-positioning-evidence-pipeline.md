@@ -134,31 +134,31 @@
 - `validate_positioning_pack(payload: Mapping[str, Any]) -> dict[str, Any]`
 - Pacote obrigatório: `application_id`, `fit_map_revision_id`, `positioning_revision_id`, `candidate_evidence_revision_id`, `thesis`, `persona`, `stories`, `claims`, `keywords`, `gaps`, `artifact_targets`.
 
-- [ ] **Step 1: Escrever teste RED de isolamento e rastreabilidade.**
+- [x] **Step 1: Escrever teste RED de isolamento e rastreabilidade.**
 
   Criar duas candidaturas SQLite com FIT_MAPs e revisões de posicionamento diferentes; afirmar que cada pacote retorna somente suas histórias, carrega os IDs de revisão corretos e rejeita uma história sem `source_refs`.
 
-- [ ] **Step 2: Executar para confirmar a falha.**
+- [x] **Step 2: Executar para confirmar a falha.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_positioning_pack.py`
 
   Expected: FAIL porque o builder e o contrato do pacote ainda não existem.
 
-- [ ] **Step 3: Implementar usando `PositioningRevision` existente.**
+- [x] **Step 3: Implementar usando `PositioningRevision` existente.**
 
   Resolver a candidatura e o FIT_MAP pelo `ApplicationRepository`/`AnalysisRepository`; combinar as histórias selecionadas com a base de evidências versionada; persistir a revisão por `create_positioning_revision` quando necessário; não consultar `active_job`, JSON global ou Notion.
 
-- [ ] **Step 4: Fazer os packs existentes carregarem o pacote.**
+- [x] **Step 4: Fazer os packs existentes carregarem o pacote.**
 
   Adicionar `positioning_pack` ou seu identificador/hash aos contextos `cv_input`, `feras_input`, `cover_letter_input` e `habilidades_input`. Manter os campos antigos (`selected_stories`, `keywords_para_ats`, `gaps_sem_cobertura`) para compatibilidade.
 
-- [ ] **Step 5: Executar GREEN e a suíte de materialização.**
+- [x] **Step 5: Executar GREEN e a suíte de materialização.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_positioning_pack.py tests/test_context_materialization.py tests/test_analysis_revisions.py tests/test_artifact_provenance.py`
 
   Expected: PASS; cada pack é scoped e carrega a mesma revisão de posicionamento.
 
-- [ ] **Step 6: Commitar a unidade.**
+- [x] **Step 6: Commitar a unidade.**
 
   Run: `git add src/career/services/positioning_pack.py src/career/services/persistence/analysis_repository.py src/career/services/context_materializer.py src/career/services/packs tests/test_positioning_pack.py tests/test_context_materialization.py && git commit -m "feat: materialize scoped positioning pack"`
 
@@ -180,31 +180,31 @@
 - Cada builder deve aceitar o pacote via `build_from_positioning_pack(pack: Mapping[str, Any], ...)` ou adaptar internamente a mesma interface; não deve reconstruir estratégia a partir de texto livre.
 - Cada artifact receipt deve manter `application_id`, `source_revision_id` e `positioning_revision_id`; a revisão de evidências será anexada pela tabela existente `artifact_version_dependencies` como `candidate_evidence_reference`, junto de `story_ids` e `claim_ids` no payload do artefato.
 
-- [ ] **Step 1: Escrever testes RED por formato.**
+- [x] **Step 1: Escrever testes RED por formato.**
 
   Usar uma história fixture com claim permitido e assertar que CV, FERAS, carta e habilidades produzem conteúdo do mesmo `story_id`, com redações específicas de cada formato. Assertar que um claim não permitido não aparece.
 
-- [ ] **Step 2: Executar para confirmar a falha.**
+- [x] **Step 2: Executar para confirmar a falha.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_positioning_artifacts.py`
 
   Expected: FAIL porque os builders atuais consomem FIT_MAP/fields legados sem registrar cobertura de stories/claims.
 
-- [ ] **Step 3: Implementar os adaptadores sem alterar regras ATS.**
+- [x] **Step 3: Implementar os adaptadores sem alterar regras ATS.**
 
   CV continua sujeito à materialização factual e aos gates existentes; FERAS/carta/habilidades reutilizam o pacote e produzem narrativa adequada ao formato. Nenhum adaptador pode transformar reposicionamento em cobertura direta de keyword sem evidência.
 
-- [ ] **Step 4: Registrar dependências nos receipts.**
+- [x] **Step 4: Registrar dependências nos receipts.**
 
   Estender `ArtifactRepository` para aceitar a dependência existente `candidate_evidence_reference`, validá-la contra `reference_documents` e anexá-la junto de `fit_map_revision` e `positioning_revision`. `post_processing` deve encaminhar a revisão de posicionamento efetivamente utilizada; a revisão de evidências deve ser resolvida a partir desse snapshot, sem adicionar uma coluna duplicada a `artifact_versions`.
 
-- [ ] **Step 5: Executar GREEN e suíte dos artefatos.**
+- [x] **Step 5: Executar GREEN e suíte dos artefatos.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_positioning_artifacts.py tests/test_cv_positioning.py tests/test_artifact_provenance.py tests/test_cv_delivery_scope.py`
 
   Expected: PASS; outputs usam o mesmo posicionamento e permanecem entregáveis somente com os gates atuais aprovados.
 
-- [ ] **Step 6: Commitar a unidade.**
+- [x] **Step 6: Commitar a unidade.**
 
   Run: `git add src/career/services/cv_content.py src/career/services/feras.py src/career/services/cover_letter.py src/career/services/habilidades_chave.py src/career/services/post_processing.py src/career/services/persistence/artifact_repository.py tests/test_positioning_artifacts.py tests/test_cv_positioning.py && git commit -m "feat: translate positioning across application artifacts"`
 

@@ -17,6 +17,7 @@ from career.services.persistence.application_repository import (
     ApplicationRepository,
 )
 from career.services.persistence.artifact_repository import ArtifactRepository
+from career.services.persistence.reference_repository import ReferenceRepository
 from career.services.persistence.gate_repository import GateReceipt, GateRepository
 from career.services.review import record_approved_cv_provenance
 from career.utils import sha256_file, sha256_text
@@ -34,6 +35,7 @@ class ArtifactProvenanceTests(unittest.TestCase):
         self.analysis = AnalysisRepository(self.db)
         self.gates = GateRepository(self.db)
         self.artifacts = ArtifactRepository(self.db)
+        self.references = ReferenceRepository(self.db)
 
         self.primary = self.applications.create_application(
             ApplicationIdentity(
@@ -110,6 +112,58 @@ class ArtifactProvenanceTests(unittest.TestCase):
             (record.artifact_id,),
         )
         self.assertEqual(content_row, {"content": extracted_text})
+
+    def test_register_can_bind_candidate_evidence_and_positioning_claims(self) -> None:
+        source_revision_id = self._create_validated_fit_map(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        positioning_revision_id = self.analysis.create_positioning_revision(
+            self.primary.application_id,
+            source_revision_id,
+            {
+                "stories": [{"story_key": "story_a", "narrative": "Narrativa A"}],
+            },
+        )
+        evidence_reference_id = self.references.upsert_version(
+            "candidate_evidence",
+            "candidate",
+            json.dumps({"schema_version": 1, "stories": []}),
+            "candidate-evidence-v1",
+        )
+
+        record = self.artifacts.register(
+            self.primary.application_id,
+            "feras",
+            None,
+            "FERAS com estratégia compartilhada",
+            source_revision_id,
+            "run-feras-positioning",
+            positioning_revision_id=positioning_revision_id,
+            candidate_evidence_reference_id=evidence_reference_id,
+            positioning_story_ids=["story_a"],
+            positioning_claim_ids=["Claim A"],
+        )
+
+        dependencies = self.db.fetch_all(
+            """SELECT dependency_type, dependency_id
+               FROM artifact_version_dependencies
+              WHERE version_id = ?
+              ORDER BY dependency_type, dependency_id""",
+            (record.artifact_id,),
+        )
+        self.assertIn(
+            {"dependency_type": "candidate_evidence_reference", "dependency_id": evidence_reference_id},
+            dependencies,
+        )
+        self.assertIn(
+            {"dependency_type": "positioning_story", "dependency_id": "story_a"},
+            dependencies,
+        )
+        self.assertIn(
+            {"dependency_type": "positioning_claim", "dependency_id": "Claim A"},
+            dependencies,
+        )
 
     def test_register_rejects_missing_source_dependency_and_unsupported_kind(self) -> None:
         source_revision_id = self.analysis.create_revision(

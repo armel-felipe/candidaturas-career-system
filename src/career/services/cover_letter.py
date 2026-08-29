@@ -5,6 +5,7 @@ from typing import Any
 
 from career.paths import OUTPUTS
 from career.services import derived_context as derived_context_service
+from career.services.positioning_pack import artifact_claim_text, artifact_provenance, validate_positioning_pack
 from career.services.application_context import ApplicationPaths
 from career.utils import ValidationFailure, ensure, read_json, utc_now_iso, write_text
 
@@ -22,7 +23,7 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
     keyword_pack = (normalized_pack or {}).get("job_keywords") or {}
     focus_terms = [str(item).strip() for item in keyword_pack.get("top_focus_terms", []) if str(item).strip()]
     focus_phrase = f", com foco em {focus_terms[0]}" if focus_terms else ""
-    return "\n".join(
+    content = "\n".join(
         [
             "# Carta de Apresentação — Felipe Armel Dias da Silva", "",
             f"Prezada equipe da {empresa},", "",
@@ -32,6 +33,26 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
             "Atenciosamente,", "", "Felipe Armel Dias da Silva", "",
         ]
     )
+    positioning = (normalized_pack or {}).get("positioning_pack")
+    if isinstance(positioning, dict):
+        content += "\n## Estratégia de posicionamento\n- " + artifact_claim_text(positioning) + "\n"
+    return content
+
+
+def build_from_positioning_pack(pack: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_positioning_pack(pack)
+    story = validated["stories"][0] if validated["stories"] else {}
+    actions = " ".join(str(item).strip() for item in story.get("actions", []) if str(item).strip())
+    claim = artifact_claim_text(validated)
+    content = "\n".join(
+        [
+            f"Tenho interesse em contribuir como {validated['persona']}.",
+            validated["thesis"],
+            f"Na experiência selecionada, {actions}",
+            f"Essa trajetória sustenta a afirmação: {claim}",
+        ]
+    )
+    return {"content": content, "provenance": artifact_provenance(validated)}
 
 
 def validate_cellular_artifact(

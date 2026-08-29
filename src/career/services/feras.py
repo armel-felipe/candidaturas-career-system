@@ -5,6 +5,7 @@ from typing import Any
 
 from career.paths import OUTPUTS
 from career.services import derived_context as derived_context_service
+from career.services.positioning_pack import artifact_claim_text, artifact_provenance, validate_positioning_pack
 from career.services.application_context import ApplicationPaths
 from career.utils import ensure, read_json, utc_now_iso, write_text
 
@@ -21,7 +22,7 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
     keyword_pack = (normalized_pack or {}).get("job_keywords") or {}
     normalized_keywords = [str(item).strip() for item in keyword_pack.get("top_focus_terms", []) if str(item).strip()]
     context_line = f"Contexto da vaga: {', '.join(normalized_keywords[:3])}." if normalized_keywords else ""
-    return "\n".join(
+    content = "\n".join(
         [
             f"# FERAS — {cargo} — {empresa}", "", "## FERAS estruturado",
             "- F: Engenharia química e estratégia aplicada a operações e negócios.",
@@ -35,6 +36,30 @@ def build_from_fit_map(fit_map: dict[str, Any], *, normalized_pack: dict[str, An
             "## Keywords relevantes não usadas", *[f"- {item}" for item in omitted], "",
         ]
     )
+    positioning = (normalized_pack or {}).get("positioning_pack")
+    if isinstance(positioning, dict):
+        content += "\n## Estratégia de posicionamento\n- " + artifact_claim_text(positioning) + "\n"
+    return content
+
+
+def build_from_positioning_pack(pack: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_positioning_pack(pack)
+    story = validated["stories"][0] if validated["stories"] else {}
+    result = " ".join(
+        str(item).strip()
+        for item in (story.get("context"), *(story.get("results") or []))
+        if str(item).strip()
+    )
+    claim = artifact_claim_text(validated)
+    content = "\n".join(
+        [
+            f"Tese: {validated['thesis']}",
+            f"Persona: {validated['persona']}",
+            f"Experiência: {result}",
+            f"Claim defensável: {claim}",
+        ]
+    )
+    return {"content": content, "provenance": artifact_provenance(validated)}
 
 
 def build_current_feras(

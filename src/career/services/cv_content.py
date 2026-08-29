@@ -8,7 +8,7 @@ import unicodedata
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from career.paths import CAREER_STATE, ROOT
 from career.services import applications_v2 as applications_v2_service
@@ -20,6 +20,7 @@ from career.cells.capabilities import (
 )
 from career.services import fit_map as fit_map_service
 from career.services import provenance as provenance_service
+from career.services.positioning_pack import artifact_claim_text, artifact_provenance, validate_positioning_pack
 from career.services.application_context import ApplicationPaths
 from career.utils import (
     ValidationFailure,
@@ -171,6 +172,7 @@ def build_cv_content(
     candidate_facts_revision: str,
     *,
     language: str | None = None,
+    positioning_pack: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build CV content from explicit application paths without global adapters."""
     resolved_fit_map = Path(fit_map_path).resolve()
@@ -207,7 +209,20 @@ def build_cv_content(
         candidate_facts_revision=candidate_facts_revision,
         application_id=application_paths.application_id,
         language=language or _application_cv_language(application_paths, fit_map),
+        positioning_pack=positioning_pack,
     )
+
+
+def build_from_positioning_pack(pack: Mapping[str, Any]) -> dict[str, Any]:
+    validated = validate_positioning_pack(pack)
+    story_text = " ".join(
+        str(item).strip()
+        for story in validated["stories"]
+        for item in (story.get("context"), *(story.get("actions") or []), *(story.get("results") or []))
+        if str(item).strip()
+    )
+    content = f"{validated['thesis']} {story_text} {artifact_claim_text(validated)}".strip()
+    return {"content": content, "provenance": artifact_provenance(validated)}
     return payload
 
 
@@ -284,6 +299,7 @@ def _build_cv_payload(
     candidate_facts_revision: str | None = None,
     application_id: str | None = None,
     language: str | None = None,
+    positioning_pack: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     job_family = _infer_job_family(fit_map)
     selected = _select_experiences(fit_map)
@@ -379,6 +395,16 @@ def _build_cv_payload(
         "summary_support": summary_support,
         "positioning": positioning,
     }
+    if positioning_pack is not None:
+        validated_pack = validate_positioning_pack(positioning_pack)
+        payload["positioning_strategy"] = {
+            "thesis": validated_pack["thesis"],
+            "persona": validated_pack["persona"],
+            "story_ids": [story["story_id"] for story in validated_pack["stories"]],
+            "claim_ids": list(validated_pack["claims"]),
+        }
+        payload["metadata"]["positioning_revision_id"] = validated_pack["positioning_revision_id"]
+        payload["metadata"]["candidate_evidence_revision_id"] = validated_pack["candidate_evidence_revision_id"]
     if positioning is not None:
         payload["positioning_support"] = {
             "catalog_entry_id": positioning["catalog_entry_id"],
