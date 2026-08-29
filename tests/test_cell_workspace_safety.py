@@ -463,6 +463,54 @@ def test_cellular_heartbeat_validates_authority_before_maintenance_or_queue(
     assert calls == {"maintenance": 0, "queue": 0}
 
 
+def test_cellular_heartbeat_uses_configured_control_database_path(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    legacy = Database(v2_dir.parent / "career.db")
+    legacy.init_schema()
+    legacy.close()
+
+    configured_path = tmp_path / ".career-control" / "career.db"
+    configured = Database(configured_path)
+    configured.init_schema()
+    configured_id = configured.control_db_identity()
+    configured.close()
+
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
+    monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(configured_path))
+    monkeypatch.setattr(
+        applications_v2,
+        "_load_config",
+        lambda: {**applications_v2.DEFAULT_CONFIG, "max_per_run": 1},
+    )
+    monkeypatch.setattr(
+        applications_v2, "_run_maintenance_sync", lambda *_args: {"executed": False}
+    )
+    monkeypatch.setattr(
+        applications_v2.notion_service,
+        "notion_config",
+        lambda: ("unused", "unused"),
+    )
+    monkeypatch.setattr(applications_v2, "_load_queue", lambda *_args: [])
+
+    result = applications_v2.run_heartbeat(
+        applications_v2.HeartbeatV2Options(
+            max_per_run=1,
+            run_agent=True,
+            dry_run=False,
+            skip_maintenance=True,
+            cellular=True,
+            control_db_id=configured_id,
+        )
+    )
+
+    assert result["mode"] == "cellular"
+    assert result["results"] == []
+
+
 def test_production_workspace_owner_is_unique_per_invocation_unless_explicit(
     monkeypatch,
 ):
@@ -867,6 +915,7 @@ def test_agent_heartbeat_schedules_cellular_nodes_with_full_handover_context(
     tmp_path, monkeypatch
 ):
     v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(v2_dir.parent / "career.db"))
     monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
     monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
     monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
@@ -941,6 +990,7 @@ def test_agent_heartbeat_second_cycle_invokes_cellular_harness_with_model_varian
     tmp_path, monkeypatch
 ):
     v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(v2_dir.parent / "career.db"))
     monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
     monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
     monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
@@ -1011,6 +1061,7 @@ def test_agent_heartbeat_second_cycle_invokes_cellular_harness_with_model_varian
     assert second["results"][0]["node_id"] == "analyze_fit"
     assert second["results"][0]["status"] == "awaiting_agent"
     assert "draft" not in str(second["results"][0].get("blocker", "")).casefold()
+    assert "agent unavailable" in str(second["results"][0].get("blocker", "")).casefold()
     assert calls and calls[0]["model"] == "openai/gpt-test"
     assert calls[0]["variant"] == "medium"
     paths = applications_v2.paths_for("101", root=v2_dir)
@@ -1055,10 +1106,95 @@ def test_cellular_reprocess_refreshes_job_and_quarantines_stale_draft(
     assert list(paths.requests_dir.rglob("stale_fit_map.draft.json"))
 
 
+def test_cellular_application_preserves_local_source_identity_and_rejects_fake_notion_id(
+    tmp_path,
+):
+    applications_root = tmp_path / ".career-state" / "applications_v2"
+    application_id = "local_linkedin_application"
+    paths = applications_v2.paths_for(application_id, root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    write_json(
+        paths.identity,
+        {
+            "kind": "application_identity",
+            "application_id": application_id,
+            "source_type": "linkedin_job",
+            "source_id": "https://www.linkedin.com/jobs/view/123/",
+            "source_url": "https://www.linkedin.com/jobs/view/123/",
+            "company": "Acme",
+            "role": "Operations Lead",
+            "aliases": {
+                "notion_page_id": application_id,
+            },
+        },
+    )
+
+    applications_v2._ensure_cellular_application(
+        {
+            "application_id": application_id,
+            "company": "Acme",
+            "role": "Operations Lead",
+            "source_type": "linkedin_job",
+            "source_id": "https://www.linkedin.com/jobs/view/123/",
+            "source_url": "https://www.linkedin.com/jobs/view/123/",
+            "description": "Lead operations and planning. " * 10,
+        },
+        applications_root=applications_root,
+    )
+
+    identity = read_json(paths.identity)
+    assert identity["source_type"] == "linkedin_job"
+    assert identity["source_id"].endswith("/123/")
+    assert identity["aliases"] == {}
+
+
+def test_local_cellular_heartbeat_discovers_ready_run_outside_notion_queue(
+    tmp_path,
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    database_path = v2_dir.parent / "career.db"
+    database = Database(database_path)
+    database.init_schema()
+    application_id = "local_linkedin_application"
+    paths = applications_v2.paths_for(application_id, root=v2_dir)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text(
+        "# Operations Lead\n\nLead operations and planning. " * 10,
+        encoding="utf-8",
+    )
+    write_json(
+        paths.identity,
+        {
+            "application_id": application_id,
+            "source_type": "linkedin_job",
+            "source_id": "https://www.linkedin.com/jobs/view/123/",
+            "company": "Acme",
+            "role": "Operations Lead",
+            "aliases": {"notion_record_id": "617"},
+        },
+    )
+    executor = CellExecutor(database, applications_root=v2_dir)
+    run_id = executor.plan(application_id, {"cv"}).run_id
+    executor.mark_validated(run_id, "normalize_job")
+    executor.release_workspace_lease()
+    database.close()
+
+    candidates = applications_v2._local_cellular_candidates(
+        database_path, applications_root=v2_dir
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["application_id"] == application_id
+    assert candidates[0]["_cellular_run_id"] == run_id
+    assert candidates[0]["source_type"] == "linkedin_job"
+    assert applications_v2._record_key(candidates[0]) == application_id
+
+
 def test_cellular_reprocess_creates_one_new_run_then_resumes_it(
     tmp_path, monkeypatch
 ):
     v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(v2_dir.parent / "career.db"))
     monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
     monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
     monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
@@ -1131,6 +1267,7 @@ def test_cellular_heartbeat_does_not_consume_unbound_existing_draft(
     tmp_path, monkeypatch
 ):
     v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(v2_dir.parent / "career.db"))
     monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
     monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
     monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
@@ -1289,7 +1426,7 @@ def test_executor_rejects_and_quarantines_an_unbound_fit_map_draft(tmp_path):
     database.close()
 
 
-def test_executor_requires_analyze_fit_draft_binding_even_when_both_are_missing(
+def test_executor_does_not_consume_analyze_fit_without_draft_binding(
     tmp_path,
 ):
     database = Database(tmp_path / "career.db")
@@ -1315,13 +1452,15 @@ def test_executor_requires_analyze_fit_draft_binding_even_when_both_are_missing(
     plan = executor.plan("app-a", {"cv"})
     executor.mark_validated(plan.run_id, "normalize_job")
 
-    result = next(
-        item for item in executor.run_ready(plan.run_id) if item.node_id == "analyze_fit"
-    )
+    results = executor.run_ready(plan.run_id)
 
-    assert result.status == "blocked"
-    assert "draft_binding" in result.blocker
+    assert results == ()
     assert called == []
+    node = database.fetch_one(
+        "SELECT status, latest_attempt FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+        (plan.run_id, "analyze_fit"),
+    )
+    assert node == {"status": "planned", "latest_attempt": 0}
     database.close()
 
 
@@ -1631,6 +1770,7 @@ def test_reprocess_recovers_run_created_before_marker_update_without_duplicate(
     tmp_path, monkeypatch
 ):
     v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(v2_dir.parent / "career.db"))
     monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
     monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
     monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")
@@ -1702,6 +1842,7 @@ def test_cellular_heartbeat_processes_distinct_applications_concurrently(
     tmp_path, monkeypatch
 ):
     v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setenv("CAREER_CONTROL_DB_PATH", str(v2_dir.parent / "career.db"))
     monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
     monkeypatch.setattr(applications_v2, "V2_LOG_DIR", v2_dir / "_logs")
     monkeypatch.setattr(applications_v2, "V2_INDEX", v2_dir / "index.json")

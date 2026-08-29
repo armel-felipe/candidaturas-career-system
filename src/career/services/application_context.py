@@ -13,19 +13,23 @@ from typing import Any
 from uuid import uuid4
 
 from career.paths import CAREER_STATE, ROOT
-from career.services.database import Database
+from career.services.database import Database, RuntimePersistenceMode
 from career.services.persistence.application_repository import (
     ApplicationIdentity,
     ApplicationNotFoundError,
     ApplicationRecord,
     ApplicationRepository,
 )
+from career.services.persistence.gate_repository import GateReceipt, GateRepository
+from career.services.session_memory import SessionMemoryService
 from career.utils import read_json, utc_now_iso, write_json, write_text
 
 
 APPLICATIONS_DIR = CAREER_STATE / "applications_v2"
 SESSION_REGISTRY = CAREER_STATE / "session_registry.json"
 ALIAS_INDEX = CAREER_STATE / "application_alias_index.json"
+SESSION_APPLICATION_KEY = "active_application_id"
+SESSION_APPLICATION_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
 def canonical_database(*, root: Path | None = None) -> Database:
@@ -36,7 +40,17 @@ def canonical_database(*, root: Path | None = None) -> Database:
     recreating the deprecated ``.career-state/career.db`` default.
     """
     workspace_root = (root or ROOT).resolve()
-    return Database(db_path=workspace_root / "control-plane" / "career.db")
+    configured_path = str(os.environ.get("CAREER_CONTROL_DB_PATH") or "").strip()
+    if configured_path:
+        configured = Path(configured_path).expanduser()
+        db_path = (
+            configured.resolve()
+            if configured.is_absolute()
+            else (workspace_root / configured).resolve()
+        )
+    else:
+        db_path = workspace_root / "control-plane" / "career.db"
+    return Database(db_path=db_path)
 
 
 def build_application_projection(
@@ -304,8 +318,27 @@ def _relative(path: Path) -> str:
         return str(path)
 
 
+def _delivery_profile_for_source(
+    source_type: str,
+    source_url: str | None,
+    source_metadata: dict[str, Any] | None,
+) -> str:
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    explicit = str(metadata.get("delivery_profile") or "").strip().lower()
+    if explicit in {"standard_cv", "gupy_registration"}:
+        return explicit
+    url = str(source_url or metadata.get("source_url") or metadata.get("url") or "").lower()
+    canal = str(metadata.get("canal_aplicacao") or metadata.get("application_channel") or "").lower()
+    if "gupy" in url or "gupy" in canal:
+        return "gupy_registration"
+    return "standard_cv"
+
+
 def profile_id_from_env(env: dict[str, str] | None = None) -> str:
     env = env or os.environ
+    explicit_profile_id = str(env.get("CAREER_HERMES_PROFILE_ID") or "").strip()
+    if explicit_profile_id:
+        return explicit_profile_id
     hermes_home = env.get("HERMES_HOME") or str(Path.home() / ".hermes")
     return _short_hash(str(Path(hermes_home).expanduser()), 12)
 
@@ -381,7 +414,10 @@ def application_id_for(
     """Build an application id without persisting state or compatibility files."""
     if preferred_id:
         validate_application_id(preferred_id)
-        return _slug(preferred_id)
+        # Explicit IDs are already canonical SQLite keys.  Slugging here
+        # changes case-sensitive IDs (for example the timestamp ``T``) and
+        # makes a planned run impossible to resume under the requested ID.
+        return str(preferred_id).strip()
     if record_id is not None:
         return f"notion_{_slug(str(record_id))}"
     basis = "|".join([source_type, source_id or "", company or "", role or ""])
@@ -485,6 +521,11 @@ def ensure_application(
             source_url=str(existing_identity.get("source_url"))
             if existing_identity.get("source_url")
             else None,
+            delivery_profile=_delivery_profile_for_source(
+                source_type,
+                str(existing_identity.get("source_url") or "") or None,
+                existing_identity,
+            ),
             aliases={
                 ("notion_id" if key == "notion_record_id" else str(key)): str(value)
                 for key, value in aliases.items()
@@ -536,7 +577,10 @@ def persist_intake(
         raise ValueError("intake fingerprint does not match source_text")
 
     if preferred_id:
-        application_id = _slug(validate_application_id(preferred_id))
+        # An explicit ID is already canonical. Slugging it here can change
+        # case (for example ``...T...`` to ``...t...``), causing a retry to
+        # miss the existing SQLite application and collide on its aliases.
+        application_id = validate_application_id(str(preferred_id).strip())
     elif record_id is not None:
         application_id = f"notion_{_slug(str(record_id))}"
     else:
@@ -558,6 +602,7 @@ def persist_intake(
     description_id = f"job_{uuid4().hex}"
     application_revision_id = f"rev_{uuid4().hex}"
     source_url = str(source_url or "").strip() or None
+    delivery_profile = _delivery_profile_for_source(source_type, source_url, metadata)
     description_path = _relative(paths.job_description)
     source_metadata_json = json.dumps(
         metadata, sort_keys=True, separators=(",", ":"), default=str
@@ -583,16 +628,17 @@ def persist_intake(
         conn.execute(
             """INSERT INTO applications
                (id, notion_id, company, role, source_type, source_url, stage,
-                funil_stage, cv_language, status, created_at, updated_at,
+                funil_stage, cv_language, status, delivery_profile, created_at, updated_at,
                 job_description_path)
                VALUES (?, ?, ?, ?, ?, ?, 'analyze_pending', 'Fila Agente',
-                       'pt', 'active', ?, ?, ?)
+                       'pt', 'active', ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  notion_id = COALESCE(excluded.notion_id, applications.notion_id),
                  company = excluded.company,
                  role = excluded.role,
                  source_type = excluded.source_type,
                  source_url = COALESCE(excluded.source_url, applications.source_url),
+                 delivery_profile = excluded.delivery_profile,
                  job_description_path = excluded.job_description_path,
                  updated_at = excluded.updated_at""",
             (
@@ -602,6 +648,7 @@ def persist_intake(
                 role,
                 source_type,
                 source_url,
+                delivery_profile,
                 created_at,
                 now,
                 description_path,
@@ -695,12 +742,25 @@ def persist_intake(
             "updated_at": now,
             "source_type": source_type,
             "source_id": source_id,
+            "source_url": source_url or "",
+            "delivery_profile": delivery_profile,
             "company": company,
             "role": role,
             "aliases": identity_aliases,
         },
     )
     write_text(paths.job_description, source_text)
+    GateRepository(repository_database).record(
+        GateReceipt(
+            application_id=application_id,
+            application_fingerprint=fingerprint,
+            run_id=f"intake_{application_id}_{fingerprint[:16]}",
+            gate="job_description_saved",
+            validator="project.save_job_description",
+            input_hash=fingerprint,
+            output_hash=fingerprint,
+        )
+    )
     _update_alias_index(application_id, identity_aliases)
     if not paths.state.exists():
         write_json(
@@ -725,13 +785,18 @@ def resolve_active_application() -> ApplicationRecord:
     )
 
 
-def _update_alias_index(application_id: str, aliases: dict[str, Any]) -> None:
-    payload = read_json(ALIAS_INDEX) if ALIAS_INDEX.exists() else {"aliases": {}}
-    index = payload.setdefault("aliases", {})
-    for key, value in aliases.items():
-        if value:
-            index[f"{key}:{value}"] = application_id
-    write_json(ALIAS_INDEX, payload)
+def _update_alias_index(application_id: str, aliases: dict[str, Any]) -> bool:
+    """Best-effort update of the legacy mirror; SQLite remains authoritative."""
+    try:
+        payload = read_json(ALIAS_INDEX) if ALIAS_INDEX.exists() else {"aliases": {}}
+        index = payload.setdefault("aliases", {})
+        for key, value in aliases.items():
+            if value:
+                index[f"{key}:{value}"] = application_id
+        write_json(ALIAS_INDEX, payload)
+    except OSError:
+        return False
+    return True
 
 
 def _repository(database: Database | None = None) -> ApplicationRepository:
@@ -779,6 +844,7 @@ def _legacy_record_from_files(application_id: str) -> ApplicationRecord:
         else None,
         fit_map_path=_relative(paths.fit_map) if paths.fit_map.exists() else None,
         cv_path=None,
+        delivery_profile="standard_cv",
         aliases={str(key): str(value) for key, value in aliases.items() if value},
     )
 
@@ -825,10 +891,20 @@ def register_session(
     application_id: str,
     profile_id: str | None = None,
     channel: str | None = None,
+    database: Database | None = None,
 ) -> dict[str, Any]:
     application_id = validate_application_id(application_id)
     profile_id = profile_id or ("default" if runtime != "hermes" else profile_id_from_env())
     key = session_key(runtime=runtime, profile_id=profile_id, session_id=session_id)
+    session_database = database or canonical_database()
+    session_memory = SessionMemoryService(session_database)
+    session_memory.reset(key)
+    session_memory.set(
+        key,
+        SESSION_APPLICATION_KEY,
+        application_id,
+        ttl_seconds=SESSION_APPLICATION_TTL_SECONDS,
+    )
     registry = read_json(SESSION_REGISTRY) if SESSION_REGISTRY.exists() else {"sessions": {}}
     sessions = registry.setdefault("sessions", {})
     sessions[key] = {
@@ -843,12 +919,26 @@ def register_session(
     return sessions[key]
 
 
-def resolve_session(*, runtime: str, session_id: str, profile_id: str | None = None) -> str | None:
+def resolve_session(
+    *,
+    runtime: str,
+    session_id: str,
+    profile_id: str | None = None,
+    database: Database | None = None,
+) -> str | None:
+    profile_id = profile_id or ("default" if runtime != "hermes" else profile_id_from_env())
+    key = session_key(runtime=runtime, profile_id=profile_id, session_id=session_id)
+    session_database = database or canonical_database()
+    session_memory = SessionMemoryService(session_database)
+    application_id = session_memory.get(key, SESSION_APPLICATION_KEY)
+    if application_id:
+        return validate_application_id(application_id)
+    if session_database.persistence_mode == RuntimePersistenceMode.SQLITE_ONLY:
+        return None
     if not SESSION_REGISTRY.exists():
         return None
-    profile_id = profile_id or ("default" if runtime != "hermes" else profile_id_from_env())
     registry = read_json(SESSION_REGISTRY)
-    item = registry.get("sessions", {}).get(session_key(runtime=runtime, profile_id=profile_id, session_id=session_id))
+    item = registry.get("sessions", {}).get(key)
     if isinstance(item, dict) and item.get("application_id"):
         return validate_application_id(str(item["application_id"]))
     return None

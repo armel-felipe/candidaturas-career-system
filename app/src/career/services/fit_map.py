@@ -152,6 +152,15 @@ def _fit_map_keywords(fit_map: dict) -> set[str]:
     return keywords
 
 
+def _registry_path_for_fit_map(fit_map_path: Path) -> Path:
+    """Resolve ATS registry beside an application-scoped FIT_MAP."""
+    resolved = Path(fit_map_path).resolve()
+    applications_root = (CAREER_STATE / "applications_v2").resolve()
+    if resolved.is_relative_to(applications_root) and resolved.name == "fit_map.json":
+        return resolved.parent / "derived" / "keyword_ats_registry.json"
+    return KEYWORD_REGISTRY
+
+
 def _count_items(value) -> int:
     return len(value) if isinstance(value, list) else 0
 
@@ -328,6 +337,7 @@ def status(
     draft_path: Path = CAREER_STATE / "fit_map.draft.json",
     fit_map_path: Path = CAREER_STATE / "fit_map.json",
     job_description_path: Path | None = None,
+    registry_path: Path | None = None,
 ) -> dict:
     job_path = job_description_path or _latest_job_description()
     draft, draft_error = _safe_read_json(draft_path)
@@ -335,14 +345,15 @@ def status(
     draft_placeholders = _placeholder_paths(draft) if isinstance(draft, dict) else []
     draft_validation_error = _draft_validation_error(draft, draft_placeholders)
     fit_map_job_match = _fit_map_state_fingerprint_match(fit_map_path, job_path)
-    keyword_registration = {"registered": False, "reason": "fit_map_missing", "path": str(KEYWORD_REGISTRY)}
+    effective_registry_path = Path(registry_path) if registry_path else _registry_path_for_fit_map(fit_map_path)
+    keyword_registration = {"registered": False, "reason": "fit_map_missing", "path": str(effective_registry_path)}
     if job_path and isinstance(fit_map, dict) and not fit_map_job_match:
         job_text = job_path.read_text(encoding="utf-8", errors="replace").casefold()
         cargo = str(fit_map.get("cargo", "")).casefold()
         empresa = str(fit_map.get("empresa", "")).casefold()
         fit_map_job_match = bool(cargo and empresa and cargo in job_text and empresa in job_text)
     if fit_map_job_match and isinstance(fit_map, dict):
-        keyword_registration = _keywords_registered(fit_map)
+        keyword_registration = _keywords_registered(fit_map, effective_registry_path)
 
     if not job_path:
         next_step = "salvar descrição da vaga"
@@ -393,8 +404,14 @@ def resume_guidance(
     draft_path: Path = CAREER_STATE / "fit_map.draft.json",
     fit_map_path: Path = CAREER_STATE / "fit_map.json",
     job_description_path: Path | None = None,
+    registry_path: Path | None = None,
 ) -> dict:
-    current = status(draft_path=draft_path, fit_map_path=fit_map_path, job_description_path=job_description_path)
+    current = status(
+        draft_path=draft_path,
+        fit_map_path=fit_map_path,
+        job_description_path=job_description_path,
+        registry_path=registry_path,
+    )
     next_step = current["next_required_step"]
     guidance = {
         "salvar descrição da vaga": {
@@ -448,8 +465,14 @@ def progress_guard(
     draft_path: Path = CAREER_STATE / "fit_map.draft.json",
     fit_map_path: Path = CAREER_STATE / "fit_map.json",
     job_description_path: Path | None = None,
+    registry_path: Path | None = None,
 ) -> dict:
-    current = status(draft_path=draft_path, fit_map_path=fit_map_path, job_description_path=job_description_path)
+    current = status(
+        draft_path=draft_path,
+        fit_map_path=fit_map_path,
+        job_description_path=job_description_path,
+        registry_path=registry_path,
+    )
     next_step = current["next_required_step"]
     blocked_steps = {
         "salvar descrição da vaga",

@@ -48,6 +48,16 @@ class IntakeSQLiteScopeTests(unittest.TestCase):
         ):
             return intake.start_intake(source, database=self.database)
 
+    def test_explicit_application_id_preserves_case_for_sqlite_run_binding(self):
+        explicit_id = "local_20260829T012907_793390_daki_66644a79"
+        self.assertEqual(
+            application_context.application_id_for(
+                source_type="linkedin_job",
+                preferred_id=explicit_id,
+            ),
+            explicit_id,
+        )
+
     def test_notion_intake_commits_identity_and_description_before_compatibility_materialization(self):
         source = self._source(
             application_id="notion_578",

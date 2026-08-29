@@ -52,7 +52,7 @@ function bl(text) {
 const children = [
   p('Felipe Armel Dias da Silva', { size: 12, bold: true }),
   hl('linkedin.com/in/felipearmel', 'https://linkedin.com/in/felipearmel'),
-  p('Sao Paulo, SP'),
+  p('Guarulhos, SP'),
   hl('(11) 98674-8218', 'https://wa.me/5511986748218'),
   hl('armelfelipe@gmail.com', 'mailto:armelfelipe@gmail.com'),
   sp(8),

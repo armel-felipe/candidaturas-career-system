@@ -12,10 +12,7 @@ from _bootstrap import bootstrap
 
 
 ROOT = bootstrap()
-DEFAULT_REGISTRY = ROOT / ".career-state" / "derived" / "keyword_ats_registry.json"
-DEFAULT_FIT_MAP = ROOT / ".career-state" / "fit_map.json"
-DEFAULT_REVIEW_REPORT = ROOT / "outputs" / "_tmp" / "output_review_report.json"
-DEFAULT_POLISH_REPORT = ROOT / "outputs" / "_tmp" / "polish_review.json"
+from career.services import application_context
 DEFAULT_DELIVERY_REPORT = ROOT / "outputs" / "_tmp" / "delivery_report.json"
 DEFAULT_COMBINED_REPORT = ROOT / "outputs" / "_tmp" / "cv_deliver_report.json"
 
@@ -48,30 +45,54 @@ def write_report(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _scoped_path(value: str | None, canonical: Path, *, label: str) -> Path:
+    """Resolve an optional argument without allowing a global compatibility path."""
+    if value is None:
+        return canonical
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = ROOT / candidate
+    candidate = candidate.resolve()
+    if candidate != canonical.resolve():
+        raise ValueError(
+            f"{label} must be scoped to the application: {canonical.relative_to(ROOT)}"
+        )
+    return candidate
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Approve a CV and deliver it to OneDrive only if approved.")
     parser.add_argument("--artifact", required=True, help="Final CV artifact in outputs/, for example outputs/cv.docx")
-    parser.add_argument("--fit-map", default=str(DEFAULT_FIT_MAP))
-    parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
-    parser.add_argument("--review-report", default=str(DEFAULT_REVIEW_REPORT))
-    parser.add_argument("--polish-report", default=str(DEFAULT_POLISH_REPORT))
+    parser.add_argument("--application-id", required=True)
+    parser.add_argument("--fit-map")
+    parser.add_argument("--registry")
+    parser.add_argument("--review-report")
+    parser.add_argument("--polish-report")
     parser.add_argument("--delivery-report", default=str(DEFAULT_DELIVERY_REPORT))
     parser.add_argument("--combined-report", default=str(DEFAULT_COMBINED_REPORT))
     parser.add_argument("--dry-run", action="store_true", help="Run approval and rclone delivery dry-run.")
     parser.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args()
 
+    application_paths = application_context.paths_for(args.application_id)
+    fit_map = _scoped_path(args.fit_map, application_paths.fit_map, label="--fit-map")
+    registry = _scoped_path(
+        args.registry,
+        application_paths.derived_dir / "keyword_ats_registry.json",
+        label="--registry",
+    )
+    review_report = _scoped_path(
+        args.review_report, application_paths.cv_review_report, label="--review-report"
+    )
+    polish_report = _scoped_path(
+        args.polish_report, application_paths.polish_review, label="--polish-report"
+    )
+
     artifact = Path(args.artifact)
     if not artifact.is_absolute():
         artifact = ROOT / artifact
     artifact = artifact.absolute()
 
-    review_report = Path(args.review_report)
-    if not review_report.is_absolute():
-        review_report = ROOT / review_report
-    polish_report = Path(args.polish_report)
-    if not polish_report.is_absolute():
-        polish_report = ROOT / polish_report
     delivery_report = Path(args.delivery_report)
     if not delivery_report.is_absolute():
         delivery_report = ROOT / delivery_report
@@ -103,10 +124,12 @@ def main() -> int:
         "approve",
         "--artifact",
         rel(artifact),
+        "--application-id",
+        args.application_id,
         "--fit-map",
-        args.fit_map,
+        rel(fit_map),
         "--registry",
-        args.registry,
+        rel(registry),
         "--report",
         rel(review_report),
         "--polish-report",

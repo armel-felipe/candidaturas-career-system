@@ -150,6 +150,21 @@ def _seed(paths, *, company: str, role: str, language: str, marker: str) -> None
         },
     )
     paths.job_description.write_text(_job_text(company, role, language), encoding="utf-8")
+    write_json(
+        paths.app_dir / "enquadramento.json",
+        {
+            "kind": "enquadramento_posicionamento",
+            "application_id": paths.application_id,
+            "job_fingerprint": hashlib.sha256(paths.job_description.read_bytes()).hexdigest(),
+            "experiencias": [
+                {
+                    "experience_id": "ifood",
+                    "company": "iFood",
+                    "positioning": "liderança operacional baseada em dados",
+                }
+            ],
+        },
+    )
     write_json(paths.fit_map_draft, _draft(company, role, language=language, marker=marker))
 
 
@@ -277,7 +292,7 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
         assert "Stack técnica" in portuguese_docx
         assert "Português - Nativo" in portuguese_docx
         assert "Head of Operations" in english_docx
-        assert "May 2024 to Feb 2026" in english_docx
+        assert "May/2024 to Feb/2026" in english_docx
         assert "maio/2024 a fev/2026" not in english_docx
         assert "Education" in english_docx
         assert "Technical Stack" in english_docx

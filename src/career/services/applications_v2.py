@@ -26,6 +26,7 @@ from career.services.harness_supervisor import HarnessSupervisor
 from career.services.harness_runs import ExclusiveRunLock
 from career.services.application_context import (
     WorkspaceLease,
+    canonical_database,
     paths_for,
     workspace_owner_from_env,
 )
@@ -38,6 +39,7 @@ from career.services.persistence.artifact_repository import ArtifactRepository
 from career.services.persistence.gate_repository import GateRepository
 from career.services.cell_store import CellStore
 from career.services.database import Database
+from career.services.job_language import detect_job_language
 from career.utils import (
     ValidationFailure,
     read_json,
@@ -150,6 +152,7 @@ class ApplicationProjection:
     next_required_step: str
     fit_map_revision_id: str | None
     cv_artifact_id: str | None
+    delivery_profile: str
     base_package_sealed: bool
     compatibility_payload: dict[str, Any]
     observations: tuple[dict[str, Any], ...]
@@ -223,6 +226,7 @@ def build_sqlite_application_projection(
         next_required_step=decision.next_required_step,
         fit_map_revision_id=decision.fit_map_revision_id,
         cv_artifact_id=decision.cv_artifact_id,
+        delivery_profile=application.delivery_profile,
         base_package_sealed=decision.stage is ApplicationStage.CORE_PACKAGE_SEALED,
         compatibility_payload=payload,
         observations=observations,
@@ -232,7 +236,7 @@ def build_sqlite_application_projection(
 def _derive_application_stage_decision(application_id: str, db: Database) -> _StageDecision:
     applications = ApplicationRepository(db)
     try:
-        applications.resolve(application_id=application_id)
+        application = applications.resolve(application_id=application_id)
     except ApplicationNotFoundError as exc:
         raise ValueError(f"unknown application: {application_id}") from exc
 
@@ -247,6 +251,11 @@ def _derive_application_stage_decision(application_id: str, db: Database) -> _St
     revision_id = _current_validated_fit_map_revision(application_id, db)
     if revision_id is None:
         return _StageDecision(ApplicationStage.BLOCKED_RECONCILIATION, "reconcile_fit_map_receipts", None, None)
+
+    if application.delivery_profile == "gupy_registration":
+        if not _has_verified_notion_registration(application_id, db):
+            return _StageDecision(ApplicationStage.NOTION_PENDING, "register_gupy_application", revision_id, None)
+        return _StageDecision(ApplicationStage.CORE_PACKAGE_SEALED, "post_processing_available", revision_id, None)
 
     cv = _latest_cv_for_revision(application_id, revision_id, db)
     if cv is None:
@@ -335,6 +344,33 @@ def _has_verified_notion_sync(application_id: str, artifact, db: Database) -> bo
         require_report=False,
         require_receipt_path=True,
         expected_record_id=str(row["record_id"]),
+    )
+
+
+def _has_verified_notion_registration(application_id: str, db: Database) -> bool:
+    """A Gupy application is sealed by its Notion registration, not a CV."""
+    row = db.fetch_one(
+        """SELECT ns.record_id, ns.payload_json
+             FROM notion_syncs AS ns
+             JOIN notion_records AS nr
+               ON nr.record_id = ns.record_id
+              AND nr.application_id = ns.application_id
+            WHERE ns.application_id = ?
+              AND ns.status IN ('succeeded', 'success', 'completed', 'synced')
+            ORDER BY synced_at DESC, sync_id DESC
+            LIMIT 1""",
+        (application_id,),
+    )
+    if row is None:
+        return False
+    try:
+        payload = json.loads(str(row["payload_json"] or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(payload, dict)
+        and str(payload.get("application_id") or "") == application_id
+        and bool(payload.get("record_id") or row["record_id"])
     )
 
 
@@ -501,6 +537,7 @@ class HeartbeatV2Options:
     cellular: bool = False
     workspace_owner: str | None = None
     control_db_id: str | None = None
+    release_workspace_lease: bool = False
 
 
 def _emit(message: str) -> None:
@@ -529,10 +566,12 @@ def _normalize_status(value: str) -> str:
 
 
 def _record_key(application: dict[str, Any]) -> str:
+    if application.get("_explicit_cellular") or application.get("_local_cellular"):
+        return str(application.get("application_id") or "")
     record_id = application.get("record_id")
     if record_id is not None:
         return str(record_id)
-    return str(application.get("page_id") or "")
+    return str(application.get("page_id") or application.get("application_id") or "")
 
 
 def _app_dir(record_key: str) -> Path:
@@ -776,43 +815,79 @@ def _eligible(applications: list[dict[str, Any]], config: dict[str, Any], max_pe
     return selected if max_per_run is None else selected[:max_per_run]
 
 
-def detect_job_language(text: str) -> str:
-    normalized = " " + " ".join((text or "").casefold().split()) + " "
-    english_markers = [
-        " about the role ",
-        " about the job ",
-        " responsibilities ",
-        " requirements ",
-        " qualifications ",
-        " what you'll ",
-        " you will ",
-        " we're looking ",
-        " cross-functional ",
-        " stakeholders ",
-        " business operations ",
-        " supply chain ",
-        " customer success ",
-    ]
-    portuguese_markers = [
-        " sobre a vaga ",
-        " responsabilidades ",
-        " requisitos ",
-        " qualificações ",
-        " qualificacoes ",
-        " o que buscamos ",
-        " buscamos ",
-        " você ",
-        " voce ",
-        " atuação ",
-        " atuacao ",
-        " experiência ",
-        " experiencia ",
-    ]
-    english_score = sum(normalized.count(marker) for marker in english_markers)
-    portuguese_score = sum(normalized.count(marker) for marker in portuguese_markers)
-    if english_score > portuguese_score:
-        return "en"
-    return "pt-BR"
+_NOTION_PAGE_ID_RE = re.compile(
+    r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$"
+)
+
+
+def _valid_notion_page_id(value: Any) -> str:
+    candidate = str(value or "").strip()
+    return candidate if _NOTION_PAGE_ID_RE.fullmatch(candidate) else ""
+
+
+def _local_cellular_candidates(
+    database_path: Path, *, applications_root: Path
+) -> list[dict[str, Any]]:
+    """Discover active cellular runs created outside the Notion queue.
+
+    LinkedIn/local intakes are deliberately not forced through a synthetic
+    Notion queue record.  Only the newest active run per application and only
+    runs with a real persisted plan and at least one ready node are eligible.
+    """
+    database = Database(database_path)
+    try:
+        rows = database.fetch_all(
+            """SELECT ar.application_id, ar.run_id
+               FROM application_runs ar
+               WHERE ar.status NOT IN ('completed', 'cancelled')
+                 AND ar.created_at = (
+                   SELECT MAX(latest.created_at)
+                   FROM application_runs latest
+                   WHERE latest.application_id = ar.application_id
+                     AND latest.status NOT IN ('completed', 'cancelled')
+                 )
+               ORDER BY ar.created_at ASC"""
+        )
+        store = CellStore(database)
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            application_id = str(row["application_id"] or "").strip()
+            run_id = str(row["run_id"] or "").strip()
+            if not application_id or not run_id:
+                continue
+            paths = paths_for(application_id, root=applications_root)
+            if not (paths.job_description.is_file() and (paths.plans_dir / f"{run_id}.json").is_file()):
+                continue
+            try:
+                ready_nodes = store.list_ready_nodes(run_id)
+            except (KeyError, OSError, ValueError):
+                continue
+            if not ready_nodes:
+                continue
+            identity = read_json(paths.identity) if paths.identity.is_file() else {}
+            aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
+            record_id = str(aliases.get("notion_record_id") or "").strip()
+            page_id = _valid_notion_page_id(aliases.get("notion_page_id"))
+            candidates.append(
+                {
+                    "application_id": application_id,
+                    "record_id": int(record_id) if record_id.isdigit() else None,
+                    "page_id": page_id or None,
+                    "company": str(identity.get("company") or ""),
+                    "role": str(identity.get("role") or ""),
+                    "title": str(identity.get("role") or ""),
+                    "status": "Fila Agente",
+                    "description": paths.job_description.read_text(encoding="utf-8"),
+                    "source_type": str(identity.get("source_type") or "local"),
+                    "source_id": str(identity.get("source_id") or application_id),
+                    "source_url": str(identity.get("source_url") or ""),
+                    "_cellular_run_id": run_id,
+                    "_local_cellular": True,
+                }
+            )
+        return candidates
+    finally:
+        database.close()
 
 
 def _write_package(application: dict[str, Any], *, reset: bool = False) -> tuple[Path, dict[str, Path]]:
@@ -1321,7 +1396,7 @@ def _generation_request(application: dict[str, Any], paths: dict[str, Path]) -> 
                     "experience_index": "integer (0-based)",
                     "experience_role": "string",
                     "bullet_index": "integer (0-based)",
-                    "coverage_mode": "exact | similar | declared_gap",
+                    "coverage_mode": "exact | similar | declared_gap | missing_unexplained",
                     "defensible_evidence": "string",
                 }
             ],
@@ -1351,7 +1426,7 @@ def _generation_request(application: dict[str, Any], paths: dict[str, Path]) -> 
             "Nunca junte experiências, cargos, promoções, fases ou escopos em uma única entrada; se faltar espaço, selecione experiências separadas por aderência.",
             "Títulos compostos como 'Head e Diretor', 'Head + Diretor' ou 'S&OP | Expedição | Supply Chain' são inválidos em cv_content.json.",
             "As 8 keywords-habilidade ATS prioritárias precisam ser alocadas em experiências e bullets defensáveis do cv_content.json; não deixar isso implícito.",
-            "Se uma keyword top 8 não puder ser sustentada por fato real, registrar coverage_mode=declared_gap em ats_keyword_coverage em vez de forçar wording artificial.",
+            "Se uma keyword top 8 não puder ser sustentada por fato real, registrar coverage_mode=declared_gap somente quando o FIT_MAP declarar o gap; caso contrário, usar coverage_mode=missing_unexplained. Nunca forçar wording artificial.",
             "Evite usar o resumo como muleta para cobrir ATS; a cobertura principal deve estar distribuída nas experiências.",
             "Antes de encerrar, confira que todos os arquivos exigidos foram gravados.",
         ],
@@ -1701,10 +1776,10 @@ def _validate_cv_content_contract(paths: dict[str, Path]) -> None:
             invalid_mappings.append(f"{keyword} -> bullet_index out of range ({bullet_index})")
             continue
         coverage_mode = str(item.get("coverage_mode") or "").strip()
-        if coverage_mode not in {"exact", "similar", "declared_gap"}:
+        if coverage_mode not in {"exact", "similar", "declared_gap", "missing_unexplained"}:
             invalid_mappings.append(f"{keyword} -> invalid coverage_mode {coverage_mode!r}")
             continue
-        if coverage_mode != "declared_gap" and not str(item.get("defensible_evidence") or "").strip():
+        if coverage_mode in {"exact", "similar"} and not str(item.get("defensible_evidence") or "").strip():
             invalid_mappings.append(f"{keyword} -> defensible_evidence missing")
     if invalid_mappings:
         raise ValidationFailure("cv_content.json has invalid ats_keyword_coverage mappings:\n- " + "\n- ".join(invalid_mappings))
@@ -1783,6 +1858,25 @@ def _normalize_fact_text(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def _contains_quantitative_result(text: str) -> bool:
+    return bool(re.search(r"(?:R\$\s*\d|\b\d+(?:[.,]\d+)?\b)", text or ""))
+
+
+def _quantitative_claims(text: str) -> set[str]:
+    """Return normalized quantitative claims so the same result is not repeated."""
+    claims: set[str] = set()
+    normalized = _normalize_fact_text(text)
+    for match in re.finditer(
+        r"r\$\s*\d+(?:[.,]\d+)?\s*(?:mm|mi|m|k)?(?:\s*/\s*[a-z]+)?"
+        r"|\b\d+(?:[.,]\d+)?\s*%"
+        r"|\b\d+(?:[.,]\d+)?\s*(?:pessoas?|people|cidades?|cities|dias?|days|"
+        r"minutos?|minutes|horas?|hours|meses?|months|pas|workstations?)\b",
+        normalized,
+    ):
+        claims.add(re.sub(r"\s+", "", match.group(0)))
+    return claims
+
+
 def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
     bullets = experience.get("bullets") or []
     bullet1 = str((bullets[0] or {}).get("text") or "").strip() if len(bullets) > 0 and isinstance(bullets[0], dict) else ""
@@ -1817,6 +1911,24 @@ def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
     tool_dump_markers = (" · ", " / ", ", ", " e ")
     if not bullet2:
         raise ValidationFailure(f"experiences[{index}] bullet 2 is empty in concise mode.")
+    if _contains_quantitative_result(bullet2):
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 2 must be positioning/mechanism prose, not a quantitative result."
+        )
+    if not _contains_quantitative_result(bullet3):
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 3 must contain a quantitative result metric."
+        )
+    if bullet2 and bullet3 and _normalize_fact_text(bullet2) == _normalize_fact_text(bullet3):
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 2 must not duplicate bullet 3."
+        )
+    duplicated_claims = _quantitative_claims(bullet1) & _quantitative_claims(bullet3)
+    if duplicated_claims:
+        raise ValidationFailure(
+            f"experiences[{index}] bullet 1 and bullet 3 must not duplicate quantitative claims: "
+            + ", ".join(sorted(duplicated_claims))
+        )
     if lowered.startswith(generic_starts) and not any(signal in lowered for signal in mechanism_signals):
         raise ValidationFailure(
             f"experiences[{index}] bullet 2 is too generic; include mechanism, governance, tooling or transferable capability."
@@ -2371,18 +2483,58 @@ def _ensure_cellular_application(
     elif not reprocess and _reprocess_request_path(paths).exists():
         _reprocess_request_path(paths).unlink()
     identity = read_json(paths.identity) if paths.identity.exists() else {}
+    existing_aliases = (
+        dict(identity.get("aliases"))
+        if isinstance(identity.get("aliases"), dict)
+        else {}
+    )
+    aliases = {
+        key: str(value)
+        for key, value in existing_aliases.items()
+        if (
+            key != "notion_record_id"
+            or str(value or "").strip().isdigit()
+        )
+        and (
+            key != "notion_page_id"
+            or bool(_valid_notion_page_id(value))
+        )
+    }
+    incoming_record_id = str(application.get("record_id") or "").strip()
+    incoming_page_id = _valid_notion_page_id(application.get("page_id"))
+    if incoming_record_id.isdigit():
+        aliases["notion_record_id"] = incoming_record_id
+    if incoming_page_id:
+        aliases["notion_page_id"] = incoming_page_id
+    source_type = str(
+        application.get("source_type")
+        or identity.get("source_type")
+        or "notion_queue"
+    )
+    source_id = str(
+        application.get("source_id")
+        or identity.get("source_id")
+        or incoming_page_id
+        or incoming_record_id
+        or application_id
+    )
     identity.update(
         {
             "kind": "application_identity",
             "application_id": application_id,
-            "source_type": "notion_queue",
-            "source_id": str(application.get("page_id") or application_id),
+            "source_type": source_type,
+            "source_id": source_id,
+            "source_url": str(
+                application.get("source_url") or identity.get("source_url") or ""
+            ),
+            "delivery_profile": str(
+                application.get("delivery_profile")
+                or identity.get("delivery_profile")
+                or "standard_cv"
+            ),
             "company": str(application.get("company") or ""),
             "role": str(application.get("role") or application.get("title") or ""),
-            "aliases": {
-                "notion_record_id": str(application.get("record_id") or ""),
-                "notion_page_id": str(application.get("page_id") or ""),
-            },
+            "aliases": aliases,
             "updated_at": utc_now_iso(),
         }
     )
@@ -2415,6 +2567,17 @@ def _select_or_plan_cellular_run(
     application: dict[str, Any], *, paths: Any, executor: Any, config: dict[str, Any]
 ) -> str:
     database = executor.database
+    requested_run_id = str(application.get("_cellular_run_id") or "").strip()
+    if requested_run_id:
+        requested = database.fetch_one(
+            "SELECT run_id, application_id FROM application_runs WHERE run_id = ?",
+            (requested_run_id,),
+        )
+        if requested is None or str(requested["application_id"]) != paths.application_id:
+            raise ValidationFailure(
+                f"requested cellular run does not belong to application: {requested_run_id}"
+            )
+        return requested_run_id
     latest = database.fetch_one(
         """SELECT run_id, status, created_at FROM application_runs
            WHERE application_id = ? ORDER BY created_at DESC LIMIT 1""",
@@ -2633,7 +2796,7 @@ def _run_cellular_heartbeat(options: HeartbeatV2Options) -> dict[str, Any]:
         raise ValueError(
             "CAREER_CONTROL_DB_ID is required for an authoritative workspace entry point"
         )
-    database_path = V2_DIR.parent / "career.db"
+    database_path = canonical_database().db_path
     if not database_path.is_file():
         raise ValueError("authoritative control database does not exist")
     owner = options.workspace_owner or _production_workspace_owner()
@@ -2698,7 +2861,32 @@ def _run_cellular_heartbeat_authorized(
         if options.max_per_run is not None
         else int(config["max_per_run"])
     )
-    selected = _eligible(queue, config, effective_max)
+    # Local/LinkedIn runs do not necessarily have a Notion queue record.  Give
+    # those already-planned runs priority, while retaining the existing queue
+    # behavior and deduplicating by the execution key.
+    local_selected = _local_cellular_candidates(
+        database_path, applications_root=V2_DIR
+    )
+    queue_selected = _eligible(queue, config, None)
+    queue_keys = {_record_key(application) for application in queue_selected}
+    local_selected = [
+        application
+        for application in local_selected
+        if not (
+            str(application.get("source_type") or "") == "notion_queue"
+            and _record_key(application) in queue_keys
+        )
+    ]
+    selected: list[dict[str, Any]] = []
+    selected_keys: set[str] = set()
+    for application in [*local_selected, *queue_selected]:
+        key = _record_key(application)
+        if not key or key in selected_keys:
+            continue
+        selected.append(application)
+        selected_keys.add(key)
+        if effective_max is not None and len(selected) >= effective_max:
+            break
     results: list[dict[str, Any]] = []
     worker_count = min(
         len(selected),
@@ -2847,6 +3035,13 @@ def _write_cellular_analyze_request(
         + "\n".join(f"- {rule}" for rule in payload["operational_rules"])
         + "\n",
     )
+    _prepare_external_agent_handoff(
+        request_json=request_json,
+        request_md=request_md,
+        read_allowlist=read_allowlist,
+        write_allowlist=write_allowlist,
+        application_dir=paths.app_dir,
+    )
     return request_json, request_md
 
 
@@ -2889,6 +3084,386 @@ def _run_cellular_analyze_agent(
     )
 
 
+def _cellular_cv_repair_candidate_path(paths: Any, run_id: str, attempt: int) -> Path:
+    return (
+        paths.requests_dir
+        / "cellular"
+        / run_id
+        / "repair"
+        / str(attempt)
+        / "cv_content.json"
+    )
+
+
+def _prepare_external_agent_handoff(
+    *,
+    request_json: Path,
+    request_md: Path,
+    read_allowlist: list[str],
+    write_allowlist: list[str],
+    application_dir: Path,
+) -> None:
+    """Make only declared handoff inputs/outputs accessible to the profile uid."""
+    app_dir = application_dir.resolve()
+
+    def ensure_inside(path: Path) -> Path:
+        resolved = path.resolve()
+        if not resolved.is_relative_to(app_dir):
+            raise ValidationFailure("external agent handoff path escapes application")
+        return resolved
+
+    def grant_traverse(path: Path) -> None:
+        current = path.resolve()
+        while True:
+            current.chmod(current.stat().st_mode | 0o001)
+            if current == app_dir:
+                return
+            if current.parent == current or not current.parent.is_relative_to(app_dir):
+                raise ValidationFailure("external agent handoff parent escapes application")
+            current = current.parent
+
+    for readable in (request_json, request_md, *map(Path, read_allowlist)):
+        readable = ensure_inside(readable)
+        if readable.is_file():
+            readable.chmod(readable.stat().st_mode | 0o004)
+            grant_traverse(readable.parent)
+        elif readable.is_dir():
+            grant_traverse(readable)
+            readable.chmod(readable.stat().st_mode | 0o005)
+    for declared in map(Path, write_allowlist):
+        declared = ensure_inside(declared)
+        target = declared if declared.exists() and declared.is_dir() else declared.parent
+        grant_traverse(target)
+        target.chmod(target.stat().st_mode | 0o003)
+
+
+def _write_cellular_cv_repair_request(
+    *,
+    paths: Any,
+    run_id: str,
+    attempt: int,
+    manifest_path: Path,
+    review_report_path: Path,
+    candidate_path: Path,
+) -> tuple[Path, Path]:
+    """Create the scoped repair handoff for a failed cellular CV review."""
+    manifest = read_json(manifest_path)
+    capabilities = manifest.get("capabilities")
+    if not isinstance(capabilities, dict):
+        raise ValidationFailure("cellular repair manifest capabilities are missing")
+    if (
+        manifest.get("application_id") != paths.application_id
+        or manifest.get("run_id") != run_id
+        or manifest.get("node_id") != "compose_cv"
+        or int(manifest.get("attempt") or 0) != attempt
+    ):
+        raise ValidationFailure("cellular repair manifest identity does not match request")
+    read_allowlist = [str(Path(item).resolve()) for item in capabilities.get("read_paths", [])]
+    manifest_write_allowlist = [
+        str(Path(item).resolve()) for item in capabilities.get("write_paths", [])
+    ]
+    app_dir = paths.app_dir.resolve()
+    for label, values in (("read", read_allowlist), ("write", manifest_write_allowlist)):
+        for value in values:
+            if not Path(value).is_relative_to(app_dir):
+                raise ValidationFailure(f"cellular repair {label} path escapes application")
+    resolved_review = review_report_path.resolve()
+    resolved_candidate = candidate_path.resolve()
+    if str(resolved_review) not in read_allowlist:
+        raise ValidationFailure("cellular repair review report is outside read allowlist")
+    if str(resolved_candidate) not in manifest_write_allowlist:
+        raise ValidationFailure("cellular repair candidate is outside write allowlist")
+    # Do not pass the whole compose staging capability to the external agent.
+    # The only permitted mutation in this stage is the repaired content file.
+    write_allowlist = [str(resolved_candidate)]
+    review_report = read_json(review_report_path)
+    top8 = review_report.get("top8_keywords", []) if isinstance(review_report, dict) else []
+    missing_top8 = [
+        {
+            "keyword": item.get("keyword"),
+            "experience_target": item.get("experience_target"),
+            "coverage_note": item.get("coverage_note"),
+        }
+        for item in top8
+        if isinstance(item, dict) and item.get("coverage_class") == "missing_unexplained"
+    ]
+    request_dir = candidate_path.parent
+    request_json = request_dir / "request.json"
+    request_md = request_dir / "request.md"
+    payload = {
+        "kind": "cellular_cv_repair_request",
+        "cellular": True,
+        "step": "repair",
+        "application_id": paths.application_id,
+        "run_id": run_id,
+        "node_id": "compose_cv",
+        "manifest_path": str(manifest_path.resolve()),
+        "read_allowlist": read_allowlist,
+        "write_allowlist": write_allowlist,
+        "allowed_files": read_allowlist,
+        "expected_outputs": [str(candidate_path.resolve())],
+        "objective": (
+            "Corrigir somente o cv_content.json para resolver os blockers do review_cv "
+            "com keywords ATS em histórias defensáveis da candidatura."
+        ),
+        "review_report_path": str(review_report_path.resolve()),
+        "blocking_review_ids": [
+            item.get("id")
+            for item in review_report.get("blockers", [])
+            if isinstance(item, dict) and item.get("id")
+        ],
+        "missing_unexplained_top8": missing_top8,
+        "repair_rules": [
+            "Editar somente o candidato cv_content.json indicado em expected_outputs.",
+            "Preservar ou incluir metadata.application_id, metadata.run_id e metadata.compose_attempt exatamente como no request.",
+            "Posicionar cada keyword somente em uma experiência com evidência factual real.",
+            "Não inventar métricas, cargos, empresas, ferramentas, escopo ou resultados.",
+            "Manter 4 a 8 experiências e exatamente 3 bullets por experiência em modo concise.",
+            "Se não houver evidência real para uma keyword, preservar o gap declarado.",
+            "Preservar a proveniência canônica e o idioma do CV.",
+        ],
+        "operational_rules": [
+            f"Preserve application_id={paths.application_id}, run_id={run_id}, node_id=compose_cv.",
+            f"Read the immutable attempt manifest first: {manifest_path.resolve()}.",
+            "Read only read_allowlist and write only write_allowlist.",
+            "Do not request or infer a new application ID.",
+        ],
+        "forbidden_actions": [
+            "editar DOCX diretamente",
+            "usar estado global ou outra candidatura",
+            "inserir keyword sem evidência",
+            "alterar FIT_MAP, registry ou Notion",
+        ],
+    }
+    write_json(request_json, payload)
+    write_text(
+        request_md,
+        "# Cellular CV repair request\n\n"
+        + "\n".join(
+            [
+                f"- application_id: `{paths.application_id}`",
+                f"- run_id: `{run_id}`",
+                f"- node_id: `compose_cv`",
+                f"- manifest: `{manifest_path.resolve()}`",
+                f"- review: `{review_report_path.resolve()}`",
+                f"- output: `{candidate_path.resolve()}`",
+                "",
+                "## Missing top 8",
+                *[f"- {item['keyword']} -> {item.get('experience_target') or 'target from review'}" for item in missing_top8],
+                "",
+                "## Rules",
+                *[f"- {rule}" for rule in payload["repair_rules"]],
+            ]
+        )
+        + "\n",
+    )
+    _prepare_external_agent_handoff(
+        request_json=request_json,
+        request_md=request_md,
+        read_allowlist=read_allowlist,
+        write_allowlist=[str(candidate_path.resolve())],
+        application_dir=paths.app_dir,
+    )
+    return request_json, request_md
+
+
+def _bind_cellular_cv_repair_candidate(
+    candidate_path: Path, *, application_id: str, run_id: str, attempt: int
+) -> None:
+    """Bind agent-authored content to the reserved compose attempt."""
+    payload = read_json(candidate_path)
+    if not isinstance(payload, dict):
+        raise ValidationFailure("cellular CV repair candidate must be a JSON object")
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        raise ValidationFailure("cellular CV repair candidate metadata is missing")
+    if metadata.get("application_id") not in {None, application_id}:
+        raise ValidationFailure("cellular CV repair candidate belongs to another application")
+    if metadata.get("run_id") not in {None, "", run_id}:
+        raise ValidationFailure("cellular CV repair candidate belongs to another run")
+    if metadata.get("compose_attempt") not in {None, "", attempt}:
+        try:
+            if int(metadata.get("compose_attempt")) != attempt:
+                raise ValidationFailure("cellular CV repair candidate belongs to another compose attempt")
+        except (TypeError, ValueError) as exc:
+            raise ValidationFailure("cellular CV repair candidate compose attempt is invalid") from exc
+    metadata = dict(metadata)
+    metadata["application_id"] = application_id
+    metadata["run_id"] = run_id
+    metadata["compose_attempt"] = attempt
+    payload["metadata"] = metadata
+    write_json(candidate_path, payload)
+
+
+def _cellular_cv_repair_agent(
+    *,
+    paths: Any,
+    repair_result: Any,
+    review_report_path: Path,
+    options: HeartbeatV2Options,
+    config: dict[str, Any],
+) -> tuple[dict[str, Any], Path]:
+    candidate_path = _cellular_cv_repair_candidate_path(
+        paths, repair_result.run_id, repair_result.attempt
+    )
+    request_json, request_md = _write_cellular_cv_repair_request(
+        paths=paths,
+        run_id=repair_result.run_id,
+        attempt=repair_result.attempt,
+        manifest_path=repair_result.manifest_path,
+        review_report_path=review_report_path,
+        candidate_path=candidate_path,
+    )
+    supervisor = HarnessSupervisor(_cellular_workspace_root())
+    result = supervisor.run_application_stage(
+        stage="repair",
+        record_key=paths.application_id,
+        application_dir=paths.app_dir,
+        request_json=request_json,
+        request_md=request_md,
+        runner_config=dict(config.get("generation_runner") or {}),
+        model=str(options.model or config.get("active_model") or ""),
+        variant=str(options.variant or config.get("active_variant") or ""),
+        workspace_owner=str(options.workspace_owner or os.environ.get("CAREER_WORKSPACE_OWNER") or ""),
+        control_db_id=str(options.control_db_id or os.environ.get("CAREER_CONTROL_DB_ID") or ""),
+    )
+    return result, candidate_path
+
+
+def _cellular_review_report_path(paths: Any, run_id: str, node_id: str = "review_cv") -> Path:
+    database = canonical_database()
+    try:
+        row = database.fetch_one(
+            "SELECT latest_attempt FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+            (run_id, node_id),
+        )
+    finally:
+        database.close()
+    if row is None or int(row["latest_attempt"] or 0) <= 0:
+        raise ValidationFailure(f"cellular review attempt is missing: {run_id}")
+    return (
+        paths.app_dir
+        / "cells"
+        / run_id
+        / node_id
+        / str(row["latest_attempt"])
+        / "staging"
+        / "cv_review.json"
+    )
+
+
+def _drain_cellular_ready_waves(executor: Any, run_id: str) -> list[Any]:
+    """Advance deterministic cells until an external node or blocker remains."""
+    executed: list[Any] = []
+    for _ in range(16):
+        ready = tuple(executor.ready_nodes(run_id))
+        if "analyze_fit" in ready:
+            break
+        batch = list(executor.run_ready(run_id))
+        if not batch:
+            break
+        executed.extend(batch)
+    return executed
+
+
+def _existing_blocked_cellular_review(
+    executor: Any, paths: Any, run_id: str
+) -> Any | None:
+    """Expose a persisted blocked review so an explicit resume can repair it."""
+    row = executor.database.fetch_one(
+        "SELECT status, latest_attempt FROM cell_nodes "
+        "WHERE run_id = ? AND node_id = 'review_cv'",
+        (run_id,),
+    )
+    if row is None or str(row["status"]) != "blocked":
+        return None
+    attempt = int(row["latest_attempt"] or 0)
+    manifest_path = paths.cells_dir / run_id / "review_cv" / str(attempt) / "manifest.json"
+    if attempt <= 0 or not manifest_path.is_file():
+        return None
+    manifest = read_json(manifest_path)
+    if (
+        manifest.get("kind") != "cell_attempt_manifest"
+        or manifest.get("application_id") != paths.application_id
+        or manifest.get("run_id") != run_id
+        or manifest.get("node_id") != "review_cv"
+        or int(manifest.get("attempt") or 0) != attempt
+        or manifest.get("status") != "blocked"
+    ):
+        raise ValidationFailure("persisted cellular review manifest identity is invalid")
+    blocker = manifest.get("blocker") if isinstance(manifest.get("blocker"), dict) else {}
+    from career.cells.executor import CellExecutionResult
+
+    return CellExecutionResult(
+        run_id=run_id,
+        node_id="review_cv",
+        attempt=attempt,
+        status="blocked",
+        manifest_path=manifest_path,
+        blocker=str(blocker.get("reason") or "review_cv_blocked"),
+    )
+
+
+def _pending_cellular_cv_repair(
+    executor: Any, paths: Any, run_id: str
+) -> Any | None:
+    """Recover a deferred compose repair whose agent never wrote a candidate."""
+    compose = executor.database.fetch_one(
+        "SELECT status, latest_attempt FROM cell_nodes "
+        "WHERE run_id = ? AND node_id = 'compose_cv'",
+        (run_id,),
+    )
+    review = executor.database.fetch_one(
+        "SELECT status, latest_attempt FROM cell_nodes "
+        "WHERE run_id = ? AND node_id = 'review_cv'",
+        (run_id,),
+    )
+    if (
+        compose is None
+        or str(compose["status"]) not in {"planned", "repairing"}
+        or int(compose["latest_attempt"] or 0) <= 1
+        or review is None
+        or int(review["latest_attempt"] or 0) <= 0
+    ):
+        return None
+    candidate_path = _cellular_cv_repair_candidate_path(
+        paths, run_id, int(compose["latest_attempt"])
+    )
+    if candidate_path.is_file():
+        return None
+    review_attempt = int(review["latest_attempt"])
+    manifest_path = (
+        paths.cells_dir
+        / run_id
+        / "review_cv"
+        / str(review_attempt)
+        / "manifest.json"
+    )
+    if not manifest_path.is_file():
+        return None
+    manifest = read_json(manifest_path)
+    if (
+        manifest.get("kind") != "cell_attempt_manifest"
+        or manifest.get("application_id") != paths.application_id
+        or manifest.get("run_id") != run_id
+        or manifest.get("node_id") != "review_cv"
+        or int(manifest.get("attempt") or 0) != review_attempt
+        or manifest.get("status") not in {"blocked", "superseded"}
+    ):
+        raise ValidationFailure("pending cellular review manifest identity is invalid")
+    blocker = manifest.get("blocker") if isinstance(manifest.get("blocker"), dict) else {}
+    from career.cells.executor import CellExecutionResult
+
+    return CellExecutionResult(
+        run_id=run_id,
+        node_id="review_cv",
+        attempt=review_attempt,
+        status="blocked",
+        manifest_path=manifest_path,
+        blocker=str(blocker.get("reason") or "review_cv_blocked"),
+    )
+
+
 def _process_cellular_application(
     application: dict[str, Any],
     *,
@@ -2897,7 +3472,7 @@ def _process_cellular_application(
     database_path: Path,
 ) -> list[dict[str, Any]]:
     """Advance one application independently; callers may run this concurrently."""
-    from career.cells.executor import CellExecutor
+    from career.cells.executor import CellExecutor, CellExecutionResult, PreparedCellAttempt
     from career.cells.handlers import (
         production_handler_registry,
         production_validator_registry,
@@ -2934,11 +3509,16 @@ def _process_cellular_application(
                     application, status, dry_run=False
                 ),
             )
+        requested_run_id = str(application.get("_cellular_run_id") or "").strip()
         if completion_path.is_file() and not reprocess_pending:
             completion = read_json(completion_path)
             if (
                 completion.get("status") == "completed"
                 and completion.get("job_fingerprint") == job_fingerprint
+                and (
+                    not requested_run_id
+                    or str(completion.get("run_id") or "") == requested_run_id
+                )
             ):
                 return [
                     {
@@ -2969,14 +3549,17 @@ def _process_cellular_application(
                 and not keepalive.get("failure")
             )
             if not agent_ok:
+                agent_stderr = str(agent_result.get("stderr") or "").strip()
+                if "no usable credentials found for provider 'ollama-cloud'" in agent_stderr.casefold():
+                    agent_failure = "missing_ollama_cloud_credentials"
+                elif agent_stderr:
+                    agent_failure = "agent_returned_nonzero:" + " ".join(agent_stderr.split())[-500:]
+                else:
+                    agent_failure = "agent_returned_nonzero"
                 reason = (
                     str(keepalive.get("failure") or "")
                     or str(agent_result.get("blocker_reason") or "")
-                    or (
-                        "agent_returned_nonzero"
-                        if agent_result.get("returncode") != 0
-                        else "agent_output_not_available"
-                    )
+                    or (agent_failure if agent_result.get("returncode") != 0 else "agent_output_not_available")
                 )
                 failed_dir = (
                     paths.requests_dir
@@ -3018,7 +3601,121 @@ def _process_cellular_application(
                 },
             )
 
-        executed = executor.run_ready(run_id)
+        existing_blocked_review = _existing_blocked_cellular_review(
+            executor, paths, run_id
+        ) or _pending_cellular_cv_repair(executor, paths, run_id)
+        if existing_blocked_review is not None:
+            executed = [existing_blocked_review]
+        else:
+            executed = list(executor.run_ready(run_id))
+            executed.extend(_drain_cellular_ready_waves(executor, run_id))
+        repair_round = 0
+        processed_review_attempts: set[tuple[int, str]] = set()
+        max_repair_rounds = max(0, int(config.get("repair_max_attempts") or 0))
+        while repair_round < max_repair_rounds:
+            blocked_review = next(
+                (
+                    item
+                    for item in reversed(executed)
+                    if item.node_id == "review_cv" and item.status == "blocked"
+                ),
+                None,
+            )
+            if blocked_review is None:
+                break
+            review_report_path = (
+                Path(blocked_review.manifest_path).parent
+                / "staging"
+                / "cv_review.json"
+            )
+            review_key = (int(blocked_review.attempt), str(blocked_review.manifest_path))
+            if review_key in processed_review_attempts:
+                break
+            processed_review_attempts.add(review_key)
+            review_report = read_json(review_report_path) if review_report_path.is_file() else {}
+            blockers = {
+                str(item.get("id"))
+                for item in review_report.get("blockers", [])
+                if isinstance(item, dict)
+            }
+            repairable = {
+                "ats_top8_minimum_score",
+                "ats_top8_no_missing_unexplained",
+                "pt_cv_keyword_shotgun_control",
+                "summary_keyword_coverage",
+                "summary_support",
+            }
+            if not blockers or not blockers.issubset(repairable):
+                break
+
+            repair_round += 1
+            reason = blocked_review.blocker or ",".join(sorted(blockers))
+            repair_result = executor.repair(run_id, "compose_cv", reason)
+            prepared = PreparedCellAttempt(
+                run_id=repair_result.run_id,
+                application_id=paths.application_id,
+                node_id=repair_result.node_id,
+                attempt=repair_result.attempt,
+                worker_id=executor.worker_id,
+                manifest_path=repair_result.manifest_path,
+            )
+            try:
+                agent_result, candidate_path = _cellular_cv_repair_agent(
+                    paths=paths,
+                    repair_result=repair_result,
+                    review_report_path=review_report_path,
+                    options=options,
+                    config=config,
+                )
+                if candidate_path.is_file():
+                    _bind_cellular_cv_repair_candidate(
+                        candidate_path,
+                        application_id=paths.application_id,
+                        run_id=run_id,
+                        attempt=repair_result.attempt,
+                    )
+                agent_ok = (
+                    agent_result.get("returncode") == 0
+                    and (agent_result.get("isolation") or {}).get("status") == "ok"
+                    and candidate_path.is_file()
+                )
+            except Exception as exc:
+                agent_result = {
+                    "returncode": 1,
+                    "isolation": {"status": "blocked"},
+                    "blocker_reason": f"repair_agent_exception:{type(exc).__name__}:{exc}",
+                }
+                candidate_path = _cellular_cv_repair_candidate_path(
+                    paths, repair_result.run_id, repair_result.attempt
+                )
+                agent_ok = False
+            if not agent_ok:
+                reason = str(
+                    agent_result.get("blocker_reason")
+                    or agent_result.get("stderr")
+                    or "cellular_cv_repair_agent_failed"
+                )
+                executor.defer_prepared_attempt(prepared, reason=reason)
+                results = [
+                    _cell_execution_payload(item, application_id=paths.application_id)
+                    for item in executed
+                ]
+                results.append(
+                    {
+                        "status": "awaiting_agent",
+                        "application_id": paths.application_id,
+                        "run_id": run_id,
+                        "node_id": "compose_cv",
+                        "manifest_path": str(repair_result.manifest_path),
+                        "artifact_paths": [],
+                        "blocker": reason,
+                    }
+                )
+                return results
+
+            executed.extend(list(executor.run_ready(run_id)))
+            executed.extend(_drain_cellular_ready_waves(executor, run_id))
+
         results = [
             _cell_execution_payload(item, application_id=paths.application_id)
             for item in executed
@@ -3052,7 +3749,121 @@ def _process_cellular_application(
                 )
         return results
     finally:
+        if options.release_workspace_lease:
+            executor.release_workspace_lease()
         database.close()
+
+
+def _load_explicit_cellular_application(application_id: str) -> dict[str, Any]:
+    paths = paths_for(application_id, root=V2_DIR)
+    if not paths.job_description.is_file():
+        raise ValidationFailure(
+            f"cellular application has no persisted job description: {application_id}"
+        )
+    identity = read_json(paths.identity) if paths.identity.is_file() else {}
+    aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
+    record_id = str(aliases.get("notion_record_id") or "").strip()
+    page_id = _valid_notion_page_id(aliases.get("notion_page_id"))
+    return {
+        "application_id": application_id,
+        "record_id": int(record_id) if record_id.isdigit() else None,
+        "page_id": page_id or None,
+        "company": str(identity.get("company") or ""),
+        "role": str(identity.get("role") or ""),
+        "title": str(identity.get("role") or ""),
+        "status": "Fila Agente",
+        "description": paths.job_description.read_text(encoding="utf-8"),
+        "source_type": str(identity.get("source_type") or "local"),
+        "source_id": str(identity.get("source_id") or application_id),
+        "source_url": str(identity.get("source_url") or ""),
+        "delivery_profile": str(identity.get("delivery_profile") or "standard_cv"),
+        "_cellular_run_id": "",
+        "_explicit_cellular": True,
+    }
+
+
+def run_explicit_cellular(
+    *, application_id: str, run_id: str, options: HeartbeatV2Options
+) -> dict[str, Any]:
+    """Execute one locally persisted cellular run, including agent nodes."""
+    control_db_id = str(
+        options.control_db_id or os.environ.get("CAREER_CONTROL_DB_ID") or ""
+    ).strip()
+    if not control_db_id:
+        raise ValidationFailure("CAREER_CONTROL_DB_ID is required for cellular execution")
+    database_path = canonical_database().db_path
+    database = Database(database_path)
+    try:
+        database.init_schema()
+        row = database.fetch_one(
+            "SELECT application_id FROM application_runs WHERE run_id = ?",
+            (run_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown application run: {run_id}")
+        if str(row["application_id"]) != application_id:
+            raise ValueError(f"run does not belong to application: {application_id}")
+        actual_control_db_id = database.control_db_identity()
+        if actual_control_db_id != control_db_id:
+            raise ValueError(
+                "configured authoritative control database identity does not match "
+                f"this database: expected={control_db_id} actual={actual_control_db_id}"
+            )
+    finally:
+        database.close()
+
+    application = _load_explicit_cellular_application(application_id)
+    application["_cellular_run_id"] = run_id
+    effective_options = replace(
+        options,
+        run_agent=True,
+        dry_run=False,
+        cellular=True,
+        control_db_id=control_db_id,
+        release_workspace_lease=True,
+    )
+    results = _process_cellular_application(
+        application,
+        options=effective_options,
+        config=_load_config(),
+        database_path=database_path,
+    )
+    inspection = Database(database_path)
+    try:
+        statuses = inspection.fetch_all(
+            "SELECT node_id, status FROM cell_nodes WHERE run_id = ? ORDER BY node_id",
+            (run_id,),
+        )
+        run_row = inspection.fetch_one(
+            "SELECT status FROM application_runs WHERE run_id = ?", (run_id,)
+        )
+        ready = [
+            str(item["node_id"])
+            for item in CellStore(inspection).list_ready_nodes(run_id)
+        ]
+    finally:
+        inspection.close()
+    blocked = [str(item["node_id"]) for item in statuses if item["status"] == "blocked"]
+    if any(item.get("status") == "awaiting_agent" for item in results):
+        status = "awaiting_agent"
+    elif blocked:
+        status = "blocked"
+    elif run_row and run_row["status"] == "completed":
+        status = "completed"
+    elif ready:
+        status = "ready"
+    else:
+        status = "running"
+    return {
+        "status": status,
+        "mode": "cellular",
+        "run_agent": True,
+        "application_id": application_id,
+        "run_id": run_id,
+        "results": results,
+        "ready_nodes": ready,
+        "blocked_nodes": blocked,
+    }
 
 
 def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:

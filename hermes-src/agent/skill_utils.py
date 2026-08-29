@@ -311,7 +311,7 @@ def skill_matches_environment(frontmatter: Dict[str, Any]) -> bool:
 # ── Disabled skills ───────────────────────────────────────────────────────
 
 
-_RAW_CONFIG_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+_RAW_CONFIG_CACHE: Dict[Tuple[str, int, int, int, int], Dict[str, Any]] = {}
 
 
 def _raw_config_cache_clear() -> None:
@@ -329,9 +329,17 @@ def _load_raw_config() -> Dict[str, Any]:
     config_path = get_config_path()
     if not config_path.exists():
         return {}
+    raw_config = ""
     try:
         stat = config_path.stat()
-        cache_key = (str(config_path), stat.st_mtime_ns, stat.st_size)
+        raw_config = config_path.read_text(encoding="utf-8")
+        cache_key = (
+            str(config_path),
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+            stat.st_size,
+            hash(raw_config),
+        )
     except OSError:
         cache_key = None
 
@@ -341,7 +349,7 @@ def _load_raw_config() -> Dict[str, Any]:
             return cached
 
     try:
-        parsed = yaml_load(config_path.read_text(encoding="utf-8"))
+        parsed = yaml_load(raw_config)
     except Exception as e:
         logger.debug("Could not read skill config %s: %s", config_path, e)
         return {}
@@ -409,6 +417,7 @@ def _normalize_string_set(values) -> Set[str]:
 # each trigger a category lookup during banner construction (10+ seconds
 # of pure waste).
 _EXTERNAL_DIRS_CACHE: Dict[Tuple[str, int], List[Path]] = {}
+SKILL_SOURCE_PRECEDENCE = ("project", "global", "profile")
 
 
 def _external_dirs_cache_clear() -> None:
@@ -440,6 +449,10 @@ def get_external_skills_dirs() -> List[Path]:
         cache_key: Tuple[str, int] = (str(config_path), stat.st_mtime_ns)
     except OSError:
         cache_key = None  # type: ignore[assignment]
+        try:
+            raw_config = config_path.read_text(encoding="utf-8")
+        except OSError:
+            return {}
 
     if cache_key is not None:
         cached = _EXTERNAL_DIRS_CACHE.get(cache_key)
@@ -456,11 +469,16 @@ def get_external_skills_dirs() -> List[Path]:
         return []
 
     raw_dirs = skills_cfg.get("external_dirs")
+    result = _resolve_configured_skill_dirs(raw_dirs)
+    if cache_key is not None:
+        _EXTERNAL_DIRS_CACHE[cache_key] = list(result)
+    return result
+
+
+def _resolve_configured_skill_dirs(raw_dirs: Any) -> List[Path]:
+    """Resolve configured project/external skill roots in declaration order."""
     if not raw_dirs:
-        result: List[Path] = []
-        if cache_key is not None:
-            _EXTERNAL_DIRS_CACHE[cache_key] = list(result)
-        return result
+        return []
     if isinstance(raw_dirs, str):
         raw_dirs = [raw_dirs]
     if not isinstance(raw_dirs, list):
@@ -469,9 +487,9 @@ def get_external_skills_dirs() -> List[Path]:
     from hermes_constants import get_hermes_home
 
     hermes_home = get_hermes_home()
-    local_skills = get_skills_dir().resolve()
+    local_skills = _active_profile_skills_dir().resolve()
     seen: Set[Path] = set()
-    result = []
+    result: List[Path] = []
 
     for entry in raw_dirs:
         entry = str(entry).strip()
@@ -495,20 +513,127 @@ def get_external_skills_dirs() -> List[Path]:
         else:
             logger.debug("External skills dir does not exist, skipping: %s", p)
 
-    if cache_key is not None:
-        _EXTERNAL_DIRS_CACHE[cache_key] = list(result)
+    return result
+
+
+def get_project_skills_dirs() -> List[Path]:
+    """Return explicitly configured canonical project skill roots."""
+    parsed = _load_raw_config()
+    skills_cfg = parsed.get("skills") if isinstance(parsed, dict) else None
+    if not isinstance(skills_cfg, dict):
+        return []
+    return _resolve_configured_skill_dirs(skills_cfg.get("project_dirs"))
+
+
+def _active_profile_skills_dir() -> Path:
+    """Resolve the live profile skills root, including test/runtime overrides."""
+    try:
+        # skills_tool keeps a call-time override for long-lived profile
+        # runtimes and tests. Import lazily to avoid a module cycle.
+        from tools import skills_tool
+
+        configured = Path(skills_tool.SKILLS_DIR)
+        imported = Path(getattr(skills_tool, "_SKILLS_DIR_AT_IMPORT", configured))
+        if configured != imported:
+            return configured
+    except Exception:
+        pass
+    return get_skills_dir()
+
+
+def get_skill_search_dirs() -> List[Path]:
+    """Return skill roots in project, external/global, profile priority order."""
+    parsed = _load_raw_config()
+    skills_cfg = parsed.get("skills") if isinstance(parsed, dict) else None
+    if isinstance(skills_cfg, dict) and "source_precedence" in skills_cfg:
+        declared = skills_cfg.get("source_precedence")
+        if isinstance(declared, str):
+            declared = [declared]
+        normalized = tuple(str(item).strip() for item in (declared or []))
+        if normalized != SKILL_SOURCE_PRECEDENCE:
+            raise ValueError(
+                "skills.source_precedence must be exactly "
+                "project, global, profile"
+            )
+
+    project_dirs = get_project_skills_dirs()
+    external_dirs = get_external_skills_dirs()
+    profile_dir = _active_profile_skills_dir()
+    result: List[Path] = []
+    seen: Set[Path] = set()
+    for root in [*project_dirs, *external_dirs, profile_dir]:
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        result.append(root)
     return result
 
 
 def get_all_skills_dirs() -> List[Path]:
-    """Return all skill directories: local ``~/.hermes/skills/`` first, then external.
+    """Return all skill directories in project, external, profile priority order.
 
-    The local dir is always first (and always included even if it doesn't exist
-    yet — callers handle that).  External dirs follow in config order.
+    Project roots are configured by ``skills.project_dirs``. Existing
+    ``skills.external_dirs`` entries form the external/global tier, followed by
+    the active profile's local skills. The profile root is always included even
+    when it does not exist yet.
     """
-    dirs = [get_skills_dir()]
-    dirs.extend(get_external_skills_dirs())
-    return dirs
+    return get_skill_search_dirs()
+
+
+def validate_project_skill_sources() -> None:
+    """Reject canonical project skills duplicated in the active profile.
+
+    Resolution order is deterministic, but a duplicate project skill in a
+    profile is still an operational defect: future mutation or explicit loads
+    could target the wrong source. Fail with both paths so cleanup is explicit.
+    """
+    project_dirs = get_project_skills_dirs()
+    if not project_dirs:
+        return
+
+    project_names: Dict[str, List[Path]] = {}
+    for root in project_dirs:
+        if not root.is_dir():
+            continue
+        for skill_file in iter_skill_index_files(root, "SKILL.md"):
+            names = {skill_file.parent.name}
+            try:
+                frontmatter, _ = parse_frontmatter(
+                    skill_file.read_text(encoding="utf-8")
+                )
+                declared = frontmatter.get("name")
+                if declared:
+                    names.add(str(declared))
+            except (OSError, UnicodeDecodeError):
+                pass
+            for name in names:
+                project_names.setdefault(name, []).append(skill_file)
+
+    conflicts: List[str] = []
+    profile_dir = _active_profile_skills_dir()
+    if profile_dir.is_dir():
+        for skill_file in iter_skill_index_files(profile_dir, "SKILL.md"):
+            names = {skill_file.parent.name}
+            try:
+                frontmatter, _ = parse_frontmatter(
+                    skill_file.read_text(encoding="utf-8")
+                )
+                declared = frontmatter.get("name")
+                if declared:
+                    names.add(str(declared))
+            except (OSError, UnicodeDecodeError):
+                pass
+            for name in names & project_names.keys():
+                conflicts.append(
+                    f"{name}: project={project_names[name][0]} profile={skill_file}"
+                )
+
+    if conflicts:
+        raise RuntimeError(
+            "Project skill source collision; remove the profile-local copy "
+            "before starting Hermes: " + "; ".join(sorted(set(conflicts)))
+        )
 
 
 def normalize_skill_lookup_name(identifier: str) -> str:
@@ -542,7 +667,7 @@ def normalize_skill_lookup_name(identifier: str) -> str:
 
     trusted_roots = [primary_root]
     try:
-        trusted_roots.extend(get_external_skills_dirs())
+        trusted_roots.extend(get_all_skills_dirs())
     except Exception:
         pass
 
@@ -586,7 +711,7 @@ def is_external_skill_path(path) -> bool:
     not each need to re-interpret the config.
     """
     candidate = _resolve_for_skill_ownership(path)
-    for root in get_external_skills_dirs():
+    for root in [*get_project_skills_dirs(), *get_external_skills_dirs()]:
         resolved_root = _resolve_for_skill_ownership(root)
         try:
             candidate.relative_to(resolved_root)

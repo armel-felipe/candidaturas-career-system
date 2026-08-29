@@ -37,6 +37,30 @@ Use esta skill como camada orquestradora antes de qualquer rotina de candidatura
 
 ## Skills Disponíveis
 
+## Contrato de pacote-base e pós-processamento
+
+O pipeline `processe-a-vaga` fecha somente o pacote-base conforme o
+`delivery_profile` da candidatura no SQLite. `standard_cv` exige intake, FIT_MAP,
+CV aprovado, OneDrive e Notion. `gupy_registration` exige intake, FIT_MAP e
+registro/inscrição Gupy comprovada no Notion; não exige CV nem OneDrive quando
+eles não foram pedidos. O estágio `core_package_sealed` é derivado dos receipts
+SQLite do contrato aplicável.
+
+FERAS, carta e habilidades Gupy são saídas pós-processamento. Elas podem ser
+criadas ou revisadas depois por `application_id`, sem novo intake e sem limpar
+gates anteriores, usando:
+
+```text
+create_post_artifact(application_id, kind)
+list_post_artifacts(application_id, kind=None)
+read_post_artifact(application_id, artifact_id)
+revise_positioning(application_id, changes)
+```
+
+Esses serviços leem somente revisões SQLite da candidatura resolvida. Arquivos
+JSON globais e ponteiros `active_job`/`active_intake` são observação ou
+compatibilidade, nunca autoridade para pós-processamento.
+
 Antes de executar uma tarefa que aciona uma skill, leia o `SKILL.md` correspondente na pasta `.agents/skills/`.
 
 A tabela completa de gatilho → skill do projeto está em `references/routing-table.md`. Consulte-a quando o usuário pedir uma tarefa de candidatura e você precisar determinar qual skill do projeto carregar.
@@ -93,8 +117,8 @@ Preferências operacionais para reduzir custo de execução sem relaxar os gates
 - se `fit-map:status` apontar template com placeholders ou FIT_MAP antigo, rode `npm run fit-map:resume` e execute a ação indicada sem reexplicar o workflow
 - depois de `npm run fit-map:template` e em qualquer retomada, rode `npm run fit-map:guard`; se retornar `guard=blocked`, a próxima ação deve ser exatamente `required_next_command`, sem análise textual intermediária
 - para forcar persistencia incremental em modelos instaveis, use `npm run fit-map:check:extract`, `npm run fit-map:check:map-evidence`, `npm run fit-map:check:score-draft` e `npm run fit-map:check:complete-draft`
-- para gate local/diagnóstico do CV, use `npm run cv:approve -- --artifact outputs/<cv>.docx`
-- quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --artifact outputs/<cv>.docx`
+- para gate local/diagnóstico do CV, use `npm run cv:approve -- --application-id "<application_id>" --artifact outputs/<cv>.docx`
+- quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --application-id "<application_id>" --artifact outputs/<cv>.docx`
 - use `npm run memory:build` para regenerar a memória compacta do runtime antes de trabalhos de manutenção ou quando referências canônicas forem atualizadas
 - para manutencao historica do espelho Notion e dos derivados locais, prefira `npm run notion:memory:sync -- --refresh missing`; use `--refresh full` em auditorias completas ou suspeita de drift
 - `notion:memory:sync` tambem deve executar o backfill automatico dos campos de governanca do Notion; esse maintenance path e permitido por padrao e nao depende de pedido manual por vaga
@@ -153,6 +177,7 @@ Regras:
 - `pt_cv_keyword_shotgun_control` é blocker em CV PT-BR quando o gate detectar cluster artificial de keywords em inglês; naturalidade humana prevalece sobre matching literal
 - todo CV PT-BR passa por polimento textual obrigatório no `output-reviewer`, mesmo quando o gate objetivo aprovar de primeira; se o polimento alterar texto, regenerar DOCX, rerodar `register_keywords.py --cv` e rerodar `review_output.py`
 - o modo padrão de CV é conciso: exatamente 3 bullets por experiência; modo expandido/bullet points só com pedido explícito do usuário
+- em modo conciso, bullet 2 é posicionamento, mecanismo ou caso derivado da evidência canônica e das keywords coerentes da experiência, sem métrica de resultado; bullet 3 concentra o resultado quantitativo no formato ação → resultado → de → para quando houver faixa comparativa; medidas de escopo/responsabilidade podem ficar no bullet 1, mas uma mesma métrica não pode ser repetida entre bullets 1 e 3, e a validação bloqueia inversão ou duplicação
 - se o agente inferir que modo expandido pode ser mais inteligente por vaga multiarea, formulário, indicação, reposicionamento, CV mestre ou maximização ATS, deve validar com o usuário antes de gerar; sem confirmação explícita, manter conciso
 - todo CV orientado por vaga deve trazer entre 4 e 8 experiências por padrão; reduzir abaixo de 4 só com pedido explícito do usuário
 - nunca juntar experiências, cargos, promoções, fases ou escopos em uma única entrada de CV; se houver limite de espaço, selecionar experiências separadas por aderência
@@ -307,6 +332,22 @@ Antes de abrir referências longas, o runtime pode consultar a memória compacta
 
 Esses arquivos são derivados e não substituem as fontes canônicas. Quando houver decisão factual, dúvida, divergência ou necessidade de defesa detalhada, prevalece a leitura das referências originais abaixo.
 
+### Continuidade e manutenção do runtime
+
+O vínculo entre sessão, candidatura e intenção de pipeline é persistido
+primeiro no SQLite canônico (`session_memory`); JSON é apenas espelho de
+compatibilidade. Portanto, nunca pedir ao usuário o `application_id` interno
+quando a sessão ainda estiver vinculada. O agente pode limpar essa memória
+por sessão quando houver estado contaminado e deve então registrar o bloqueio,
+sem reutilizar outra candidatura.
+
+Quando a causa estiver no código canônico, a correção é permitida por um
+pedido de manutenção revisável. Use `npm run maintenance:request` para
+allowlistar somente os arquivos afetados e `npm run maintenance:apply` em
+dry-run antes de `--apply`. O mecanismo rejeita paths de estado, outputs,
+SQLite e artefatos. Após uma correção, rerode os testes e gates da etapa; não
+altere DOCX, FIT_MAP, registry ou banco para contornar uma reprovação.
+
 Use as referências nesta ordem:
 
 1. `dicionario_palavras_chave_mercado.md` para permitir, bloquear ou traduzir termos da vaga.
@@ -328,8 +369,8 @@ Nenhum número, ferramenta, experiência, idioma, certificação ou escopo pode 
 - Inglês sempre `avançado`, nunca `fluente`.
 - VivaReal CS: sempre `arquiteto da área`, nunca `gestor de CS`.
 - Fill rate pertence à Trifil, nunca à VivaReal.
-- BSP em português: `MBA Corporate Strategy — BSP Business School São Paulo`.
-- BSP em inglês: `Specialization Certificate in Corporate Strategies — BSP Business School São Paulo`.
+- BSP em português: `MBA Corporate Strategy: BSP Business School São Paulo`.
+- BSP em inglês: `Specialization Certificate in Corporate Strategies: BSP Business School São Paulo`.
 - `wehandle` deve aparecer em minúsculas em documentos finais.
 - Movimento iFood -> wehandle deve ser tratado com fatos, escopo e resultados; não com justificativa motivacional.
 - Tom de documentos: factual, direto, primeira pessoa real; sem linguagem de coach, frases de efeito ou formulário de RH.

@@ -13,7 +13,11 @@ from career.services import project as project_service
 from career.services import review as review_service
 from career.services.persistence.analysis_repository import AnalysisRepository
 from career.services.persistence.application_repository import ApplicationRepository
-from career.services.persistence.gate_repository import GateReceipt, GateRepository
+from career.services.persistence.gate_repository import (
+    REVISION_BOUND_GATES,
+    GateReceipt,
+    GateRepository,
+)
 from career.services.persistence.reference_repository import ReferenceRepository
 from career.utils import json_fingerprint, read_json, sha256_file
 from career.workflow.state_machine import TASK_TO_STATE, WorkflowStateMachine
@@ -122,6 +126,7 @@ def _record_task_completion(
         raise ValueError(
             f"task {task_name} did not produce the required gate input/output hashes"
         )
+    revision_id = _revision_id_for_gate(state_store, state_name, arguments)
     GateRepository(state_store.database).record(
         GateReceipt(
             application_id=str(state_store.application_id or ""),
@@ -131,13 +136,26 @@ def _record_task_completion(
             validator=task_name,
             input_hash=input_fingerprint,
             output_hash=output_fingerprint,
-            revision_id=(
-                str(arguments["revision_id"])
-                if arguments.get("revision_id") is not None
-                else None
-            ),
+            revision_id=revision_id,
         )
     )
+
+
+def _revision_id_for_gate(
+    state_store: WorkflowStateStore,
+    gate: str,
+    arguments: dict[str, Any],
+) -> str | None:
+    explicit = arguments.get("revision_id")
+    if explicit is not None and str(explicit).strip():
+        return str(explicit)
+    if gate not in REVISION_BOUND_GATES:
+        return None
+    if not state_store.application_id or state_store.database is None:
+        raise ValueError(f"{gate} requires an application-scoped current FIT_MAP revision")
+    return AnalysisRepository(state_store.database).get_current(
+        str(state_store.application_id)
+    ).revision_id
 
 
 def _run_task(task_name: str, runner: Callable[[TaskContext], Any], context: TaskContext) -> Any:

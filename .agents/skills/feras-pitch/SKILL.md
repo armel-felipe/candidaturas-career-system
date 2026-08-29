@@ -19,7 +19,11 @@ Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skil
 
 ## Adaptação Local OpenCode
 
-Leia também `../career-system/SKILL.md`. Use `.career-state/fit_map.json` como FIT_MAP ativo e referências em `../career-system/references/`. Após gerar o texto, acione `output-reviewer` antes de exibir ao usuário.
+Leia também `../career-system/SKILL.md`. Para uma vaga específica, resolva a
+candidatura por `application_id` e leia a revisão atual pelo contexto SQLite
+scoped. Um JSON em `.career-state/fit_map.json` pode ser apenas exportação de
+compatibilidade; nunca é a fonte para selecionar a vaga. Após gerar o texto,
+acione `output-reviewer` antes de exibir ao usuário.
 
 Metodologia de pitch e narrativa em primeira pessoa. Garante consistência com CV e carta de apresentação
 consumindo o FIT_MAP produzido pela career-fit-analysis.
@@ -34,7 +38,16 @@ consumindo o FIT_MAP produzido pela career-fit-analysis.
 
 ## PRÉ-REQUISITO OBRIGATÓRIO
 
-Verificar FIT_MAP ativo. Se não houver: solicitar anúncio e executar career-fit-analysis primeiro.
+Verificar `application_id` e uma revisão FIT_MAP validada no SQLite. Se não
+houver candidatura resolvida, solicitar a vaga e executar o intake/análise
+primeiro. Não usar `active_job` ou `active_intake` como fallback.
+
+## Pós-processamento versionado
+
+Para uma vaga já analisada, preferir
+`create_post_artifact(application_id, "feras")`. O serviço persiste o texto e
+suas dependências no SQLite, preserva versões anteriores e exige o FIT_MAP da
+mesma candidatura. Não repetir intake para gerar o FERAS.
 
 Regra de ouro: cada letra deve ser preenchida com a história de **maior aderência à vaga**,
 não a mais impressionante da carreira. O FIT_MAP define isso — nunca ignorar.

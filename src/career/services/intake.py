@@ -194,6 +194,11 @@ def _fit_map_path(state_store: WorkflowStateStore) -> Path:
     return paths.fit_map if paths else FIT_MAP_PATH
 
 
+def _registry_path(state_store: WorkflowStateStore) -> Path:
+    paths = _paths_from_state_store(state_store)
+    return paths.derived_dir / "keyword_ats_registry.json" if paths else fit_map_service.KEYWORD_REGISTRY
+
+
 def _canonical_job_description_path(
     job_description_path: Path,
     application_paths: application_context_service.ApplicationPaths | None,
@@ -401,7 +406,7 @@ def _delivery_plan(record_id: int | None = None, job_description_path: Path | No
                 "commands": [
                     "npm run cv:docx",
                     "npm run validate:docx",
-                    "npm run cv:deliver -- --artifact outputs/<cv>.docx",
+                    "npm run cv:deliver -- --application-id <application_id> --artifact outputs/<cv>.docx",
                 ],
                 "gate": "DOCX final só é entrega se cv:deliver aprovar o artefato em outputs/ e registrar status=delivered; cv:approve isolado é gate local/diagnóstico",
             },
@@ -443,18 +448,29 @@ def _status_payload(
     record_id: int | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    fit_status = fit_map_service.status(
-        draft_path=Path(extra.get("_draft_path")) if extra and extra.get("_draft_path") else DRAFT_PATH,
-        fit_map_path=Path(extra.get("_fit_map_path")) if extra and extra.get("_fit_map_path") else FIT_MAP_PATH,
-        job_description_path=job_description_path,
-    )
-    guard = fit_map_service.progress_guard(
-        draft_path=Path(extra.get("_draft_path")) if extra and extra.get("_draft_path") else DRAFT_PATH,
-        fit_map_path=Path(extra.get("_fit_map_path")) if extra and extra.get("_fit_map_path") else FIT_MAP_PATH,
-        job_description_path=job_description_path,
-    )
     draft_path = Path(extra.get("_draft_path")) if extra and extra.get("_draft_path") else DRAFT_PATH
     fit_map_path = Path(extra.get("_fit_map_path")) if extra and extra.get("_fit_map_path") else FIT_MAP_PATH
+    registry_path = (
+        Path(extra["_registry_path"])
+        if extra and extra.get("_registry_path")
+        else (
+            fit_map_path.parent / "derived" / "keyword_ats_registry.json"
+            if extra and extra.get("application_id")
+            else fit_map_service.KEYWORD_REGISTRY
+        )
+    )
+    fit_status = fit_map_service.status(
+        draft_path=draft_path,
+        fit_map_path=fit_map_path,
+        job_description_path=job_description_path,
+        registry_path=registry_path,
+    )
+    guard = fit_map_service.progress_guard(
+        draft_path=draft_path,
+        fit_map_path=fit_map_path,
+        job_description_path=job_description_path,
+        registry_path=registry_path,
+    )
     payload = {
         "status": "ready_for_model_analysis",
         "application_id": extra.get("application_id") if extra else None,
@@ -555,6 +571,7 @@ def _run_ready_pipeline(
                 "application_dir": _relative(application_paths.app_dir),
                 "_draft_path": str(application_paths.fit_map_draft),
                 "_fit_map_path": str(application_paths.fit_map),
+                "_registry_path": str(application_paths.derived_dir / "keyword_ats_registry.json"),
             }
         )
     result = _status_payload(
@@ -951,8 +968,19 @@ def resume(
             "job_description_path": active.get("job_description_path"),
             "next_required_step": "rerun_intake",
         }
-    fit_status = fit_map_service.status(_draft_path(state_store), _fit_map_path(state_store), path)
-    guidance = fit_map_service.resume_guidance(_draft_path(state_store), _fit_map_path(state_store), path)
+    registry_path = _registry_path(state_store)
+    fit_status = fit_map_service.status(
+        _draft_path(state_store),
+        _fit_map_path(state_store),
+        path,
+        registry_path=registry_path,
+    )
+    guidance = fit_map_service.resume_guidance(
+        _draft_path(state_store),
+        _fit_map_path(state_store),
+        path,
+        registry_path=registry_path,
+    )
     return {
         "status": "active_intake_ready",
         "active_intake": active,

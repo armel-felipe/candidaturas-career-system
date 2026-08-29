@@ -2244,8 +2244,13 @@ def _check_unavailable_skill(command_name: str) -> str | None:
     normalized = command_name.lower().replace("_", "-")
     try:
         from tools.skills_tool import _get_disabled_skill_names
-        from agent.skill_utils import get_all_skills_dirs, is_excluded_skill_path
+        from agent.skill_utils import (
+            get_all_skills_dirs,
+            is_excluded_skill_path,
+            validate_project_skill_sources,
+        )
         disabled = _get_disabled_skill_names()
+        validate_project_skill_sources()
 
         # Check disabled skills across all dirs (local + external)
         for skills_dir in get_all_skills_dirs():
@@ -2800,6 +2805,244 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
     _session_model_overrides: Dict[str, Dict[str, str]] = {}
     _session_reasoning_overrides: Dict[str, Dict[str, Any]] = {}
     _startup_restore_in_progress: bool = False
+
+    async def session_boundary_status(self, session_key: str) -> Dict[str, Any]:
+        """Return the active session id without changing gateway state."""
+        session_key = str(session_key or "").strip()
+        if not session_key:
+            raise ValueError("session_key must not be empty")
+        entries = getattr(self.session_store, "_entries", {})
+        current_entry = entries.get(session_key)
+        if current_entry is None:
+            return {
+                "status": "not_found",
+                "operation": "status",
+                "session_key": session_key,
+                "error": "session_key is not active in this gateway",
+            }
+        return {
+            "status": "ok",
+            "operation": "status",
+            "session_key": session_key,
+            "current_session_id": str(current_entry.session_id),
+        }
+
+    async def reset_session_key(
+        self,
+        session_key: str,
+        *,
+        expected_session_id: Optional[str] = None,
+        reason: str = "pipeline",
+        idempotency_key: str,
+    ) -> Dict[str, Any]:
+        """Reset one live gateway session without injecting user text.
+
+        This is the programmatic equivalent of ``/new``. It deliberately
+        delegates to the native slash-command handler so cleanup, hooks,
+        topic rebinding and session-scoped security state stay identical.
+        """
+        return await self._run_pipeline_session_boundary(
+            operation="reset",
+            session_key=session_key,
+            expected_session_id=expected_session_id,
+            target_session_id=None,
+            reason=reason,
+            idempotency_key=idempotency_key,
+        )
+
+    async def resume_session_key(
+        self,
+        session_key: str,
+        *,
+        target_session_id: str,
+        expected_session_id: Optional[str] = None,
+        reason: str = "pipeline",
+        idempotency_key: str,
+    ) -> Dict[str, Any]:
+        """Switch one live gateway session to an existing owned transcript."""
+        return await self._run_pipeline_session_boundary(
+            operation="resume",
+            session_key=session_key,
+            expected_session_id=expected_session_id,
+            target_session_id=target_session_id,
+            reason=reason,
+            idempotency_key=idempotency_key,
+        )
+
+    async def _run_pipeline_session_boundary(
+        self,
+        *,
+        operation: str,
+        session_key: str,
+        expected_session_id: Optional[str],
+        target_session_id: Optional[str],
+        reason: str,
+        idempotency_key: str,
+    ) -> Dict[str, Any]:
+        session_key = str(session_key or "").strip()
+        reason = str(reason or "pipeline").strip()
+        idempotency_key = str(idempotency_key or "").strip()
+        target_session_id = (
+            str(target_session_id).strip() if target_session_id is not None else None
+        )
+        if operation not in {"reset", "resume"}:
+            raise ValueError("operation must be reset or resume")
+        if not session_key:
+            raise ValueError("session_key must not be empty")
+        if not idempotency_key:
+            raise ValueError("idempotency_key must not be empty")
+        if not reason:
+            raise ValueError("reason must not be empty")
+        if operation == "resume" and not target_session_id:
+            raise ValueError("target_session_id is required for resume")
+        if operation == "reset" and target_session_id is not None:
+            raise ValueError("target_session_id must be omitted for reset")
+
+        boundary_lock = getattr(self, "_pipeline_session_boundary_lock", None)
+        if boundary_lock is None:
+            boundary_lock = asyncio.Lock()
+            self._pipeline_session_boundary_lock = boundary_lock
+
+        operations = getattr(self, "_pipeline_session_boundary_operations", None)
+        if operations is None:
+            operations = {}
+            self._pipeline_session_boundary_operations = operations
+
+        request_fingerprint = {
+            "operation": operation,
+            "session_key": session_key,
+            "expected_session_id": expected_session_id,
+            "target_session_id": target_session_id,
+            "reason": reason,
+        }
+
+        async with boundary_lock:
+            previous = operations.get(idempotency_key)
+            if previous is not None:
+                if previous.get("request") != request_fingerprint:
+                    return {
+                        "status": "conflict",
+                        "operation": operation,
+                        "session_key": session_key,
+                        "idempotency_key": idempotency_key,
+                        "reason": reason,
+                        "error": "idempotency_key was already used with a different request",
+                    }
+                return {**previous["result"], "status": "already_applied"}
+
+            entries = getattr(self.session_store, "_entries", {})
+            current_entry = entries.get(session_key)
+            if current_entry is None:
+                return {
+                    "status": "not_found",
+                    "operation": operation,
+                    "session_key": session_key,
+                    "idempotency_key": idempotency_key,
+                    "reason": reason,
+                    "error": "session_key is not active in this gateway",
+                }
+
+            old_session_id = str(current_entry.session_id)
+            if expected_session_id and old_session_id != str(expected_session_id):
+                return {
+                    "status": "conflict",
+                    "operation": operation,
+                    "session_key": session_key,
+                    "old_session_id": old_session_id,
+                    "expected_session_id": str(expected_session_id),
+                    "idempotency_key": idempotency_key,
+                    "reason": reason,
+                    "error": "active session changed before boundary operation",
+                }
+
+            source = getattr(current_entry, "origin", None)
+            if source is None:
+                return {
+                    "status": "invalid_binding",
+                    "operation": operation,
+                    "session_key": session_key,
+                    "old_session_id": old_session_id,
+                    "idempotency_key": idempotency_key,
+                    "reason": reason,
+                    "error": "active session has no persisted origin",
+                }
+
+            if operation == "resume" and old_session_id == target_session_id:
+                result = {
+                    "status": "already_applied",
+                    "operation": operation,
+                    "session_key": session_key,
+                    "old_session_id": old_session_id,
+                    "new_session_id": old_session_id,
+                    "target_session_id": target_session_id,
+                    "reason": reason,
+                    "idempotency_key": idempotency_key,
+                }
+                operations[idempotency_key] = {
+                    "request": request_fingerprint,
+                    "result": result,
+                }
+                return result
+
+            if operation == "reset":
+                event = MessageEvent(
+                    text="/new",
+                    source=dataclasses.replace(source),
+                    internal=True,
+                    metadata={
+                        "pipeline_session_boundary": True,
+                        "reason": reason,
+                        "idempotency_key": idempotency_key,
+                    },
+                )
+                await self._handle_reset_command(event)
+            else:
+                event = MessageEvent(
+                    text=f"/resume {target_session_id}",
+                    source=dataclasses.replace(source),
+                    internal=True,
+                    metadata={
+                        "pipeline_session_boundary": True,
+                        "reason": reason,
+                        "idempotency_key": idempotency_key,
+                    },
+                )
+                await self._handle_resume_command(event)
+
+            updated_entry = getattr(self.session_store, "_entries", {}).get(session_key)
+            new_session_id = str(getattr(updated_entry, "session_id", "") or "")
+            expected_new_session_id = target_session_id if operation == "resume" else None
+            if not new_session_id or new_session_id == old_session_id or (
+                expected_new_session_id is not None
+                and new_session_id != expected_new_session_id
+            ):
+                return {
+                    "status": "invalid_target" if operation == "resume" else "failed",
+                    "operation": operation,
+                    "session_key": session_key,
+                    "old_session_id": old_session_id,
+                    "new_session_id": new_session_id or None,
+                    "target_session_id": target_session_id,
+                    "reason": reason,
+                    "idempotency_key": idempotency_key,
+                    "error": "native session handler did not produce the requested boundary",
+                }
+
+            result = {
+                "status": "reset" if operation == "reset" else "resumed",
+                "operation": operation,
+                "session_key": session_key,
+                "old_session_id": old_session_id,
+                "new_session_id": new_session_id,
+                "target_session_id": target_session_id,
+                "reason": reason,
+                "idempotency_key": idempotency_key,
+            }
+            operations[idempotency_key] = {
+                "request": request_fingerprint,
+                "result": result,
+            }
+            return result
 
     def __init__(self, config: Optional[GatewayConfig] = None):
         global _gateway_runner_ref

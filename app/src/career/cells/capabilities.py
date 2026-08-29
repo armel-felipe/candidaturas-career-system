@@ -330,11 +330,9 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
     environment = args[3] if len(args) > 3 else None
     parts = [str(item) for item in command] if isinstance(command, (list, tuple)) else []
     resolved_executable = _absolute_executable(executable)
-    command_executable = _absolute_executable(parts[0]) if parts else None
     if (
         len(parts) < 2
         or resolved_executable is None
-        or command_executable != resolved_executable
     ):
         suspicious = Path(executable or "subprocess")
         for raw in reversed(parts[1:]):

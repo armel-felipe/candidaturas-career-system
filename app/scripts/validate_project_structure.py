@@ -96,6 +96,16 @@ IGNORED_PARTS = {
     "outputs",
     ".git",
     "__pycache__",
+    # Local/runtime environments are not project source. Their standard
+    # activation helpers include .bat/.ps1 files on every platform.
+    ".venv",
+    ".venv-test",
+    ".venvs",
+    "venv",
+    "backups",
+    ".worktrees",
+    "hermes",
+    "hermes-src",
 }
 
 FORBIDDEN_TEXT = [

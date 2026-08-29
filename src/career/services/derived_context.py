@@ -13,6 +13,7 @@ from career.services.database import Database
 from career.services import provenance as provenance_service
 from career.services.application_context import ApplicationPaths
 from career.services import memory as memory_service
+from career.services.job_language import detect_job_language
 from career.services.packs import build_pack, list_packs
 from career.utils import (
     ValidationFailure,
@@ -74,6 +75,9 @@ def configure_derived_dir(derived_dir: Path) -> None:
                   "HABILIDADES_INPUT_PACK_PATH", "FERAS_INPUT_PACK_PATH",
                   "COVER_LETTER_INPUT_PACK_PATH", "DERIVED_MANIFEST_PATH"):
         globals()[name] = DERIVED_DIR / f"{name.replace('_PATH', '').lower()}.json"
+    # The public manifest contract is always manifest.json.  The generic
+    # name conversion above would incorrectly produce derived_manifest.json.
+    DERIVED_MANIFEST_PATH = DERIVED_DIR / "manifest.json"
 
 
 def configure_state_store_path(path: Path | None) -> None:
@@ -545,6 +549,18 @@ def _scoped_pack(
     }
 
 
+def _fit_map_path_for_derived() -> Path:
+    """Resolve FIT_MAP beside the active derived directory.
+
+    The legacy default is ``.career-state/derived``; cellular applications use
+    ``.career-state/applications_v2/<id>/derived``.  Derivative packs must read
+    the FIT_MAP from the same application boundary in both cases.
+    """
+    if DERIVED_DIR.name == "derived":
+        return DERIVED_DIR.parent / "fit_map.json"
+    return CAREER_STATE / "fit_map.json"
+
+
 def build_all_for_fit_map(
     application_paths: ApplicationPaths | None = None,
 ) -> dict[str, Any]:
@@ -734,7 +750,7 @@ def build_fit_map_seed(active: ActiveJobContext | None = None, *, job_extract: d
 
 def build_cv_input_pack(active: ActiveJobContext | None = None) -> dict[str, Any]:
     active = active or resolve_active_job_context()
-    fit_map_path = CAREER_STATE / "fit_map.json"
+    fit_map_path = _fit_map_path_for_derived()
     ensure(fit_map_path.exists(), "build_cv_input_pack_requires_fit_map")
     fit_map = read_json(fit_map_path)
     digest = read_json(REFERENCE_DIGEST_PATH) if REFERENCE_DIGEST_PATH.exists() else build_reference_digest(active)
@@ -758,7 +774,7 @@ def build_cv_input_pack(active: ActiveJobContext | None = None) -> dict[str, Any
 
 def build_habilidades_input_pack(active: ActiveJobContext | None = None) -> dict[str, Any]:
     active = active or resolve_active_job_context()
-    fit_map_path = CAREER_STATE / "fit_map.json"
+    fit_map_path = _fit_map_path_for_derived()
     ensure(fit_map_path.exists(), "build_habilidades_input_pack_requires_fit_map")
     fit_map = read_json(fit_map_path)
     job_keywords = read_json(JOB_KEYWORDS_PATH) if JOB_KEYWORDS_PATH.exists() else build_job_keywords(active)
@@ -781,14 +797,15 @@ def build_cv_content_seed(active: ActiveJobContext | None = None, *, cv_input_pa
                "top8_keywords": list((cv_input.get("keywords_habilidade_ats") or [])[:8]),
                "selected_stories": cv_input.get("selected_stories", {}), "requirements": cv_input.get("requirements", []),
                "responsibilities": cv_input.get("responsibilities", []), "evidence_by_theme": cv_input.get("evidence_by_theme", {}),
-               "critical_rules": cv_input.get("critical_rules", {})}
+               "critical_rules": cv_input.get("critical_rules", {}),
+               "fit_map_path": _relative(_fit_map_path_for_derived())}
     write_json(CV_CONTENT_SEED_PATH, payload)
     return payload
 
 
 def build_cover_letter_input_pack(active: ActiveJobContext | None = None) -> dict[str, Any]:
     active = active or resolve_active_job_context()
-    fit_map_path = CAREER_STATE / "fit_map.json"
+    fit_map_path = _fit_map_path_for_derived()
     ensure(fit_map_path.exists(), "build_cover_letter_input_pack_requires_fit_map")
     fit_map = read_json(fit_map_path)
     company_context = read_json(JOB_COMPANY_CONTEXT_PATH) if JOB_COMPANY_CONTEXT_PATH.exists() else build_job_company_context(active)
@@ -804,7 +821,7 @@ def build_cover_letter_input_pack(active: ActiveJobContext | None = None) -> dic
 
 def build_feras_input_pack(active: ActiveJobContext | None = None) -> dict[str, Any]:
     active = active or resolve_active_job_context()
-    fit_map_path = CAREER_STATE / "fit_map.json"
+    fit_map_path = _fit_map_path_for_derived()
     ensure(fit_map_path.exists(), "build_feras_input_pack_requires_fit_map")
     fit_map = read_json(fit_map_path)
     payload = {"kind": "feras_input_pack", "created_at": utc_now_iso(),
@@ -914,6 +931,25 @@ def resolve_active_job_context(
     allowed to describe a recent application for a human, never to select an
     artifact-producing runtime action.
     """
+    if application_paths is None and ACTIVE_STATE_STORE_PATH is not None:
+        # Deprecated compatibility boundary: the legacy adapter may provide a
+        # concrete application-local state path, but it must never resolve
+        # through the global active-state mirror.
+        state_path = ACTIVE_STATE_STORE_PATH.resolve()
+        app_dir = state_path.parent
+        ensure(
+            state_path.name == "workflow_state.json"
+            and app_dir.parent.name == "applications_v2"
+            and bool(app_dir.name),
+            "legacy_state_path_must_be_application_scoped",
+        )
+        from career.services.application_context import paths_for
+
+        application_paths = paths_for(app_dir.name, root=app_dir.parent)
+        ensure(
+            application_paths.workflow_state.resolve() == state_path,
+            "legacy_state_path_must_be_application_scoped",
+        )
     ensure(application_paths is not None, "explicit_application_scope_required")
     app_root = application_paths.app_dir.resolve()
     job_description_path = application_paths.job_description.resolve()
@@ -1199,12 +1235,7 @@ def _dedupe_evidence_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _infer_language(text: str) -> str:
-    normalized = _normalize(text)
-    pt_markers = (" vaga ", " requisitos ", " qualificacoes ", " local de trabalho ", " responsabilidades ")
-    en_markers = (" about the job ", " requirements ", " qualifications ", " location ", " responsibilities ")
-    pt_score = sum(marker in f" {normalized} " for marker in pt_markers)
-    en_score = sum(marker in f" {normalized} " for marker in en_markers)
-    return "pt-BR" if pt_score >= en_score else "en"
+    return detect_job_language(text)
 
 
 def _infer_cv_language(fit_map: dict[str, Any], active: ActiveJobContext) -> str:

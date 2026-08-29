@@ -294,6 +294,22 @@ class GateRepository:
                 "active_job_fingerprint": str(row["application_fingerprint"]),
                 "receipt_id": str(row["receipt_id"]),
             }
+        active_intake = None
+        if application.job_description_path:
+            source_id = application.notion_id or application.aliases.get(
+                f"{application.source_type}_source_id"
+            )
+            active_intake = {
+                "application_id": application.application_id,
+                "source_type": application.source_type,
+                "source_id": source_id,
+                "company": application.company,
+                "role": application.role,
+                "job_description_path": application.job_description_path,
+                "fingerprint": application.fingerprint,
+                "status": "job_description_saved",
+                "next_required_step": self.next_required_step(application_id),
+            }
         return {
             "application_id": application.application_id,
             "completed_states": completed_states,
@@ -306,6 +322,7 @@ class GateRepository:
                 "role": application.role,
                 "source": "sqlite_projection",
             },
+            "active_intake": active_intake,
             "next_required_step": self.next_required_step(application_id),
         }
 

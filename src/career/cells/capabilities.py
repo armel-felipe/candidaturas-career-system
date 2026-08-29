@@ -27,7 +27,17 @@ def canonical_subprocess_environment() -> dict[str, str]:
         "PYTHONNOUSERSITE": "1",
         "PYTHONUNBUFFERED": "1",
     }
-    for name in ("HOME", "LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+    for name in (
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "RCLONE_CONFIG",
+        "RCLONE_ONEDRIVE_REMOTE",
+        "RCLONE_ONEDRIVE_DELIVERY_DIR",
+    ):
         value = os.environ.get(name)
         if value:
             environment[name] = value
@@ -330,11 +340,9 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
     environment = args[3] if len(args) > 3 else None
     parts = [str(item) for item in command] if isinstance(command, (list, tuple)) else []
     resolved_executable = _absolute_executable(executable)
-    command_executable = _absolute_executable(parts[0]) if parts else None
     if (
         len(parts) < 2
         or resolved_executable is None
-        or command_executable != resolved_executable
     ):
         suspicious = Path(executable or "subprocess")
         for raw in reversed(parts[1:]):
@@ -437,13 +445,16 @@ def _audit_subprocess(capability: CapabilitySet, args: tuple[object, ...]) -> No
                 "--remote": "literal",
                 "--folder": "literal",
                 "--report": "write_path",
+                "--filename": "literal",
             },
         )
         required = {"--file", "--remote", "--folder", "--report"}
         folder = parsed.get("--folder", "")
+        filename = parsed.get("--filename", "")
         if (
-            set(parsed) != required
+            not required.issubset(set(parsed))
             or not parsed.get("--remote")
+            or (filename and Path(filename).name != filename)
             or (
                 folder != "01_armel/Curriculos/personalizados"
                 and not folder.startswith("01_armel/Curriculos/personalizados/")

@@ -54,6 +54,15 @@ def apply(conn: sqlite3.Connection) -> None:
                  WHERE application_runs.run_id = validation_receipts.run_id)
            )
          WHERE application_id IS NULL
+           AND EXISTS (
+               SELECT 1
+                 FROM applications
+                WHERE applications.id = (
+                    SELECT application_id
+                      FROM application_runs
+                     WHERE application_runs.run_id = validation_receipts.run_id
+                )
+           )
         """
     )
     conn.execute(

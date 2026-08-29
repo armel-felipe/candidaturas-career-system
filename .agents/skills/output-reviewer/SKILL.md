@@ -78,8 +78,8 @@ Também quando acionada manualmente pelo usuário.
 - [ ] P&L total: nunca afirmado — sempre alavanca operacional real (custo logístico, margem, OPEX)
 - [ ] Espanhol: ausente em todo o documento
 - [ ] Inglês: "Avançado" — nunca "Fluente"
-- [ ] BSP em português: "MBA Corporate Strategy — BSP Business School São Paulo"
-- [ ] BSP em inglês: "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo"
+- [ ] BSP em português: "MBA Corporate Strategy: BSP Business School São Paulo"
+- [ ] BSP em inglês: "Specialization Certificate in Corporate Strategies: BSP Business School São Paulo"
 - [ ] Em CV `_en`, os títulos de cargo das experiências também estão em inglês visível; não aprovar `_en` com headings como `Head de Operações`, `Diretor de Operações` ou `Coordenador de S&OP`
 
 **Tom — regra central:**
@@ -101,6 +101,7 @@ Também quando acionada manualmente pelo usuário.
 - [ ] Modo conciso: bullet 2 começa com verbo de ação, explica como o resultado aconteceu e ajuda no reposicionamento para a vaga
 - [ ] Modo conciso: bullet 2 não é lista solta de stack, não repete escopo do bullet 1 e não usa verbo genérico sem mecanismo concreto
 - [ ] Modo conciso: bullet "Consegui" traz número defensável e resultado mais relevante
+- [ ] Modo conciso: uma mesma métrica quantitativa não aparece simultaneamente no bullet 1 (escopo/responsabilidade) e no bullet 3 (resultado); se a métrica for resultado, fica somente no bullet 3
 - [ ] Modo expandido: cada experiência tem 1 bullet de síntese da história e os demais bullets são entregas específicas
 - [ ] Modo expandido: quantidade de bullets por experiência respeita o número pedido pelo usuário
 - [ ] Modo expandido: entregas estão ordenadas por aderência à vaga e cobrem keywords/competências críticas do FIT_MAP
@@ -119,6 +120,10 @@ Também quando acionada manualmente pelo usuário.
 - [ ] Sem emojis
 - [ ] Um dado por linha
 - [ ] Sem `<hr>` como separador
+- [ ] Cada experiência separa cargo/empresa e período em parágrafos distintos
+- [ ] Cargo e empresa usam ` | `; período usa ` a ` em português ou ` to ` em inglês; formação usa `:`
+- [ ] O DOCX final não contém travessão residual; a pontuação foi adequada ao idioma
+- [ ] Métricas e números de resultados-chave aparecem em runs com negrito no DOCX final
 
 ---
 
@@ -151,13 +156,13 @@ python scripts/review_output.py --kind cv --artifact outputs/<cv_final>.docx --f
 Gate local/diagnóstico:
 
 ```bash
-npm run cv:approve -- --artifact outputs/<cv_final>.docx
+npm run cv:approve -- --application-id "<application_id>" --artifact outputs/<cv_final>.docx
 ```
 
 Quando o documento revisado for um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto do pipeline é:
 
 ```bash
-npm run cv:deliver -- --artifact outputs/<cv_final>.docx
+npm run cv:deliver -- --application-id "<application_id>" --artifact outputs/<cv_final>.docx
 ```
 
 Regras:

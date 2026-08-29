@@ -50,6 +50,16 @@ Ordem canônica de execução:
 
 Arquivos `LOCAL_LLM_*` podem existir como documentação auxiliar para outros runtimes, mas não fazem parte do fluxo canônico do projeto e não substituem `AGENTS.md` nem nenhum `SKILL.md`.
 
+## Roadmap vivo e planos paralelos
+
+O backlog consolidado do projeto está em `docs/roadmap.md`. Todo plano de
+implementação, correção ou migração deve ler esse arquivo antes de começar e
+revisá-lo antes de encerrar. Cada tarefa deve apontar para um ID do roadmap;
+itens resolvidos precisam sair de `BACKLOG` com evidência de teste/comando, e
+itens que perderem sentido precisam ser marcados como `SUPERSEDED` com a
+decisão que substituiu a abordagem. Nenhum plano paralelo pode deixar uma
+pendência tratada apenas no texto do plano sem sincronizá-la no roadmap.
+
 Regras de progressao para agentes locais:
 - depois de ler a skill pedida, executar a proxima acao concreta antes de explicar o workflow novamente
 - em respostas como `continue`, retomar do ultimo passo nao executado; nao recomeçar do passo 1 sem motivo real
@@ -75,7 +85,8 @@ Regras de progressao para agentes locais:
 | Atualize a vaga ID/Notion `<número>` com a descrição extraída / preencher `Descrição da Vaga` a partir da vaga extraída | `linkedin-job-extractor` se houver URL LinkedIn pendente → `notion-transactions` |
 | Crie/faça/registre a vaga no Notion a partir da descrição extraída, antes de análise/FIT_MAP | `linkedin-job-extractor` se houver URL LinkedIn pendente → `notion-transactions` |
 | Mandar algo para o próprio email / deixar em draft / enviar arquivo para o email informado / email de candidatura por Gmail | `self-email-draft` |
-| Colar vaga + ID Notion + URL / "analisa e registra no Notion" / "faz tudo" / "analisa e salva" | `unified-job-analysis` |
+| Vaga já identificada + "processe a vaga" / "faz tudo" / pedido end-to-end | `processe-a-vaga` |
+| Colar vaga + ID Notion + URL / "analisa e registra no Notion" / "analisa e salva" como análise de entrada | `unified-job-analysis` |
 | Revisar documento / "está bom?" / conferir | `output-reviewer` |
 | Quais cargos combinam comigo | `career-fit-analysis` (Modo 2) |
 | Posicionamento para cargo novo | `career-fit-analysis` (Modo 3) |
@@ -236,6 +247,14 @@ Observação:
 
 ## CV em DOCX — comandos exatos
 
+Convenção obrigatória de pontuação do CV:
+- experiência: em português, período no formato `mês/ano a mês/ano` ou `mês/ano a Atual`; em inglês, use `Month YYYY to Month YYYY` ou `Month YYYY to Present`;
+- cargo/empresa: `Cargo | Empresa`;
+- educação/formação: `Curso: Instituição`;
+- demais travessões devem ser substituídos pela pontuação sintaticamente correta
+  em português do Brasil; em inglês, usar a pontuação idiomática equivalente;
+- o DOCX final não pode manter travessões residuais.
+
 ```bash
 npm run context:assert-active                                # bloqueia reuse de FIT_MAP/cv_content stale
 npm run cv:build-content                                     # gera .career-state/cv_content.json da vaga ativa
@@ -246,27 +265,27 @@ python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-ma
 npm run docx:tmp:clean                                       # limpa resíduos em outputs/_tmp/
 
 # Gate local para registrar keywords + revisar o DOCX final
-npm run cv:approve -- --artifact outputs/<cv>.docx
+npm run cv:approve -- --application-id "<id>" --artifact outputs/<cv>.docx
 
 # Comando final obrigatório quando o CV aprovado deve ir para OneDrive/rclone
-npm run cv:deliver -- --artifact outputs/<cv>.docx                # aprova e entrega via rclone somente se aprovado
+npm run cv:deliver -- --application-id "<id>" --artifact outputs/<cv>.docx # aprova e entrega via rclone somente se aprovado
 ```
 
 ## Artefatos compactos derivados — comandos exatos
 
 ```bash
-npm run derive:cv-input-pack -- --application-id "<id>"
-npm run derive:cv-content-seed -- --application-id "<id>"
-npm run derive:feras-input-pack -- --application-id "<id>"
-npm run derive:cover-letter-input-pack -- --application-id "<id>"
-npm run derive:all-for-fit-map -- --application-id "<id>"
-npm run context:validate -- --application-id "<id>"
-npm run context:doctor -- --application-id "<id>"
-npm run context:invalidate-stale -- --application-id "<id>"
+npm run derive:cv-input-pack
+npm run derive:cv-content-seed
+npm run derive:feras-input-pack
+npm run derive:cover-letter-input-pack
+npm run derive:all-for-fit-map
+npm run context:validate
+npm run context:doctor
+npm run context:invalidate-stale
 ```
 
 Regra global para artefatos compactos:
-- os arquivos derivados em `.career-state/applications_v2/<id>/derived/` são a primeira camada de contexto para modelos locais; `.career-state/derived/` é somente espelho de compatibilidade
+- os arquivos derivados em `.career-state/derived/` são a primeira camada de contexto para modelos locais
 - `job_description`, FIT_MAP completo e referências longas viram fallback; não leitura inicial obrigatória
 - `context:assert-active` e `context:invalidate-stale` existem para impedir reaproveitamento silencioso de artefatos de outra vaga
 - quando `context:doctor` marcar `oversized_outputs`, a manutenção correta é reduzir payload e não empurrar mais contexto para o agente
@@ -274,6 +293,8 @@ Regra global para artefatos compactos:
 Regra global para CV em DOCX:
 - o idioma do CV segue o idioma da descrição da vaga: descrição em inglês gera CV em inglês; descrição em português gera CV em português
 - CV de vaga em inglês usa sufixo obrigatório `_en` antes da extensão e texto visível em inglês
+- CV em inglês passa primeiro pelo editorial pass de inglês executivo natural definido em `.agents/skills/cv-generator/SKILL.md`; naturalidade e preservação factual vêm antes de ATS
+- o `english_editorial_guard` bloqueia traduções literais e narrativa autobiográfica recorrente antes do DOCX; corrigir a fonte canônica e regenerar, sem editar o DOCX manualmente para contornar o gate
 - CV de vaga em português não usa sufixo `_en` e texto visível em português
 - em nenhum CV é permitido juntar experiências, cargos, promoções, fases ou escopos em uma única entrada; se houver limite de espaço, selecionar experiências separadas por aderência, nunca consolidar
 - `register_keywords.py --cv` deve rodar sobre o artefato final em `outputs/` antes do `review_output.py`
@@ -282,8 +303,9 @@ Regra global para CV em DOCX:
 - política ATS top 8: `covered_exact=1,0`, `covered_similar=0,8`, `declared_gap=0`, `missing_unexplained=0`; aprovação mínima exige score >= 5,2/8 e zero `missing_unexplained`; ótimo exige >= 6,2/8
 - `pt_cv_keyword_shotgun_control` é blocker em CV PT-BR quando o gate detectar cluster artificial de keywords em inglês; naturalidade humana prevalece sobre matching literal
 - todo CV PT-BR passa por polimento textual obrigatório no `output-reviewer`, mesmo quando o gate objetivo aprovar de primeira; se o polimento alterar texto, regenerar DOCX, rerodar `register_keywords.py --cv` e rerodar `review_output.py`
+- em modo conciso, cada experiência usa bullet 2 para posicionamento/mecanismo/caso coerente com suas keywords e bullet 3 para o resultado quantitativo; métricas repetidas, percentuais, valores financeiros e faixas `de X para Y`/`from X to Y` não podem permanecer no bullet 2
 - qualquer bloco "Revisão concluída" sem `cv:approve` ou `cv:deliver` executado sobre o artefato final é inválido
-- quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --artifact outputs/<cv>.docx`; `cv:approve` isolado vale apenas como gate local/diagnóstico
+- quando o agente gerar um CV final e a entrega OneDrive/rclone estiver configurada, o encerramento correto é `npm run cv:deliver -- --application-id "<id>" --artifact outputs/<cv>.docx`; `cv:approve` isolado vale apenas como gate local/diagnóstico
 - `cv:deliver` deve bloquear se `cv:approve` falhar, se `approved_for_delivery=false`, se houver blocker de polimento ou se `deliver:artifact` não retornar `status=delivered`
 
 ## Entrega de artefatos via OneDrive/rclone
@@ -385,6 +407,38 @@ Regra para consulta conversacional de candidaturas:
 - a consulta exige pelo menos um filtro e combina filtros por `E`; os campos e valores são validados contra o schema atual do Notion
 - a lista retorna `ID`, cargo, empresa, `Etapa Funil`, aderência e link; responder com uma ID retornada inicia o pipeline canônico de análise dessa vaga
 
+## Contrato da Fase 4: pacote-base e pós-processamento
+
+`processe-a-vaga` fecha apenas o pacote-base conforme o `delivery_profile`
+persistido no SQLite. Para `standard_cv`, isso significa intake, FIT_MAP
+validado, CV aprovado, entrega OneDrive e Notion. Para `gupy_registration`,
+significa intake, FIT_MAP validado e registro/inscrição Gupy comprovada no
+Notion; CV e OneDrive não são obrigatórios, salvo pedido explícito. O estágio
+`core_package_sealed` significa que o contrato do perfil foi comprovado; ele
+não exige FERAS, carta ou habilidades Gupy.
+
+Esses artefatos são pós-processamento reentrante e devem usar os serviços
+SQLite-scoped com `application_id` explícito:
+
+```text
+create_post_artifact(application_id, "feras")
+create_post_artifact(application_id, "gupy_skills")
+create_post_artifact(application_id, "cover_letter")
+list_post_artifacts(application_id)
+read_post_artifact(application_id, artifact_id)
+revise_positioning(application_id, changes)
+```
+
+Pós-processamento deve preservar revisões e receipts do pacote-base. Não pode
+selecionar candidatura por `active_job`, `active_intake`, FIT_MAP global ou
+`workflow_state.json`, nem apagar ou reabrir `core_package_sealed`.
+
+No modo SQLite-only, uma candidatura ausente no banco deve bloquear com
+`application_not_in_sqlite`; a recuperação autorizada é explícita:
+`npm run applications:reconcile -- --application-id <id> --dry-run` e depois
+`--apply` quando o relatório for revisado. Nunca fazer fallback silencioso para
+JSON legado.
+
 ## Orquestrador automático de candidaturas
 
 ```bash
@@ -453,7 +507,7 @@ Comandos celulares canônicos:
 
 ```bash
 npm run applications:plan -- --application-id <ID> --deliverable cv
-npm run applications:run -- --application-id <ID> --run-id <RUN_ID>
+npm run applications:run -- --application-id <ID> --run-id <RUN_ID> --run-agent
 npm run applications:repair -- --application-id <ID> --run-id <RUN_ID> --node <NODE_ID> --reason "<motivo>"
 npm run applications:inspect-run -- --application-id <ID> --run-id <RUN_ID>
 npm run applications:migrate-cellular -- --application-id <ID> --dry-run
@@ -552,7 +606,7 @@ Regra operacional:
 - scripts legados continuam existindo como compatibilidade técnica e suporte às services
 - quando um comando oficial gravar estado de workflow, não burlar a sequência rodando manualmente uma etapa posterior sem satisfazer as pré-condições
 - o workflow estruturado registra a vaga ativa por fingerprint da descrição salva; pré-requisitos de FIT_MAP devem pertencer à mesma vaga ativa, não a uma análise anterior
-- preferir `npm run fit-map:finalize` quando o draft já estiver preenchido; para CV final com entrega configurada, usar `npm run cv:deliver -- --artifact outputs/<cv>.docx`
+- preferir `npm run fit-map:finalize` quando o draft já estiver preenchido; para CV final com entrega configurada, usar `npm run cv:deliver -- --application-id "<id>" --artifact outputs/<cv>.docx`
 - usar `npm run fit-map:status` quando houver dúvida sobre retomada, template com placeholders ou FIT_MAP possivelmente antigo
 - usar `npm run fit-map:resume` quando `fit-map:status` indicar template com placeholders, FIT_MAP antigo ou retomada travada; executar a ação indicada sem reexplicar o workflow
 - usar `npm run fit-map:guard` imediatamente após `fit-map:template` e em qualquer retomada; se retornar `guard=blocked`, a próxima ação deve ser o `required_next_command`, sem análise textual intermediária
@@ -615,6 +669,31 @@ Regras:
 - o heartbeat possui lock exclusivo e deve bloquear execucoes concorrentes
 - escrita fora dos outputs permitidos bloqueia a run
 
+### Manutenção canônica controlada
+
+O agente pode propor correções reais no código canônico quando uma falha de
+manutenção estiver comprovada, inclusive em `src/`, `.agents/skills/` ou
+`hermes-src/`. A restrição de mount somente leitura dos containers não é uma
+proibição de correção: o agente deve criar um patch revisável no host, dentro
+do pedido de manutenção, e nunca editar o DOCX, FIT_MAP, registry ou SQLite
+para mascarar um gate.
+
+Fluxo obrigatório:
+
+```bash
+npm run maintenance:request -- --objective "<causa e correção>" --allow-path src/<arquivo>
+npm run maintenance:apply -- --patch <patch.diff> --request <request.json>
+npm run maintenance:apply -- --patch <patch.diff> --request <request.json> --apply
+```
+
+O primeiro `maintenance:apply` é sempre dry-run. O `--apply` só pode ser
+usado para paths canônicos previamente allowlisted; paths de `outputs/`,
+`.career-state/`, `control-plane/` e artefatos de candidatura são rejeitados.
+Depois da aplicação, executar os testes e os gates da área afetada antes de
+reiniciar o bot. A sessão continua resolvendo `application_id` pelo SQLite;
+o ID interno não deve ser solicitado ao usuário quando houver vínculo de
+sessão válido.
+
 O fluxo manual também pode operar por maestro determinístico e agentes especialistas de escopo curto.
 
 Comandos oficiais:
@@ -644,7 +723,7 @@ Regras operacionais:
 - o maestro decide o próximo passo, grava requests compactos em `.career-state/agent_requests/` e bloqueia improvisos
 - agentes especialistas devem ler primeiro o request correspondente e só operar nos arquivos/comandos permitidos
 - `fit-map-agent` continua focado em preencher `.career-state/applications_v2/<id>/fit_map.draft.json`; a finalização canônica (`validate_draft -> build -> score -> validate -> register_keywords`) é executada pelo harness quando `harness.fit_map.auto_finalize=true`
-- `cv-agent` gera conteúdo/DOCX e deve rodar `context:assert-active`, `cv:build-content`, `cv:validate-content` e então encerrar com `npm run cv:deliver -- --artifact outputs/<cv>.docx` quando a entrega OneDrive/rclone estiver configurada; `cv:approve` isolado é apenas gate local/diagnóstico
+- `cv-agent` gera conteúdo/DOCX e deve rodar `context:assert-active`, `cv:build-content`, `cv:validate-content` e então encerrar com `npm run cv:deliver -- --application-id "<id>" --artifact outputs/<cv>.docx` quando a entrega OneDrive/rclone estiver configurada; `cv:approve` isolado é apenas gate local/diagnóstico
 - `cv-agent` usa `.career-state/applications_v2/<id>/derived/cv_input_pack.json` e `cv_content_seed.json` como contexto primário; referências longas só entram como fallback
 - `cover-letter-agent` usa `.career-state/applications_v2/<id>/derived/cover_letter_input_pack.json` como contexto primário e persiste primeiro `.md`; PDF/entrega vêm depois, se pedidos
 - `feras-agent` usa `.career-state/applications_v2/<id>/derived/feras_input_pack.json` como contexto primário e persiste primeiro o artefato local em `outputs/`
@@ -736,8 +815,8 @@ Todo texto devolvido ao Notion deve permanecer em UTF-8 legível. Nunca enviar o
 - Fill rate: pertence à Trifil — nunca atribuir à VivaReal
 - wehandle: sempre em minúsculas nos documentos finais
 - Movimento iFood → wehandle: apresentar pelos fatos (escopo, time, resultado) — nunca por justificativa motivacional
-- BSP em português: "MBA Corporate Strategy — BSP Business School São Paulo"
-- BSP em inglês: "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo"
+- BSP em português: "MBA Corporate Strategy: BSP Business School São Paulo"
+- BSP em inglês: "Specialization Certificate in Corporate Strategies: BSP Business School São Paulo"
 - Tom: factual, direto, primeira pessoa real — sem linguagem de coach, frases de efeito ou formulário de RH
 - Respostas a perguntas de candidatura devem responder de forma direta, com defesa curta e fatos verificáveis. Evitar encerramentos genéricos como “aprendo rápido”, “minha abordagem é setor-agnóstica” ou hipóteses amplas do tipo “eu faria o mesmo”.
 - `output-reviewer` roda obrigatoriamente após toda skill de produção, antes de entregar qualquer documento

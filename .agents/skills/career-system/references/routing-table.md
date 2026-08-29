@@ -26,7 +26,8 @@ Fonte canônica: `AGENTS.md` na raiz do projeto. Mantenha sincronizada com a tab
 | Criar/registrar vaga no Notion a partir de descrição extraída, antes de análise/FIT_MAP | `linkedin-job-extractor` (se URL pendente) → `notion-transactions` |
 | Mandar algo para o próprio email / deixar em draft / enviar arquivo / email de candidatura por Gmail | `self-email-draft` |
 | Tabela de keywords cobertas / resumo de aderência por keyword / formulário de candidatura / Gupy / ATS | `application-keyword-table` |
-| Colar vaga + ID Notion + URL / "analisa e registra no Notion" / "faz tudo" / "analisa e salva" | `unified-job-analysis` |
+| Vaga já identificada + "processe a vaga" / "faz tudo" / pedido end-to-end | `processe-a-vaga` |
+| Colar vaga + ID Notion + URL / "analisa e registra no Notion" / "analisa e salva" como análise de entrada | `unified-job-analysis` |
 | Revisar documento / "está bom?" / conferir | `output-reviewer` |
 | Quais cargos combinam comigo | `career-fit-analysis` (Modo 2) |
 | Posicionamento para cargo novo | `career-fit-analysis` (Modo 3) |
@@ -49,6 +50,7 @@ Skills operacionais roteadas pelo sistema:
 - `notion-transactions` — CRUD no Notion
 - `notion-xlsx-export` — exportação de planilha do Notion
 - `output-reviewer` — revisão de artefatos
+- `processe-a-vaga` — pacote-base end-to-end conforme `delivery_profile`
 - `self-email-draft` — draft de email por Gmail
 - `unified-job-analysis` — pipeline completo (intake + análise + Notion)
 

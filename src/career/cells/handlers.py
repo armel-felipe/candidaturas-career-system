@@ -196,10 +196,19 @@ def _normalize_job(context: CellExecutionContext) -> CellOutput:
     normalized = {
         **result["job_normalized"],
         "run_id": context.run_id,
+        "cell_attempt": context.attempt,
         "source": {"path": str(source_path), "sha256": source_hash},
     }
-    handover = {**result["handover"], "run_id": context.run_id}
-    evidence = {**result["evidence_index"], "run_id": context.run_id}
+    handover = {
+        **result["handover"],
+        "run_id": context.run_id,
+        "cell_attempt": context.attempt,
+    }
+    evidence = {
+        **result["evidence_index"],
+        "run_id": context.run_id,
+        "cell_attempt": context.attempt,
+    }
     return CellOutput(
         artifacts={
             "job_normalized.json": _json_bytes(normalized),
@@ -254,15 +263,49 @@ def _analyze_fit(context: CellExecutionContext) -> CellOutput:
 def _compose_cv(context: CellExecutionContext) -> CellOutput:
     fit_raw, fit_map_path, fit_hash = _read_input(context, "fit_map.json")
     fit_map = json.loads(fit_raw.decode("utf-8"))
+    normalized_raw, _normalized_path, _normalized_hash = _read_input(
+        context, "job_normalized.json"
+    )
+    normalized = json.loads(normalized_raw.decode("utf-8"))
+    language = str(
+        (normalized.get("job_identity") or {}).get("language") or ""
+    ).strip()
+    if language not in {"en", "pt-BR"}:
+        raise ValueError("normalized job language is missing or invalid")
     provenance = fit_map.get("provenance") if isinstance(fit_map.get("provenance"), dict) else {}
     candidate_revision = str(provenance.get("candidate_facts_revision") or "")
     if not candidate_revision:
         raise ValueError("FIT_MAP is missing candidate facts revision")
-    payload = cv_content_service.build_cv_content(
-        context.paths,
-        fit_map_path,
-        candidate_revision,
-    )
+    repair_reason = getattr(context, "repair_reason", None)
+    if repair_reason:
+        repair_candidate = (
+            context.paths.requests_dir
+            / "cellular"
+            / context.run_id
+            / "repair"
+            / str(context.attempt)
+            / "cv_content.json"
+        )
+        context.capabilities.assert_readable(repair_candidate)
+        if not repair_candidate.is_file():
+            raise ValueError(f"repaired CV content is missing: {repair_candidate}")
+        payload = read_json(repair_candidate)
+        metadata = payload.get("metadata") if isinstance(payload, dict) else None
+        if not isinstance(metadata, dict):
+            raise ValueError("repaired CV content metadata is missing")
+        if metadata.get("application_id") != context.application_id:
+            raise ValueError("repaired CV content belongs to another application")
+        if metadata.get("run_id") != context.run_id:
+            raise ValueError("repaired CV content belongs to another run")
+        if int(metadata.get("compose_attempt") or 0) != context.attempt:
+            raise ValueError("repaired CV content belongs to another compose attempt")
+    else:
+        payload = cv_content_service.build_cv_content(
+            context.paths,
+            fit_map_path,
+            candidate_revision,
+            language=language,
+        )
     return CellOutput(
         artifacts={"cv_content.json": _json_bytes(payload)},
         handover={
@@ -317,6 +360,11 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
         polish_path,
     ):
         context.capabilities.assert_writable(path)
+    content_raw, _content_path, _content_hash = _read_input(context, "cv_content.json")
+    content = json.loads(content_raw.decode("utf-8"))
+    language = str((content.get("metadata") or {}).get("language") or "").strip()
+    if language not in {"en", "pt-BR"}:
+        raise ValueError("CV content language is missing or invalid")
     translation_registry_path.write_bytes(
         (
             ROOT
@@ -332,6 +380,7 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
             polish_path,
             translation_registry_path=translation_registry_path,
             control_db_path=context.control_db_path,
+            language=language,
         )
     except SystemExit as exc:
         raise ValueError(f"objective CV review failed: {exc}") from exc
@@ -363,10 +412,23 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
     )
 
 
+def _normalized_cv_language(paths: ApplicationPaths) -> str | None:
+    """Read the language chosen by intake/normalization for all CV gates."""
+    extract_path = paths.derived_dir / "job_extract.json"
+    if not extract_path.is_file():
+        return None
+    payload = read_json(extract_path)
+    language = str((payload.get("job_identity") or {}).get("language") or "").strip()
+    return language if language in {"en", "pt-BR"} else None
+
+
 _EXTERNAL_RECEIPT_NODES = frozenset(
     {"deliver_cv", "sync_notion_initial", "sync_notion_final"}
 )
 _CANONICAL_DELIVERY_TARGET = "onedrive-cv"
+_NOTION_PAGE_ID_RE = re.compile(
+    r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$"
+)
 
 
 def _fit_map_for_application(context: CellExecutionContext) -> tuple[dict[str, Any], str]:
@@ -436,11 +498,12 @@ def _notion_target_for_sync(
     context: CellExecutionContext, phase: str, aliases: Mapping[str, Any]
 ) -> tuple[str, str]:
     record_id = str(aliases.get("notion_record_id") or "").strip()
-    page_id = str(aliases.get("notion_page_id") or "").strip()
+    if not record_id.isdigit():
+        record_id = ""
+    raw_page_id = str(aliases.get("notion_page_id") or "").strip()
+    page_id = raw_page_id if _NOTION_PAGE_ID_RE.fullmatch(raw_page_id) else ""
     if phase == "initial":
         return record_id, page_id
-    if record_id and not record_id.isdigit() and not page_id:
-        page_id, record_id = record_id, ""
     if record_id or page_id:
         return record_id, page_id
     receipt_raw, _receipt_path, _receipt_hash = _read_input(context, "notion_initial_receipt.json")
@@ -680,6 +743,31 @@ def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> C
     request_hash = _request_hash(context, operation=operation, target=target, target_status=target_status)
     receipt = _load_matching_receipt(context, request_hash)
     if receipt is None:
+        governance = {}
+        if phase == "final":
+            review = _optional_json_input(context, "cv_review.json")
+            approval = _optional_json_input(context, "approved_cv_manifest.json")
+            fit_map = _optional_json_input(context, "fit_map.json")
+            top8 = review.get("top8_keywords", []) if isinstance(review, dict) else []
+            approved = bool(review.get("approved_for_delivery"))
+            governance = {
+                "review_status": "approved" if approved else "blocked",
+                "review_blockers": "\n".join(
+                    str(item.get("id"))
+                    for item in (review.get("blockers", []) if isinstance(review, dict) else [])
+                    if isinstance(item, Mapping) and item.get("id")
+                ),
+                "covered_keywords": "; ".join(
+                    str(item.get("keyword"))
+                    for item in top8
+                    if isinstance(item, Mapping) and item.get("covered")
+                ),
+                "final_artifact": str(approval.get("artifact_path") or ""),
+                "final_cv_language": str(fit_map.get("idioma") or ""),
+                "service_status": "done" if approved else "blocked_review",
+                "final_state": "done" if approved else "blocked_review",
+                "labels_verified": approved,
+            }
         request = {
             "operation": operation,
             "target": target,
@@ -698,6 +786,7 @@ def _sync_notion(context: CellExecutionContext, client: Any, *, phase: str) -> C
                 for record in context.inputs.values()
                 if isinstance(record, Mapping) and str(record.get("path", "")).endswith((".md", ".txt", ".json"))
             ],
+            "governance": governance,
         }
         receipt = _persist_external_receipt(
             context, notion_service.perform_cell_sync(client, request)
@@ -722,6 +811,7 @@ def _deliver_cv(context: CellExecutionContext, client: Any) -> CellOutput:
     raw, artifact_path, artifact_hash = _read_input(context, "cv.docx")
     approval_raw, _approval_path, _approval_hash = _read_input(context, "approved_cv_manifest.json")
     approval = json.loads(approval_raw.decode("utf-8"))
+    fit_map = _optional_json_input(context, "fit_map.json")
     if approval.get("application_id") != context.application_id:
         raise ValueError("approved CV manifest belongs to another application")
     if approval.get("approved_for_delivery") is not True:
@@ -747,6 +837,10 @@ def _deliver_cv(context: CellExecutionContext, client: Any) -> CellOutput:
             "artifact_path": str(artifact_path),
             "delivery_report_path": str(delivery_report_path),
         }
+        if fit_map:
+            request["delivery_filename"] = cv_content_service.output_name_for_application(
+                context.paths, fit_map
+            )
         if hasattr(client, "deliver_cell"):
             response = client.deliver_cell(dict(request), raw)
         elif callable(client):
@@ -803,6 +897,8 @@ def _validate_receipt_payload(receipt: Mapping[str, Any], context: CellExecution
         if not re.fullmatch(r"[0-9a-f]{64}", str(receipt["artifact_hash"])):
             raise ValueError("delivery receipt artifact_hash must be a SHA-256")
     else:
+        if receipt.get("status") != "succeeded":
+            raise ValueError("Notion receipt status must be succeeded")
         for field in ("page_id", "url"):
             if not str(receipt.get(field) or ""):
                 raise ValueError(f"Notion receipt {field} is required")
@@ -1178,6 +1274,7 @@ def _read_input(
             value
             for key, value in context.inputs.items()
             if key.endswith(f":{input_name}")
+            or Path(key.rsplit(":", 1)[-1]).name == input_name
             or (
                 input_name == "job_description"
                 and key.endswith(":job_description.md")

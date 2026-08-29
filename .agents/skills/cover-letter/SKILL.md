@@ -18,7 +18,11 @@ Qualquer ajuste nesta skill deve ser feito no caminho canônico em `.agents/skil
 
 ## Adaptação Local OpenCode
 
-Leia também `../career-system/SKILL.md`. Use `.career-state/fit_map.json` como FIT_MAP ativo quando houver vaga e `../career-system/references/diretrizes para carta de apresentação.md` como referência da carta. Após redigir, acione `output-reviewer` antes de entregar.
+Leia também `../career-system/SKILL.md`. Quando houver vaga, resolva a
+candidatura por `application_id` e use a revisão FIT_MAP do SQLite. JSON global
+é apenas compatibilidade e não pode selecionar a candidatura. Use
+`../career-system/references/diretrizes para carta de apresentação.md` como
+referência da carta. Após redigir, acione `output-reviewer` antes de entregar.
 
 Gera a carta de apresentação de Felipe Armel. Consome o FIT_MAP da career-fit-analysis para garantir
 consistência com CV e FERAS — mesmas histórias, mesmos números, mesmo ângulo narrativo.
@@ -29,7 +33,8 @@ consistência com CV e FERAS — mesmas histórias, mesmos números, mesmo ângu
 
 Antes de gerar:
 
-1. Verificar se há anúncio da vaga. Se sim: usar FIT_MAP ativo ou executar career-fit-analysis.
+1. Verificar se há anúncio da vaga. Se sim: exigir `application_id` e usar o
+   FIT_MAP validado da mesma candidatura, ou executar intake + career-fit-analysis.
 2. Verificar se há dados da empresa (nome, propósito, iniciativas relevantes).
    - Se não houver dados da empresa: solicitar antes de gerar OU manter placeholders.
 3. Consultar `diretrizes_carta_de_apresentacao.md` para o modelo exato.
@@ -37,6 +42,10 @@ Antes de gerar:
 Regra: se não tiver vaga E não tiver empresa → gerar com todos os placeholders preenchíveis.
 Se tiver vaga mas não tiver empresa → gerar com dados da vaga e placeholder para empresa.
 Se houver dados suficientes para avançar, não parar para perguntas opcionais: escrever e revisar.
+
+Para uma vaga já analisada, o caminho reentrante é
+`create_post_artifact(application_id, "cover_letter")`; ele preserva a revisão
+anterior e não reexecuta o intake.
 
 ---
 

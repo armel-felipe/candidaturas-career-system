@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from career.services.database import Database
-from career.utils import utc_now_iso
+from career.utils import sha256_file, utc_now_iso
 
 
 def _validate_application_id(application_id: str) -> str:
@@ -50,6 +50,7 @@ class ApplicationIdentity:
     funil_stage: str = "Fila Agente"
     cv_language: str = "pt"
     status: str = "active"
+    delivery_profile: str = "standard_cv"
     aliases: dict[str, str] = field(default_factory=dict)
 
 
@@ -67,6 +68,7 @@ class ApplicationRecord:
     score: float | None
     cv_language: str
     status: str
+    delivery_profile: str
     created_at: str
     updated_at: str
     job_description_path: str | None
@@ -110,6 +112,12 @@ class ApplicationRevisionRecord:
     created_at: str
 
 
+@dataclass(frozen=True)
+class ReindexReport:
+    locations: tuple[dict[str, str], ...]
+    conflicts: tuple[dict[str, str], ...]
+
+
 class ApplicationRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -135,14 +143,16 @@ class ApplicationRepository:
             conn.execute(
                 """INSERT INTO applications
                    (id, notion_id, company, role, source_type, source_url,
-                    stage, funil_stage, cv_language, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    stage, funil_stage, cv_language, status, delivery_profile,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                      notion_id = COALESCE(excluded.notion_id, applications.notion_id),
                      company = excluded.company,
                      role = excluded.role,
                      source_type = excluded.source_type,
                      source_url = COALESCE(excluded.source_url, applications.source_url),
+                     delivery_profile = excluded.delivery_profile,
                      updated_at = excluded.updated_at""",
                 (
                     application_id,
@@ -155,6 +165,7 @@ class ApplicationRepository:
                     identity.funil_stage,
                     identity.cv_language,
                     identity.status,
+                    identity.delivery_profile,
                     created_at,
                     now,
                 ),
@@ -248,6 +259,32 @@ class ApplicationRepository:
                 )
             raise AmbiguousApplicationError(
                 "provided selectors matched multiple applications"
+            )
+        return self._load_record(next(iter(candidate_ids)))
+
+    def resolve_by_alias(self, *, alias_type: str, alias_value: str) -> ApplicationRecord:
+        """Resolve one application through an authoritative alias."""
+        self._ensure_schema()
+        normalized_type = str(alias_type or "").strip()
+        normalized_value = str(alias_value or "").strip()
+        if not normalized_type or not normalized_value:
+            raise ApplicationNotFoundError(
+                "alias resolution requires alias_type and alias_value"
+            )
+        rows = self.database.fetch_all(
+            """SELECT DISTINCT application_id
+               FROM application_aliases
+               WHERE alias_type = ? AND alias_value = ?""",
+            (normalized_type, normalized_value),
+        )
+        candidate_ids = {str(row["application_id"]) for row in rows}
+        if not candidate_ids:
+            raise ApplicationNotFoundError(
+                f"no application matched alias {normalized_type}={normalized_value}"
+            )
+        if len(candidate_ids) > 1:
+            raise AmbiguousApplicationError(
+                f"alias matched multiple applications: {normalized_type}={normalized_value}"
             )
         return self._load_record(next(iter(candidate_ids)))
 
@@ -355,6 +392,115 @@ class ApplicationRepository:
     def ensure_schema(self) -> None:
         self._ensure_schema()
 
+    def record_location(
+        self,
+        application_id: str,
+        bot_id: str,
+        location_path: str | Path,
+        manifest_hash: str | None = None,
+    ) -> None:
+        """Register one physical bot location without duplicating identity."""
+        self._ensure_schema()
+        application = self.resolve(application_id=application_id)
+        bot_id = str(bot_id or "").strip()
+        location = str(Path(location_path).resolve())
+        if not bot_id:
+            raise ValueError("bot_id is required")
+        now = utc_now_iso()
+        with self.database.transaction(immediate=True) as conn:
+            conn.execute(
+                """
+                INSERT INTO application_locations
+                    (location_id, application_id, bot_id, location_path,
+                     manifest_hash, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(application_id, bot_id, location_path) DO UPDATE SET
+                    manifest_hash = COALESCE(excluded.manifest_hash, application_locations.manifest_hash)
+                """,
+                (
+                    f"loc_{uuid4().hex}",
+                    application.application_id,
+                    bot_id,
+                    location,
+                    manifest_hash,
+                    now,
+                ),
+            )
+
+    def list_by_bot(self, bot_id: str | None = None) -> list[ApplicationRecord]:
+        """Return canonical applications represented in one or more bot locations."""
+        self._ensure_schema()
+        if bot_id is None:
+            rows = self.database.fetch_all(
+                """
+                SELECT DISTINCT application_id
+                  FROM application_locations
+                 ORDER BY application_id
+                """
+            )
+        else:
+            rows = self.database.fetch_all(
+                """
+                SELECT DISTINCT application_id
+                  FROM application_locations
+                 WHERE bot_id = ?
+                 ORDER BY application_id
+                """,
+                (str(bot_id),),
+            )
+        return [self.resolve(application_id=str(row["application_id"])) for row in rows]
+
+    def reindex_from_manifests(self, root: Path | None = None) -> ReindexReport:
+        """Index application locations from manifests without importing gates."""
+        self._ensure_schema()
+        search_root = Path(root or self.database.db_path.parent.parent).resolve()
+        locations: list[dict[str, str]] = []
+        conflicts: list[dict[str, str]] = []
+        manifest_paths = sorted(
+            {
+                *search_root.rglob("manifest.json"),
+                *search_root.rglob("derived_manifest.json"),
+            }
+        )
+        for manifest_path in manifest_paths:
+            if not manifest_path.is_file() or "applications_v2" not in manifest_path.parts:
+                continue
+            index = manifest_path.parts.index("applications_v2")
+            if index + 1 >= len(manifest_path.parts):
+                continue
+            path_application_id = manifest_path.parts[index + 1]
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                conflicts.append({"path": str(manifest_path), "reason": f"invalid_manifest:{type(exc).__name__}"})
+                continue
+            application_id = str(payload.get("application_id") or path_application_id).strip()
+            bot_id = "root"
+            if "workspaces" in manifest_path.parts:
+                workspace_index = manifest_path.parts.index("workspaces")
+                if workspace_index + 1 < len(manifest_path.parts):
+                    bot_id = manifest_path.parts[workspace_index + 1]
+            try:
+                application = self.resolve(application_id=application_id)
+            except ApplicationResolutionError:
+                conflicts.append({"path": str(manifest_path), "reason": "unknown_application", "application_id": application_id})
+                continue
+            manifest_fingerprint = str(payload.get("fingerprint") or "").strip()
+            if manifest_fingerprint and application.fingerprint and manifest_fingerprint != application.fingerprint:
+                conflicts.append({"path": str(manifest_path), "reason": "fingerprint_mismatch", "application_id": application.application_id})
+                continue
+            app_dir = manifest_path.parent.parent if manifest_path.parent.name == "derived" else manifest_path.parent
+            manifest_hash = sha256_file(manifest_path)
+            self.record_location(application.application_id, bot_id, app_dir, manifest_hash)
+            locations.append(
+                {
+                    "application_id": application.application_id,
+                    "bot_id": bot_id,
+                    "location_path": str(app_dir.resolve()),
+                }
+            )
+        return ReindexReport(tuple(locations), tuple(conflicts))
+
     def _candidate_for_application_id(self, application_id: str) -> str:
         value = _validate_application_id(application_id)
         row = self.database.fetch_one("SELECT id FROM applications WHERE id = ?", (value,))
@@ -394,7 +540,8 @@ class ApplicationRepository:
     def _load_record(self, application_id: str) -> ApplicationRecord:
         row = self.database.fetch_one(
             """SELECT id, notion_id, company, role, source_type, source_url, stage,
-                      funil_stage, score, cv_language, status, created_at, updated_at,
+                      funil_stage, score, cv_language, status, delivery_profile,
+                      created_at, updated_at,
                       job_description_path, fit_map_path, cv_path
                FROM applications WHERE id = ?""",
             (application_id,),
@@ -419,6 +566,7 @@ class ApplicationRepository:
             score=float(row["score"]) if row["score"] is not None else None,
             cv_language=str(row["cv_language"] or "pt"),
             status=str(row["status"] or "active"),
+            delivery_profile=str(row["delivery_profile"] or "standard_cv"),
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
             job_description_path=str(row["job_description_path"])

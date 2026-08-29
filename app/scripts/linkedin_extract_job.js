@@ -180,7 +180,7 @@ async function hasLoginWall(page) {
   const url = page.url();
   if (/\/login|checkpoint|authwall|uas\/login/i.test(url)) return true;
   const body = cleanText(await page.locator("body").innerText({ timeout: 10000 }).catch(() => ""));
-  return /Sign in|Entrar|Join LinkedIn|Cadastre-se|Security verification|verificação de segurança/i.test(body)
+  return /Sign in|Entrar(?![\wáéíóúãõâêô])|Join LinkedIn|Cadastre-se|Security verification|verificação de segurança/i.test(body)
     && !/About the job|Sobre a vaga|Descrição da vaga|Responsabilidades/i.test(body);
 }
 
@@ -644,7 +644,7 @@ async function main() {
     if (!job.description || job.description.length < 300) {
       throw new Error("Não foi possível extrair uma descrição substantiva da vaga.");
     }
-    if (/Sign in|Entrar|Join LinkedIn|Cadastre-se|Security verification|verificação de segurança/i.test(job.description.slice(0, 1000))) {
+    if (/Sign in|Entrar(?![áéíóúãõâêô])|Join LinkedIn|Cadastre-se|Security verification|verificação de segurança/i.test(job.description.slice(0, 1000))) {
       throw new Error("O texto extraído parece ser login/verificação, não a descrição da vaga.");
     }
 

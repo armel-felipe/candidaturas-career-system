@@ -42,6 +42,39 @@ prossiga: corrija o FIT_MAP e regenere `cv_content`. No DOCX inglês, bloqueie s
 restarem verbos portugueses como `fui responsável`, `gerenciei`, `liderei`, `conduzi`
 ou `conectei`.
 
+### English executive editorial pass
+
+Do not optimize English resumes by translating Portuguese business language into
+grammatically correct English. Rewrite the underlying idea using the idiomatic
+vocabulary, collocations, and sentence structures naturally used in English-language
+executive resumes. Natural executive English takes precedence over literal fidelity
+to the original sentence structure. Factual fidelity to the candidate's actual
+experience remains mandatory.
+
+Apply this order before ATS: naturalness, executive syntax and concision,
+idiomatic collocations, redundancy removal, seniority framing, executive Summary,
+factual verification, ATS keywords, and a final native executive recruiter pass.
+
+For English CVs, prefer direct resume verbs (`Led`, `Built`, `Scaled`, `Owned`,
+`Reduced`, `Drove`) over repeated first-person narration. Rewrite the idea rather
+than translating structures such as `full scope autonomy`, `direct and indirect
+people`, `with C-level`, `correctly modeled ROI`, `deliver expansion`,
+`lead-contact time`, or recurring `which allowed me to`. Use conservative wording
+when reporting lines or ownership are ambiguous: `a 240-person organization` is
+valid when `240 direct and indirect reports` is not proven.
+
+The English Summary is an executive value proposition, not an autobiographical
+cover letter. Prefer `Track record of...` and verified scale/results over repeated
+`I have...` or `I am pursuing...`. Each bullet must add a distinct dimension of
+scope, mechanism, leadership, financial impact, operational impact, or growth.
+Apply keywords only after the prose is natural; never add unsupported facts or
+repeat keywords for frequency.
+
+The deterministic `english_editorial_guard` runs before DOCX rendering and blocks
+known literal or autobiographical patterns. When it blocks, revise the canonical
+English source and regenerate the content; do not bypass the guard with a manual
+DOCX edit.
+
 ## Evidência e narrativa
 
 Antes de escrever, consulte `perfil_restricoes.md` e `autoconhecimento.md`; números,
@@ -53,11 +86,28 @@ Selecione a persona e 4–8 experiências com base em `dor_central` e
 consolide cargos, promoções, fases ou escopos: iFood Head e iFood Diretor, e cargos
 distintos da Trifil, são entradas separadas.
 
+Quando as histórias e os alvos diretos não completarem a seleção, ranqueie as
+experiências restantes pela aderência entre `focus_terms` e as top 8 keywords da
+vaga; use recência como desempate. A lista `fallback_experience_priority` só pode
+ser o último desempate determinístico. Nunca promover automaticamente um cargo
+específico, como Coordenador de Expedição, para a quinta experiência de uma vaga
+não relacionada.
+
 No modo conciso (padrão), use exatamente 3 bullets por experiência:
 
 1. escopo, responsabilidade e time, começando naturalmente por `Fui responsável por`;
-2. alavanca causal com verbo de ação em primeira pessoa;
-3. resultado mensurável, começando por verbo de resultado.
+2. posicionamento, mecanismo ou caso coerente com as keywords da experiência, com verbo de ação em primeira pessoa e sem repetir uma métrica de resultado;
+3. resultado mensurável, começando por verbo de resultado e concentrando a evidência quantitativa no formato ação → resultado → de → para quando houver faixa comparativa.
+
+O bullet 2 não pode carregar a mesma consequência quantitativa do bullet 3. Ele deve
+ser adaptado da evidência canônica de posicionamento/caso e das keywords realmente
+alocadas à experiência. Números de resultado, percentuais, valores financeiros e
+faixas `de X para Y`/`from X to Y` ficam no bullet 3; medidas de escopo ou
+responsabilidade, como tamanho de time ou budget sob gestão, podem permanecer no
+bullet 1 quando não forem repetidas no resultado. Se uma medida for tratada como
+resultado, ela deve aparecer somente no bullet 3. A mesma métrica nunca pode aparecer
+nos bullets 1 e 3. Se a fonte não tiver resultado mensurável para o bullet 3, a
+experiência deve ser bloqueada para revisão da fonte.
 
 Nenhum bullet usa rótulo seguido de `:`. Todo bullet é prosa em primeira pessoa,
 contém número defensável e destaca o número mais estratégico. Modo expandido só é
@@ -81,7 +131,7 @@ Cabeçalho fixo, alinhado à esquerda, sem emojis e sem dois contatos na mesma l
 ```text
 Felipe Armel Dias da Silva
 linkedin.com/in/felipearmel
-São Paulo, SP
+Guarulhos, SP
 (11) 98674-8218
 armelfelipe@gmail.com
 ```
@@ -95,6 +145,16 @@ Nome obrigatório: `felipe_armel_cv_[cargo]_[empresa].[ext]`, com cargo e empres
 snake_case, sem acentos; acrescente `_en` antes da extensão para inglês. Nunca use
 `cv.docx`, `cv_final` ou nome genérico.
 
+### Convenção de pontuação do CV
+
+- Experiência: em português, escreva o período como `mês/ano a mês/ano` ou `mês/ano a Atual`; em inglês, use `Month YYYY to Month YYYY` ou `Month YYYY to Present`.
+- Cargo e empresa: use `Cargo | Empresa`.
+- Educação/formação: use `Curso: Instituição`.
+- Nos demais textos, não deixe travessão no DOCX final. Em português, escolha
+  `:`, `,`, `.`, ou `;` conforme a relação sintática; em inglês, aplique a
+  pontuação idiomática equivalente. Não substituir mecanicamente todo travessão
+  por um sinal que produza frase incorreta.
+
 ## Produção e gates
 
 Para DOCX, o artefato final é sempre `outputs/<nome>.docx`. Gere intermediários apenas
@@ -104,14 +164,13 @@ e numbering real para bullets; não use bullets Unicode manuais. Valide:
 
 ```bash
 npm run validate:docx
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json \
-  --cv outputs/<nome>.docx \
-  --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json \
+  --cv outputs/<nome>.docx
 python3 scripts/review_output.py --kind cv --artifact outputs/<nome>.docx \
   --fit-map .career-state/fit_map.json \
   --registry .career-state/derived/keyword_ats_registry.json \
   --report outputs/_tmp/output_review_report.json
-npm run cv:approve -- --artifact outputs/<nome>.docx
+npm run cv:approve -- --application-id "<application_id>" --artifact outputs/<nome>.docx
 ```
 
 O `register_keywords.py` deve apontar para o DOCX final em `outputs/`, nunca para
@@ -123,7 +182,7 @@ sempre passa pelo polimento do reviewer; se o texto mudar, repita os gates.
 Quando OneDrive estiver configurado, finalize com:
 
 ```bash
-npm run cv:deliver -- --artifact outputs/<nome>.docx
+npm run cv:deliver -- --application-id "<application_id>" --artifact outputs/<nome>.docx
 ```
 
 Só declare entrega remota com relatório `status=delivered`. Limpe os intermediários
@@ -139,3 +198,6 @@ final deve registrar ajustes narrativos, keywords cobertas, gaps e comandos exec
 - não limpar temporários antes dos gates;
 - não criar scripts temporários na raiz ou em `scripts/generated/`;
 - não remover a seção de competências/tags ATS quando prevista pelo pipeline.
+- não criar shim, monkey patch ou script de injeção para contornar falha de `review_output.py`, `cv:approve` ou `cv:deliver`;
+- não registrar provenance diretamente, chamar `record_approved_cv_provenance` manualmente ou trocar `cv:deliver` por `deliver:artifact`;
+- não corrigir `cv_content` global para outra vaga: usar somente `application_id` e os caminhos da candidatura. Se o código canônico falhar, declarar o bloqueio e deixar a correção para a manutenção do projeto.

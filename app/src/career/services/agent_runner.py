@@ -35,9 +35,27 @@ class SubprocessAgentRunner:
     def __init__(self, root: Path):
         self.root = root
 
+    def _resolve_command(self, command_name: str) -> str:
+        """Resolve the runner executable, falling back to known install locations
+        when the command is not on PATH (e.g. hermes installed under /opt/hermes/bin)."""
+        resolved = shutil.which(command_name)
+        if resolved:
+            return resolved
+        # Known install locations for the hermes CLI when not on PATH.
+        if command_name in {"hermes", "hermes.cmd"}:
+            for candidate in (
+                "/opt/hermes/bin/hermes",
+                "/opt/hermes/.venv/bin/hermes",
+                "/usr/local/bin/hermes",
+                "/usr/bin/hermes",
+            ):
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    return candidate
+        return command_name
+
     def build_command(self, request: AgentRunRequest) -> list[str]:
         command_name = str(request.runner_config.get("command") or "opencode")
-        resolved = shutil.which(command_name) or shutil.which("opencode.cmd") or command_name
+        resolved = self._resolve_command(command_name) or shutil.which("opencode.cmd") or command_name
         runner_kind = str(request.runner_config.get("kind") or Path(resolved).name).casefold()
         display_path = request.display_path or request.request_path.relative_to(self.root)
 

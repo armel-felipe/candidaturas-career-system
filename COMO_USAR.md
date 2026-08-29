@@ -660,6 +660,7 @@ Ao testar modelos locais, considere a sessao saudavel apenas se estes sinais apa
 - `continue` retoma o ultimo passo nao executado, sem resetar a analise
 - depois de salvar a vaga e ler as referencias obrigatorias, o agente vai direto para `npm run fit-map:template`
 - antes de preencher `.career-state/fit_map.draft.json`, o agente nao escreve subtotais nem nota final na conversa; classifica os itens diretamente no draft
+- antes de preencher o draft local, nao escrever subtotais nem nota final na conversa
 - se `npm run fit-map:guard` retornar `blocked=true`, qualquer resposta subsequente sem editar `.career-state/fit_map.draft.json` reprova o modelo neste fluxo
 - logs suspeitos sao avaliados com `python scripts/diagnose_session_stall.py <session.md>`; `stalled=true` significa execucao parcial
 === JSONs em references/ ===

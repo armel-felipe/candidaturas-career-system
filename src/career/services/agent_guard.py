@@ -250,6 +250,11 @@ def guard(
         draft_path=application_paths.fit_map_draft if application_paths else CAREER_STATE / "fit_map.draft.json",
         fit_map_path=application_paths.fit_map if application_paths else CAREER_STATE / "fit_map.json",
         job_description_path=job_path,
+        registry_path=(
+            application_paths.derived_dir / "keyword_ats_registry.json"
+            if application_paths
+            else fit_map_service.KEYWORD_REGISTRY
+        ),
     )
     next_step = fit_guard.get("next_required_step")
     scoped_fit_guard = _scope_fit_map_guard(
@@ -336,6 +341,8 @@ def evaluate_notion(
     return {
         "status": "ok",
         "record_id": record_id,
+        "application_id": application_id,
+        "fingerprint": fingerprint,
         "intake": {
             "application_id": application_id,
             "status": intake_result.get("status"),

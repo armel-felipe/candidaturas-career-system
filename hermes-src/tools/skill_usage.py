@@ -852,7 +852,13 @@ def _find_external_skill_dir(skill_name: str) -> Optional[Path]:
     """Locate a skill under configured external dirs by frontmatter name."""
     from agent.skill_utils import get_all_skills_dirs
 
-    for base in get_all_skills_dirs()[1:]:
+    active = _skills_dir().resolve()
+    for base in get_all_skills_dirs():
+        try:
+            if base.resolve() == active:
+                continue
+        except OSError:
+            pass
         if not base.exists():
             continue
         for skill_md in base.rglob("SKILL.md"):

@@ -57,6 +57,10 @@ def _seed_legacy_application(
         json.dumps({"cargo": "Operations Lead", "nota_aderencia": {"final": 7.1}}),
         encoding="utf-8",
     )
+    (path / "enquadramento.json").write_text(
+        '{"job_fingerprint":"fixture","experiencias":[{"experience_id":"fixture"}]}',
+        encoding="utf-8",
+    )
     (path / "cv_content.json").write_text(
         json.dumps({"professional_summary": "Operations leader"}), encoding="utf-8"
     )

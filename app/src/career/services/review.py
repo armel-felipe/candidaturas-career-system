@@ -18,7 +18,9 @@ from career.utils import ValidationFailure, read_json, sha256_file, write_json
 ENQUADRAMENTO_FILENAME = "enquadramento.json"
 
 
-def _load_enquadramento(fit_map_path: Path) -> dict:
+def _load_enquadramento(
+    fit_map_path: Path, *, enquadramento_path: Path | None = None
+) -> dict:
     """Carrega o artefato de enquadramento-posicionamento obrigatório.
 
     Procura enquadramento.json no MESMO diretório do fit_map (app-scoped),
@@ -26,6 +28,7 @@ def _load_enquadramento(fit_map_path: Path) -> dict:
     Raises ValidationFailure se ausente, malformado ou incompatível com a vaga.
     """
     candidates = [
+        enquadramento_path,
         fit_map_path.parent / ENQUADRAMENTO_FILENAME,
         fit_map_path.parent.parent / ENQUADRAMENTO_FILENAME,  # app_dir
         CAREER_STATE / ENQUADRAMENTO_FILENAME,
@@ -33,6 +36,8 @@ def _load_enquadramento(fit_map_path: Path) -> dict:
     chosen = None
     seen: set[str] = set()
     for cand in candidates:
+        if cand is None:
+            continue
         key = str(cand.resolve())
         if key in seen:
             continue
@@ -203,9 +208,10 @@ def approve_cv(
     *,
     translation_registry_path: Path,
     control_db_path: Path | None = None,
+    enquadramento_path: Path | None = None,
 ) -> dict:
     # GATE OBRIGATÓRIO — enquadramento-posicionamento (não pulável)
-    _load_enquadramento(fit_map_path)
+    _load_enquadramento(fit_map_path, enquadramento_path=enquadramento_path)
     command = [
         str(canonical_python_executable()),
         str((ROOT / "scripts/register_keywords.py").resolve()),

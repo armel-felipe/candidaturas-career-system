@@ -12,7 +12,11 @@ if [[ "$target_host" != "root@srv1876742" || "$target_root" != "/opt/agent-proje
 fi
 
 for required in \
-  "$project_root/app" \
+  "$project_root/AGENTS.md" \
+  "$project_root/src" \
+  "$project_root/scripts" \
+  "$project_root/.agents" \
+  "$project_root/compose.yaml" \
   "$project_root/hermes-src" \
   "$project_root/hermes/runtime/vagas_bot_01" \
   "$project_root/hermes/vagas_bot_01" \
@@ -32,12 +36,14 @@ rsync_command=(rsync -aHAX --numeric-ids --info=progress2 -e "$ssh_command")
   --exclude=node_modules/ \
   --exclude=.career-state/ \
   --exclude=outputs/ \
+  --exclude=workspaces/ \
+  --exclude=control-plane/ \
+  --exclude=app/ \
   --exclude=.env \
   --exclude='*.tmp' \
-  "$project_root/app/" "$target_host:$target_root/app/"
+  "$project_root/" "$target_host:$target_root/"
 "${rsync_command[@]}" "$project_root/hermes/" "$target_host:$target_root/hermes/"
 "${rsync_command[@]}" \
   --exclude=.git/ \
   --exclude=.env \
   "$project_root/hermes-src/" "$target_host:$target_root/hermes-src/"
-

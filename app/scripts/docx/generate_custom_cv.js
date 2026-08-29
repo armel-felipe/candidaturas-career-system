@@ -82,7 +82,7 @@ function cargoParagraph(cargo, empresa, periodo) {
   ];
 }
 
-// Converts "May 2024 - Feb 2026" -> "May 2024 to Feb 2026" (en) / "a" (pt).
+// Converts "May/2024 - Feb/2026" -> "May/2024 to Feb/2026" (en) / "a" (pt).
 function formatPeriod(periodo) {
   const sep = currentLang === "en" ? "to" : "a";
   return String(periodo || "").replace(/\s*-\s*/g, ` ${sep} `);

@@ -51,6 +51,11 @@ class CanonicalDeliveryCellAdapter:
             "--file", str(artifact_path), "--remote", remote, "--folder", folder,
             "--report", str(report_path),
         ]
+        delivery_filename = str(request.get("delivery_filename") or "").strip()
+        if delivery_filename:
+            if Path(delivery_filename).name != delivery_filename:
+                raise RuntimeError("cellular delivery filename must be a basename")
+            command.extend(["--filename", delivery_filename])
         result = subprocess.run(
             command,
             cwd=ROOT,

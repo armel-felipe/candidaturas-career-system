@@ -30,6 +30,7 @@ class FakeLegacyNotionService:
 def _context(tmp_path, node_id, files, *, application_id="app-real"):
     paths = paths_for(application_id, root=tmp_path / "applications")
     staging = paths.cells_dir / node_id / "1" / "staging"
+    receipts = paths.cells_dir / node_id / "receipts" / "run-real"
     staging.mkdir(parents=True, exist_ok=True)
     inputs = {}
     for name, payload in files.items():
@@ -51,7 +52,7 @@ def _context(tmp_path, node_id, files, *, application_id="app-real"):
         capabilities=CapabilitySet(
             application_root=paths.app_dir,
             read_paths=[paths.app_dir],
-            write_paths=[staging, paths.reviews_dir, paths.derived_dir],
+            write_paths=[staging, receipts, paths.reviews_dir, paths.derived_dir],
         ),
         repair_scope="test",
     )
@@ -141,6 +142,35 @@ def test_notion_numeric_record_id_still_uses_record_update(tmp_path):
 
     assert receipt == {"page_id": "page-for-record", "record_id": "77", "url": "https://notion/record"}
     assert service.calls == [("update-record", 77, {"status": "Aplicação andamento", "dry_run": False})]
+
+
+def test_synthetic_application_id_is_not_used_as_initial_notion_page(tmp_path):
+    requests = []
+
+    def fake_notion(request):
+        requests.append(request)
+        return {
+            "page_id": "f4f7ad7e-2f21-4f5e-aab8-4d129d2a67ab",
+            "url": "https://notion/new",
+        }
+
+    context = _context(tmp_path, "sync_notion_initial", {
+        "application_identity": {
+            "application_id": "app-real",
+            "aliases": {
+                "notion_page_id": "local_20260827_jobgether_abc123",
+            },
+        },
+        "analyze_fit:fit_map.json": {},
+    })
+    result = production_handler_registry(notion_client=fake_notion)[
+        "sync_notion_initial"
+    ](context)
+
+    receipt = json.loads(result.artifacts["notion_initial_receipt.json"])
+    assert receipt["page_id"] == "f4f7ad7e-2f21-4f5e-aab8-4d129d2a67ab"
+    assert requests[0]["page_id"] == ""
+    assert requests[0]["record_id"] == ""
 
 
 def test_real_normalize_packs_drive_all_branch_evidence_with_stable_source_bound_ids(tmp_path):

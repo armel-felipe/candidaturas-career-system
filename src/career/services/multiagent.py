@@ -148,7 +148,7 @@ LOCAL_MODEL_TRIGGER_MAP = [
             "read .career-state/applications_v2/<application_id>/requests/manual_agent_requests/cv_request.md",
             "generate DOCX in outputs/",
             "npm run validate:docx",
-            "npm run cv:deliver -- --artifact outputs/<cv>.docx",
+            "npm run cv:deliver -- --application-id <application_id> --artifact outputs/<cv>.docx",
         ],
         "forbidden": [
             "deliver CV as chat text only",
@@ -275,6 +275,16 @@ def _prepare_scoped_compact_inputs(
     if step in {"notion-update", "cover-letter"}:
         derived_context_service.build_all_for_fit_map(app_paths)
     return None
+
+
+def _prepare_compact_inputs_for_step(
+    step: str,
+    app_paths,
+    *,
+    database: Database,
+) -> dict[str, Any] | None:
+    """Deprecated name retained for callers that patch the old boundary."""
+    return _prepare_scoped_compact_inputs(step, app_paths, database=database)
 
 
 def _fit_map_summary(
@@ -492,7 +502,7 @@ def write_request(
         raise ValidationFailure("request fingerprint does not match application intake")
     materialized_context = None
     if not cellular_context:
-        prepared_context = _prepare_scoped_compact_inputs(
+        prepared_context = _prepare_compact_inputs_for_step(
             step,
             app_paths,
             database=database or application_context_service.canonical_database(),
@@ -808,8 +818,8 @@ def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
                 "Gerar ou atualizar o conteudo/DOCX em outputs/; nao entregar apenas texto na conversa.",
                 f"Rodar npm run validate:docx -- --application-id {application_id} no DOCX gerado.",
                 (
-                    "Rodar npm run cv:deliver -- --artifact outputs/<cv>.docx "
-                    f"--application-id {application_id} no artefato final quando OneDrive/rclone estiver configurado."
+                    "Rodar npm run cv:deliver -- --application-id "
+                    f"{application_id} --artifact outputs/<cv>.docx no artefato final quando OneDrive/rclone estiver configurado."
                 ),
                 "Se cv:deliver falhar por reprovação do gate, corrigir o artefato e reexecutar; se falhar só por rclone, declarar arquivo local aprovado e entrega remota bloqueada.",
                 "Nao limpar outputs/_tmp antes de output_review_report.json e polish_review.json estarem coerentes com o artefato final.",

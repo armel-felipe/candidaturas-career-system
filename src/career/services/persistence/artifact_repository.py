@@ -76,6 +76,8 @@ class ArtifactRepository:
         content: str | None,
         source_revision_id: str,
         run_id: str,
+        *,
+        positioning_revision_id: str | None = None,
     ) -> ArtifactRecord:
         self._ensure_schema()
         application_id = self._required_text(application_id, "application_id")
@@ -108,10 +110,17 @@ class ArtifactRepository:
         )
         text_content_hash = sha256_text(content) if content is not None else None
         mime_type = self._resolve_mime_type(resolved_path, str(kind_config["default_mime"]))
-        positioning_revision_id = self._latest_positioning_revision_id(
-            application_id,
-            source_revision_id,
-        )
+        if positioning_revision_id is None:
+            positioning_revision_id = self._latest_positioning_revision_id(
+                application_id,
+                source_revision_id,
+            )
+        else:
+            self._ensure_positioning_revision(
+                application_id,
+                source_revision_id,
+                positioning_revision_id,
+            )
         path_text = str(resolved_path) if resolved_path is not None else None
 
         existing = self._find_existing(
@@ -194,6 +203,38 @@ class ArtifactRepository:
                     created_at,
                 )
         return self._load_record(artifact_id)
+
+    def list_for_application(
+        self,
+        application_id: str,
+        *,
+        kinds: set[str] | frozenset[str] | None = None,
+    ) -> list[ArtifactRecord]:
+        """List immutable artifact versions for one resolved application."""
+        self._ensure_schema()
+        self._resolve_application(application_id)
+        parameters: list[object] = [application_id]
+        kind_clause = ""
+        if kinds is not None:
+            normalized = sorted({self._validate_kind(kind) for kind in kinds})
+            if not normalized:
+                return []
+            kind_clause = " AND kind IN (" + ",".join("?" for _ in normalized) + ")"
+            parameters.extend(normalized)
+        rows = self.database.fetch_all(
+            f"""
+            SELECT version_id, application_id, run_id, kind, path, content_hash,
+                   mime_type, COALESCE(size_bytes, 0) AS size_bytes,
+                   text_content_hash, source_revision_id, positioning_revision_id,
+                   review_receipt_id, review_report_path, review_report_hash, status,
+                   created_at, reviewed_at
+              FROM artifact_versions
+             WHERE application_id = ?{kind_clause}
+             ORDER BY created_at DESC, version_id DESC
+            """,
+            tuple(parameters),
+        )
+        return [self._row_to_record(row) for row in rows]
 
     def attach_dependency(
         self, artifact_id: str, dependency_type: str, dependency_id: str
@@ -495,6 +536,27 @@ class ArtifactRepository:
         )
         if row is None:
             raise ValueError("source revision is unknown for this application")
+
+    def _ensure_positioning_revision(
+        self,
+        application_id: str,
+        source_revision_id: str,
+        positioning_revision_id: str,
+    ) -> None:
+        row = self.database.fetch_one(
+            """
+            SELECT application_id, fit_map_revision_id
+              FROM positioning_revisions
+             WHERE revision_id = ?
+            """,
+            (positioning_revision_id,),
+        )
+        if row is None:
+            raise ValueError("positioning revision is unknown")
+        if str(row["application_id"]) != application_id:
+            raise ValueError("positioning revision must belong to the same application")
+        if str(row["fit_map_revision_id"]) != source_revision_id:
+            raise ValueError("positioning revision does not belong to the source FIT_MAP revision")
 
     def _ensure_validated_source(self, application_id: str, source_revision_id: str) -> None:
         row = self.database.fetch_one(

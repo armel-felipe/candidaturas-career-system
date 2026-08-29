@@ -6,8 +6,8 @@ Atualizado em: 2026-07-21 — implementação e revisão final aprovadas
 |---|---|
 | Plano principal | `docs/superpowers/plans/2026-07-20-cellular-application-orchestration.md` |
 | Plano de recuperação | `docs/superpowers/plans/2026-07-20-cellular-orchestration-recovery-plan.md` |
-| Progresso | Fatias A–E e revisão ampla aprovadas; plano concluído |
-| Tarefa ativa | Nenhuma |
+| Progresso | Fatias A–E aprovadas; Fatia E em revalidação após correções do HarnessSupervisor |
+| Tarefa ativa | Continuidade de sessão, aprovação de handoff e reparo de schema pré-ledger |
 | Último gate | Micro-revisão final aprovada em `9fb1902` |
 | Próximo gate | Integração normal do branch pelo usuário |
 
@@ -33,9 +33,11 @@ Atualizado em: 2026-07-21 — implementação e revisão final aprovadas
 - `applications:verify-parallel`: dois subprocessos, fingerprints e manifests distintos, zero path cruzado/escrita inesperada, contenção observada e lock `notion-write` do nó real `sync_notion_initial` serializado.
 - Cobertura aprovada: ledger de autoridade provisionado explicitamente e fail-closed, handoff com epoch que revoga a origem, fence em todos os commits terminais, draft FIT_MAP obrigatório e vinculado à tentativa, recuperação de `Reprocessar`, harness que inventaria banco e controles de request, migração atômica do schema legacy e paralelismo com lock externo declarado.
 
-## Estado da Fatia E
+## Estado da Fatia E — Fatia E em revalidação
 
-1. A Fatia E foi aprovada sem findings na re-review independente final.
+1. A Fatia E foi aprovada sem findings na re-review independente final; a
+   revalidação atual cobre a integração posterior do supervisor com o handoff
+   de autoridade e a retomada do pipeline.
 
 ## Regra de avanço
 

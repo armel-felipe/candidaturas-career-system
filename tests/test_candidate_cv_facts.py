@@ -37,3 +37,20 @@ def test_canonical_cv_facts_json_is_revisioned_and_drives_values(tmp_path, monke
     assert cv_content._output_name({"cargo": "Test Role", "empresa": "Test Company"}).startswith("canonical_test_cv_")
     with pytest.raises(ValidationFailure):
         cv_content.validate_canonical_provenance({"metadata": {"candidate_facts_revision": original_revision}})
+
+
+def test_select_experiences_does_not_promote_fixed_trifil_fallback_for_cx():
+    selected = cv_content._select_experiences(
+        {
+            "historias_selecionadas": {},
+            "keywords_habilidade_ats": [
+                {"keyword": "Customer Success", "prioridade": 1, "experiencia_alvo": ""},
+                {"keyword": "conversão", "prioridade": 2, "experiencia_alvo": ""},
+                {"keyword": "pipeline", "prioridade": 3, "experiencia_alvo": ""},
+            ],
+        }
+    )
+
+    selected_ids = [item["id"] for item in selected]
+    assert "renault_cs" in selected_ids
+    assert "trifil_expedicao" not in selected_ids

@@ -4,17 +4,35 @@ import os
 import hashlib
 import importlib.util
 import json
-import platform
 import sqlite3
 import tempfile
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
 
 from career.paths import CAREER_STATE, ROOT
+
+
+class RuntimePersistenceMode(str, Enum):
+    """Controls whether compatibility JSON can participate in runtime reads."""
+
+    LEGACY_READONLY = "legacy_readonly"
+    SQLITE_PRIMARY = "sqlite_primary"
+    SQLITE_ONLY = "sqlite_only"
+
+    @classmethod
+    def from_value(cls, value: str | None) -> "RuntimePersistenceMode":
+        normalized = str(value or "sqlite_primary").strip().lower()
+        try:
+            return cls(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                f"unsupported runtime persistence mode: {normalized}"
+            ) from exc
 
 
 class Database:
@@ -27,11 +45,14 @@ class Database:
         db_path: str | Path | None = None,
         *,
         authority_ledger_path: str | Path | None = None,
+        persistence_mode: RuntimePersistenceMode | str | None = None,
     ):
         # All operational callers share this control-plane database.  Tests,
         # migrations and recovery tools retain the explicit ``db_path`` escape
         # hatch; a missing path must never create a private legacy database.
-        self.db_path = Path(db_path or (ROOT / "control-plane" / "career.db"))
+        configured_db_path = str(os.environ.get("CAREER_CONTROL_DB_PATH") or "").strip()
+        selected_db_path = db_path or configured_db_path or (ROOT / "control-plane" / "career.db")
+        self.db_path = Path(selected_db_path).expanduser()
         configured_ledger = authority_ledger_path or os.environ.get(
             "CAREER_AUTHORITY_LEDGER_PATH"
         )
@@ -39,6 +60,13 @@ class Database:
             Path(configured_ledger).expanduser().resolve()
             if configured_ledger
             else None
+        )
+        self.persistence_mode = (
+            persistence_mode
+            if isinstance(persistence_mode, RuntimePersistenceMode)
+            else RuntimePersistenceMode.from_value(
+                persistence_mode or os.environ.get("CAREER_RUNTIME_PERSISTENCE_MODE")
+            )
         )
         self._conn: sqlite3.Connection | None = None
         self._authority_lock_state = threading.local()
@@ -98,6 +126,41 @@ class Database:
         continues to fail closed when a configured ledger is absent.
         """
         self._initialize_schema(verify_authority_ledger=False)
+        self._repair_legacy_compatibility_columns()
+
+    def _repair_legacy_compatibility_columns(self) -> None:
+        """Repair columns removed from a copied DB after migration bookkeeping.
+
+        A legacy SQLite copy may claim migration 004 was applied while its
+        columns were subsequently omitted. Provisioning is an explicit
+        maintenance boundary, so it can safely restore the declared schema
+        before reading or writing authority_ledger_id.
+        """
+        columns_by_table = {
+            "resource_locks": {"lease_id": "TEXT"},
+            "workspace_leases": {"lease_epoch": "INTEGER NOT NULL DEFAULT 1"},
+            "workspace_authority": {
+                "storage_identity": "TEXT",
+                "authority_epoch": "INTEGER NOT NULL DEFAULT 1",
+                "authority_ledger_id": "TEXT",
+                "lease_epoch_counter": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "workspace_authority_handoffs": {
+                "prior_authority_epoch": "INTEGER NOT NULL DEFAULT 1",
+                "new_authority_epoch": "INTEGER NOT NULL DEFAULT 1",
+            },
+        }
+        with self.transaction() as conn:
+            for table_name, columns in columns_by_table.items():
+                existing = {
+                    row[1]
+                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                for column_name, column_sql in columns.items():
+                    if column_name not in existing:
+                        conn.execute(
+                            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"
+                        )
 
     def _initialize_schema(self, *, verify_authority_ledger: bool) -> None:
         self.migrate()
@@ -334,6 +397,7 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_artifact_dependencies_artifact_input
                 ON artifact_dependencies(artifact_id, input_hash);
         """)
+        self._ensure_validation_receipt_scope_guards(conn)
         storage_identity = self.physical_storage_identity()
         conn.execute(
             """INSERT OR IGNORE INTO workspace_authority
@@ -364,19 +428,18 @@ class Database:
         return str(row["control_db_id"])
 
     def physical_storage_identity(self) -> str:
-        """Bind authority to this physical DB copy, not only copied bytes."""
+        """Bind authority to the mounted physical DB, not its container name.
+
+        ``platform.node()`` is container-local: two containers sharing the
+        same bind-mounted SQLite file receive different hostnames and would
+        incorrectly fence one another. Device and inode are stable across
+        those mounts and still change when the database is physically copied.
+        """
         if str(self.db_path) == ":memory:":
             return hashlib.sha256(f"memory:{id(self)}".encode("utf-8")).hexdigest()
         path = self.db_path.resolve()
         stat = path.stat()
-        machine = platform.node() or "unknown-host"
-        machine_id = Path("/etc/machine-id")
-        if machine_id.is_file():
-            try:
-                machine = machine_id.read_text(encoding="utf-8").strip() or machine
-            except OSError:
-                pass
-        raw = f"{machine}\0{path}\0{stat.st_dev}\0{stat.st_ino}"
+        raw = f"career-control-db\0{stat.st_dev}\0{stat.st_ino}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def assert_authoritative_storage(self) -> str:
@@ -751,6 +814,15 @@ class Database:
         return hashlib.sha256(normalized).hexdigest()
 
     def _apply_migration(self, conn: sqlite3.Connection, path: Path) -> None:
+        if (
+            path.name == "010_quarantine_orphan_receipts.py"
+            and not self._table_exists(conn, "validation_receipts")
+        ):
+            # Some historical fixtures contain only the reference tables and
+            # intentionally omit the receipts table.  Record the migration as
+            # applied; the runtime schema below installs the guard after the
+            # base tables are created.
+            return
         if path.suffix == ".sql":
             self._execute_sql_script(conn, path.read_text(encoding="utf-8"))
             return
@@ -759,6 +831,41 @@ class Database:
             migration.apply(conn)
             return
         raise RuntimeError(f"unsupported migration type: {path.name}")
+
+    @staticmethod
+    def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def _ensure_validation_receipt_scope_guards(conn: sqlite3.Connection) -> None:
+        if not Database._table_exists(conn, "validation_receipts"):
+            return
+        conn.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS validation_receipts_require_scope_insert
+            BEFORE INSERT ON validation_receipts
+            WHEN NEW.application_id IS NULL
+              OR trim(NEW.application_id) = ''
+              OR NEW.application_fingerprint IS NULL
+              OR trim(NEW.application_fingerprint) = ''
+            BEGIN
+              SELECT RAISE(ABORT, 'validation receipt requires application scope and fingerprint');
+            END;
+            CREATE TRIGGER IF NOT EXISTS validation_receipts_require_scope_update
+            BEFORE UPDATE OF application_id, application_fingerprint ON validation_receipts
+            WHEN NEW.application_id IS NULL
+              OR trim(NEW.application_id) = ''
+              OR NEW.application_fingerprint IS NULL
+              OR trim(NEW.application_fingerprint) = ''
+            BEGIN
+              SELECT RAISE(ABORT, 'validation receipt requires application scope and fingerprint');
+            END;
+            """
+        )
 
     def _load_python_migration(self, path: Path):
         module_name = f"career_sqlite_migration_{path.stem}"

@@ -511,6 +511,15 @@ def _make_callback(spec: ShellHookSpec) -> Callable[..., Optional[Dict[str, Any]
                 "shell hook timed out after %.2fs (event=%s command=%s)",
                 r["elapsed_seconds"], spec.event, spec.command,
             )
+            if spec.event == "pre_llm_call":
+                return {
+                    "action": "block",
+                    "message": (
+                        "The pre-LLM supervisory hook timed out. "
+                        "Do not continue with tools or an unconstrained workflow. "
+                        "Report the blocked supervisor turn to the user."
+                    ),
+                }
             return None
 
         stderr = r["stderr"].strip()

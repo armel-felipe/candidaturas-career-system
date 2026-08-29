@@ -6,6 +6,7 @@ import re
 import subprocess
 import unicodedata
 import warnings
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +169,8 @@ def build_cv_content(
     application_paths: ApplicationPaths,
     fit_map_path: Path,
     candidate_facts_revision: str,
+    *,
+    language: str | None = None,
 ) -> dict[str, Any]:
     """Build CV content from explicit application paths without global adapters."""
     resolved_fit_map = Path(fit_map_path).resolve()
@@ -203,9 +206,29 @@ def build_cv_content(
         source_fit_map=str(resolved_fit_map),
         candidate_facts_revision=candidate_facts_revision,
         application_id=application_paths.application_id,
-        language=_application_cv_language(application_paths, fit_map),
+        language=language or _application_cv_language(application_paths, fit_map),
     )
     return payload
+
+
+def output_name_for_application(
+    application_paths: ApplicationPaths, fit_map: dict[str, Any]
+) -> str:
+    """Return the validated remote basename for an application CV."""
+    identity = read_json(application_paths.identity) if application_paths.identity.is_file() else {}
+    active = derived_context_service.ActiveJobContext(
+        job_description_path=application_paths.job_description.resolve(),
+        fingerprint=sha256_file(application_paths.job_description),
+        company=str(identity.get("company") or ""),
+        role=str(identity.get("role") or ""),
+        source_type=str(identity.get("source_type") or "application_source"),
+        source_id=str(identity.get("source_id") or "") or None,
+    )
+    return _output_name(
+        fit_map,
+        active=active,
+        language=_application_cv_language(application_paths, fit_map),
+    )
 
 
 def render_cv(content_path: Path, output_dir: Path, application_id: str) -> Path:
@@ -266,9 +289,21 @@ def _build_cv_payload(
     selected = _select_experiences(fit_map)
     ensure(4 <= len(selected) <= 8, "cv_content_requires_between_4_and_8_experiences")
     is_en = (language or _cv_language(fit_map)) == "en"
-    selected_with_bullets = [_materialize_experience(entry, job_family, language="en" if is_en else "pt-BR") for entry in selected]
     top8 = _top8_keywords(fit_map)
-    coverage = _build_ats_coverage(selected_with_bullets, top8)
+    selected_with_bullets = [
+        _materialize_experience(
+            entry,
+            job_family,
+            language="en" if is_en else "pt-BR",
+            ats_keywords=top8,
+        )
+        for entry in selected
+    ]
+    coverage = _build_ats_coverage(
+        selected_with_bullets,
+        top8,
+        declared_gap_keywords=fit_map.get("gaps_sem_cobertura") or (),
+    )
     summary_inputs = bounded_summary_inputs(fit_map)
     positioning = cv_positioning.select_positioning(
         fit_map, active.job_description_path.read_text(encoding="utf-8")
@@ -393,6 +428,7 @@ def active_artifact_status(
         draft_path=application_paths.fit_map_draft,
         fit_map_path=application_paths.fit_map,
         job_description_path=application_paths.job_description,
+        registry_path=application_paths.derived_dir / "keyword_ats_registry.json",
     )
     cv_status = {
         "exists": application_paths.cv_content.exists(),
@@ -438,8 +474,16 @@ def invalidate_stale_artifacts(
     }
 
 
-def _ensure_fit_map_matches_active(active: Any) -> None:
-    status = fit_map_service.status(fit_map_path=FIT_MAP_PATH, job_description_path=active.job_description_path)
+def _ensure_fit_map_matches_active(
+    active: Any, *, application_paths: ApplicationPaths | None = None
+) -> None:
+    if application_paths is None:
+        raise ValidationFailure("explicit_application_scope_required")
+    status = fit_map_service.status(
+        fit_map_path=application_paths.fit_map,
+        job_description_path=active.job_description_path,
+        registry_path=application_paths.derived_dir / "keyword_ats_registry.json",
+    )
     ensure(status.get("fit_map", {}).get("matches_active_job"), "fit_map_stale_for_active_job")
 
 
@@ -449,8 +493,161 @@ def _top8_keywords(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
     return entries[:8]
 
 
+def _experience_relevance_score(
+    entry: dict[str, Any], keywords: list[dict[str, Any]]
+) -> int:
+    """Score an unselected experience against the vacancy's ATS keywords."""
+    focus_terms = {
+        _normalize(str(term))
+        for term in entry.get("focus_terms", [])
+        if str(term).strip()
+    }
+    keyword_terms = {
+        _normalize(str(item.get("keyword") or ""))
+        for item in keywords
+        if str(item.get("keyword") or "").strip()
+    }
+    return sum(
+        1
+        for focus_term in focus_terms
+        if any(
+            focus_term == keyword_term
+            or focus_term in keyword_term
+            or keyword_term in focus_term
+            for keyword_term in keyword_terms
+        )
+    )
+
+
+def _experience_matches_target(experience: dict[str, Any], target: str) -> bool:
+    """Match company and role aliases used in FIT_MAP experience targets."""
+    alternatives = [part.strip() for part in re.split(r"\s*/\s*", target) if part.strip()]
+    if len(alternatives) > 1:
+        return any(_experience_matches_target(experience, part) for part in alternatives)
+    target_norm = _normalize(target)
+    project_scope = {
+        "projeto entrega certa": {"trifil_sop"},
+    }
+    for project_name, allowed_ids in project_scope.items():
+        if project_name in target_norm:
+            return str(experience.get("id") or "") in allowed_ids
+    role = _normalize(str(experience.get("role") or ""))
+    company_match = _experience_matches_company_reference(experience, target)
+    role_separator = re.search(r"\s[—–|-]\s|\|", target)
+    if role and role in target_norm:
+        return bool(company_match or not role_separator)
+    if not company_match:
+        return False
+
+    # A company-only target intentionally matches every role in that company.
+    # When a role is present, however, matching the company alone can map a
+    # keyword for Trifil Intelligence to Trifil S&OP or Expedição.
+    if not role_separator:
+        return True
+
+    target_role = re.split(r"\s*[—–|-]\s*|\|", target_norm, maxsplit=1)[-1]
+    target_titles = _role_title_groups(target_role)
+    experience_titles = _role_title_groups(role)
+    target_specific = _role_specific_terms(target_role)
+    if not target_titles and "projeto" in target_specific:
+        # Project names in the FIT_MAP identify the story, not a job title.
+        return True
+    if target_titles and experience_titles and not target_titles.intersection(experience_titles):
+        return False
+    if len(target_titles) > 1 and target_titles.intersection(experience_titles):
+        return True
+
+    experience_specific = _role_specific_terms(role)
+    if target_titles.intersection(experience_titles) and not target_specific:
+        return True
+    return bool(target_specific.intersection(experience_specific))
+
+
+def _experience_matches_company_reference(
+    experience: dict[str, Any], reference: str
+) -> bool:
+    """Match a FIT_MAP story reference against company aliases."""
+    reference_norm = _normalize(reference)
+    company = str(experience.get("company") or "")
+    aliases = [_normalize(company)]
+    aliases.extend(
+        _normalize(match) for match in re.findall(r"\(([^)]+)\)", company)
+    )
+    return any(alias and alias in reference_norm for alias in aliases)
+
+
+_ROLE_TITLE_GROUPS = {
+    "head": {"head", "lider", "lideranca"},
+    "director": {"director", "diretor", "diretora"},
+    "manager": {"manager", "gerente", "gerencia"},
+    "coordinator": {"coordinator", "coordenador", "coordenadora"},
+}
+_ROLE_TERM_ALIASES = {
+    "commercial": "commercial",
+    "comercial": "commercial",
+    "dispatch": "dispatch",
+    "expedicao": "dispatch",
+    "intelligence": "intelligence",
+    "inteligencia": "intelligence",
+    "operations": "operations",
+    "operation": "operations",
+    "operacoes": "operations",
+    "operacao": "operations",
+    "planning": "planning",
+    "planejamento": "planning",
+    "s&op": "s&op",
+    "sop": "s&op",
+}
+_ROLE_STOPWORDS = {"a", "as", "and", "da", "das", "de", "do", "dos", "e", "of", "o", "the"}
+
+
+def _role_title_groups(role: str) -> set[str]:
+    terms = set(re.findall(r"[a-z0-9&]+", _normalize(role)))
+    return {
+        group
+        for group, aliases in _ROLE_TITLE_GROUPS.items()
+        if terms.intersection(aliases)
+    }
+
+
+def _role_specific_terms(role: str) -> set[str]:
+    terms = set(re.findall(r"[a-z0-9&]+", _normalize(role)))
+    title_terms = set().union(*_ROLE_TITLE_GROUPS.values())
+    return {
+        _ROLE_TERM_ALIASES.get(term, term)
+        for term in terms - title_terms - _ROLE_STOPWORDS
+    }
+
+
+def _period_end_key(period: str) -> int:
+    """Return a comparable month key for Portuguese or English periods."""
+    months = {
+        "jan": 1, "janeiro": 1, "january": 1,
+        "fev": 2, "feb": 2, "fevereiro": 2, "february": 2,
+        "mar": 3, "marco": 3, "março": 3, "march": 3,
+        "abr": 4, "apr": 4, "abril": 4, "april": 4,
+        "mai": 5, "may": 5, "maio": 5,
+        "jun": 6, "june": 6, "junho": 6,
+        "jul": 7, "july": 7, "julho": 7,
+        "ago": 8, "aug": 8, "agosto": 8, "august": 8,
+        "set": 9, "sep": 9, "setembro": 9, "september": 9,
+        "out": 10, "oct": 10, "outubro": 10, "october": 10,
+        "nov": 11, "novembro": 11, "november": 11,
+        "dez": 12, "dec": 12, "dezembro": 12, "december": 12,
+    }
+    normalized = _normalize(period)
+    if re.search(r"\b(?:present|current|atual)\b", normalized):
+        return 10**9
+    matches = re.findall(r"([a-z]+)\s*/?\s*(\d{4})", normalized)
+    if not matches:
+        return 0
+    month, year = matches[-1]
+    return int(year) * 12 + months.get(month, 0)
+
+
 def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
     selected_ids: list[str] = []
+    facts = _facts_experiences()
     story_companies = []
     stories = fit_map.get("historias_selecionadas", {}) if isinstance(fit_map.get("historias_selecionadas"), dict) else {}
     for key in ("principal", "secundaria", "terceira"):
@@ -458,37 +655,106 @@ def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(story, dict):
             story_companies.append(str(story.get("empresa") or ""))
     targets = [str(item.get("experiencia_alvo") or "") for item in _top8_keywords(fit_map)]
-    for entry in _facts_experiences():
-        company_norm = _normalize(entry["company"])
-        role_norm = _normalize(entry["role"])
-        if any(company_norm in _normalize(company) for company in story_companies if company):
+    for entry in facts:
+        if any(
+            _experience_matches_company_reference(entry, company)
+            for company in story_companies
+            if company
+        ):
             selected_ids.append(entry["id"])
             continue
-        if any(company_norm in _normalize(target) or role_norm in _normalize(target) for target in targets):
+        if any(_experience_matches_target(entry, target) for target in targets):
             selected_ids.append(entry["id"])
-    fallback_priority = load_canonical_cv_facts()["selectors"]["fallback_experience_priority"]
-    for item_id in fallback_priority:
-        if item_id not in selected_ids:
-            selected_ids.append(item_id)
-        if len(selected_ids) >= 5:
-            break
-    deduped = [item for item in _facts_experiences() if item["id"] in selected_ids]
-    deduped.sort(key=lambda item: item["order"])
+    # Fill a short list by relevance first and recency second. The old fixed
+    # fallback list promoted ``trifil_expedicao`` by position alone, even for
+    # unrelated vacancies, and could exclude a more suitable experience.
+    fallback_priority = load_canonical_cv_facts()["selectors"].get(
+        "fallback_experience_priority", []
+    )
+    fallback_rank = {
+        item_id: index for index, item_id in enumerate(fallback_priority)
+    }
+    remaining = [item for item in facts if item["id"] not in selected_ids]
+    has_target_keywords = any(
+        str(item.get("keyword") or "").strip()
+        for item in _top8_keywords(fit_map)
+    )
+    remaining.sort(
+        key=lambda item: (
+            -_experience_relevance_score(item, _top8_keywords(fit_map)),
+            item["order"],
+            fallback_rank.get(item["id"], len(fallback_rank)),
+        )
+    )
+    if len(selected_ids) < 5:
+        for item in remaining:
+            relevance = _experience_relevance_score(item, _top8_keywords(fit_map))
+            if has_target_keywords and relevance <= 0 and len(selected_ids) >= 4:
+                break
+            if item["id"] not in selected_ids:
+                selected_ids.append(item["id"])
+            if len(selected_ids) >= 5:
+                break
+
+    deduped = [item for item in facts if item["id"] in selected_ids]
+    deduped.sort(key=lambda item: (-_period_end_key(str(item.get("period") or "")), item["order"]))
     return deduped[:8]
 
 
-def _build_ats_coverage(selected: list[dict[str, Any]], top8: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_ats_coverage(
+    selected: list[dict[str, Any]],
+    top8: list[dict[str, Any]],
+    *,
+    declared_gap_keywords: Iterable[str] = (),
+) -> list[dict[str, Any]]:
+    declared_gaps = {_normalize(str(keyword)) for keyword in declared_gap_keywords}
     coverage: list[dict[str, Any]] = []
     for keyword_entry in top8:
         keyword = str(keyword_entry.get("keyword") or "").strip()
         target = _normalize(str(keyword_entry.get("experiencia_alvo") or ""))
-        match_index = 0
+        scoped_ids = _PORTUGUESE_ATS_EXPERIENCE_SCOPE.get(_normalize(keyword), set())
+        matching_indices = [
+            index
+            for index, experience in enumerate(selected)
+            if _experience_matches_target(experience, target)
+        ]
+        # A few historical FIT_MAPs used broad or stale story labels.  When a
+        # keyword has a canonical evidence owner, coverage must follow that
+        # owner instead of silently attaching the claim to the first selected
+        # experience.
+        scoped_indices = [
+            index
+            for index, experience in enumerate(selected)
+            if str(experience.get("id") or "") in scoped_ids
+        ]
+        if scoped_indices and not matching_indices:
+            matching_indices = scoped_indices
+        if not matching_indices:
+            matching_indices = [0]
+        keyword_norm = _normalize(keyword)
+        matching_with_keyword = [
+            index
+            for index in matching_indices
+            if keyword_norm in _normalize(" ".join(selected[index]["bullets"]))
+        ]
+        match_index = (matching_with_keyword or matching_indices)[0]
         bullet_index = 0
-        for index, experience in enumerate(selected):
-            if _normalize(experience["company"]) in target or _normalize(experience["role"]) in target:
-                match_index = index
-                break
         bullet_index = _best_bullet_index(selected[match_index]["bullets"], keyword)
+        bullet = selected[match_index]["bullets"][bullet_index]
+        if _normalize(keyword) in _normalize(bullet):
+            coverage_mode = "exact"
+        elif any(
+            _normalize(variant) in _normalize(bullet)
+            for variant in _keyword_translation_variants(keyword)
+        ):
+            coverage_mode = "similar"
+        elif (
+            _normalize(keyword) in declared_gaps
+            or "gap" in str(keyword_entry.get("origem") or "").casefold()
+        ):
+            coverage_mode = "declared_gap"
+        else:
+            coverage_mode = "missing_unexplained"
         coverage.append(
             {
                 "keyword": keyword,
@@ -499,11 +765,32 @@ def _build_ats_coverage(selected: list[dict[str, Any]], top8: list[dict[str, Any
                 ),
                 "experience_role": selected[match_index]["role"],
                 "bullet_index": bullet_index,
-                "coverage_mode": "exact",
-                "defensible_evidence": selected[match_index]["bullets"][bullet_index],
+                "coverage_mode": coverage_mode,
+                "defensible_evidence": bullet,
             }
         )
     return coverage
+
+
+def _keyword_translation_variants(keyword: str) -> list[str]:
+    """Return curated variants allowed to count as non-exact coverage."""
+    registry_path = ROOT / ".agents/skills/career-system/references/keyword_translation_registry.json"
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    normalized_keyword = _normalize(keyword)
+    for key, entry in (registry.get("entries") or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        aliases = [key, entry.get("canonical_keyword"), entry.get("en_cv_preferred")]
+        if not any(_normalize(str(alias or "")) == normalized_keyword for alias in aliases):
+            continue
+        variants = [entry.get("pt_br_preferred"), entry.get("en_cv_preferred")]
+        variants.extend(entry.get("pt_br_alternatives") or [])
+        variants.extend(entry.get("accepted_variants") or [])
+        return [str(variant) for variant in variants if str(variant or "").strip()]
+    return []
 
 
 def _infer_job_family(fit_map: dict[str, Any]) -> str:
@@ -526,30 +813,101 @@ def _infer_job_family(fit_map: dict[str, Any]) -> str:
     return "operations"
 
 
-def _materialize_experience(entry: dict[str, Any], job_family: str, *, language: str = "pt-BR") -> dict[str, Any]:
+def _materialize_experience(
+    entry: dict[str, Any],
+    job_family: str,
+    *,
+    language: str = "pt-BR",
+    ats_keywords: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     if language == "en":
         role, scope, leverage, result = load_canonical_cv_facts()["localized_render_values"]["en"][entry["id"]]
-        return {
+        bullet2 = _positioning_bullet(leverage, result, entry["id"])
+        _ensure_quantified_result(result, entry["id"])
+        materialized = {
             **entry,
             "role": role,
             "period": _english_period(str(entry["period"])),
             "scope_bullet": scope,
             "result_bullet": result,
-            "bullets": [scope, leverage, result],
+            "bullets": [scope, bullet2, result],
             "job_family": job_family,
         }
+        if ats_keywords:
+            return _apply_defensible_english_ats_keywords(materialized, ats_keywords)
+        return materialized
     leverage = entry.get("leverage") if isinstance(entry.get("leverage"), dict) else {}
-    bullet2 = str(leverage.get(job_family) or leverage.get("default") or "").strip()
+    result = str(entry.get("result_bullet") or "").strip()
+    _ensure_quantified_result(result, str(entry.get("id") or "unknown"))
+    leverage_text = _select_leverage_text(leverage, job_family)
+    bullet2 = _positioning_bullet(leverage_text, result, str(entry.get("id") or "unknown"))
     bullets = [
         str(entry.get("scope_bullet") or "").strip(),
         bullet2,
-        str(entry.get("result_bullet") or "").strip(),
+        result,
     ]
     return {
         **entry,
         "bullets": bullets,
         "job_family": job_family,
-    }
+    } if not ats_keywords else _apply_defensible_portuguese_ats_keywords(
+        {
+            **entry,
+            "bullets": bullets,
+            "job_family": job_family,
+        },
+        ats_keywords,
+    )
+
+
+def _ensure_quantified_result(result: str, experience_id: str) -> None:
+    if not _contains_quantitative_result(result):
+        raise ValidationFailure(
+            f"experience {experience_id} result_bullet must contain a defensible metric"
+        )
+
+
+def _contains_quantitative_result(text: str) -> bool:
+    """Recognize the numeric evidence required by a concise result bullet."""
+    return bool(re.search(r"(?:R\$\s*\d|\b\d+(?:[.,]\d+)?\b)", text or ""))
+
+
+def _select_leverage_text(leverage: dict[str, Any], job_family: str) -> str:
+    keys = [job_family, "default"]
+    keys.extend(key for key in sorted(leverage) if key not in keys)
+    for key in keys:
+        value = leverage.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _positioning_bullet(leverage: str, result: str, experience_id: str) -> str:
+    """Keep bullet 2 on mechanism/case and out of quantitative outcomes."""
+    fragments = re.split(r"(?<=[.!?])\s+|\s+[—–]\s+|\s*;\s*", leverage or "")
+    safe_fragments: list[str] = []
+    consequence_starts = (
+        "o que ",
+        "gerando ",
+        "resultando ",
+        "which ",
+        "generating ",
+        "resulting ",
+    )
+    for fragment in fragments:
+        cleaned = fragment.strip(" .;\n\t")
+        if not cleaned:
+            continue
+        lowered = cleaned.casefold()
+        if lowered.startswith(consequence_starts) or _contains_quantitative_result(cleaned):
+            continue
+        safe_fragments.append(cleaned)
+    positioning = "; ".join(safe_fragments).strip()
+    if positioning and _normalize(positioning) != _normalize(result):
+        return f"{positioning}."
+    raise ValidationFailure(
+        f"experience {experience_id} has no non-quantitative positioning/case for bullet 2"
+    )
 
 
 def _best_bullet_index(bullets: list[str], keyword: str) -> int:
@@ -560,6 +918,200 @@ def _best_bullet_index(bullets: list[str], keyword: str) -> int:
     return 0
 
 
+_ENGLISH_ATS_CLAUSES = {
+    "business transformation": "The work connected operating changes to business transformation.",
+    "operational excellence": "The cadence reinforced operational excellence through measurable trade-offs.",
+    "operations management": "Led operations management across FieldOps, Payments, and New Business.",
+    "service operations": "Led service operations across Support, CX, and Back Office.",
+    "multi-location operations": "Coordinated multi-location operations through fleet planning and network expansion.",
+    "digital conversion": "Drove digital conversion through an SDR pipeline and daily conversion dashboards.",
+    "customer retention": "Connected service quality and customer retention to customer-operation routines.",
+    "operational efficiency": "Drove operational efficiency through an executive S&OP cadence, using scenarios and trade-offs to allocate fleet and budget.",
+    "contribution margin": "Connected service operations to contribution margin through cost, quality, and back-office decisions.",
+    "change management": "The rollout used change management to embed the new operating model.",
+    "organizational design": "The redesign clarified organizational design as the operation scaled.",
+    "process redesign": "The migration relied on process redesign, not only new tooling.",
+    "ai transformation": "The work advanced AI transformation in the operation.",
+    "digital transformation": "The work accelerated digital transformation in the operation.",
+    "cross-functional leadership": "The cadence depended on cross-functional leadership across teams.",
+    "ai adoption": "The rollout accelerated AI adoption in the operation.",
+    "ai use cases": "Translated customer-operation needs into practical AI use cases.",
+    "ai pilots": "Implemented AI pilots in customer operations using human-centered automation.",
+    "stakeholder management": "Applied stakeholder management across marketing, product, supply, and operations through an executive S&OP cadence.",
+    "data-driven": "Used data-driven decision-making with SQL, Databricks, and real-time operational dashboards.",
+    "operating cadence": "The monthly ritual became an operating cadence for cross-functional trade-offs.",
+    "program management": "The work applied program management rigor to a multi-team rollout.",
+    "senior-management credibility": "The quantified trade-offs strengthened senior-management credibility.",
+    "technical literacy": "The work demonstrated technical literacy across data and operations.",
+    "leading through influence": "The design required leading through influence across teams.",
+    "strategy operations": "The role connected strategy operations to day-to-day execution.",
+    "sales & operations planning (s&op)": "Led Sales & Operations Planning (S&OP) across demand, supply, capacity, and service trade-offs.",
+    "master production scheduling": "Connected master production scheduling with MRP validation and manufacturing capacity decisions.",
+    "capacity planning": "Coordinated capacity planning across production, logistics, and service-level requirements.",
+    "demand forecasting": "Used demand forecasting to align the operating plan with capacity, inventory, and service commitments.",
+    "inventory management": "Led inventory management across finished goods, brands, and distribution channels.",
+    "safety stock": "Managed safety stock policies to balance availability, working capital, and service levels.",
+    "lead time management": "Improved lead time management through distribution process redesign.",
+    "mrp": "Built an Excel/VBA simulator to validate MRP scenarios before manufacturing decisions were committed.",
+    "supply chain": "Managed supply chain planning across demand, inventory, materials, and manufacturing interfaces.",
+    "continuous improvement": "Applied continuous improvement to picking, warehousing, and planning processes through operating indicators.",
+    "supply chain management": "Led integrated supply chain management across demand planning, materials, sourcing, and manufacturing interfaces.",
+    "production scheduling": "Aligned production scheduling with demand, capacity, inventory, and service-level trade-offs.",
+    "on-time delivery": "Managed on-time delivery performance through OTIF and fill-rate operating indicators.",
+    "infor erp": "Served as a key user for Infor ERP in materials and warehouse operations.",
+    "data analysis": "Used data analysis with SQL, Excel/VBA, and operational dashboards to support planning decisions.",
+}
+
+
+_PORTUGUESE_ATS_CLAUSES = {
+    "logistica de ultima milha": "Liderei operações de logística de última milha (last mile), conectando cobertura geográfica, frota e nível de serviço.",
+    "last mile": "Liderei operações de logística de última milha (last mile), conectando cobertura geográfica, frota e nível de serviço.",
+    "gestao de p&l": "Atuei com Gestão de P&L na linha de custo logístico, usando alavancas operacionais e budget.",
+    "otif": "Estruturei indicadores de OTIF e fill rate para acompanhar nível de serviço e planejamento integrado.",
+    "tms": "Usei um roteirizador logístico proprietário, funcionalmente equivalente a um TMS de mercado, para apoiar rotas e entregas.",
+    "gestao de multiplas unidades": "Apliquei Gestão de múltiplas unidades, coordenando FieldOps, frota e expansão geográfica.",
+    "desenvolvimento de liderancas": "Apoiei o desenvolvimento de lideranças ao estruturar processos e contratar a liderança da área de CS.",
+    "excelencia operacional": "Apliquei excelência operacional ao criar a área de S&OP do zero, integrando demanda, capacidade, estoques e nível de serviço.",
+    "produtividade de picking": "Estruturei a produtividade de picking com coletores RF e Wi-Fi e sistema visual de abastecimento, acompanhando os indicadores da expedição e reduzindo pedidos incompletos.",
+    "customer experience": "Liderei a operação de Customer Experience (CX), suporte e backoffice, conectando atendimento, produto e dados.",
+    "gestao de customer experience": "Atuei na gestão de Customer Experience (CX), conectando atendimento, produto e dados.",
+    "gestao de operacoes de atendimento": "Liderei a gestão de operações de atendimento com foco em escala, qualidade e eficiência.",
+    "sla de atendimento": "Defini e acompanhei SLA de atendimento para orientar a operação e a experiência do cliente.",
+    "csat (satisfacao do cliente)": "Acompanhei CSAT (satisfação do cliente) como indicador de qualidade da operação.",
+    "autoatendimento e automacao": "Estruturei autoatendimento e automação para absorver contatos de primeiro nível.",
+    "inteligencia artificial aplicada a atendimento": "Estruturei soluções de inteligência artificial aplicada a atendimento com decisão sobre onde manter o humano.",
+    "monitoria de qualidade de atendimento": "Estruturei monitoria de qualidade de atendimento com indicadores e ciclos de feedback.",
+    "zendesk": "Implantei o Zendesk como plataforma central e integrei três plataformas de atendimento via API.",
+    "planejamento estrategico": "Conduzi ciclos de planejamento estratégico, conectando cenários operacionais, alocação de recursos e execução.",
+    "governanca operacional": "Estruturei governança operacional com ritos executivos, indicadores e planos de ação para conectar decisão e execução.",
+    "lideranca interfuncional": "Exerci liderança interfuncional, coordenando marketing, produto, supply e operação em decisões de crescimento.",
+    "automacao de processos": "Liderei automação de processos com inteligência artificial para escalar o atendimento e liberar o time para casos complexos.",
+    "escalabilidade operacional": "Conduzi iniciativas de escalabilidade operacional, conectando expansão, capacidade, indicadores e disciplina financeira.",
+    "otimizacao de processos": "Apliquei otimização de processos em migrações e rotinas operacionais, conectando tecnologia, dados e eficiência.",
+    "planejamento orcamentario": "Conduzi planejamento orçamentário com acompanhamento de budget e cenários de execução.",
+    "forecast": "Usei forecast e cenários para alinhar demanda, capacidade e nível de serviço.",
+    "analise de investimentos": "Apoiei análise de investimentos com modelagem de ROI para decisões de transformação.",
+    "matematica financeira": "Apliquei conceitos de matemática financeira na análise de ROI e viabilidade econômica.",
+    "indicadores de negocio": "Acompanhei indicadores de negócio e desempenho para orientar decisões operacionais e financeiras.",
+    "precificacao": "Conduzi análises de precificação para calibrar oferta, demanda e alocação de recursos.",
+    "margens": "Acompanhei margens e indicadores financeiros para orientar decisões de eficiência operacional.",
+    "gestao de mis": "Estruturei a Gestão de MIS com rotinas de indicadores para apoiar a diretoria.",
+    "mis (management information system)": "Estruturei um Management Information System (MIS) com rotinas de indicadores para apoiar a diretoria.",
+    "inteligencia operacional": "Conectei planejamento de capacidade, indicadores e dashboards à Inteligência Operacional.",
+    "business intelligence": "Apoiei a diretoria com Business Intelligence (BI), normalização de dados e rotinas de análise.",
+    "dashboards gerenciais": "Estruturei Dashboards Gerenciais e rotinas de modelagem de dados para apoiar decisões executivas.",
+    "dashboards gerenciais e executivos": "Estruturei Dashboards Gerenciais e Executivos a partir de dados operacionais para apoiar decisões da diretoria.",
+    "automacao de relatorios": "Criei automação de relatórios e rotinas diárias para acelerar a análise da diretoria.",
+    "automacao de relatorios e indicadores": "Criei automação de relatórios e indicadores para acelerar a análise da diretoria.",
+    "gestao de indicadores": "Estruturei a Gestão de Indicadores com rotinas de acompanhamento para apoiar decisões operacionais.",
+    "governanca de dados": "Conectei atendimento, produto e dados com Governança de Dados para orientar a operação.",
+    "analise de performance": "Acompanhei Análise de Performance com indicadores de qualidade, tempo e custo da operação.",
+    "indicadores de contact center": "Estruturei Indicadores de Contact Center para acompanhar qualidade, SLA e experiência do cliente.",
+}
+
+# Some FIT_MAP targets intentionally list alternative stories.  Keep the
+# clause itself human-readable while pinning claims whose evidence belongs to
+# one specific experience; otherwise a broad target can copy the claim into a
+# different company's role.
+_PORTUGUESE_ATS_EXPERIENCE_SCOPE = {
+    "governanca operacional": {"ifood_diretor_operacoes"},
+    "lideranca interfuncional": {"ifood_diretor_operacoes"},
+    "automacao de processos": {"wehandle_head_operacoes"},
+    "escalabilidade operacional": {"ifood_diretor_operacoes"},
+    "otimizacao de processos": {"wehandle_head_operacoes"},
+    "gestao de p&l": {"ifood_diretor_operacoes"},
+    "otif": {"trifil_sop"},
+    "tms": {"ifood_diretor_operacoes"},
+    "desenvolvimento de liderancas": {"vivareal_planejamento_operacoes"},
+    "excelencia operacional": {"trifil_sop"},
+    "produtividade de picking": {"trifil_expedicao"},
+}
+
+
+def _apply_defensible_portuguese_ats_keywords(
+    experience: dict[str, Any], keywords: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Add targeted, evidence-backed ATS wording to a Portuguese CV.
+
+    Only clauses with canonical evidence are allowed here.  The insertion is
+    limited to a selected experience and to the FIT_MAP's top-eight targets;
+    it is not a general keyword dump.
+    """
+    updated = dict(experience)
+    bullets = [str(item) for item in experience.get("bullets", [])]
+    applicable_bullet2: list[str] = []
+    applicable_bullet3: list[str] = []
+    current_text = " ".join(bullets)
+    for item in sorted(keywords, key=lambda value: int(value.get("prioridade") or 999)):
+        keyword = str(item.get("keyword") or "").strip()
+        target = _normalize(str(item.get("experiencia_alvo") or ""))
+        phrase = _PORTUGUESE_ATS_CLAUSES.get(_normalize(keyword))
+        if not keyword or not phrase or not target:
+            continue
+        scoped_experiences = _PORTUGUESE_ATS_EXPERIENCE_SCOPE.get(_normalize(keyword))
+        if scoped_experiences and str(experience.get("id") or "") not in scoped_experiences:
+            continue
+        if not scoped_experiences and not _experience_matches_target(experience, target):
+            continue
+        if _normalize(keyword) in _normalize(current_text):
+            continue
+        if _contains_quantitative_result(phrase):
+            applicable_bullet3.append(phrase)
+        else:
+            applicable_bullet2.append(phrase)
+        current_text = f"{current_text} {phrase}"
+
+    if applicable_bullet2:
+        additions = " ".join(applicable_bullet2)
+        bullets[1 if len(bullets) > 1 else 0] = (
+            f"{bullets[1 if len(bullets) > 1 else 0].rstrip()} {additions}"
+        )
+    if applicable_bullet3 and len(bullets) > 2:
+        bullets[2] = f"{bullets[2].rstrip()} {' '.join(applicable_bullet3)}"
+    updated["bullets"] = bullets
+    return updated
+
+
+def _apply_defensible_english_ats_keywords(
+    experience: dict[str, Any], keywords: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Add only targeted, evidence-backed ATS wording to an English CV.
+
+    The generator already selects the right experience for each FIT_MAP keyword,
+    but previously discarded that mapping when materializing English bullets. The
+    controlled clauses keep the wording factual and place no more than the
+    vacancy's targeted keywords into an experience.
+    """
+    updated = dict(experience)
+    bullets = [str(item) for item in experience.get("bullets", [])]
+    applicable_bullet2: list[str] = []
+    applicable_bullet3: list[str] = []
+    current_text = " ".join(bullets)
+    for item in sorted(keywords, key=lambda value: int(value.get("prioridade") or 999)):
+        keyword = str(item.get("keyword") or "").strip()
+        target = _normalize(str(item.get("experiencia_alvo") or ""))
+        phrase = _ENGLISH_ATS_CLAUSES.get(_normalize(keyword))
+        if not keyword or not phrase or not target:
+            continue
+        if not _experience_matches_target(experience, target):
+            continue
+        if _normalize(keyword) in _normalize(current_text):
+            continue
+        if _contains_quantitative_result(phrase):
+            applicable_bullet3.append(phrase)
+        else:
+            applicable_bullet2.append(phrase)
+        current_text = f"{current_text} {phrase}"
+
+    if applicable_bullet2:
+        index = 1 if len(bullets) > 1 else 0
+        bullets[index] = f"{bullets[index].rstrip()} {' '.join(applicable_bullet2)}"
+    if applicable_bullet3 and len(bullets) > 2:
+        bullets[2] = f"{bullets[2].rstrip()} {' '.join(applicable_bullet3)}"
+    updated["bullets"] = bullets
+    return updated
+
+
 def _build_summary(
     selected: list[dict[str, Any]],
     fit_map: dict[str, Any],
@@ -568,7 +1120,11 @@ def _build_summary(
     language: str = "pt-BR",
 ) -> tuple[str, list[dict[str, Any]]]:
     cargo = str(fit_map.get("cargo") or "a vaga")
-    support_pairs = _summary_support_pairs(selected, language=language)
+    support_pairs = _summary_support_pairs(
+        selected,
+        fit_map=fit_map,
+        language=language,
+    )
     supports = [
         {
             "summary_fragment": fragment,
@@ -585,8 +1141,8 @@ def _build_summary(
         for fragment, exp_index, bullet_index in support_pairs
     ]
     if language == "pt-BR" and positioning is not None:
-        focus = str(fit_map.get("dor_central") or "operações, planejamento e transformação de negócios").strip().rstrip(".")
-        opening = f"Atuo há mais de 20 anos em operações, planejamento e transformação de negócios, com foco em {focus}."
+        profile = load_canonical_cv_facts()["summary_profiles"][language]
+        opening = profile.get("opening") or _summary_opening(fit_map)
         proof = f"Na trajetória recente, liderei {supports[0]['summary_fragment']}. Também conduzi {supports[1]['summary_fragment']}."
         case = str(positioning["caso"]).strip().rstrip(".")
         used_terms = cv_positioning.normalize_tokens(f"{opening} {proof}")
@@ -624,15 +1180,55 @@ def _summary_opening(fit_map: dict[str, Any]) -> str:
     return str(profile["default_opening"])
 
 
-def _summary_support_pairs(selected: list[dict[str, Any]], *, language: str = "pt-BR") -> list[tuple[str, int, int]]:
+def _summary_support_pairs(
+    selected: list[dict[str, Any]],
+    *,
+    fit_map: dict[str, Any] | None = None,
+    language: str = "pt-BR",
+) -> list[tuple[str, int, int]]:
     desired = load_canonical_cv_facts()["selectors"]["summary_priority"]
     summary_fragments = load_canonical_cv_facts()["summary_fragments"][language]
     by_id = {entry["id"]: index for index, entry in enumerate(selected)}
+    desired_rank = {experience_id: index for index, experience_id in enumerate(desired)}
+    ordered_ids: list[str] = []
+
+    if isinstance(fit_map, dict) and _top8_keywords(fit_map):
+        target_stats: dict[str, tuple[int, int]] = {}
+        for item in _top8_keywords(fit_map):
+            target = str(item.get("experiencia_alvo") or "").strip()
+            if not target:
+                continue
+            priority = int(item.get("prioridade") or 999)
+            for experience in selected:
+                if not _experience_matches_target(experience, target):
+                    continue
+                experience_id = str(experience["id"])
+                count, first_priority = target_stats.get(experience_id, (0, 999))
+                target_stats[experience_id] = (
+                    count + 1,
+                    min(first_priority, priority),
+                )
+        ordered_ids.extend(
+            sorted(
+                target_stats,
+                key=lambda experience_id: (
+                    -target_stats[experience_id][0],
+                    target_stats[experience_id][1],
+                    desired_rank.get(experience_id, len(desired_rank)),
+                    experience_id,
+                ),
+            )
+        )
+
+    ordered_ids.extend(experience_id for experience_id in desired if experience_id not in ordered_ids)
     pairs: list[tuple[str, int, int]] = []
-    for experience_id in desired:
+    for experience_id in ordered_ids:
         if experience_id not in by_id:
             continue
-        fragment, bullet_index = summary_fragments[experience_id]
+        fragment_data = summary_fragments.get(experience_id)
+        if fragment_data is None:
+            continue
+        fragment, bullet_index = fragment_data
         pairs.append((fragment, by_id[experience_id], bullet_index))
         if len(pairs) == 2:
             break
@@ -1018,7 +1614,15 @@ def _validate_trusted_renderer_values(
         raise ValidationFailure("CV canonical evidence experience selection is invalid")
     selected = [catalog[item_id] for item_id in ids]
     family = str(metadata.get("job_family") or "operations")
-    materialized = [_materialize_experience(item, family, language=language) for item in selected]
+    materialized = [
+        _materialize_experience(
+            item,
+            family,
+            language=language,
+            ats_keywords=_top8_keywords(fit_map),
+        )
+        for item in selected
+    ]
     expected_candidate = _candidate_contact_facts()
     if fit_map is None or fit_map_path is None or not fit_map_sha256:
         raise ValidationFailure("CV canonical evidence requires immutable FIT_MAP input")

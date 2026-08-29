@@ -73,9 +73,12 @@ def polish_cv(
     report_path: Path,
     *,
     review_report: dict | None = None,
+    language: str | None = None,
 ) -> dict:
     lines = legacy_review_output.compact_lines(legacy_review_output.docx_text(artifact))
-    is_pt_br = legacy_review_output.is_portuguese_cv(artifact)
+    is_pt_br = language == "pt-BR" or (
+        language is None and legacy_review_output.is_portuguese_cv(artifact)
+    )
     prose_lines = legacy_review_output.extract_summary_experience_lines(lines) if is_pt_br else []
     prose_text = "\n".join(prose_lines)
     blockers = []
@@ -132,6 +135,7 @@ def review_cv(
     *,
     translation_registry_path: Path,
     control_db_path: Path | None = None,
+    language: str | None = None,
 ) -> dict:
     """Run the objective review against the exact rendered DOCX revision."""
     fit_map = legacy_review_output.read_json(fit_map_path)
@@ -142,6 +146,7 @@ def review_cv(
         registry,
         Path(translation_registry_path),
         cellular_db_path=control_db_path,
+        language=language,
     )
     CvReviewReportSchema(report).validate()
     write_json(report_path, report)
@@ -228,7 +233,9 @@ def approve_cv(
     *,
     translation_registry_path: Path,
     control_db_path: Path | None = None,
+    language: str | None = None,
 ) -> dict:
+    fit_map = legacy_review_output.read_json(fit_map_path)
     command = [
         str(canonical_python_executable()),
         str((ROOT / "scripts/register_keywords.py").resolve()),
@@ -264,9 +271,16 @@ def approve_cv(
         report_path,
         translation_registry_path=translation_registry_path,
         control_db_path=control_db_path,
+        language=language,
     )
     polish_path = polish_report_path or report_path.with_name("polish_review.json")
-    polish = polish_cv(artifact, polish_path, review_report=report)
+    declared_language = language
+    polish = polish_cv(
+        artifact,
+        polish_path,
+        review_report=report,
+        language=declared_language,
+    )
     if polish.get("approval_blockers"):
         raise SystemExit(
             "CV polish gate failed; artifact is not approved for delivery.\n"

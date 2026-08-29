@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+from datetime import datetime, timezone
 
 from _bootstrap import bootstrap
 
@@ -12,6 +13,7 @@ ROOT = bootstrap()
 
 from career.services.harness_supervisor import HarnessSupervisor
 from career.services import application_context as application_context_service
+from career.utils import read_json
 from telegram_harness_adapter import process_message
 
 
@@ -64,12 +66,27 @@ def should_intercept(message: str) -> bool:
     menu_state_path = ROOT / ".career-state" / "harness" / "menu_state.json"
     text = " ".join(str(message or "").strip().split())
     if pending_path.exists():
-        return True
+        try:
+            pending = read_json(pending_path)
+        except Exception:
+            pending = {}
+        # Legacy pending inputs without a session binding are stale state, not
+        # permission to intercept every future Telegram message.
+        if isinstance(pending, dict) and pending.get("session_id"):
+            expires_at = str(pending.get("expires_at") or "").strip()
+            if expires_at:
+                try:
+                    if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+                        pending_path.unlink(missing_ok=True)
+                    else:
+                        return True
+                except ValueError:
+                    pending_path.unlink(missing_ok=True)
     if menu_state_path.exists() and text.isdigit() and 1 <= len(text) <= 2:
         return True
     supervisor = HarnessSupervisor(ROOT)
     decision = supervisor.classify(message)
-    return decision.workflow != "generic_assistant"
+    return decision.workflow != "generic_assistant" or decision.reason == "meta_question_about_previous_output"
 
 
 def main() -> int:
@@ -95,17 +112,30 @@ def main() -> int:
         history_size = len(history) if isinstance(history, list) else 0
         identity = f"{session_id}\n{history_size}\n{message}"
     message_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
-    result = process_message(
-        message,
-        message_id=message_id,
-        execute=True,
-        runtime_context={
-            "runtime": "hermes",
-            "profile_id": application_context_service.profile_id_from_env(),
-            "session_id": session_id,
-            "turn_id": turn_id,
-        },
-    )
+    try:
+        result = process_message(
+            message,
+            message_id=message_id,
+            execute=True,
+            runtime_context={
+                "runtime": "hermes",
+                "profile_id": application_context_service.profile_id_from_env(),
+                "session_id": session_id,
+                "turn_id": turn_id,
+            },
+        )
+    except Exception as exc:  # pragma: no cover - exercised by live hook failures
+        # A pre-LLM hook failure must remain inside the HarnessSupervisor
+        # contract. Exit code 1 lets Hermes continue with an unconstrained
+        # model turn, which is precisely how manual FIT_MAP/provenance
+        # workarounds escaped the supervisor.
+        result = {
+            "status": "blocked",
+            "kind": "harness_hook_failure",
+            "blocker_reason": "harness_execution_failed",
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:500],
+        }
     reply_text = result.get("reply_text")
     if isinstance(reply_text, str) and reply_text.strip():
         write_transform_reply(session_id, turn_id, reply_text.strip())

@@ -1188,6 +1188,19 @@
       "accepted_variants": [],
       "usage_notes": "Em contexto brasileiro, 'operações de CD' é coloquial e defensável."
     },
+    "siop": {
+      "canonical_keyword": "SIOP",
+      "en_cv_preferred": "S&OP",
+      "pt_br_preferred": "S&OP",
+      "pt_br_alternatives": [
+        "planejamento integrado de vendas, inventário e operações"
+      ],
+      "accepted_variants": [
+        "Sales & Operations Planning (S&OP)",
+        "S&OP / Integrated Planning"
+      ],
+      "usage_notes": "Em CV em inglês, S&OP conta como equivalente de SIOP somente quando a evidência também cobre inventário, capacidade ou planejamento de manufatura; não autoriza alegar uso de Syteline/CSI."
+    },
     "sales_and_operations_planning": {
       "canonical_keyword": "Sales and Operations Planning (S&OP)",
       "pt_br_preferred": "S&OP",

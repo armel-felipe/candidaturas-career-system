@@ -169,6 +169,56 @@ class ApplicationProjectionTests(unittest.TestCase):
         self.assertEqual(projection.next_required_step, "post_processing_available")
         self.assertTrue(projection.base_package_sealed)
 
+    def test_gupy_registration_seals_without_cv_or_onedrive(self) -> None:
+        application = self.applications.create_application(
+            ApplicationIdentity(
+                application_id="gupy-registration",
+                company="Conexa",
+                role="Diretor de Growth",
+                fingerprint="g" * 64,
+                delivery_profile="gupy_registration",
+            )
+        )
+        self._record_description_saved(application)
+        revision_id = self._create_validated_fit_map(application, label="gupy")
+        now = utc_now_iso()
+        record_id = "notion-gupy-registration"
+        self.db.get_connection().execute(
+            """INSERT INTO notion_records
+               (record_id, application_id, notion_page_id, notion_database_id,
+                notion_unique_id, notion_url, created_at, updated_at)
+               VALUES (?, ?, 'page-gupy', 'db', '578', NULL, ?, ?)""",
+            (record_id, application.application_id, now, now),
+        )
+        self.db.get_connection().execute(
+            """INSERT INTO notion_syncs
+               (sync_id, application_id, record_id, action, status, payload_json, synced_at)
+               VALUES (?, ?, ?, 'registration_import', 'succeeded', ?, ?)""",
+            (
+                "sync-gupy-registration",
+                application.application_id,
+                record_id,
+                json.dumps(
+                    {
+                        "application_id": application.application_id,
+                        "record_id": record_id,
+                        "registration_status": "Aplicação Feita",
+                        "source": "notion_record",
+                    },
+                    sort_keys=True,
+                ),
+                now,
+            ),
+        )
+        self.db.get_connection().commit()
+
+        projection = build_application_projection(application.application_id, self.db)
+
+        self.assertEqual(projection.stage, ApplicationStage.CORE_PACKAGE_SEALED)
+        self.assertEqual(projection.next_required_step, "post_processing_available")
+        self.assertTrue(projection.base_package_sealed)
+        self.assertIsNone(projection.cv_artifact_id)
+
     def test_contradictory_legacy_stage_is_observed_but_never_authoritative(self) -> None:
         self._record_description_saved(self.primary)
         self._create_validated_fit_map(self.primary)

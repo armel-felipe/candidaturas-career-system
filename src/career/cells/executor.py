@@ -31,7 +31,7 @@ from career.services.application_context import (
 )
 from career.services.cell_store import CellStore
 from career.services.database import Database
-from career.utils import read_json, utc_now_iso, write_json
+from career.utils import read_json, sha256_file, utc_now_iso, write_json
 
 
 @dataclass(frozen=True)
@@ -118,6 +118,15 @@ class CellExecutor:
             raise ValueError("validator command is required")
         self.validators[command] = validator
 
+    def release_workspace_lease(self) -> bool:
+        """Release the process-owned workspace lease at CLI boundaries."""
+        if self.workspace_fence_token is None:
+            return True
+        released = self.workspace_lease.release(self.workspace_owner)
+        if released:
+            self.workspace_fence_token = None
+        return released
+
     @staticmethod
     def _receipt_metadata(metadata: Mapping[str, Any]) -> dict[str, str]:
         """Retain only a deterministic metadata digest in SQLite receipts."""
@@ -168,6 +177,14 @@ class CellExecutor:
         for ready in self.store.list_ready_nodes(run_id):
             self._renew_workspace_lease()
             node_id = str(ready["node_id"])
+            # analyze_fit has an external, agent-authored draft/binding. Do
+            # not reserve and consume an attempt merely because normalize_job
+            # was repaired; wait until the agent has prepared those inputs.
+            if node_id == "analyze_fit" and not (
+                paths.fit_map_draft.is_file()
+                and (paths.app_dir / "fit_map.draft.binding.json").is_file()
+            ):
+                continue
             if not self._dependencies_validated(run_id, node_id):
                 continue
             reservation = self.store.reserve_node(
@@ -382,19 +399,66 @@ class CellExecutor:
             manifest_path=manifest.path,
         )
 
+    def repair_and_run(
+        self, run_id: str, node_id: str, reason: str
+    ) -> tuple[RepairResult, tuple[CellExecutionResult, ...]]:
+        """Repair one node and close its reservation in the same operation."""
+        repaired = self.repair(run_id, node_id, reason)
+        plan, paths = self._load_run(run_id)
+        prepared = PreparedCellAttempt(
+            run_id=repaired.run_id,
+            application_id=plan.application_id,
+            node_id=repaired.node_id,
+            attempt=repaired.attempt,
+            worker_id=self.worker_id,
+            manifest_path=repaired.manifest_path,
+        )
+        if node_id == "analyze_fit":
+            # analyze_fit is authored by an external agent. A draft or
+            # binding left by the failed attempt belongs to that attempt and
+            # must never be executed by the repaired one. Always return the
+            # repair lease to planned state so the agent can quarantine any
+            # stale draft, prepare a fresh attempt, and bind it to its own
+            # immutable manifest.
+            self.defer_prepared_attempt(
+                prepared,
+                reason="repair_waiting_for_fresh_fit_map_draft_binding",
+            )
+            return repaired, ()
+        try:
+            results = self.run_ready(run_id)
+            if not any(item.node_id == node_id for item in results):
+                self.defer_prepared_attempt(
+                    prepared,
+                    reason="repair_execution_not_started",
+                )
+            return repaired, results
+        except BaseException:
+            self.defer_prepared_attempt(
+                prepared,
+                reason="repair_execution_failed",
+            )
+            raise
+
     def resume(self, run_id: str) -> ResumeResult:
         plan, paths = self._load_run(run_id)
         ManifestStore(paths)._load_run_plan_nodes(run_id)
-        statuses = {
-            row["node_id"]: row["status"]
-            for row in self.database.fetch_all(
-                "SELECT node_id, status FROM cell_nodes WHERE run_id = ? ORDER BY node_id",
-                (run_id,),
-            )
-        }
         persisted_nodes = {node.node_id for node in plan.nodes}
-        if set(statuses) != persisted_nodes:
+        database_rows = self.database.fetch_all(
+            "SELECT node_id, status FROM cell_nodes WHERE run_id = ? ORDER BY node_id",
+            (run_id,),
+        )
+        database_nodes = {str(row["node_id"]) for row in database_rows}
+        if not persisted_nodes <= database_nodes:
             raise ValueError("database nodes do not match persisted run plan")
+        # Gate receipts may register auxiliary completed nodes under the same
+        # run ID during canonical reconciliation. They are not executable DAG
+        # nodes and must not make an otherwise valid run appear inconsistent.
+        statuses = {
+            str(row["node_id"]): row["status"]
+            for row in database_rows
+            if str(row["node_id"]) in persisted_nodes
+        }
         ready = list(self.ready_nodes(run_id))
         ready.extend(
             reservation["node_id"]
@@ -1797,7 +1861,14 @@ class CellExecutor:
     ) -> tuple[dict[str, Mapping[str, Any] | Path], tuple[Path, ...]]:
         inputs: dict[str, Mapping[str, Any] | Path] = {}
         read_paths: list[Path] = []
-        for dependency in node.requires:
+        dependencies = list(node.requires)
+        # CV composition now consumes the validated normalized language as a
+        # first-class input. Existing runs may have been planned with the old
+        # contract, so include the dependency dynamically for backward
+        # compatibility while new plans persist it in requires_json.
+        if node.node_id == "compose_cv" and "normalize_job" not in dependencies:
+            dependencies.append("normalize_job")
+        for dependency in dependencies:
             row = self.database.fetch_one(
                 """SELECT latest_attempt FROM cell_nodes
                    WHERE run_id = ? AND node_id = ? AND status = 'validated'""",
@@ -1910,6 +1981,39 @@ class CellExecutor:
                 )
                 if path.exists()
             )
+            if int(attempt or 0) > 1:
+                # A repaired compose attempt must be able to inspect the
+                # failed review that requested the repair. The candidate is
+                # written by the external repair agent and consumed by the
+                # compose handler in this same application/run scope.
+                review_row = self.database.fetch_one(
+                    "SELECT latest_attempt FROM cell_nodes "
+                    "WHERE run_id = ? AND node_id = ?",
+                    (run_id, "review_cv"),
+                )
+                if review_row is not None and int(review_row["latest_attempt"] or 0) > 0:
+                    review_staging = (
+                        paths.cells_dir
+                        / "review_cv"
+                        / str(review_row["latest_attempt"])
+                        / "staging"
+                    )
+                    read_paths.extend(
+                        path
+                        for path in (
+                            review_staging / "cv_review.json",
+                            review_staging / "polish_review.json",
+                        )
+                        if path.exists()
+                    )
+                read_paths.append(
+                    paths.requests_dir
+                    / "cellular"
+                    / run_id
+                    / "repair"
+                    / str(attempt)
+                    / "cv_content.json"
+                )
         if node.node_id == "capture_source":
             source_input = paths.app_dir / "source_input.md"
             if source_input.is_file():
@@ -1926,6 +2030,55 @@ class CellExecutor:
             if paths.job_description.is_file():
                 inputs["job_description"] = paths.job_description
                 read_paths.append(paths.job_description)
+        if node.node_id == "deliver_cv" and paths.fit_map.is_file():
+            inputs["fit_map.json"] = {
+                "path": str(paths.fit_map.resolve()),
+                "sha256": sha256_file(paths.fit_map),
+                "application_id": paths.application_id,
+                "source_kind": "application_fit_map",
+            }
+            read_paths.append(paths.fit_map.resolve())
+        if node.node_id in {"review_cv", "deliver_cv"}:
+            job_extract = paths.derived_dir / "job_extract.json"
+            if job_extract.is_file():
+                read_paths.append(job_extract.resolve())
+        if node.node_id == "review_cv":
+            compose_row = self.database.fetch_one(
+                """SELECT latest_attempt FROM cell_nodes
+                   WHERE run_id = ? AND node_id = ? AND status = 'validated'""",
+                (run_id, "compose_cv"),
+            )
+            if compose_row is not None:
+                compose_manifest_path = (
+                    paths.cells_dir
+                    / "compose_cv"
+                    / str(compose_row["latest_attempt"])
+                    / "manifest.json"
+                )
+                if compose_manifest_path.is_file():
+                    compose_manifest = read_json(compose_manifest_path)
+                    for output in compose_manifest.get("outputs") or ():
+                        if not isinstance(output, Mapping):
+                            continue
+                        if output.get("artifact_name") != "cv_content.json":
+                            continue
+                        persisted = ManifestStore(paths)._persisted_validated_artifact(
+                            read_json(Path(str(output.get("manifest_path") or ""))),
+                            run_id,
+                        )
+                        inputs["cv_content.json"] = {
+                            "path": persisted["path"],
+                            "sha256": persisted["sha256"],
+                            "revision": persisted.get("revision"),
+                            "source_kind": "validated_artifact",
+                            "application_id": persisted["application_id"],
+                            "run_id": persisted["run_id"],
+                            "node_id": persisted["node_id"],
+                            "artifact_manifest_path": persisted["manifest_path"],
+                        }
+                        read_paths.append(Path(str(persisted["path"])))
+                        read_paths.append(Path(str(persisted["manifest_path"])))
+                        break
         return inputs, tuple(read_paths)
 
     @staticmethod
@@ -2001,6 +2154,15 @@ class CellExecutor:
             write_paths.append(paths.derived_dir)
         elif node.node_id == "analyze_fit":
             write_paths.append(paths.fit_map_draft)
+        elif node.node_id == "compose_cv" and attempt > 1:
+            write_paths.append(
+                paths.requests_dir
+                / "cellular"
+                / run_id
+                / "repair"
+                / str(attempt)
+                / "cv_content.json"
+            )
         elif node.node_id in {"deliver_cv", "sync_notion_initial", "sync_notion_final"}:
             write_paths.append(paths.cells_dir / node.node_id / "receipts" / run_id)
         return tuple(write_paths)

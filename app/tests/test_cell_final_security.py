@@ -64,12 +64,12 @@ def test_canonical_subprocess_rejects_path_and_python_environment_overrides(tmp_
                         "scripts/docx/generate_custom_cv.js",
                         "--content",
                         str(content),
-                        "--output-dir",
-                        str(staging),
-                        "--application-id",
-                        "app-a",
-                    ],
-                    cwd=Path.cwd(),
+                    "--output-dir",
+                    str(staging),
+                    "--application-id",
+                    "app-a",
+                ],
+                    cwd=ROOT,
                     env=attacker_env,
                     check=False,
                 )
@@ -147,6 +147,10 @@ def test_cv_review_command_requires_scoped_translation_registry(
     polish = tmp_path / "polish_review.json"
     artifact.write_bytes(b"PK\x03\x04docx")
     fit_map.write_text("{}", encoding="utf-8")
+    (tmp_path / "enquadramento.json").write_text(
+        '{"job_fingerprint":"fixture","experiencias":[{"experience_id":"fixture"}]}',
+        encoding="utf-8",
+    )
     translation_registry.write_text(
         '{"version": 1, "policy": {}, "entries": {}}', encoding="utf-8"
     )

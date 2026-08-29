@@ -666,6 +666,73 @@ def test_pending_reprocess_request_overrides_same_source_completion_receipt(
     assert delivery_calls == ["delivery", "delivery"]
 
 
+def test_explicit_new_run_is_not_short_circuited_by_prior_completion_receipt(
+    tmp_path, monkeypatch
+):
+    v2_dir = tmp_path / ".career-state" / "applications_v2"
+    monkeypatch.setattr(applications_v2, "V2_DIR", v2_dir)
+    database_path = v2_dir.parent / "career.db"
+    database = Database(database_path)
+    database.init_schema()
+    authority_id = database.control_db_identity()
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", authority_id)
+    app = {
+        "record_id": 101,
+        "page_id": None,
+        "status": "Fila Agente",
+        "company": "Example Co.",
+        "role": "Operations Manager",
+        "description": "Operations leadership and planning. " * 30,
+    }
+    paths = applications_v2._ensure_cellular_application(
+        app, applications_root=v2_dir
+    )
+    planner = CellExecutor(
+        database,
+        applications_root=v2_dir,
+        workspace_control_db_id=authority_id,
+        require_authoritative_workspace=True,
+    )
+    old_run = planner.plan(paths.application_id, {"cv"}).run_id
+    fingerprint = applications_v2.sha256_file(paths.job_description)
+    applications_v2._complete_cellular_application_once(
+        app,
+        paths=paths,
+        run_id=old_run,
+        job_fingerprint=fingerprint,
+        delivery=lambda: {"status": "delivered", "artifact_sha256": "old-sha"},
+        update_tracker=lambda _status: None,
+        success_status="Aplicação andamento",
+    )
+    planner.release_workspace_lease()
+
+    new_run = planner.plan(paths.application_id, {"cv"}).run_id
+    planner.release_workspace_lease()
+    result = applications_v2._process_cellular_application(
+        {**app, "application_id": paths.application_id, "_cellular_run_id": new_run},
+        options=applications_v2.HeartbeatV2Options(
+            max_per_run=1,
+            run_agent=True,
+            dry_run=False,
+            cellular=True,
+            workspace_owner="test-explicit-new-run",
+            control_db_id=authority_id,
+            release_workspace_lease=True,
+        ),
+        config=applications_v2.DEFAULT_CONFIG,
+        database_path=database_path,
+    )
+
+    assert result
+    assert result[0]["run_id"] == new_run
+    assert result[0]["status"] != "already_completed"
+    assert database.fetch_one(
+        "SELECT status FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+        (new_run, "normalize_job"),
+    ) == {"status": "validated"}
+    database.close()
+
+
 def test_failed_canonical_source_commit_has_no_validated_db_or_artifacts_and_retries(
     tmp_path, monkeypatch
 ):

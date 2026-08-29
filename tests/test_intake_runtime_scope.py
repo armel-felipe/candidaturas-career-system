@@ -7,9 +7,10 @@ from pathlib import Path
 from unittest import mock
 
 from career.services import application_context, intake, multiagent
-from career.services.database import Database
+from career.services.database import Database, RuntimePersistenceMode
 from career.services.harness_supervisor import HarnessSupervisor
 from career.utils import ValidationFailure
+from career.workflow.state_store import WorkflowStateStore
 
 
 class IntakeRuntimeScopeTests(unittest.TestCase):
@@ -48,6 +49,35 @@ class IntakeRuntimeScopeTests(unittest.TestCase):
     def test_multiagent_request_requires_explicit_application_scope(self):
         with self.assertRaisesRegex(ValidationFailure, "application_id"):
             multiagent.write_request("fit-map")
+
+    def test_sqlite_only_reconstructs_active_intake_after_process_restart(self):
+        canonical = Database(
+            self.root / "control-plane" / "career.db",
+            persistence_mode=RuntimePersistenceMode.SQLITE_ONLY,
+        )
+        self.addCleanup(canonical.close)
+
+        with self._runtime_context():
+            result = intake.from_paste(
+                company="Conexa",
+                role="Diretor de Growth",
+                text="Descricao paste completa " * 80,
+                application_id="sqlite_only_restart",
+                database=canonical,
+            )
+            restarted_store = WorkflowStateStore.for_application(
+                result["application_id"], database=canonical
+            )
+            payload = restarted_store.load()
+
+        self.assertEqual(
+            payload["active_intake"]["application_id"],
+            "sqlite_only_restart",
+        )
+        self.assertEqual(
+            payload["active_intake"]["next_required_step"],
+            "fill_fit_map_draft",
+        )
 
     def test_harness_supervisor_uses_root_control_plane_database(self):
         supervisor = HarnessSupervisor(self.root)

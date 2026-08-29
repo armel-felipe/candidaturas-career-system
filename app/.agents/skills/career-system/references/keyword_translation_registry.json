@@ -291,7 +291,9 @@
       "pt_br_alternatives": [
         "relatórios executivos",
         "reports para C-level",
-        "reportes para alta liderança"
+        "reportes para alta liderança",
+        "reporte executivo",
+        "reportes executivos"
       ],
       "accepted_variants": [],
       "usage_notes": "Em CV PT-BR, 'relatórios executivos' ou 'reportes para C-level' cobrem o termo canônico."
@@ -454,7 +456,11 @@
       "canonical_keyword": "P&L management",
       "en_cv_preferred": "managed a R$300MM/year OPEX budget",
       "pt_br_preferred": "P&L management",
-      "pt_br_alternatives": [],
+      "pt_br_alternatives": [
+        "gestão de P&L",
+        "P&L",
+        "gestão financeira e P&L"
+      ],
       "accepted_variants": [
         "OPEX budget",
         "budget allocation"
@@ -802,7 +808,9 @@
       "canonical_keyword": "P&L Management",
       "pt_br_preferred": "P&L",
       "pt_br_alternatives": [
-        "gestão de P&L"
+        "gestão de P&L",
+        "P&L",
+        "gestão financeira e P&L"
       ],
       "accepted_variants": [],
       "usage_notes": ""
@@ -1570,6 +1578,107 @@
         "governança de portfólio"
       ],
       "usage_notes": "Termo em português natural para CV PT-BR."
+    },
+    "sales_team_development": {
+      "canonical_keyword": "Sales Team Development",
+      "pt_br_preferred": "desenvolvimento de times comerciais",
+      "pt_br_alternatives": [
+        "capacitação de times comerciais",
+        "desenvolvimento de equipes de vendas",
+        "capacitação de times de vendas"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'desenvolvimento de times comerciais' ou 'capacitação de times comerciais' cobrem o termo canônico."
+    },
+    "growth_strategy": {
+      "canonical_keyword": "Growth Strategy",
+      "pt_br_preferred": "estratégia de crescimento",
+      "pt_br_alternatives": [
+        "estratégia de Growth",
+        "estratégia de crescimento e penetração"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'estratégia de crescimento' ou 'estratégia de Growth'."
+    },
+    "customer_lifecycle": {
+      "canonical_keyword": "Customer Lifecycle",
+      "pt_br_preferred": "ciclo de vida do cliente",
+      "pt_br_alternatives": [
+        "jornada do cliente",
+        "ciclo de vida do consumidor"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'ciclo de vida do cliente' ou 'jornada do cliente'."
+    },
+    "retention": {
+      "canonical_keyword": "Retention",
+      "pt_br_preferred": "retenção",
+      "pt_br_alternatives": [
+        "retenção de clientes",
+        "recorrência"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'retenção' ou 'retenção de clientes'."
+    },
+    "customer_engagement": {
+      "canonical_keyword": "Customer Engagement",
+      "pt_br_preferred": "engajamento do cliente",
+      "pt_br_alternatives": [
+        "engajamento",
+        "engajamento de clientes"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'engajamento do cliente' ou 'engajamento'."
+    },
+    "executive_leadership": {
+      "canonical_keyword": "Executive Leadership",
+      "pt_br_preferred": "liderança executiva",
+      "pt_br_alternatives": [
+        "liderança de nível executivo",
+        "liderança executiva"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'liderança executiva'."
+    },
+    "customer_segmentation": {
+      "canonical_keyword": "Customer Segmentation",
+      "pt_br_preferred": "segmentação de clientes",
+      "pt_br_alternatives": [
+        "segmentação de carteira",
+        "segmentação de base"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'segmentação de clientes' ou 'segmentação de carteira'."
+    },
+    "analytics": {
+      "canonical_keyword": "Analytics",
+      "pt_br_preferred": "análise de dados",
+      "pt_br_alternatives": [
+        "analytics",
+        "inteligência de dados"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'análise de dados' ou 'analytics' cobrem o termo."
+    },
+    "talent_development": {
+      "canonical_keyword": "Talent Development",
+      "pt_br_preferred": "desenvolvimento de talentos",
+      "pt_br_alternatives": [
+        "desenvolvimento de lideranças",
+        "formação de lideranças"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'desenvolvimento de talentos' ou 'formação de lideranças'."
+    },
+    "scalability": {
+      "canonical_keyword": "Scalability",
+      "pt_br_preferred": "escalabilidade",
+      "pt_br_alternatives": [
+        "escala",
+        "escalar a operação"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, usar 'escalabilidade' ou 'escala'."
     }
   },
   "estruturacao_operacoes": {

@@ -140,7 +140,15 @@ def deliver(args: argparse.Namespace) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 3
 
-    destination = _build_remote_path(remote, folder, artifact.name)
+    filename = str(args.filename or artifact.name).strip()
+    if not filename or Path(filename).name != filename or filename in {".", ".."}:
+        payload.update({"status": "failed", "error": "filename_must_be_a_basename"})
+        _write_report(report_path, payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 8
+
+    payload["filename"] = filename
+    destination = _build_remote_path(remote, folder, filename)
     command = [rclone, "copyto", str(artifact), destination]
     if args.dry_run:
         command.append("--dry-run")
@@ -203,6 +211,7 @@ def main() -> int:
     parser.add_argument("--remote", help="rclone remote name. Defaults to RCLONE_ONEDRIVE_REMOTE or onedrive.")
     parser.add_argument("--folder", help="Remote folder. Must be 01_armel/Curriculos/personalizados or a subfolder inside it.")
     parser.add_argument("--report", required=True, help="Explicit report path for this delivery attempt.")
+    parser.add_argument("--filename", help="Remote basename. Defaults to the local artifact basename.")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args passed to rclone after --")

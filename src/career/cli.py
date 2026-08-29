@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 import sys
 
@@ -22,12 +23,14 @@ from career.services.harness_supervisor import HarnessSupervisor
 from career.services.approvals import ApprovalStore
 from career.services import intake as intake_service
 from career.services import multiagent as multiagent_service
+from career.services import maintenance as maintenance_service
 from career.services import notion as notion_service
 from career.services import project as project_service
 from career.services import review as review_service
 from career.services import workflow_reset as workflow_reset_service
 from career.services.database import Database
 from career.services.persistence.application_repository import ApplicationNotFoundError
+from career.services.reconciliation import Reconciler
 from career.services.session_memory import SessionMemoryService
 from career.cells.executor import CellExecutor
 from career.cells.handlers import (
@@ -40,6 +43,7 @@ from career.tasks.registry import (
     run_pipeline,
     run_task,
 )
+from career.utils import ValidationFailure
 from career.utils import CareerError
 from career.workflow.state_store import WorkflowStateStore
 
@@ -248,6 +252,16 @@ def build_parser() -> argparse.ArgumentParser:
     save_job.add_argument("--output-dir", default="inbox/job_descriptions")
     diagnose = project_sub.add_parser("diagnose-runtime")
     diagnose.add_argument("--output", default=str(OUTPUTS / "_tmp" / "runtime_diagnosis.json"))
+    verify_runtime = project_sub.add_parser("verify-runtime")
+    verify_runtime.add_argument("--strict", action="store_true")
+    verify_runtime.add_argument("--db")
+    verify_runtime.add_argument("--report")
+    canary = project_sub.add_parser("runtime-canary")
+    canary.add_argument("--application-id", required=True)
+    canary.add_argument("--bot-id", required=True, choices=["vagas_bot_01", "vagas_bot_02"])
+    canary.add_argument("--mode", choices=["offline", "live"], default="offline")
+    canary.add_argument("--db")
+    canary.add_argument("--report")
     project_sub.add_parser("local-strict-status")
     project_sub.add_parser("local-strict-doctor")
     project_sub.add_parser("local-agent-benchmark")
@@ -271,6 +285,17 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat.add_argument("--format", choices=["json", "human", "both"], default="both")
     status = applications_sub.add_parser("status")
     status.add_argument("--format", choices=["json", "human", "both"], default="both")
+    applications_resolve = applications_sub.add_parser("resolve")
+    applications_resolve.add_argument("--application-id")
+    applications_resolve.add_argument("--notion-id")
+    applications_resolve.add_argument("--fingerprint")
+    applications_resolve.add_argument("--company")
+    applications_resolve.add_argument("--role")
+    applications_artifact = applications_sub.add_parser("artifact")
+    applications_artifact.add_argument("--application-id", required=True)
+    applications_artifact.add_argument(
+        "--kind", required=True, choices=["feras", "gupy_skills", "cover_letter"]
+    )
     applications_sub.add_parser("write-default-config")
     applications_sub.add_parser("list-active")
     applications_inspect = applications_sub.add_parser("inspect")
@@ -309,6 +334,11 @@ def build_parser() -> argparse.ArgumentParser:
     applications_run = applications_sub.add_parser("run")
     applications_run.add_argument("--application-id", required=True)
     applications_run.add_argument("--run-id", required=True)
+    applications_run.add_argument(
+        "--run-agent",
+        action="store_true",
+        help="execute external agent nodes before deterministic cellular nodes",
+    )
     applications_repair = applications_sub.add_parser("repair")
     applications_repair.add_argument("--application-id", required=True)
     applications_repair.add_argument("--run-id", required=True)
@@ -317,6 +347,13 @@ def build_parser() -> argparse.ArgumentParser:
     applications_inspect_run = applications_sub.add_parser("inspect-run")
     applications_inspect_run.add_argument("--application-id", required=True)
     applications_inspect_run.add_argument("--run-id", required=True)
+    applications_reconcile = applications_sub.add_parser("reconcile")
+    applications_reconcile.add_argument("--application-id", required=True)
+    applications_reconcile.add_argument("--input-root", default=str(Path.cwd()))
+    applications_reconcile.add_argument("--db")
+    applications_reconcile_mode = applications_reconcile.add_mutually_exclusive_group()
+    applications_reconcile_mode.add_argument("--dry-run", action="store_true")
+    applications_reconcile_mode.add_argument("--apply", action="store_true")
 
     derive = subparsers.add_parser("derive")
     derive_sub = derive.add_subparsers(dest="action", required=True)
@@ -390,6 +427,16 @@ def build_parser() -> argparse.ArgumentParser:
     session_clean.add_argument("--session-id")
     session_reset = session_sub.add_parser("reset")
     session_reset.add_argument("--session-id")
+
+    maintenance = subparsers.add_parser("maintenance")
+    maintenance_sub = maintenance.add_subparsers(dest="action", required=True)
+    maintenance_request = maintenance_sub.add_parser("request")
+    maintenance_request.add_argument("--objective", required=True)
+    maintenance_request.add_argument("--allow-path", action="append", required=True)
+    maintenance_apply = maintenance_sub.add_parser("apply")
+    maintenance_apply.add_argument("--patch", required=True)
+    maintenance_apply.add_argument("--request", required=True)
+    maintenance_apply.add_argument("--apply", action="store_true")
 
     query = subparsers.add_parser("query")
     query.add_argument("--filter", default="")
@@ -643,6 +690,8 @@ def _cell_run_payload(executor: CellExecutor, run_id: str, *, status: str | None
             "career applications run "
             f"--application-id {resumed.application_id} --run-id {run_id}"
         )
+        if "analyze_fit" in ready_nodes:
+            next_action += " --run-agent"
     else:
         next_action = (
             "career applications inspect-run "
@@ -970,10 +1019,12 @@ def main(argv: list[str] | None = None) -> int:
             draft = app_paths.fit_map_draft
             fit_map = app_paths.fit_map
             job_description = app_paths.job_description
+            registry = app_paths.derived_dir / "keyword_ats_registry.json"
             result = fit_map_service.status(
                 draft_path=draft,
                 fit_map_path=fit_map,
                 job_description_path=job_description,
+                registry_path=registry,
             )
             _dump(result)
             return 0
@@ -981,10 +1032,12 @@ def main(argv: list[str] | None = None) -> int:
             draft = app_paths.fit_map_draft
             fit_map = app_paths.fit_map
             job_description = app_paths.job_description
+            registry = app_paths.derived_dir / "keyword_ats_registry.json"
             result = fit_map_service.resume_guidance(
                 draft_path=draft,
                 fit_map_path=fit_map,
                 job_description_path=job_description,
+                registry_path=registry,
             )
             _dump(result)
             return 0
@@ -992,10 +1045,12 @@ def main(argv: list[str] | None = None) -> int:
             draft = app_paths.fit_map_draft
             fit_map = app_paths.fit_map
             job_description = app_paths.job_description
+            registry = app_paths.derived_dir / "keyword_ats_registry.json"
             result = fit_map_service.progress_guard(
                 draft_path=draft,
                 fit_map_path=fit_map,
                 job_description_path=job_description,
+                registry_path=registry,
             )
             _dump(result)
             return 1 if result.get("blocked") else 0
@@ -1103,6 +1158,32 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.command == "project":
+        if args.action == "verify-runtime":
+            from career.services.runtime_verifier import verify_runtime, write_report
+
+            report = verify_runtime(
+                Path.cwd(),
+                strict=args.strict,
+                database_path=Path(args.db) if args.db else None,
+            )
+            if args.report:
+                write_report(report, Path(args.report))
+            _dump(report.as_dict())
+            return 2 if args.strict and report.blockers else 0
+        if args.action == "runtime-canary":
+            from career.services.runtime_canary import run_canary, write_report
+
+            report = run_canary(
+                args.application_id,
+                args.bot_id,
+                mode=args.mode,
+                root=Path.cwd(),
+                database_path=Path(args.db) if args.db else None,
+            )
+            if args.report:
+                write_report(report, Path(args.report))
+            _dump(report.as_dict())
+            return 2 if report.blockers else 0
         if args.action == "validate-structure":
             project_service.validate_structure()
             return 0
@@ -1142,7 +1223,68 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "applications":
+        if args.action == "resolve":
+            selectors = {
+                "application_id": args.application_id,
+                "notion_id": args.notion_id,
+                "fingerprint": args.fingerprint,
+                "company": args.company,
+                "role": args.role,
+            }
+            if not any(str(value or "").strip() for value in selectors.values()):
+                _dump_error(ValueError("explicit_application_selector_required"))
+                return 1
+            database = Database()
+            try:
+                record = application_context_service.resolve_application(
+                    database=database,
+                    allow_legacy=False,
+                    **selectors,
+                )
+                _dump(asdict(record))
+                return 0
+            except (KeyError, RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            finally:
+                database.close()
+        if args.action == "artifact":
+            from career.services.post_processing import create_post_artifact
+
+            database = Database()
+            try:
+                artifact = create_post_artifact(
+                    args.application_id,
+                    args.kind,
+                    database=database,
+                )
+                _dump(asdict(artifact))
+                return 0
+            except (KeyError, RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            finally:
+                database.close()
         if args.action in {"plan", "run", "repair", "inspect-run"}:
+            if args.action == "run" and args.run_agent:
+                try:
+                    result = applications_v2_service.run_explicit_cellular(
+                        application_id=args.application_id,
+                        run_id=args.run_id,
+                        options=applications_v2_service.HeartbeatV2Options(
+                            max_per_run=1,
+                            run_agent=True,
+                            dry_run=False,
+                            cellular=True,
+                            workspace_owner=os.environ.get("CAREER_WORKSPACE_OWNER"),
+                            control_db_id=os.environ.get("CAREER_CONTROL_DB_ID"),
+                        ),
+                    )
+                    _dump(result)
+                    return 0
+                except (KeyError, RuntimeError, ValueError, ValidationFailure) as exc:
+                    _dump_error(exc)
+                    return 1
             database = Database()
             database.init_schema()
             executor = CellExecutor(
@@ -1166,8 +1308,10 @@ def main(argv: list[str] | None = None) -> int:
                     _dump(_cell_run_payload(executor, args.run_id))
                     return 0
                 if args.action == "repair":
-                    executor.repair(args.run_id, args.node, args.reason)
-                    _dump(_cell_run_payload(executor, args.run_id, status="repairing"))
+                    executor.repair_and_run(args.run_id, args.node, args.reason)
+                    if executor.is_terminal(args.run_id):
+                        executor.finalize(args.run_id)
+                    _dump(_cell_run_payload(executor, args.run_id))
                     return 0
                 persisted_run = database.fetch_one(
                     "SELECT status FROM application_runs WHERE run_id = ?",
@@ -1181,6 +1325,28 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
                 return 0
+            except (KeyError, RuntimeError, ValueError) as exc:
+                _dump_error(exc)
+                return 1
+            finally:
+                executor.release_workspace_lease()
+                database.close()
+        if args.action == "reconcile":
+            database = Database(db_path=args.db) if args.db else Database()
+            try:
+                database.migrate()
+                report = Reconciler(database, Path(args.input_root)).reconcile(
+                    args.application_id,
+                    "apply" if args.apply else "dry-run",
+                )
+                _dump({
+                    "application_id": report.application_id,
+                    "status": report.status,
+                    "blockers": list(report.blockers),
+                    "warnings": list(report.warnings),
+                    "applied_changes": report.applied_changes,
+                })
+                return 0 if report.status in {"ready", "reconciled", "historical_unverified"} else 2
             except (KeyError, RuntimeError, ValueError) as exc:
                 _dump_error(exc)
                 return 1
@@ -1257,8 +1423,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.action == "authorize-handoff":
             control_database = Database()
-            control_database.init_schema()
             try:
+                # Handoff is the recovery path for a physical copy whose
+                # current storage identity intentionally fails normal
+                # authority verification. Schema preparation must therefore
+                # happen without the fail-closed authority assertion; the
+                # official handoff method performs the locked rebind.
+                control_database.prepare_authority_ledger_provisioning()
                 storage_identity = control_database.authorize_storage_handoff(
                     expected_control_db_id=args.control_db_id,
                     new_owner=args.owner,
@@ -1536,7 +1707,32 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "reset":
             svc.reset(session_id)
             _dump({"session_id": session_id, "status": "reset"})
-        return 0
+            return 0
+
+    if args.command == "maintenance":
+        try:
+            if args.action == "request":
+                _dump(
+                    maintenance_service.create_maintenance_request(
+                        Path.cwd(),
+                        objective=args.objective,
+                        allowed_paths=args.allow_path,
+                    )
+                )
+                return 0
+            if args.action == "apply":
+                _dump(
+                    maintenance_service.apply_maintenance_patch(
+                        root=Path.cwd(),
+                        patch_path=Path(args.patch),
+                        request_path=Path(args.request),
+                        apply=args.apply,
+                    )
+                )
+                return 0
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            _dump_error(exc)
+            return 1
 
     if args.command == "query":
         from career.services.query_engine import QueryEngine

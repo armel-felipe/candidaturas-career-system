@@ -712,8 +712,8 @@ def build_cv_review(
         },
         {
             "id": "header_has_location",
-            "passed": "São Paulo, SP" in full_text or "Sao Paulo, SP" in full_text,
-            "evidence": "São Paulo, SP / Sao Paulo, SP",
+            "passed": "Guarulhos, SP" in full_text,
+            "evidence": "Guarulhos, SP",
         },
         {
             "id": "stack_section_present",

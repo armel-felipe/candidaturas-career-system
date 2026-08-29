@@ -2084,6 +2084,51 @@ def phase_54() -> None:
         raise SystemExit(f"Explicit CV request should keep routing to cv: {explicit}")
 
 
+def phase_55() -> None:
+    """Exercise the Hermes boundary in dry-run mode without a live gateway."""
+    from career.services.hermes_session_bridge import HermesSessionBridge
+
+    for profile_id in ("vagas_bot_01", "vagas_bot_02"):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            application_id = f"selftest-{profile_id}"
+            app_dir = root / "applications_v2" / application_id
+            app_dir.mkdir(parents=True, exist_ok=True)
+            (app_dir / "hermes_handoff.json").write_text(
+                json.dumps({"application_id": application_id, "stage": "done"}),
+                encoding="utf-8",
+            )
+            calls: list[str] = []
+
+            def transport(method, _url, _headers, _payload, _timeout):
+                calls.append(method)
+                return {"_http_status": 200, "status": "ok", "current_session_id": "selftest-old"}
+
+            bridge = HermesSessionBridge(
+                root=root,
+                mode="dry_run",
+                endpoints={profile_id: f"http://{profile_id}.test:8642/api/gateway/session-boundary"},
+                api_keys={profile_id: "selftest-key"},
+                transport=transport,
+                binding_loader=lambda requested: {
+                    "profile_id": requested,
+                    "application_id": application_id,
+                    "status": "active",
+                },
+            )
+            result = bridge.reset_for_application(
+                application_id,
+                profile_id,
+                f"telegram:{profile_id}:selftest",
+                "selftest-run",
+                "pipeline:done",
+            )
+            if result.get("status") != "dry_run" or calls != ["GET"]:
+                raise SystemExit(
+                    f"Hermes dry-run boundary must observe without mutating {profile_id}: {result}; calls={calls}"
+                )
+
+
 def phase_52() -> None:
     original_existing = notion_sync._existing_application_records
     try:
@@ -2214,6 +2259,7 @@ PHASES = {
     52: phase_52,
     53: phase_53,
     54: phase_54,
+    55: phase_55,
 }
 
 

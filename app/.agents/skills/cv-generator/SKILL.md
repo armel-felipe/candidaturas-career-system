@@ -43,6 +43,39 @@ prossiga: corrija o FIT_MAP e regenere `cv_content`. No DOCX inglês, bloqueie s
 restarem verbos portugueses como `fui responsável`, `gerenciei`, `liderei`, `conduzi`
 ou `conectei`.
 
+### English executive editorial pass
+
+Do not optimize English resumes by translating Portuguese business language into
+grammatically correct English. Rewrite the underlying idea using the idiomatic
+vocabulary, collocations, and sentence structures naturally used in English-language
+executive resumes. Natural executive English takes precedence over literal fidelity
+to the original sentence structure. Factual fidelity to the candidate's actual
+experience remains mandatory.
+
+Apply this order before ATS: naturalness, executive syntax and concision,
+idiomatic collocations, redundancy removal, seniority framing, executive Summary,
+factual verification, ATS keywords, and a final native executive recruiter pass.
+
+For English CVs, prefer direct resume verbs (`Led`, `Built`, `Scaled`, `Owned`,
+`Reduced`, `Drove`) over repeated first-person narration. Rewrite the idea rather
+than translating structures such as `full scope autonomy`, `direct and indirect
+people`, `with C-level`, `correctly modeled ROI`, `deliver expansion`,
+`lead-contact time`, or recurring `which allowed me to`. Use conservative wording
+when reporting lines or ownership are ambiguous: `a 240-person organization` is
+valid when `240 direct and indirect reports` is not proven.
+
+The English Summary is an executive value proposition, not an autobiographical
+cover letter. Prefer `Track record of...` and verified scale/results over repeated
+`I have...` or `I am pursuing...`. Each bullet must add a distinct dimension of
+scope, mechanism, leadership, financial impact, operational impact, or growth.
+Apply keywords only after the prose is natural; never add unsupported facts or
+repeat keywords for frequency.
+
+The deterministic `english_editorial_guard` runs before DOCX rendering and blocks
+known literal or autobiographical patterns. When it blocks, revise the canonical
+English source and regenerate the content; do not bypass the guard with a manual
+DOCX edit.
+
 ## Evidência e narrativa
 
 Antes de escrever, consulte `perfil_restricoes.md` e `autoconhecimento.md`; números,
@@ -82,7 +115,7 @@ Cabeçalho fixo, alinhado à esquerda, sem emojis e sem dois contatos na mesma l
 ```text
 Felipe Armel Dias da Silva
 linkedin.com/in/felipearmel
-São Paulo, SP
+Guarulhos, SP
 (11) 98674-8218
 armelfelipe@gmail.com
 ```
@@ -105,9 +138,8 @@ e numbering real para bullets; não use bullets Unicode manuais. Valide:
 
 ```bash
 npm run validate:docx
-python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json \
-  --cv outputs/<nome>.docx \
-  --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json
+python3 scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json \
+  --cv outputs/<nome>.docx
 python3 scripts/review_output.py --kind cv --artifact outputs/<nome>.docx \
   --fit-map .career-state/fit_map.json \
   --registry .career-state/derived/keyword_ats_registry.json \

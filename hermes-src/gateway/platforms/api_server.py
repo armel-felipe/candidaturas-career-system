@@ -14,6 +14,7 @@ Exposes an HTTP server with endpoints:
 - GET  /api/sessions/{session_id}/messages — read session message history
 - POST /api/sessions/{session_id}/fork — branch a session using SessionDB lineage
 - POST /api/sessions/{session_id}/chat[/stream] — chat with a persisted session
+- POST /api/gateway/session-boundary — authenticated pipeline reset/resume control
 - POST /v1/runs                    — start a run, returns run_id immediately (202)
 - GET  /v1/runs/{run_id}           — retrieve current run status
 - GET  /v1/runs/{run_id}/events    — SSE stream of structured lifecycle events
@@ -1571,6 +1572,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 "session_fork": {"method": "POST", "path": "/api/sessions/{session_id}/fork"},
                 "session_chat": {"method": "POST", "path": "/api/sessions/{session_id}/chat"},
                 "session_chat_stream": {"method": "POST", "path": "/api/sessions/{session_id}/chat/stream"},
+                "gateway_session_boundary": {"method": "POST", "path": "/api/gateway/session-boundary"},
+                "gateway_session_boundary_status": {"method": "GET", "path": "/api/gateway/session-boundary"},
             },
         })
 
@@ -1729,6 +1732,169 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.warning("Failed to load session history for %s: %s", session_id, exc)
             return []
+
+    async def _handle_gateway_session_boundary_status(self, request: "web.Request") -> "web.Response":
+        """Return the live session id for a pipeline CAS preflight."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        session_key = str(request.query.get("session_key") or "").strip()
+        if not session_key or len(session_key) > 256 or any(ch in session_key for ch in "\r\n\x00"):
+            return web.json_response(
+                _openai_error("invalid session_key", code="invalid_session_boundary"),
+                status=400,
+            )
+        from gateway.session import _is_session_key_unsafe
+        if _is_session_key_unsafe(session_key):
+            return web.json_response(
+                _openai_error("invalid session_key", code="invalid_session_boundary"),
+                status=400,
+            )
+
+        try:
+            from gateway.run import _gateway_runner_ref
+            runner = _gateway_runner_ref()
+        except Exception:
+            runner = None
+        if runner is None:
+            return web.json_response(
+                _openai_error("Gateway runner unavailable", code="gateway_unavailable"),
+                status=503,
+            )
+        try:
+            result = await runner.session_boundary_status(session_key)
+        except ValueError as exc:
+            return web.json_response(
+                _openai_error(str(exc), code="invalid_session_boundary"),
+                status=400,
+            )
+        status_code = 200 if result.get("status") == "ok" else 404
+        return web.json_response(result, status=status_code)
+
+    async def _handle_gateway_session_boundary(self, request: "web.Request") -> "web.Response":
+        """Apply one authenticated pipeline-controlled Hermes boundary.
+
+        This route is intentionally separate from ``/api/sessions``: those
+        endpoints manipulate client-visible transcript rows, while this route
+        changes the live gateway routing key through GatewayRunner's native
+        reset/resume lifecycle.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        body, err = await self._read_json_body(request)
+        if err:
+            return err
+
+        operation = str(body.get("operation") or "").strip().lower()
+        session_key = str(body.get("session_key") or "").strip()
+        expected_session_id = str(body.get("expected_session_id") or "").strip()
+        target_session_id = str(body.get("target_session_id") or "").strip()
+        reason = str(body.get("reason") or "pipeline").strip()
+        idempotency_key = str(body.get("idempotency_key") or "").strip()
+
+        if operation not in {"reset", "resume"}:
+            return web.json_response(
+                _openai_error("operation must be reset or resume", code="invalid_session_boundary"),
+                status=400,
+            )
+        if not session_key or len(session_key) > 256 or any(ch in session_key for ch in "\r\n\x00"):
+            return web.json_response(
+                _openai_error("invalid session_key", code="invalid_session_boundary"),
+                status=400,
+            )
+        from gateway.session import _is_session_key_unsafe
+        if _is_session_key_unsafe(session_key):
+            return web.json_response(
+                _openai_error("invalid session_key", code="invalid_session_boundary"),
+                status=400,
+            )
+        if not expected_session_id or len(expected_session_id) > 256:
+            return web.json_response(
+                _openai_error("expected_session_id is required", code="invalid_session_boundary"),
+                status=400,
+            )
+        if not idempotency_key or len(idempotency_key) > 256:
+            return web.json_response(
+                _openai_error("idempotency_key is required", code="invalid_session_boundary"),
+                status=400,
+            )
+        if not reason or len(reason) > 500:
+            return web.json_response(
+                _openai_error("reason must be a non-empty string of at most 500 characters", code="invalid_session_boundary"),
+                status=400,
+            )
+        if operation == "reset" and target_session_id:
+            return web.json_response(
+                _openai_error("target_session_id must be omitted for reset", code="invalid_session_boundary"),
+                status=400,
+            )
+        if operation == "resume" and not target_session_id:
+            return web.json_response(
+                _openai_error("target_session_id is required for resume", code="invalid_session_boundary"),
+                status=400,
+            )
+        if target_session_id and (
+            len(target_session_id) > 256
+            or any(ch.isspace() or ord(ch) < 32 for ch in target_session_id)
+        ):
+            return web.json_response(
+                _openai_error("invalid target_session_id", code="invalid_session_boundary"),
+                status=400,
+            )
+
+        try:
+            from gateway.run import _gateway_runner_ref
+            runner = _gateway_runner_ref()
+        except Exception:
+            runner = None
+        if runner is None:
+            return web.json_response(
+                _openai_error("Gateway runner unavailable", code="gateway_unavailable"),
+                status=503,
+            )
+
+        try:
+            if operation == "reset":
+                result = await runner.reset_session_key(
+                    session_key,
+                    expected_session_id=expected_session_id,
+                    reason=reason,
+                    idempotency_key=idempotency_key,
+                )
+            else:
+                result = await runner.resume_session_key(
+                    session_key,
+                    target_session_id=target_session_id,
+                    expected_session_id=expected_session_id,
+                    reason=reason,
+                    idempotency_key=idempotency_key,
+                )
+        except ValueError as exc:
+            return web.json_response(
+                _openai_error(str(exc), code="invalid_session_boundary"),
+                status=400,
+            )
+        except Exception as exc:
+            logger.exception("Gateway session boundary failed: %s", self._request_audit_log_suffix(request))
+            return web.json_response(
+                _openai_error("Gateway session boundary failed", code="gateway_boundary_failed"),
+                status=503,
+            )
+
+        status_code = {
+            "reset": 200,
+            "resumed": 200,
+            "already_applied": 200,
+            "conflict": 409,
+            "invalid_binding": 409,
+            "invalid_target": 409,
+            "not_found": 404,
+            "failed": 503,
+        }.get(str(result.get("status")), 503)
+        return web.json_response(result, status=status_code)
 
     async def _handle_list_sessions(self, request: "web.Request") -> "web.Response":
         """GET /api/sessions — list persisted Hermes sessions."""
@@ -4848,6 +5014,8 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_get("/v1/skills", self._handle_skills)
             self._app.router.add_get("/v1/toolsets", self._handle_toolsets)
             # Session/client control surface (thin wrappers over SessionDB + _run_agent)
+            self._app.router.add_get("/api/gateway/session-boundary", self._handle_gateway_session_boundary_status)
+            self._app.router.add_post("/api/gateway/session-boundary", self._handle_gateway_session_boundary)
             self._app.router.add_get("/api/sessions", self._handle_list_sessions)
             self._app.router.add_post("/api/sessions", self._handle_create_session)
             self._app.router.add_get("/api/sessions/{session_id}", self._handle_get_session)

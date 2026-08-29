@@ -333,6 +333,15 @@ ENV HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
 # every other consumer.
 ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
 RUN mkdir -p /opt/data
+# The canonical career tree is mounted read-only at runtime, with the
+# control-plane and per-bot overlays mounted beneath it.  Create the nested
+# targets in the image so Docker can attach those writable overlays without
+# trying to create mountpoints inside the read-only parent bind mount.
+RUN mkdir -p \
+    /workspace/candidaturas/.career-control \
+    /workspace/candidaturas/.career-state \
+    /workspace/candidaturas/inbox \
+    /workspace/candidaturas/outputs
 VOLUME [ "/opt/data" ]
 
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs

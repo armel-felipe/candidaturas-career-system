@@ -74,6 +74,69 @@ CV_CONTENT_PATH = CAREER_STATE / "cv_content.json"
 ENQUADRAMENTO_FILENAME = "enquadramento.json"
 
 
+ENGLISH_EDITORIAL_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("literal_full_scope_autonomy", re.compile(r"\bfull scope autonomy\b", re.IGNORECASE)),
+    ("literal_direct_indirect_people", re.compile(r"\bdirect and indirect people\b", re.IGNORECASE)),
+    ("literal_correctly_modeled_roi", re.compile(r"\bcorrectly modeled ROI\b", re.IGNORECASE)),
+    ("literal_deliver_expansion", re.compile(r"\bdeliver(?:ed|ing)? expansion\b", re.IGNORECASE)),
+    ("literal_lead_contact_time", re.compile(r"\blead-contact time\b", re.IGNORECASE)),
+    ("literal_build_operations_from_zero", re.compile(r"\bbuild(?:ing)? operations from zero\b", re.IGNORECASE)),
+    ("causal_which_allowed_me", re.compile(r"\bwhich allowed me(?: to)?\b", re.IGNORECASE)),
+    ("summary_autobiographical_i_have", re.compile(r"\bI have\b", re.IGNORECASE)),
+    ("summary_autobiographical_i_am_pursuing", re.compile(r"\bI am pursuing\b", re.IGNORECASE)),
+)
+
+
+def validate_english_editorial_quality(payload: dict[str, Any]) -> dict[str, Any]:
+    """Block literal or autobiographical English CV copy before rendering.
+
+    This is a deterministic guard, not an automatic translator. It protects the
+    canonical English source from known Portuguese-to-English structures while
+    leaving factual and stylistic judgment to the source editor/reviewer.
+    """
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    if metadata.get("language") != "en":
+        return {"status": "skipped", "violations": []}
+
+    summary = str(payload.get("summary") or payload.get("resumo") or "")
+    violations: list[dict[str, str]] = []
+
+    for rule_id, pattern in ENGLISH_EDITORIAL_RULES:
+        if rule_id.startswith("summary_"):
+            matches = list(pattern.finditer(summary))
+            for match in matches:
+                violations.append({"rule": rule_id, "section": "summary", "match": match.group(0)})
+
+    experiences = payload.get("experiences") if isinstance(payload.get("experiences"), list) else []
+    for experience_index, experience in enumerate(experiences):
+        if not isinstance(experience, dict):
+            continue
+        bullets = experience.get("bullets") if isinstance(experience.get("bullets"), list) else []
+        for bullet_index, bullet in enumerate(bullets):
+            text = str(bullet.get("text") if isinstance(bullet, dict) else bullet or "")
+            if re.match(r"^\s*I\s+", text):
+                violations.append({
+                    "rule": "experience_first_person_bullet",
+                    "section": f"experiences[{experience_index}].bullets[{bullet_index}]",
+                    "match": text[:80],
+                })
+            for rule_id, pattern in ENGLISH_EDITORIAL_RULES:
+                if rule_id.startswith("summary_"):
+                    continue
+                for match in pattern.finditer(text):
+                    violations.append({
+                        "rule": rule_id,
+                        "section": f"experiences[{experience_index}].bullets[{bullet_index}]",
+                        "match": match.group(0),
+                    })
+
+    result = {"status": "ok" if not violations else "blocked", "violations": violations}
+    if violations:
+        rule_ids = ", ".join(dict.fromkeys(item["rule"] for item in violations))
+        raise ValidationFailure(f"english_editorial_guard: {rule_ids}")
+    return result
+
+
 def _require_enquadramento(app_dir: Path, fit_map: dict[str, Any]) -> dict:
     """GATE OBRIGATÓRIO — enquadramento-posicionamento.
 
@@ -447,6 +510,7 @@ def validate_cv_content(path: Path = CV_CONTENT_PATH) -> dict[str, Any]:
     ensure(path.exists(), f"cv_content_missing: {path}")
     active = derived_context_service.resolve_active_job_context()
     payload = read_json(path)
+    validate_english_editorial_quality(payload)
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     ensure(metadata.get("job_fingerprint") == active.fingerprint, "cv_content_stale_for_active_job")
     ensure(str(metadata.get("cargo") or "").strip(), "cv_content_missing_cargo_metadata")
@@ -642,40 +706,106 @@ def _trim_leverage_to_mechanism(leverage: str, result: str) -> str:
 
     The leverage bullet (B2) should focus on the mechanism (how the result happened), not
     repeat the outcomes that already appear in the result bullet (B3). This trims the leverage
-    text at the first result transition (e.g. "from X to Y") that also appears in the result
-    bullet, cutting back to the start of the result clause that introduces it.
+    text at the first result clause that duplicates a result in the result bullet, cutting back
+    to the start of the result clause that introduces it.
+
+    Two duplication patterns are handled:
+      1. Numeric transitions (e.g. "from X to Y" / "de X para Y") that also appear in B3.
+      2. Result clauses introduced by a result verb (reduced/raised/improved/cut/generated/
+         expanded/saved/... or PT equivalents) that carry a number/percent/currency token
+         (e.g. "gerando saving de R$70MM/ano", "reduzindo cancelamentos em 60%") that also
+         appears in B3 — even when there is no "from X to Y" transition.
 
     Returns the trimmed leverage text unchanged if no duplication is detected.
     """
     if not leverage or not result:
         return leverage
-    _result_verbs = r"(?:reduced|raised|improved|cut|increased|lowered|doubled|generated|expanded|boosted|eliminated|recovered|scaled|grew|saved)"
-    _trans = r"(?:from|de)\s+[\d.,%R$]+\s+(?:to|para)\s+[\d.,%R$]+"
+    _result_verbs = (
+        r"(?:reduced|raised|improved|cut|increased|lowered|doubled|generated|expanded|"
+        r"boosted|eliminated|recovered|scaled|grew|saved|"
+        r"reduzi|reduzindo|reduzir|reduziu|elevou|elevando|elevar|"
+        r"aumentei|aumentando|aumentar|aumentou|ampliei|ampliando|ampliar|ampliou|"
+        r"cortei|cortando|cortar|gerando|gerou|gerar|dobrei|dobrando|dobrar|"
+        r"recuperei|recuperando|recuperar|recuperou|otimizei|otimizando|otimizar|"
+        r"melhorei|melhorando|melhorar|expandi|expandindo|expandir|"
+        r"eliminei|eliminando|eliminar|impulsionei|impulsionando|impulsionar|"
+        r"acelerei|acelerando|acelerar|escalei|escalando|escalar|"
+        r"cresci|crescendo|crescer|salvei|salvando|salvar)"
+    )
+    _trans = (
+        r"(?:from|de)\s+[\d.,%R$]+[A-Za-zÀ-ú]*(?:\s+[A-Za-zÀ-ú]+)?\s+"
+        r"(?:to|para)\s+[\d.,%R$]+[A-Za-zÀ-ú]*(?:\s+[A-Za-zÀ-ú]+)?"
+    )
+    _num = r"[\d.,%R$]+"
+    _connectors = r"\b(?:o que permitiu que|o que permitiu|o que|permitindo|que)\b"
+
+    def _backup_to_connector(text: str, cut: int) -> int:
+        """Back up the cut to the start of the last result-clause connector before it,
+        so the trimmed B2 ends on a complete mechanism clause instead of a dangling
+        fragment like 'o que permitiu que a expansão.' or 'o que permitiu.'"""
+        conn_matches = list(re.finditer(_connectors, text[:cut], flags=re.IGNORECASE))
+        if conn_matches:
+            last_conn = conn_matches[-1]
+            if last_conn.start() > 0:
+                return last_conn.start()
+        return cut
+
+    def _finish(trimmed: str) -> str:
+        trimmed = trimmed.rstrip()
+        trimmed = re.sub(r"[,\s]+$", "", trimmed)
+        trimmed = re.sub(r"\s*-\s*which\s+allowed.*$", "", trimmed, flags=re.IGNORECASE)
+        trimmed = re.sub(r"\s*\.\s*this\s+.*$", "", trimmed, flags=re.IGNORECASE)
+        trimmed = re.sub(r"\s*,\s*and\s*$", "", trimmed, flags=re.IGNORECASE)
+        trimmed = re.sub(r"\s+and\s*$", "", trimmed, flags=re.IGNORECASE)
+        trimmed = trimmed.rstrip()
+        if not trimmed.endswith("."):
+            trimmed += "."
+        return trimmed
+
+    # Collect the numeric/percent/currency tokens that appear in the result bullet (B3).
+    result_tokens = set(re.findall(_num, result))
+
+    # 1) Numeric transition duplication (existing behaviour).
     trans_matches = list(re.finditer(_trans, leverage, flags=re.IGNORECASE))
-    if not trans_matches:
-        return leverage
-    first_trans = trans_matches[0]
-    prefix = leverage[: first_trans.start()]
-    verb_matches = list(re.finditer(r"\b" + _result_verbs + r"\b", prefix, flags=re.IGNORECASE))
-    if verb_matches:
-        clause_start = verb_matches[-1].start()
-        after_verb = leverage[clause_start:]
-        if re.search(_trans, after_verb, flags=re.IGNORECASE):
-            cut = clause_start
+    if trans_matches:
+        first_trans = trans_matches[0]
+        prefix = leverage[: first_trans.start()]
+        verb_matches = list(re.finditer(r"\b" + _result_verbs + r"\b", prefix, flags=re.IGNORECASE))
+        if verb_matches:
+            clause_start = verb_matches[-1].start()
+            after_verb = leverage[clause_start:]
+            if re.search(_trans, after_verb, flags=re.IGNORECASE):
+                cut = clause_start
+            else:
+                cut = first_trans.start()
         else:
             cut = first_trans.start()
-    else:
-        cut = first_trans.start()
-    trimmed = leverage[:cut].rstrip()
-    trimmed = re.sub(r"[,\s]+$", "", trimmed)
-    trimmed = re.sub(r"\s*-\s*which\s+allowed.*$", "", trimmed, flags=re.IGNORECASE)
-    trimmed = re.sub(r"\s*\.\s*this\s+.*$", "", trimmed, flags=re.IGNORECASE)
-    trimmed = re.sub(r"\s*,\s*and\s*$", "", trimmed, flags=re.IGNORECASE)
-    trimmed = re.sub(r"\s+and\s*$", "", trimmed, flags=re.IGNORECASE)
-    trimmed = trimmed.rstrip()
-    if not trimmed.endswith("."):
-        trimmed += "."
-    return trimmed
+        cut = _backup_to_connector(leverage, cut)
+        return _finish(leverage[:cut])
+
+    # 2) Result-clause duplication without a numeric transition: find the LAST result verb
+    #    whose following clause carries a number/percent/currency token that also appears in B3.
+    verb_matches = list(re.finditer(r"\b" + _result_verbs + r"\b", leverage, flags=re.IGNORECASE))
+    for vm in reversed(verb_matches):
+        clause = leverage[vm.start():]
+        # The clause runs to the end of the current sentence (or the whole remainder).
+        clause_tokens = set(re.findall(_num, clause))
+        if clause_tokens & result_tokens:
+            cut = vm.start()
+            # If the duplicated result is followed by a mechanism introduced by "ao <infinitivo>"
+            # (e.g. "gerando saving de R$70MM/ano ao prever saturação e calibrar capacidade"),
+            # cut the duplicated result but keep the mechanism, reconnecting with "para".
+            _ao_mech = re.search(r"\bao\s+([a-zà-ú]+\b.*)", clause, flags=re.IGNORECASE)
+            if _ao_mech:
+                mech = _ao_mech.group(1).strip()
+                trimmed = leverage[:vm.start()].rstrip()
+                trimmed = re.sub(r"[,\s]+$", "", trimmed)
+                trimmed = f"{trimmed}, para {mech}"
+                return _finish(trimmed)
+            cut = _backup_to_connector(leverage, cut)
+            return _finish(leverage[:cut])
+
+    return leverage
 
 
 def _materialize_experience(entry: dict[str, Any], job_family: str, *, language: str = "pt-BR") -> dict[str, Any]:
@@ -761,9 +891,8 @@ def _build_summary(
             case_en = _positioning_case_for_summary(positioning, language)
             if case_en:
                 summary = (
-                    f"{opening} I have delivered {supports[0]['summary_fragment']}. "
-                    f"I also led initiatives that generated {supports[1]['summary_fragment']}. "
-                    f"I am pursuing a {cargo} role focused on {case_en}."
+                    f"{opening} Track record of {supports[0]['summary_fragment']} and "
+                    f"{supports[1]['summary_fragment']}, focused on {case_en}."
                 )
     return summary, supports
 
@@ -1281,6 +1410,7 @@ def _validate_trusted_renderer_values(
     if payload.get("candidate") != expected_candidate or payload.get("stack") != _facts_stack(language):
         raise ValidationFailure("CV canonical evidence does not authorize rendered contact or stack")
     if language == "en":
+        validate_english_editorial_quality(payload)
         expected_experiences = [
             {"experience_id": item["id"], "role": item["role"], "company": item["company"], "period": item["period"], "bullets": item["bullets"]}
             for item in materialized
@@ -1329,7 +1459,7 @@ def _english_period(period: str) -> str:
     translated = period
     for source, target in months.items():
         translated = re.sub(rf"\b{source}(?=/|\s)", target, translated, flags=re.IGNORECASE)
-    return translated.replace("Atual", "Present").replace("/", " ")
+    return translated.replace("Atual", "Present")
 
 
 def _experience_source_locator(experience_id: str) -> str:

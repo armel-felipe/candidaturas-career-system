@@ -73,6 +73,16 @@ IGNORED_PARTS = {
     "outputs",
     ".git",
     "__pycache__",
+    # Local/runtime environments are not project source. Their standard
+    # activation helpers include .bat/.ps1 files on every platform.
+    ".venv",
+    ".venv-test",
+    ".venvs",
+    "venv",
+    "backups",
+    ".worktrees",
+    "hermes",
+    "hermes-src",
 }
 
 FORBIDDEN_TEXT = [
@@ -105,7 +115,7 @@ DOC_EXPECTATIONS = {
         "Nao fiz exatamente X, mas fiz Y, que transfere parcialmente para X porque Z.",
         "npm run fit-map:status",
         "npm run fit-map:check:extract",
-        "antes de preencher `.career-state/fit_map.draft.json`, nao escrever subtotais nem nota final na conversa",
+        "antes de preencher o draft local, nao escrever subtotais nem nota final na conversa",
     ],
     "AGENTS.md": [
         "depois de ler a skill pedida, executar a proxima acao concreta",
@@ -116,13 +126,13 @@ DOC_EXPECTATIONS = {
         "npm run fit-map:status",
         "npm run fit-map:check:extract",
         "python scripts/diagnose_session_stall.py <session.md>",
-        "antes de preencher `.career-state/fit_map.draft.json`, não escrever subtotais nem nota final na conversa",
+        "antes de preencher o draft local, não escrever subtotais nem nota final na conversa",
         "presumir arquivos intermediários brutos por convenção de nome sem que tenham sido criados no runtime",
-        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
+        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/applications_v2/<id>/fit_map.json --registry .career-state/applications_v2/<id>/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
         "qualquer bloco \"Revisão concluída\" sem `cv:approve` ou `cv:deliver` executado sobre o artefato final é inválido",
     ],
     ".agents/skills/career-system/SKILL.md": [
-        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
+        "python scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/applications_v2/<application_id>/fit_map.json --registry .career-state/applications_v2/<application_id>/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json",
         "aprovar CV em DOCX sem executar o gate objetivo `scripts/review_output.py` sobre o artefato final em `outputs/`",
         "tratar inspeção do script gerador como substituto da revisão do DOCX final",
         "npm run fit-map:status",
@@ -138,7 +148,7 @@ DOC_EXPECTATIONS = {
         "depois de salvar a vaga e ler as referencias obrigatorias, o agente vai direto para `npm run fit-map:template`",
         "npm run fit-map:status",
         "python scripts/diagnose_session_stall.py <session.md>",
-        "antes de preencher `.career-state/fit_map.draft.json`, o agente nao escreve subtotais nem nota final na conversa",
+        "antes de preencher o draft local, nao escrever subtotais nem nota final na conversa",
         "nao tentar abrir arquivo bruto presumido por nome, como `*_raw.txt`",
     ],
 }

@@ -184,3 +184,29 @@ antes de tentar de novo:
 ```bash
 rm -rf /home/ubuntu/projetos/candidaturas/.career-state/browser/linkedin
 ```
+
+## Limites de sessão Hermes no pipeline
+
+O pipeline pode criar uma sessão Telegram limpa para `vagas_bot_01` ou
+`vagas_bot_02` depois de um estágio terminal. O handoff compacto e o ledger são
+persistidos antes da mutação; o transcript Hermes anterior não é apagado.
+
+Consulte a sessão ativa e retome um ponto antigo com:
+
+```text
+/status
+/resume <session_id_antigo>
+```
+
+Inspecione o vínculo de uma candidatura com:
+
+```bash
+jq . .career-state/applications_v2/<ID>/hermes_handoff.json
+jq . .career-state/applications_v2/<ID>/hermes_session_ledger.json
+```
+
+Operações ambíguas ficam como `pending_verification` e são reconciliadas pelo
+heartbeat usando apenas consulta ao gateway. Para desligar a automação, mantenha
+`hermes_session_boundaries.enabled=false` e `mode=disabled` em
+`.career-state/applications_v2/config.json`; `/new` e `/resume` manuais continuam
+funcionando.

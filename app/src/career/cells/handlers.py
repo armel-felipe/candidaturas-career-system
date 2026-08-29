@@ -332,6 +332,7 @@ def _review_cv(context: CellExecutionContext) -> CellOutput:
             polish_path,
             translation_registry_path=translation_registry_path,
             control_db_path=context.control_db_path,
+            enquadramento_path=context.paths.app_dir / "enquadramento.json",
         )
     except SystemExit as exc:
         raise ValueError(f"objective CV review failed: {exc}") from exc

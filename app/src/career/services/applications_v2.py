@@ -31,6 +31,8 @@ from career.services.application_context import (
 from career.services.cell_store import CellStore
 from career.services.agent_requests import CellRequestBuilder
 from career.services.database import Database
+from career.services.hermes_session_bridge import HermesSessionBridge, HermesSessionBridgeError
+from career.services.hermes_session_ledger import HermesSessionLedger
 from career.utils import (
     ValidationFailure,
     read_json,
@@ -99,6 +101,15 @@ DEFAULT_CONFIG = {
             "notion_write": "explicit_request",
             "email_draft": "manual",
         },
+    },
+    "hermes_session_boundaries": {
+        "enabled": False,
+        "mode": "disabled",
+        "profile_id": "",
+        "session_key": "",
+        "terminal_stages": ["done", "low_fit"],
+        "endpoints": {},
+        "binding_profile_ids": {},
     },
 }
 
@@ -174,6 +185,8 @@ def _app_paths(app_dir: Path) -> dict[str, Path]:
     return {
         "manifest": app_dir / "manifest.json",
         "state": app_dir / "state.json",
+        "hermes_session_ledger": app_dir / "hermes_session_ledger.json",
+        "hermes_handoff": app_dir / "hermes_handoff.json",
         "job_description": app_dir / "job_description.md",
         "saved_job_description": app_dir / "saved_job_description_path.txt",
         "fit_map_draft": app_dir / "fit_map.draft.json",
@@ -311,6 +324,10 @@ def _load_config() -> dict[str, Any]:
     merged["harness"]["approvals"] = {
         **DEFAULT_CONFIG["harness"]["approvals"],
         **payload.get("harness", {}).get("approvals", {}),
+    }
+    merged["hermes_session_boundaries"] = {
+        **DEFAULT_CONFIG["hermes_session_boundaries"],
+        **payload.get("hermes_session_boundaries", {}),
     }
     merged["success_status"] = notion_service.sanitize_automation_status(str(merged.get("success_status") or ""))
     merged["blocked_review_status"] = notion_service.sanitize_automation_status(str(merged.get("blocked_review_status") or ""))
@@ -1320,6 +1337,7 @@ def _validate_cv_content_contract(paths: dict[str, Path]) -> None:
         raise ValidationFailure("cv_content.json must include a non-empty summary/resumo.")
     from career.services import cv_content as cv_content_service
 
+    cv_content_service.validate_english_editorial_quality(payload)
     cv_content_service.validate_positioning_contract(payload)
     consolidated_markers = [
         "head e diretor",
@@ -1847,11 +1865,366 @@ def _result_payload(application: dict[str, Any], paths: dict[str, Path], state: 
         "llm_session_count": _current_llm_session_count(state),
         "llm_session_budget": _llm_session_budget(config),
         "llm_session_remaining": _remaining_llm_sessions(state, config),
+        "hermes_session_boundary": state.get("hermes_session_boundary"),
         "application_dir": str(paths["manifest"].parent.relative_to(ROOT)),
         "conversation_context": str(paths["conversation_context"].relative_to(ROOT)),
         "output_docx": state.get("output_docx"),
         "updated_at": utc_now_iso(),
     }
+
+
+def _handoff_path_value(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _handoff_artifact_paths(paths: dict[str, Path], state: dict[str, Any]) -> list[str]:
+    candidates = [
+        paths["job_description"],
+        paths["fit_map"],
+        paths["cv_content"],
+        paths["cv_review_report"],
+        paths["polish_review"],
+        paths["feras_formal"],
+        paths["habilidades_gupy"],
+        paths["habilidades_mercado_livre"],
+        paths["conversation_context"],
+        paths["run_result"],
+    ]
+    output_docx = str(state.get("output_docx") or "").strip()
+    if output_docx:
+        output_path = Path(output_docx)
+        if not output_path.is_absolute():
+            output_path = ROOT / output_path
+        candidates.append(output_path)
+    return [_handoff_path_value(path) for path in candidates if path.exists()]
+
+
+def write_hermes_handoff(
+    application: dict[str, Any],
+    paths: dict[str, Path],
+    state: dict[str, Any],
+    *,
+    run_id: str,
+    current_session_id: str | None,
+    previous_session_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Persist the compact application context before a session boundary."""
+    application_id = _record_key(application)
+    payload = {
+        "application_id": application_id,
+        "record_id": application.get("record_id"),
+        "company": application.get("company"),
+        "role": application.get("role") or application.get("title"),
+        "stage": state.get("stage"),
+        "service_status": state.get("service_status") or state.get("stage"),
+        "fit_score": state.get("score"),
+        "artifact_paths": _handoff_artifact_paths(paths, state),
+        "next_action": state.get("next_action"),
+        "last_run_id": str(run_id),
+        "current_session_id": str(current_session_id) if current_session_id else None,
+        "previous_session_ids": list(dict.fromkeys(str(item) for item in (previous_session_ids or []) if str(item))),
+        "generated_at": utc_now_iso(),
+    }
+    payload["handoff_path"] = _handoff_path_value(paths["hermes_handoff"])
+    write_json(paths["hermes_handoff"], payload)
+    return payload
+
+
+def _session_key_hash(session_key: str) -> str:
+    return hashlib.sha256(str(session_key).encode("utf-8")).hexdigest()[:16]
+
+
+def _safe_boundary_event(
+    paths: dict[str, Path],
+    event_type: str,
+    *,
+    application_id: str,
+    profile_id: str,
+    session_key: str,
+    run_id: str,
+    reason: str,
+    result: dict[str, Any] | None = None,
+) -> None:
+    payload = {
+        "application_id": application_id,
+        "profile_id": profile_id,
+        "session_key_hash": _session_key_hash(session_key),
+        "run_id": run_id,
+        "idempotency_key": f"{run_id}:reset",
+        "reason": reason,
+    }
+    for field in ("status", "old_session_id", "new_session_id", "target_session_id", "error"):
+        if result and result.get(field) is not None:
+            payload[field] = result[field]
+    _append_event(paths, event_type, **payload)
+
+
+def _boundary_event_type(result: dict[str, Any]) -> str:
+    status = str(result.get("status") or "")
+    if status in {"reset", "resumed", "already_applied", "dry_run"}:
+        return "session_boundary_applied"
+    if status in {"gateway_conflict", "binding_conflict", "conflict"}:
+        return "session_boundary_conflict"
+    if status in {"pending_verification", "handoff_required", "not_resumable"}:
+        return "session_boundary_pending"
+    return "session_boundary_failed"
+
+
+def _state_boundary_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep session routing details out of the application state summary."""
+    return {key: value for key, value in result.items() if key != "session_key"}
+
+
+def _maybe_apply_hermes_session_boundary(
+    application: dict[str, Any],
+    paths: dict[str, Path],
+    state: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    run_id: str,
+    pipeline_dry_run: bool,
+) -> dict[str, Any]:
+    """Optionally reset the owning Telegram session after a terminal stage.
+
+    This hook is fail-closed: it is disabled by the default config, refuses
+    running stages, requires an explicit profile/session binding, and keeps a
+    gateway failure in the application result instead of changing the result
+    stage to ``error``.
+    """
+    settings = config.get("hermes_session_boundaries")
+    if not isinstance(settings, dict) or not bool(settings.get("enabled", False)):
+        return {"status": "disabled"}
+    stage = str(state.get("stage") or "").strip()
+    if stage.endswith("_running"):
+        return {"status": "skipped_running_stage", "stage": stage}
+    terminal_stages = settings.get("terminal_stages", ["done", "low_fit"])
+    if stage not in {str(item).strip() for item in terminal_stages if str(item).strip()}:
+        return {"status": "skipped_stage", "stage": stage}
+
+    profile_id = str(
+        settings.get("profile_id")
+        or application.get("hermes_profile_id")
+        or os.environ.get("CAREER_HERMES_PROFILE_ID")
+        or ""
+    ).strip()
+    session_key = str(
+        settings.get("session_key")
+        or application.get("hermes_session_key")
+        or os.environ.get("CAREER_HERMES_SESSION_KEY")
+        or ""
+    ).strip()
+    if not profile_id or not session_key:
+        return {
+            "status": "skipped_missing_binding",
+            "profile_id": profile_id or None,
+            "session_key_configured": bool(session_key),
+        }
+
+    reason = f"pipeline:{stage}"
+    _safe_boundary_event(
+        paths,
+        "session_boundary_requested",
+        application_id=_record_key(application),
+        profile_id=profile_id,
+        session_key=session_key,
+        run_id=run_id,
+        reason=reason,
+    )
+
+    mode = str(settings.get("mode") or "disabled").strip().lower()
+    if pipeline_dry_run and mode == "live":
+        mode = "dry_run"
+    try:
+        bridge = HermesSessionBridge(
+            root=CAREER_STATE,
+            mode=mode,
+            endpoints=settings.get("endpoints") if isinstance(settings.get("endpoints"), dict) else {},
+            binding_profile_ids=(
+                settings.get("binding_profile_ids")
+                if isinstance(settings.get("binding_profile_ids"), dict)
+                else {}
+            ),
+        )
+        observation = bridge.observe_current_session(
+            _record_key(application),
+            profile_id,
+            session_key,
+        )
+        ledger = HermesSessionLedger(
+            paths["hermes_session_ledger"],
+            _record_key(application),
+        )
+        previous_session_ids: list[str] = []
+        for record in ledger.history():
+            for field in ("old_session_id", "new_session_id"):
+                value = str(record.get(field) or "").strip()
+                if value and value not in previous_session_ids:
+                    previous_session_ids.append(value)
+        handoff = write_hermes_handoff(
+            application,
+            paths,
+            state,
+            run_id=run_id,
+            current_session_id=observation.get("current_session_id"),
+            previous_session_ids=previous_session_ids,
+        )
+        if observation.get("status") != "ok":
+            result = {
+                **observation,
+                "status": "pending_verification",
+                "application_id": _record_key(application),
+                "stage": stage,
+                "handoff_path": handoff["handoff_path"],
+            }
+            _safe_boundary_event(
+                paths,
+                _boundary_event_type(result),
+                application_id=_record_key(application),
+                profile_id=profile_id,
+                session_key=session_key,
+                run_id=run_id,
+                reason=reason,
+                result=result,
+            )
+            return result
+        result = bridge.reset_for_application(
+            _record_key(application),
+            profile_id,
+            session_key,
+            run_id,
+            reason,
+        )
+    except HermesSessionBridgeError as exc:
+        result = {
+            "status": "pending_verification",
+            "error": str(exc),
+            "profile_id": profile_id,
+            "session_key_configured": True,
+        }
+        _safe_boundary_event(
+            paths,
+            _boundary_event_type(result),
+            application_id=_record_key(application),
+            profile_id=profile_id,
+            session_key=session_key,
+            run_id=run_id,
+            reason=reason,
+            result=result,
+        )
+        return result
+    except (OSError, TimeoutError) as exc:
+        result = {
+            "status": "pending_verification",
+            "error": str(exc) or exc.__class__.__name__,
+            "profile_id": profile_id,
+            "session_key_configured": True,
+        }
+        _safe_boundary_event(
+            paths,
+            _boundary_event_type(result),
+            application_id=_record_key(application),
+            profile_id=profile_id,
+            session_key=session_key,
+            run_id=run_id,
+            reason=reason,
+            result=result,
+        )
+        return result
+    result = {
+        **result,
+        "application_id": _record_key(application),
+        "stage": stage,
+        "handoff_path": handoff["handoff_path"],
+    }
+    _safe_boundary_event(
+        paths,
+        _boundary_event_type(result),
+        application_id=_record_key(application),
+        profile_id=profile_id,
+        session_key=session_key,
+        run_id=run_id,
+        reason=reason,
+        result=result,
+    )
+    return result
+
+
+def reconcile_hermes_session_boundaries(
+    *,
+    root: Path = CAREER_STATE,
+    config: dict[str, Any] | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Resolve pending operations by reading gateway state only.
+
+    Reconciliation never calls ``reset_for_application`` or ``resume_for_application``;
+    it appends a ledger resolution after comparing the observed gateway session
+    with the pending operation's expected old/target IDs.
+    """
+    settings = (config or {}).get("hermes_session_boundaries", {})
+    if not isinstance(settings, dict) or not bool(settings.get("enabled", False)):
+        return {"status": "disabled", "scanned": 0, "reconciled": 0, "pending": 0, "failed": 0}
+    if dry_run:
+        return {"status": "dry_run", "scanned": 0, "reconciled": 0, "pending": 0, "failed": 0}
+    mode = str(settings.get("mode") or "disabled").strip().lower()
+    if mode == "disabled":
+        return {"status": "disabled", "scanned": 0, "reconciled": 0, "pending": 0, "failed": 0}
+
+    applications_dir = Path(root) / "applications_v2"
+    report = {"status": "completed", "scanned": 0, "reconciled": 0, "pending": 0, "failed": 0}
+    if not applications_dir.exists():
+        return report
+    for ledger_path in sorted(applications_dir.glob("*/hermes_session_ledger.json")):
+        application_id = ledger_path.parent.name
+        ledger = HermesSessionLedger(ledger_path, application_id)
+        for pending in ledger.pending_records():
+            report["scanned"] += 1
+            bridge = HermesSessionBridge(
+                root=Path(root),
+                mode=mode,
+                endpoints=settings.get("endpoints") if isinstance(settings.get("endpoints"), dict) else {},
+                binding_profile_ids=(
+                    settings.get("binding_profile_ids")
+                    if isinstance(settings.get("binding_profile_ids"), dict)
+                    else {}
+                ),
+            )
+            observed = bridge.observe_current_session(
+                application_id,
+                str(pending["profile_id"]),
+                str(pending["session_key"]),
+            )
+            if observed.get("status") != "ok":
+                report["pending"] += 1
+                continue
+            current_session_id = str(observed.get("current_session_id") or "").strip()
+            operation = str(pending.get("operation") or "")
+            target_session_id = str(pending.get("target_session_id") or "").strip() or None
+            applied = (
+                current_session_id != str(pending.get("old_session_id") or "")
+                if operation == "reset"
+                else current_session_id == target_session_id
+            )
+            status = "reconciled" if applied else "failed"
+            ledger.record_reconciliation(
+                profile_id=str(pending["profile_id"]),
+                session_key=str(pending["session_key"]),
+                old_session_id=str(pending["old_session_id"]),
+                current_session_id=current_session_id,
+                target_session_id=target_session_id,
+                run_id=f"reconcile:{pending['run_id']}",
+                reason=f"reconcile:{operation}",
+                idempotency_key=f"{pending['idempotency_key']}:reconcile:{current_session_id}",
+                resolves_idempotency_key=str(pending["idempotency_key"]),
+                status=status,
+            )
+            report["reconciled"] += 1
+            if not applied:
+                report["failed"] += 1
+    return report
 
 
 def _run_repair_cycle(
@@ -2405,6 +2778,11 @@ def _run_cellular_heartbeat_authorized(
     started_at = utc_now_iso()
     config = _load_config()
     maintenance_report = _run_maintenance_sync(config, options)
+    hermes_reconciliation = reconcile_hermes_session_boundaries(
+        root=CAREER_STATE,
+        config=config,
+        dry_run=options.dry_run,
+    )
     token, database_id = notion_service.notion_config()
     queue = _load_queue(token, database_id)
     effective_max = (
@@ -2896,6 +3274,22 @@ def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
                             state["last_error"] = state.get("last_error") or repair_reason or generate_result.get("message")
                 _write_state(paths, state)
                 _write_context(application, paths, state)
+            boundary_run_id = str(state.get("hermes_boundary_run_id") or "").strip()
+            if not boundary_run_id:
+                boundary_run_id = f"applications-v2:{record_key}:{uuid4().hex}"
+                state["hermes_boundary_run_id"] = boundary_run_id
+            boundary_result = _maybe_apply_hermes_session_boundary(
+                application,
+                paths,
+                state,
+                config,
+                run_id=boundary_run_id,
+                pipeline_dry_run=options.dry_run,
+            )
+            if boundary_result.get("status") != "disabled":
+                state["hermes_session_boundary"] = _state_boundary_result(boundary_result)
+                _write_state(paths, state)
+                _write_context(application, paths, state)
             result = _result_payload(application, paths, state)
             write_json(paths["run_result"], result)
             _append_event(paths, "run_result_written", result=result)
@@ -2936,6 +3330,7 @@ def _run_heartbeat_unlocked(options: HeartbeatV2Options) -> dict[str, Any]:
         "dry_run": options.dry_run,
         "run_agent": options.run_agent,
         "maintenance": maintenance_report,
+        "hermes_session_reconciliation": hermes_reconciliation,
         "max_per_run": effective_max,
         "selected": len(selected),
         "skipped_locked": skipped_locked,

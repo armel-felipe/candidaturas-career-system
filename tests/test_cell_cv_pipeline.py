@@ -113,7 +113,10 @@ def _draft(company: str, role: str, *, language: str, marker: str) -> dict:
                 "diferenciais_desejaveis": {"itens": [score]},
             },
         },
-        "gaps_sem_cobertura": ["Experiência literal no setor da empresa"],
+        "gaps_sem_cobertura": [
+            "Experiência literal no setor da empresa",
+            *(["growth"] if language == "en" else []),
+        ],
         "historias_selecionadas": {
             "principal": story,
             "secundaria": {**story, "empresa": "wehandle"},
@@ -272,16 +275,16 @@ def test_two_application_scoped_cv_pipelines_do_not_share_content_or_reviews(tmp
         portuguese_docx = _docx_text(first_artifact)
         english_docx = _docx_text(second_artifact)
         assert "Head de Operações" in portuguese_docx
-        assert "maio/2024 — fev/2026" in portuguese_docx
+        assert "maio/2024 a fev/2026" in portuguese_docx
         assert "Formação" in portuguese_docx
         assert "Stack técnica" in portuguese_docx
-        assert "Português — Nativo" in portuguese_docx
+        assert "Português: Nativo" in portuguese_docx
         assert "Head of Operations" in english_docx
-        assert "May 2024 — Feb 2026" in english_docx
-        assert "maio/2024 — fev/2026" not in english_docx
+        assert "May 2024 to Feb 2026" in english_docx
+        assert "maio/2024 a fev/2026" not in english_docx
         assert "Education" in english_docx
         assert "Technical Stack" in english_docx
-        assert "Portuguese — Native" in english_docx
+        assert "Portuguese: Native" in english_docx
         for payload in (first_content, second_content):
             assert payload["metadata"]["candidate_facts_revision"]
             assert all("experience_id" in item and "evidence_id" in item for item in payload["experiences"])

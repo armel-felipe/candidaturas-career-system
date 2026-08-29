@@ -19,6 +19,9 @@ class SQLitePersistenceTests(unittest.TestCase):
         "006_gate_receipt_scope_and_idempotency.py",
         "007_artifact_review_provenance.py",
         "008_revision_aware_gate_receipts.py",
+        "009_historical_reconciliation.sql",
+        "010_quarantine_orphan_receipts.py",
+        "011_delivery_profiles.py",
     ]
 
     def setUp(self) -> None:
@@ -31,7 +34,7 @@ class SQLitePersistenceTests(unittest.TestCase):
     def test_migrate_registers_schema_and_runtime_pragmas(self) -> None:
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 8)
+        self.assertEqual(applied, 11)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(self._pragma("foreign_keys"), 1)
         self.assertEqual(self._pragma("busy_timeout"), 10000)
@@ -136,7 +139,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 8)
+        self.assertEqual(applied, 11)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(
             self._columns("resource_locks"),
@@ -190,7 +193,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 4)
+        self.assertEqual(applied, 7)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertTrue(
             {"logical_key", "content_hash"}.issubset(self._columns("reference_documents"))
@@ -227,6 +230,12 @@ class SQLitePersistenceTests(unittest.TestCase):
 
     def test_migrate_006_backfills_validation_receipt_scope_columns(self) -> None:
         self.database.migrate()
+        self.database.get_connection().executescript(
+            """
+            DROP TRIGGER IF EXISTS validation_receipts_require_scope_insert;
+            DROP TRIGGER IF EXISTS validation_receipts_require_scope_update;
+            """
+        )
         created_at = "2026-08-18T00:00:00+00:00"
         self.database.execute(
             """INSERT INTO applications

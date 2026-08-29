@@ -38,6 +38,10 @@ from agent.model_metadata import (
 logger = logging.getLogger(__name__)
 
 
+class PreLlmHookBlocked(RuntimeError):
+    """Stop a turn when a mandatory pre-LLM supervisor cannot complete."""
+
+
 def _compression_made_progress(
     orig_len: int, new_len: int, orig_tokens: int, new_tokens: int
 ) -> bool:
@@ -505,6 +509,9 @@ def build_turn_context(
             _spill_if_oversized = None  # type: ignore[assignment]
             _spill_config_cached = None
         for r in _pre_results:
+            if isinstance(r, dict) and r.get("action") == "block":
+                message = str(r.get("message") or "pre-LLM supervisory hook blocked the turn")
+                raise PreLlmHookBlocked(message)
             _piece: str = ""
             if isinstance(r, dict) and r.get("context"):
                 _piece = str(r["context"])

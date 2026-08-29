@@ -145,6 +145,62 @@ def test_fresh_cli_run_executes_registered_production_handler_and_validator(
         database.close()
 
 
+def test_run_agent_flag_delegates_to_explicit_cellular_runner(
+    tmp_path, monkeypatch, capsys
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    monkeypatch.setenv("CAREER_CONTROL_DB_ID", database.control_db_identity())
+    applications_root = tmp_path / "applications"
+    application_paths = paths_for("app-agent", root=applications_root)
+    application_paths.app_dir.mkdir(parents=True)
+    application_paths.job_description.write_text(
+        "# Operations Manager\n\nLead planning and logistics operations.",
+        encoding="utf-8",
+    )
+    executor = CellExecutor(database, applications_root=applications_root)
+    run_id = executor.plan("app-agent", {"cv"}).run_id
+    executor.release_workspace_lease()
+
+    calls = []
+
+    def explicit_runner(**kwargs):
+        calls.append(kwargs)
+        return {
+            "status": "awaiting_agent",
+            "application_id": kwargs["application_id"],
+            "run_id": kwargs["run_id"],
+        }
+
+    monkeypatch.setattr(
+        cli.applications_v2_service,
+        "run_explicit_cellular",
+        explicit_runner,
+        raising=False,
+    )
+    monkeypatch.setattr(cli, "Database", lambda: database)
+    try:
+        assert cli.main(
+            [
+                "applications",
+                "run",
+                "--application-id",
+                "app-agent",
+                "--run-id",
+                run_id,
+                "--run-agent",
+            ]
+        ) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "awaiting_agent"
+        assert calls[0]["application_id"] == "app-agent"
+        assert calls[0]["run_id"] == run_id
+        assert calls[0]["options"].run_agent is True
+        assert calls[0]["options"].cellular is True
+    finally:
+        database.close()
+
+
 def test_run_repair_and_inspect_are_scoped_to_the_application(capsys, seeded_application):
     cli.main(
         [
@@ -188,7 +244,8 @@ def test_run_repair_and_inspect_are_scoped_to_the_application(capsys, seeded_app
     ) == 0
     repair_payload = json.loads(capsys.readouterr().out)
     assert repair_payload["run_id"] == run_id
-    assert repair_payload["ready_nodes"] == ["capture_source"]
+    assert repair_payload["ready_nodes"] == []
+    assert repair_payload["blocked_nodes"] == ["capture_source"]
 
     assert cli.main(
         [
@@ -202,7 +259,8 @@ def test_run_repair_and_inspect_are_scoped_to_the_application(capsys, seeded_app
     ) == 0
     inspect_payload = json.loads(capsys.readouterr().out)
     assert inspect_payload["run_id"] == run_id
-    assert inspect_payload["ready_nodes"] == ["capture_source"]
+    assert inspect_payload["ready_nodes"] == []
+    assert inspect_payload["blocked_nodes"] == ["capture_source"]
 
 
 def test_run_rejects_a_run_owned_by_a_different_application(capsys, seeded_application):

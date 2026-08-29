@@ -251,6 +251,28 @@ def test_resume_reconstructs_run_from_database_and_persisted_plan(tmp_path):
     database.close()
 
 
+def test_resume_ignores_auxiliary_gate_nodes_not_in_persisted_plan(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    executor = CellExecutor(database, applications_root=tmp_path / "applications")
+    plan = executor.plan("app-1", {"cv"})
+    database.execute(
+        """
+        INSERT INTO cell_nodes
+            (run_id, node_id, status, requires_json, latest_attempt, created_at, updated_at)
+        VALUES (?, ?, 'completed', '[]', 1, ?, ?)
+        """,
+        (plan.run_id, "cv_review_passed", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+    )
+
+    resumed = executor.resume(plan.run_id)
+
+    assert "cv_review_passed" not in resumed.statuses
+    assert "capture_source" in resumed.ready_nodes
+    assert set(resumed.statuses) == {node.node_id for node in plan.nodes}
+    database.close()
+
+
 def test_resource_lock_is_requested_only_by_contract(tmp_path, monkeypatch):
     database = Database(tmp_path / "career.db")
     database.init_schema()

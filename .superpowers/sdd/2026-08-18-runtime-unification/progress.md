@@ -275,12 +275,16 @@
 - Initial implementation commit: `383a950` (`Make supervisor specialist contracts fail closed`).
 - Independent review passed the SQLite contract, artifact/gate checks, audit events and 92-test suite, but found a critical response leak: the supervisor's final decoration calls unscoped `fit_map.payload_summary()`, which reads root `.career-state/fit_map.json` even after a scoped execution. Fix the final summary/menu to use the resolved application snapshot and add a contaminated-global-JSON regression.
 - Correction `72022f0` fixed the root FIT_MAP summary leak but was re-reviewed and rejected because the final menu still exposed global `active_intake`/root `workflow_state.json` and omitted the resolved application_id. Remove global menu fields or derive them from the same SQLite application, include application_id, and add the contaminated-workflow-state regression.
+- Broad Phase 3 review rejected the phase despite 132 passing tests. Load-bearing integration gaps: production FIT_MAP finalization never creates/passes an analysis revision; intake identity revisions do not link a job-description snapshot; re-intake can combine current description with stale analysis/gates; and the local-model map still emits global draft/guard/FIT_MAP commands. These require real intake→analysis→supervisor regressions before the phase gate can close.
+- Integration fix `009e92e` corrected the four original gaps, but broad re-review still found two production blockers: public individual FIT_MAP build/score/validate commands call gates without a revision_id, and re-intake V2 can violate the old receipt unique key (which omits revision_id) after persisting an orphan revision. Fix both through the public CLI and an atomic revision/receipt path before closing Phase 3.
+- Production closure `027e8f9` fixed both blockers: public FIT_MAP build/score/validate paths now persist and propagate `revision_id`; migration 008 makes gate receipts revision-aware and the revision/receipt operation atomic, including safe V2 re-intake and recoverable V1 behavior.
 
 ### Task 3.3: complete
 
 - Final commits: `383a950` (`Make supervisor specialist contracts fail closed`), `72022f0` (`Fix scoped supervisor fit map summary`), `7eb8022` (`Fix scoped supervisor menu identity`).
 - Task review: PASS after two correction rounds. Specialist contracts now require application-scoped artifacts, hashes, dependencies and gate/review receipts; failures are auditable and the final response/menu cannot inherit FIT_MAP or workflow state from another application.
 - Evidence: independent review passed 129 Phase 1–3 tests, 3 menu regressions, 6 contract regressions, `py_compile`, and `git diff --check`.
+- Final principal-agent verification (no subagents): the integrated Phase 3 controller suite passed `140/140`; targeted `compileall` and `git diff --check` also passed. Expected negative CLI `argparse` diagnostics did not affect the zero exit status.
 
 ## Phase 3 gate
 
@@ -288,7 +292,30 @@
 - [x] Derived context is materialized from SQLite with pinned revisions, one-way exports and cross-application isolation.
 - [x] Supervisor specialist contracts fail closed on missing/stale/cross-application artifacts or gates, with auditable blockers.
 - [x] Final scoped menu/summary excludes contaminated global FIT_MAP/workflow state and includes application_id.
-- [x] Independent controller-wide Phase 3 verification passed: 132 tests in the integrated persistence/intake/materializer/supervisor suite; negative CLI argparse messages were expected and the process exited `OK`.
+- [x] Controller-wide final Phase 3 verification passed in the principal agent: 140 tests in the integrated persistence/intake/materializer/supervisor/production-path suite; negative CLI argparse messages were expected and the process exited `OK`.
+- [x] Final production revision-lineage and revision-aware receipt fixes verified in the principal agent without subagents (`027e8f9`).
+
+## Phase 4 gate
+
+### Task 4.1: complete
+
+- Reescrevi `.agents/skills/processe-a-vaga/SKILL.md` para fechar somente o pacote-base: intake, FIT_MAP, CV aprovado, OneDrive e Notion.
+- O contrato documenta `core_package_sealed`, recuperação por `application_id` e proíbe autoridade em ponteiros/JSON globais.
+- `AGENTS.md` e `.agents/skills/career-system/SKILL.md` agora definem o mesmo limite entre pacote-base e pós-processamento.
+- Testes de contrato foram executados em ciclo TDD: falha contra a documentação anterior e aprovação após a correção.
+
+### Task 4.2: complete
+
+- Criado `src/career/services/post_processing.py` com `create_post_artifact`, `list_post_artifacts`, `read_post_artifact` e `revise_positioning`.
+- FERAS, habilidades Gupy e carta são gerados a partir da revisão SQLite atual, com hash, dependências e versionamento em `artifact_versions`/`artifact_contents`.
+- `ArtifactRepository` agora aceita e valida vínculo explícito com uma revisão de posicionamento; revisões anteriores permanecem recuperáveis.
+- FERAS, habilidades e carta foram alinhados para exigir `application_id` e não usar FIT_MAP/active-job global como autoridade.
+- Verificação final no agente principal, sem subagentes: suíte Fase 3 + Fase 4 passou `146/146`; validação das quatro skills, `compileall` e `git diff --check` passaram.
+
+- [x] Pacote-base e pós-processamento têm contratos separados.
+- [x] Artefatos pós-processamento são reentrantes, versionados e isolados por candidatura.
+- [x] Nova revisão de posicionamento preserva artefatos antigos e não altera os gates do pacote-base.
+- [x] Verificação integrada passou sem subagentes.
 
 ### Task 3.2 correction brief
 
@@ -322,3 +349,79 @@
 - Evidence: focused suite `tests/test_persistence_backup.py` passed 3/3 after the hash-verification change; dry-run for the corrected backup reported `sqlite_database_count=6`, `preserved_directory_count=26`, `preserved_file_count=13841`; real narrow-v2 backup completed with manifest at `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2/manifest.json`.
 - Backup path: `/opt/agent-projects/candidaturas-backups/runtime-unification-baseline-20260818-task-0.2-narrow-v2`
 - Validation: live manifest spot-check confirmed `workspaces/vagas_bot_01/state/applications_v2/256/fit_map.json` is present, `workspaces/vagas_bot_01/state/browser/linkedin/Default/Cookies` is absent, and the checked root/workspace files both have matching source/destination hash pairs.
+
+## Phase 5 execution — principal agent, sem subagentes
+
+- [x] Schema 009 criado para `migration_runs`, `migration_sources`, `migration_conflicts`, `legacy_records` e `application_locations`.
+- [x] Importer idempotente criado com dry-run, hashes de origem, conflitos de identidade/fingerprint e bloqueio sem identidade.
+- [x] CLI `persistence:migrate` criada; inventário real em sandbox classificou 7.306 fontes e registrou zero conflitos de parser.
+- [x] Reconciliador e CLI `applications:reconcile` criados; People Meet e Conexa 578 são recuperáveis como `historical_unverified`, com warning `missing_verified_receipts` e sem gate inventado.
+- [x] Índice cross-bot implementado; o mesmo `notion_578` foi recuperado como uma identidade com localizações root e `vagas_bot_02`.
+- [x] Contrato adequado: conflitos são por candidatura; 209 candidaturas foram aplicadas em sandbox, 11 ficaram bloqueadas e 7.145 fontes foram catalogadas.
+- [x] Testes focados da Fase 5 + migrações SQLite passaram `13/13`; `py_compile` e `git diff --check` passaram.
+- [x] Fase 5 concluída no modo seguro: o banco canônico não recebeu aplicação histórica automática; a aplicação em produção fica autorizada somente após revisão do relatório por candidatura.
+
+## Phase 5 gate
+
+- [x] Importação histórica é parcial por candidatura e idempotente.
+- [x] Vagas identificáveis sem receipts antigos são recuperáveis como `historical_unverified`.
+- [x] Identidades ambíguas, fingerprints incompatíveis e fontes alteradas ficam bloqueadas individualmente.
+- [x] People Meet e Conexa 578 foram validadas como recuperáveis, sem receipts inventados.
+- [x] O contrato e os critérios foram documentados no plano e na especificação de runtime.
+- [x] Fase 5 encerrada; a aplicação no banco canônico permanece uma operação controlada de cutover, não uma etapa silenciosa do desenvolvimento.
+
+## Phase 6 execution — principal agent, sem subagentes
+
+- [x] Compose raiz e Compose de referência agora montam `/opt/agent-projects/candidaturas` em `/workspace/candidaturas:ro`.
+- [x] `CAREER_CONTROL_DB_PATH`, `CAREER_CONTROL_DB_ID` e `CAREER_AUTHORITY_LEDGER_PATH` permanecem compartilhados entre os bots.
+- [x] Estado, inbox, outputs e ambiente continuam em overlays graváveis específicos de `vagas_bot_01` e `vagas_bot_02`.
+- [x] `app/` foi transformado em compatibilidade documental; não é mais fonte de código, skills ou execução de produção.
+- [x] Script de migração para VPS sincroniza a raiz canônica e exclui `app/` do runtime ativo.
+- [x] Testes de mounts e runtime duplicado passaram `5/5`; suíte combinada Fases 5–6 passou `18/18`; Compose, `bash -n`, `py_compile` e `git diff --check` passaram.
+
+## Phase 6 gate
+
+- [x] Os dois bots usam a mesma árvore canônica de código e skills.
+- [x] O control-plane SQLite é compartilhado e os dados de execução permanecem isolados por bot.
+- [x] Não há mount de `app/src`, `app/scripts` ou `app/.agents` em produção.
+- [x] `app/` permanece preservado para auditoria/rollback, sem duplicar o runtime ativo.
+- [x] Fase 6 concluída; não foram iniciados containers nem processamento real.
+
+## Phase 7 execution — principal agent, sem subagentes
+
+- [x] Verificador estrito criado com relatório estruturado e checks independentes.
+- [x] CLI e scripts `runtime:verify` e `runtime:canary` adicionados.
+- [x] Canário offline bloqueia CV sem review e aprova apenas `core_package_sealed`.
+- [x] Canário registra run ID, gates, artefatos, checks SQLite e checkpoint de rollback.
+- [x] Testes da Fase 7 passaram `5/5`.
+- [x] Nenhum container ou candidatura real foi iniciado.
+- [ ] Canários live dos dois bots: pendentes de autorização explícita e do
+  schema canônico passar no verificador estrito.
+
+## Phase 7 gate
+
+- [x] Verificador estrito e exit code fail-closed implementados.
+- [x] Fixture saudável passa sem blockers.
+- [x] Fixture sem revisão de CV bloqueia no estágio correto.
+- [x] Rollout live não é iniciado silenciosamente.
+- [x] Schema canônico 001–010 aplicado com backup antes/depois e integridade validada.
+- [x] 12 receipts históricos sem escopo foram preservados em quarentena, sem reassociação.
+- [x] `notion_578` foi resolvida por Notion ID, com perfil `gupy_registration`; a ausência de CV não é blocker para esta candidatura.
+- [x] Canário offline `notion_578` passou nos dois bots em `core_package_sealed`, sem CV ou OneDrive.
+- [x] Bug do adaptador Notion (empresa/cargo explícitos ignorados) corrigido com regressão.
+- [x] Bug de intake sem receipt `job_description_saved` corrigido com regressão.
+- [x] Gate de produção técnico encerrado: candidatura elegível, SQLite válido e canários executados nos dois containers; a observação pós-cutover continua aberta.
+
+## Phase 8 readiness — principal agent, sem subagentes
+
+- [x] Runtime de persistência unificado com modos explícitos `legacy_readonly`, `sqlite_primary` e `sqlite_only`; SQLite é a autoridade e JSON é export/backup.
+- [x] Perfil de entrega persistido por candidatura: `standard_cv` mantém o contrato CV/OneDrive/Notion; `gupy_registration` não exige CV nem OneDrive quando a inscrição Gupy está comprovada.
+- [x] Fallback silencioso de JSON removido do modo `sqlite_only`; candidatura ausente produz `application_not_in_sqlite` e orienta reconciliação autorizada.
+- [x] Comandos operacionais `applications:resolve`, `applications:reconcile` e `applications:artifact` foram materializados no CLI/package, eliminando referências a comandos inexistentes.
+- [x] Migração histórica aplicada no banco canônico com backup, 214 candidaturas persistidas e sem gates inventados.
+- [x] Reconciliação executada para as 214 candidaturas: 128 `historical_unverified`, uma reconciliada e 85 bloqueadas por evidência insuficiente; conflitos permanecem auditáveis.
+- [x] Caso 578 validado como Gupy nos dois bots, sem CV/OneDrive, e caso 589 resolvido por Notion ID como histórico não verificado.
+- [x] Verificador estrito final passou sem blockers; testes de persistência, projeção, reconciliação, documentação e canário passaram.
+- [x] Cutover aplicado ao `vagas_bot_02`, com backup pré-live, mount raiz canônico e `sqlite_only`; canário executado dentro do container passou.
+- [x] Após o primeiro checkpoint, cutover aplicado ao `vagas_bot_01`; canário executado dentro do container passou.
+- [ ] Encerrar a janela de observação e arquivar JSON legado somente após decisão explícita.

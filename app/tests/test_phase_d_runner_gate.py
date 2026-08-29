@@ -231,6 +231,10 @@ def test_probe_runner_blocks_when_runner_is_unavailable_without_calling_harness(
 
     monkeypatch.setattr("career.services.canary_control.shutil.which", lambda name: None)
     monkeypatch.setattr(
+        "career.services.agent_runner.SubprocessAgentRunner._resolve_command",
+        lambda self, name: name,
+    )
+    monkeypatch.setattr(
         "career.services.harness_supervisor.HarnessSupervisor.run_application_stage",
         blocked_harness,
     )

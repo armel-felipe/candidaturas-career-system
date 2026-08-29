@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -90,12 +91,25 @@ class TestParseResponse:
         )
         assert r == {"context": "child role=leaf"}
 
-    def test_pre_llm_call_block_ignored(self):
-        """Only pre_tool_call honors block directives."""
+    def test_pre_llm_call_block_from_script_is_not_a_context_payload(self):
+        """Only the timeout path creates the internal pre-LLM block directive."""
         r = shell_hooks._parse_response(
             "pre_llm_call", '{"decision": "block", "reason": "no"}',
         )
         assert r is None
+
+    def test_pre_llm_timeout_returns_block_directive(self):
+        spec = shell_hooks.ShellHookSpec(
+            event="pre_llm_call", command="supervisor", matcher=None,
+        )
+        with patch.object(
+            shell_hooks,
+            "_spawn",
+            return_value={"error": "", "timed_out": True, "elapsed_seconds": 300.0},
+        ):
+            result = shell_hooks._make_callback(spec)(user_message="continue")
+        assert result["action"] == "block"
+        assert "timed out" in result["message"]
 
     def test_pre_verify_continue_canonical(self):
         r = shell_hooks._parse_response(

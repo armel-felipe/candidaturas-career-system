@@ -1984,9 +1984,14 @@ class CellExecutor:
                     paths.identity,
                     paths.derived_dir,
                     paths.fit_map_draft,
+                    paths.app_dir / "enquadramento.json",
                 )
                 if path.exists()
             )
+        if node.node_id == "review_cv":
+            enquadramento = paths.app_dir / "enquadramento.json"
+            if enquadramento.exists():
+                read_paths.append(enquadramento)
         if node.node_id == "capture_source":
             source_input = paths.app_dir / "source_input.md"
             if source_input.is_file():

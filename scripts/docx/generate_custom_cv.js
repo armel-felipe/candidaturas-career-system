@@ -42,31 +42,83 @@ function espaco(p = 6) {
   });
 }
 
-function cargoParagraph(cargo, empresa, periodo) {
-  return new Paragraph({
-    tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
-    children: [
-      new TextRun({ text: `${cargo} — ${empresa}`, bold: true, size: pt(9), font: "Arial" }),
-      new TextRun({ text: "\t" + periodo, size: pt(9), font: "Arial" }),
-    ],
-    spacing: { after: 0 },
+function normalizeDashPunctuation(text, language = "pt-BR") {
+  const value = String(text || "");
+  return value.replace(/\s*[—–]\s*/g, (match, offset, whole) => {
+    const after = whole.slice(offset + match.length).trimStart();
+    if (/^(?:o que|que|isso|permitindo|resultando|gerando|which|allowing|resulting)\b/i.test(after)) {
+      return ", ";
+    }
+    return language === "en" ? "; " : "; ";
   });
 }
 
-function bullet(items) {
+function formatExperiencePeriod(period, language = "pt-BR") {
+  const rangeWord = String(language || "").toLowerCase().startsWith("en") ? " to " : " a ";
+  return String(period || "").replace(
+    /\s*[—–-]\s*(?=(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b|(?:atual|present)\b)/giu,
+    rangeWord,
+  );
+}
+
+function formatEducationLine(text) {
+  return String(text || "").replace(/\s+[—–-]\s+/, ": ");
+}
+
+function formatLanguageLine(text) {
+  return String(text || "").replace(/\s+[—–-]\s+/, ": ");
+}
+
+function cargoParagraph(cargo, empresa, periodo, language = "pt-BR") {
+  return [new Paragraph({
+    children: [
+      new TextRun({ text: `${cargo} | ${empresa}`, bold: true, size: pt(9), font: "Arial" }),
+    ],
+    spacing: { after: 0 },
+  }), new Paragraph({
+    children: [new TextRun({ text: formatExperiencePeriod(periodo, language), size: pt(9), font: "Arial" })],
+    spacing: { after: 0 },
+  })];
+}
+
+const METRIC_PATTERN = /(R\$\s?\d+(?:[.,]\d+)?\s?(?:MM|M|mil)?(?:\/ano)?|\b\d+(?:[.,]\d+)?\s?(?:%|MM|M|mil|K|cidades|pessoas|SKUs|anos|meses|minutos|horas|dias)\b)/giu;
+
+function metricRuns(text, language = "pt-BR") {
+  const value = normalizeDashPunctuation(text, language);
+  const runs = [];
+  let lastIndex = 0;
+  for (const match of value.matchAll(METRIC_PATTERN)) {
+    const start = match.index || 0;
+    if (start > lastIndex) runs.push({ text: value.slice(lastIndex, start), bold: false });
+    runs.push({ text: match[0], bold: true });
+    lastIndex = start + match[0].length;
+  }
+  if (lastIndex < value.length) runs.push({ text: value.slice(lastIndex), bold: false });
+  return runs.length ? runs : [{ text: value, bold: false }];
+}
+
+function bulletRuns(item, language = "pt-BR", highlightMetrics = true) {
+  if (Array.isArray(item)) return item;
+  if (item && Array.isArray(item.runs)) return item.runs;
+  if (item && item.prefixo) {
+    return [
+      { text: item.prefixo, bold: false },
+      ...(item.enfoque ? [{ text: item.enfoque, bold: true }] : []),
+      ...(item.sufixo ? [{ text: item.sufixo, bold: false }] : []),
+    ];
+  }
+  const text = typeof item === "string" ? item : item?.text;
+  return highlightMetrics ? metricRuns(text, language) : [{ text: normalizeDashPunctuation(text, language), bold: false }];
+}
+
+function bullet(items, options = {}) {
+  const highlightMetrics = options.highlightMetrics !== false;
+  const language = options.language || "pt-BR";
   const runs = [];
   for (const item of items) {
-    if (typeof item === "string") {
-      runs.push(new TextRun({ text: item, size: pt(9), font: "Arial" }));
-    } else if (item.text) {
-      runs.push(new TextRun({ text: item.text, size: pt(9), font: "Arial", bold: !!item.bold }));
-    } else if (item.prefixo) {
-      runs.push(new TextRun({ text: item.prefixo, size: pt(9), font: "Arial" }));
-      if (item.enfoque) {
-        runs.push(new TextRun({ text: item.enfoque, size: pt(9), font: "Arial", bold: true }));
-      }
-      if (item.sufixo) {
-        runs.push(new TextRun({ text: item.sufixo, size: pt(9), font: "Arial" }));
+    for (const run of bulletRuns(item, language, highlightMetrics)) {
+      if (run && run.text !== undefined) {
+        runs.push(new TextRun({ text: normalizeDashPunctuation(run.text, language), size: pt(9), font: "Arial", bold: !!run.bold }));
       }
     }
   }
@@ -79,7 +131,7 @@ function bullet(items) {
 
 function paragraph(text, options = {}) {
   return new Paragraph({
-    children: [new TextRun({ text, size: pt(options.size || 9), bold: !!options.bold, font: "Arial" })],
+    children: [new TextRun({ text: normalizeDashPunctuation(text, options.language || "pt-BR"), size: pt(options.size || 9), bold: !!options.bold, font: "Arial" })],
     spacing: { after: 0 },
   });
 }
@@ -191,22 +243,16 @@ async function main() {
 
   // Resumo / Summary
   children.push(secao(l10n.summary));
-  children.push(paragraph(cv[summaryField]));
+  children.push(paragraph(cv[summaryField], { language: lang }));
   children.push(espaco(8));
 
   // Experiência / Experience
   children.push(secao(l10n.experience));
   for (const exp of cv[experiencesField]) {
     children.push(espaco(3));
-    children.push(cargoParagraph(lang === "en" ? exp.role : exp.cargo, lang === "en" ? exp.company : exp.empresa, lang === "en" ? exp.period : exp.periodo));
+    children.push(...cargoParagraph(lang === "en" ? exp.role : exp.cargo, lang === "en" ? exp.company : exp.empresa, lang === "en" ? exp.period : exp.periodo, lang));
     for (const b of exp.bullets) {
-      if (typeof b === "string") {
-        children.push(bullet([{ text: b }]));
-      } else if (b.prefixo) {
-        children.push(bullet([b]));
-      } else if (b.text) {
-        children.push(bullet([{ text: b.text }]));
-      }
+      children.push(bullet([b], { language: lang }));
     }
   }
 
@@ -215,7 +261,7 @@ async function main() {
   // Formação / Education
   children.push(secao(l10n.education));
   for (const f of cv[educationField]) {
-    children.push(bullet([{ text: f }]));
+    children.push(bullet([{ text: formatEducationLine(f) }], { language: lang }));
   }
   children.push(espaco(8));
 
@@ -227,7 +273,7 @@ async function main() {
   // Idiomas / Languages
   children.push(secao(l10n.languages));
   for (const idioma of cv[languagesField]) {
-    children.push(bullet([{ text: idioma }]));
+    children.push(bullet([{ text: formatLanguageLine(idioma) }], { language: lang }));
   }
 
   const doc = new Document({

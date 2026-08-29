@@ -9,6 +9,18 @@ resolve_python() {
     return 0
   fi
 
+  if [ -x "$project_root/.venv/bin/python" ]; then
+    printf '%s\n' "$project_root/.venv/bin/python"
+    return 0
+  fi
+
+  # Hermes containers carry the project's dependencies in this virtualenv;
+  # use it when a project-local environment is not available.
+  if [ -x "/opt/hermes/.venv/bin/python" ]; then
+    printf '%s\n' "/opt/hermes/.venv/bin/python"
+    return 0
+  fi
+
   pyenv_root="${PYENV_ROOT:-$HOME/.pyenv}"
   if [ -f "$project_root/.python-version" ]; then
     desired_version=$(tr -d '[:space:]' < "$project_root/.python-version")

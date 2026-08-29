@@ -198,6 +198,24 @@ def query_live_applications(token: str, database_id: str, filter_text: str, limi
     }
 
 
+def find_duplicate_application_candidates(
+    token: str,
+    database_id: str,
+    *,
+    company: str,
+    role: str,
+    source_url: str = "",
+) -> list[dict]:
+    """Read-only live duplicate check used before a Notion write."""
+    return legacy_notion.find_duplicate_create_candidates(
+        token,
+        database_id,
+        company=company,
+        role=role,
+        source_url=source_url,
+    )
+
+
 def _table_cell(value: object) -> str:
     text = str(value or "-").replace("|", "\\|").replace("\n", " ").strip()
     return text or "-"
@@ -451,6 +469,7 @@ def update_from_fit_map_page(
     *,
     status: str,
     dry_run: bool = False,
+    governance: dict | None = None,
 ) -> dict:
     return legacy_notion.update_from_fit_map(
         token,
@@ -460,6 +479,7 @@ def update_from_fit_map_page(
         job_description_path=job_description_path,
         dry_run=dry_run,
         status=status,
+        governance=governance,
     )
 
 
@@ -498,6 +518,7 @@ def perform_cell_sync(client, request: dict) -> dict:
         "application_id": str(request["application_id"]),
         "run_id": str(request["run_id"]),
         "node_id": str(request["node_id"]),
+        "status": "succeeded",
         "record_id": str(response.get("record_id") or ""),
         "page_id": page_id,
         "url": url,
@@ -544,17 +565,20 @@ class NotionCellAdapter:
         if operation == "notion_final_sync" and not record_id and not page_id:
             raise RuntimeError("Notion final sync requires an existing record or page")
         try:
-            if self._service is not None and page_id:
+            # The legacy service adapter predates the final governance
+            # payload.  Route governed final syncs through the compatibility
+            # function so review/delivery state is not silently discarded.
+            if self._service is not None and page_id and not request.get("governance"):
                 result = self._service.update_page(
                     token, database_id, page_id, fit_map_path, job_description_path,
                     status=str(request["status"]), dry_run=False,
                 )
-            elif self._service is not None and record_id:
+            elif self._service is not None and record_id and not request.get("governance"):
                 result = self._service.update(
                     token, database_id, int(record_id), fit_map_path, job_description_path,
                     status=str(request["status"]), dry_run=False,
                 )
-            elif self._service is not None:
+            elif self._service is not None and not request.get("governance"):
                 result = self._service.create(
                     token, database_id, fit_map_path, job_description_path,
                     status=str(request["status"]), dry_run=False,
@@ -563,6 +587,7 @@ class NotionCellAdapter:
                 result = update_from_fit_map_page(
                     token, database_id, page_id, fit_map_path, job_description_path,
                     status=str(request["status"]), dry_run=False,
+                    governance=request.get("governance") if isinstance(request.get("governance"), dict) else None,
                 )
             elif record_id:
                 result = update_from_fit_map_record(

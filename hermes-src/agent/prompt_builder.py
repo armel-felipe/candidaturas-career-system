@@ -29,6 +29,7 @@ from agent.skill_utils import (
     skill_matches_environment,
     skill_matches_platform,
     skill_matches_platform_list,
+    validate_project_skill_sources,
 )
 from utils import atomic_json_write
 
@@ -1456,10 +1457,10 @@ def build_skills_system_prompt(
 
     Falls back to a full filesystem scan when both layers miss.
 
-    External skill directories (``skills.external_dirs`` in config.yaml) are
-    scanned alongside the local ``~/.hermes/skills/`` directory.  External dirs
-    are read-only — they appear in the index but new skills are always created
-    in the local dir.  Local skills take precedence when names collide.
+    Project skill directories, external/global directories, and the local
+    profile directory are scanned in that order. External dirs are read-only —
+    they appear in the index but new skills are always created in the local
+    dir. Project skills take precedence over both lower tiers.
 
     ``compact_categories`` (e.g. from the coding posture — see
     agent/coding_context.py) demotes whole categories to a names-only line in
@@ -1468,7 +1469,30 @@ def build_skills_system_prompt(
     descriptions are dropped, and a footer note explains the demotion.
     """
     skills_dir = get_skills_dir()
-    external_dirs = get_all_skills_dirs()[1:]  # skip local (index 0)
+    skill_roots = get_all_skills_dirs()
+    external_dirs = [
+        root for root in skill_roots if root.resolve() != skills_dir.resolve()
+    ]
+    validate_project_skill_sources()
+
+    # The local profile is indexed through the snapshot below for startup
+    # speed, so collect higher-tier names before adding profile entries. This
+    # prevents a local duplicate from hiding a project or external skill.
+    priority_skill_names: set[str] = set()
+    for priority_dir in external_dirs:
+        if not priority_dir.exists():
+            continue
+        for skill_file in iter_skill_index_files(priority_dir, "SKILL.md"):
+            priority_skill_names.add(skill_file.parent.name)
+            try:
+                frontmatter, _ = parse_frontmatter(
+                    skill_file.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError):
+                frontmatter = {}
+            declared_name = frontmatter.get("name")
+            if declared_name:
+                priority_skill_names.add(str(declared_name))
 
     if not skills_dir.exists() and not external_dirs:
         return ""
@@ -1507,6 +1531,8 @@ def build_skills_system_prompt(
             skill_name = entry.get("skill_name") or ""
             category = entry.get("category") or "general"
             frontmatter_name = entry.get("frontmatter_name") or skill_name
+            if skill_name in priority_skill_names or frontmatter_name in priority_skill_names:
+                continue
             platforms = entry.get("platforms") or []
             if not skill_matches_platform_list(platforms):
                 continue
@@ -1535,6 +1561,8 @@ def build_skills_system_prompt(
             if not is_compatible:
                 continue
             skill_name = entry["skill_name"]
+            if skill_name in priority_skill_names or entry["frontmatter_name"] in priority_skill_names:
+                continue
             if entry["frontmatter_name"] in disabled or skill_name in disabled:
                 continue
             if not _skill_should_show(
@@ -1569,9 +1597,9 @@ def build_skills_system_prompt(
         )
 
     # ── External skill directories ─────────────────────────────────────
-    # Scan external dirs directly (no snapshot caching — they're read-only
-    # and typically small).  Local skills already in skills_by_category take
-    # precedence: we track seen names and skip duplicates from external dirs.
+    # Scan project/external dirs directly (no snapshot caching — they're
+    # read-only and typically small). Lower-priority profile skills were
+    # filtered above, so these roots win any name collision.
     seen_skill_names: set[str] = set()
     for cat_skills in skills_by_category.values():
         for name, _desc in cat_skills:

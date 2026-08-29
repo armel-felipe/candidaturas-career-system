@@ -106,6 +106,46 @@ def test_production_capture_handler_publishes_immutable_source_and_handover(tmp_
         database.close()
 
 
+def test_normalize_job_repair_publishes_a_new_revision_set(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    paths = paths_for("normalize-repair", root=applications_root)
+    _seed_identity(paths, company="Acme", role="Operations Lead")
+    (paths.app_dir / "source_input.md").write_text(
+        _job_text("Acme", "Operations Lead", "service operations"),
+        encoding="utf-8",
+    )
+    executor = CellExecutor(
+        database,
+        applications_root=applications_root,
+        handlers=cell_handlers.production_handler_registry(),
+        validators=cell_handlers.production_validator_registry(),
+    )
+    try:
+        plan = executor.plan(paths.application_id, {"cv"})
+        assert executor.run_ready(plan.run_id)[0].status == "validated"
+        first_normalize = executor.run_ready(plan.run_id)[0]
+        first_manifest = read_json(first_normalize.manifest_path)
+
+        executor.repair(plan.run_id, "normalize_job", "refresh normalized language")
+        second_normalize = executor.run_ready(plan.run_id)[0]
+        second_manifest = read_json(second_normalize.manifest_path)
+
+        assert second_normalize.status == "validated"
+        assert second_normalize.attempt == 2
+        assert executor.node_status(plan.run_id, "analyze_fit") == "planned"
+        assert database.fetch_one(
+            "SELECT latest_attempt FROM cell_nodes WHERE run_id = ? AND node_id = ?",
+            (plan.run_id, "analyze_fit"),
+        )["latest_attempt"] == 0
+        assert {
+            item["revision"] for item in first_manifest["outputs"]
+        }.isdisjoint({item["revision"] for item in second_manifest["outputs"]})
+    finally:
+        database.close()
+
+
 def test_changed_source_invalidates_only_its_application_descendants(tmp_path):
     database = Database(tmp_path / "career.db")
     database.init_schema()

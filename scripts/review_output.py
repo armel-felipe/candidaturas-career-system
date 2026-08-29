@@ -32,7 +32,17 @@ def _canonical_subprocess_environment() -> dict[str, str]:
         "PYTHONNOUSERSITE": "1",
         "PYTHONUNBUFFERED": "1",
     }
-    for name in ("HOME", "LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+    for name in (
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "RCLONE_CONFIG",
+        "RCLONE_ONEDRIVE_REMOTE",
+        "RCLONE_ONEDRIVE_DELIVERY_DIR",
+    ):
         value = os.environ.get(name)
         if value:
             environment[name] = value
@@ -48,6 +58,14 @@ ATS_TOP15_MINIMUM_SCORE = 7.0
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -110,6 +128,61 @@ def docx_text(path: Path) -> str:
     root = ElementTree.fromstring(xml)
     ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
     return "\n".join(node.text or "" for node in root.findall(".//w:t", ns))
+
+
+def docx_paragraphs(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with zipfile.ZipFile(path) as zf:
+        root = ElementTree.fromstring(zf.read("word/document.xml"))
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    paragraphs: list[dict[str, str]] = []
+    for paragraph in root.findall(".//w:body/w:p", ns):
+        text_parts: list[str] = []
+        bold_parts: list[str] = []
+        for run in paragraph.findall("w:r", ns):
+            value = "".join(node.text or "" for node in run.findall("w:t", ns))
+            text_parts.append(value)
+            bold = run.find("w:rPr/w:b", ns)
+            if bold is not None and bold.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", "true") != "false":
+                bold_parts.append(value)
+        paragraphs.append({"text": "".join(text_parts), "bold_text": "".join(bold_parts)})
+    return paragraphs
+
+
+def experience_format_check(artifact: Path) -> tuple[bool, bool, str]:
+    """Check the visual contract without relying on a human reading the DOCX."""
+    paragraphs = docx_paragraphs(artifact)
+    period_pattern = re.compile(
+        r"\b(?:jan(?:eiro)?|fev(?:ereiro)?|mar(?:ço)?|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?|january|february|march|april|may|june|july|august|september|october|november|december)\s*\/?\s*\d{4}\s+(?:a|to)\s+",
+        re.IGNORECASE,
+    )
+    period_indexes = [index for index, item in enumerate(paragraphs) if period_pattern.search(item["text"])]
+    separate_periods = bool(period_indexes) and all(
+        index > 0
+        and " | " in paragraphs[index - 1]["text"]
+        and not period_pattern.search(paragraphs[index - 1]["text"])
+        for index in period_indexes
+    )
+    metric_pattern = re.compile(
+        r"(?:R\$\s?\d[\d.,]*|\b\d+(?:[.,]\d+)?\s?(?:%|MM|M|mil|K|cidades|pessoas|SKUs|anos|meses|minutos|horas|dias)\b)",
+        re.IGNORECASE,
+    )
+    metric_paragraphs = [item for item in paragraphs if metric_pattern.search(item["text"])]
+    bold_metric = any(metric_pattern.search(item["bold_text"]) for item in metric_paragraphs)
+    metrics_ok = not metric_paragraphs or bold_metric
+    evidence = (
+        f"experience_headers={len(period_indexes)}; separate_periods={separate_periods}; "
+        f"metric_paragraphs={len(metric_paragraphs)}; bold_metric={bold_metric}"
+    )
+    return separate_periods, metrics_ok, evidence
+
+
+def dash_punctuation_check(artifact: Path) -> tuple[bool, str]:
+    """Ensure the final DOCX does not retain prose em/en dashes."""
+    paragraphs = docx_paragraphs(artifact)
+    offending = [item["text"] for item in paragraphs if re.search(r"[—–]", item["text"])]
+    return not offending, f"dash_paragraphs={len(offending)}"
 
 
 def compact_lines(text: str) -> list[str]:
@@ -645,6 +718,7 @@ def build_cv_review(
     registry: dict,
     translation_registry_path: Path,
     cellular_db_path: Path | None = None,
+    language: str | None = None,
 ) -> dict:
     company = fit_map.get("empresa", "")
     role = fit_map.get("cargo", "")
@@ -666,13 +740,16 @@ def build_cv_review(
         stored_cv_path = application.get("cv_path")
         registry_path_matches = normalized_path_string(stored_cv_path) == str(artifact.resolve())
 
+    is_pt_br = language != "en" and is_portuguese_cv(artifact)
     keyword_shotgun_ok, keyword_shotgun_evidence = (
-        pt_keyword_shotgun_check(lines, top8_results) if is_portuguese_cv(artifact) else (True, "english_cv")
+        pt_keyword_shotgun_check(lines, top8_results) if is_pt_br else (True, "english_cv")
     )
     english_role_titles_in_pt, english_role_titles_evidence = (
-        english_cv_has_portuguese_role_titles(lines) if not is_portuguese_cv(artifact) else (False, "pt_cv")
+        english_cv_has_portuguese_role_titles(lines) if not is_pt_br else (False, "pt_cv")
     )
     summary_supported, summary_supported_evidence = summary_supported_by_experiences(summary_text, experience_lines)
+    separate_periods, bold_metrics, formatting_evidence = experience_format_check(artifact)
+    dash_punctuation_ok, dash_punctuation_evidence = dash_punctuation_check(artifact)
 
     technical_checks = [
         {
@@ -723,6 +800,21 @@ def build_cv_review(
             "passed": summary_supported,
             "evidence": summary_supported_evidence,
         },
+        {
+            "id": "experience_headers_separate_from_period",
+            "passed": separate_periods,
+            "evidence": formatting_evidence,
+        },
+        {
+            "id": "key_result_metrics_are_bold",
+            "passed": bold_metrics,
+            "evidence": formatting_evidence,
+        },
+        {
+            "id": "dash_punctuation_normalized",
+            "passed": dash_punctuation_ok,
+            "evidence": dash_punctuation_evidence,
+        },
     ]
 
     minor_checks = [
@@ -758,8 +850,8 @@ def build_cv_review(
         },
         {
             "id": "header_has_location",
-            "passed": "São Paulo, SP" in full_text or "Sao Paulo, SP" in full_text,
-            "evidence": "São Paulo, SP / Sao Paulo, SP",
+            "passed": "Guarulhos, SP" in full_text,
+            "evidence": "Guarulhos, SP",
         },
         {
             "id": "stack_section_present",

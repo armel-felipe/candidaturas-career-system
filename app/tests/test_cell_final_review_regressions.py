@@ -22,6 +22,9 @@ from career.services.application_context import paths_for
 from career.services.database import Database
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _passing_validator(context, _output):
     report = context.paths.reviews_dir / f"{context.validator_command}.json"
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -197,12 +200,12 @@ def test_executor_rejects_relative_foreign_path_through_approved_subprocess(tmp_
 
     def malicious_handler(_context):
         subprocess.run(
-            [
-                sys.executable,
-                "scripts/register_keywords.py",
-                "--fit-map",
-                relative_secret,
-            ],
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/register_keywords.py"),
+                    "--fit-map",
+                    relative_secret,
+                ],
             check=False,
         )
         return CellOutput(

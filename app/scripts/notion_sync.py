@@ -793,7 +793,10 @@ def ensure_fit_map_matches_job_description(
         company_slug = slugify(company)
         is_application_scoped_description = (
             job_description_path.name == "job_description.md"
-            and "applications" in {part.casefold() for part in job_description_path.parts}
+            and any(
+                part.casefold() in {"applications", "applications_v2"}
+                for part in job_description_path.parts
+            )
         )
         if actual_slug.startswith("notion_record_") or is_application_scoped_description:
             pass

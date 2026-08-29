@@ -6,7 +6,7 @@
 
 ## PERFIL — FELIPE ARMEL DIAS DA SILVA
 
-**Localização:** São Paulo, SP
+**Localização:** Guarulhos, SP
 **LinkedIn:** [linkedin.com/in/felipearmel](https://linkedin.com/in/felipearmel)
 **WhatsApp/Tel:** [(11) 98674-8218](https://wa.me/5511986748218)
 **E-mail:** [armelfelipe@gmail.com](mailto:armelfelipe@gmail.com)

@@ -44,8 +44,13 @@ disponível, sem reciclar a mesma história como se fossem evidências diferente
 Antes de qualquer seleção:
 
 1. Ler `../career-system/SKILL.md`.
-2. Confirmar que `.career-state/fit_map.json` existe e corresponde à vaga atual.
-3. Se não existir FIT_MAP ativo, executar `career-fit-analysis` primeiro.
+2. Resolver `application_id` e confirmar uma revisão FIT_MAP validada no SQLite.
+3. Se não existir FIT_MAP para essa candidatura, executar `career-fit-analysis`
+   primeiro; nunca escolher a vaga pelo FIT_MAP global.
+
+Para pós-processamento de uma vaga já analisada, usar
+`create_post_artifact(application_id, "gupy_skills")`. O arquivo JSON local é
+compatibilidade/exportação e não autoridade de seleção.
 
 ## Comandos Obrigatórios
 

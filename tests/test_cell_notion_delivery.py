@@ -9,6 +9,7 @@ from career.cells.contracts import CELL_CONTRACTS
 from career.cells.executor import CellExecutor
 from career.cells.handlers import CellExecutionContext, CellOutput, ValidatorResult, production_handler_registry
 from career.services.application_context import paths_for
+import career.services.notion as notion_service
 from career.services.database import Database
 from career.services.delivery import CanonicalDeliveryCellAdapter
 from career.services.notion import NotionCellAdapter
@@ -116,6 +117,7 @@ def test_repeated_notion_final_sync_reuses_matching_receipt_without_second_mutat
     assert first_receipt["application_id"] == "app-1"
     assert first_receipt["run_id"] == "run-1"
     assert first_receipt["node_id"] == "sync_notion_final"
+    assert first_receipt["status"] == "succeeded"
     assert len(json.dumps(first_receipt, sort_keys=True).encode("utf-8")) <= 2048
 
 
@@ -136,6 +138,30 @@ def test_notion_final_never_passes_docx_to_text_only_extra_artifacts(tmp_path):
 
     assert fake_notion.mutation_count == 1
     assert all(not str(path).endswith(".docx") for path in fake_notion.requests[0]["extra_artifacts"])
+
+
+def test_notion_final_request_contains_governance_from_cv_review(tmp_path):
+    fake_notion = FakeNotion()
+    context = _context(
+        tmp_path,
+        "sync_notion_final",
+        {
+            "application_identity": b'{"application_id":"app-1","aliases":{"notion_record_id":"77"}}',
+            "analyze_fit:fit_map.json": b'{"idioma":"pt-BR"}',
+            "review_cv:cv_review.json": b'{"approved_for_delivery":true,"top8_keywords":[{"keyword":"OTIF","covered":true}],"blockers":[]}',
+            "review_cv:approved_cv_manifest.json": b'{"artifact_path":"/tmp/cv.docx"}',
+        },
+    )
+
+    production_handler_registry(notion_client=fake_notion)["sync_notion_final"](context)
+
+    governance = fake_notion.requests[0]["governance"]
+    assert governance["review_status"] == "approved"
+    assert governance["covered_keywords"] == "OTIF"
+    assert governance["final_cv_language"] == "pt-BR"
+    assert governance["service_status"] == "done"
+    assert governance["final_state"] == "done"
+    assert governance["labels_verified"] is True
 
 
 def test_repeated_cv_delivery_reuses_artifact_hash_receipt_and_declares_canonical_lock(tmp_path):
@@ -219,6 +245,45 @@ def test_default_production_clients_are_lazy_adapters_with_explicit_preflight(mo
     monkeypatch.delenv("NOTION_APPLICATIONS_DATABASE_ID", raising=False)
     with pytest.raises(RuntimeError, match="Notion.*preflight"):
         NotionCellAdapter(env={}).preflight()
+
+
+def test_notion_adapter_does_not_drop_governance_for_legacy_service(tmp_path, monkeypatch):
+    paths = paths_for("app-1", root=tmp_path / "applications")
+    paths.app_dir.mkdir(parents=True)
+    paths.fit_map.write_text("{}", encoding="utf-8")
+    paths.job_description.write_text("job", encoding="utf-8")
+    captured = {}
+
+    class LegacyService:
+        def update_page(self, *args, **kwargs):
+            raise AssertionError("governed sync must not use the legacy service shortcut")
+
+    def governed_update(*args, **kwargs):
+        captured["governance"] = kwargs["governance"]
+        return {"page": {"id": "page-123", "url": "https://notion.so/page-123"}}
+
+    monkeypatch.setattr(notion_service, "update_from_fit_map_page", governed_update)
+    adapter = NotionCellAdapter(
+        service=LegacyService(),
+        credentials=("token", "database"),
+    )
+
+    result = adapter.sync_cell(
+        {
+            "operation": "notion_final_sync",
+            "application_id": "app-1",
+            "run_id": "run-1",
+            "node_id": "sync_notion_final",
+            "status": "Aplicação andamento",
+            "page_id": "page-123",
+            "fit_map_path": str(paths.fit_map),
+            "job_description_path": str(paths.job_description),
+            "governance": {"review_status": "approved"},
+        }
+    )
+
+    assert result["page_id"] == "page-123"
+    assert captured["governance"] == {"review_status": "approved"}
 
 
 def test_executor_delivery_uses_exact_rendered_docx_and_review_manifest(tmp_path):

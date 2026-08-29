@@ -121,7 +121,7 @@ async function main() {
   const children = [
     paragraph("Felipe Armel Dias da Silva", { size: 12, bold: true }),
     hyperlink("linkedin.com/in/felipearmel", "https://linkedin.com/in/felipearmel"),
-    paragraph("São Paulo, SP"),
+    paragraph("Guarulhos, SP"),
     hyperlink("(11) 98674-8218", "https://wa.me/5511986748218"),
     hyperlink("armelfelipe@gmail.com", "mailto:armelfelipe@gmail.com"),
     espaco(8),

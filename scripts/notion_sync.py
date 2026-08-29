@@ -759,6 +759,8 @@ def job_description_heading(text: str) -> str:
                 next_line = candidates[index + 1]
                 if normalize_text(cleaned) == normalize_text(next_line):
                     continue
+                if next_line.casefold().startswith(metadata_prefixes):
+                    return cleaned
                 if re.fullmatch(r"[\w\s&.,/-]+", cleaned) and len(cleaned.split()) <= 4 and len(next_line.split()) >= 2:
                     if not is_job_description_boilerplate_heading(next_line):
                         return next_line
@@ -793,7 +795,10 @@ def ensure_fit_map_matches_job_description(
         company_slug = slugify(company)
         is_application_scoped_description = (
             job_description_path.name == "job_description.md"
-            and "applications" in {part.casefold() for part in job_description_path.parts}
+            and any(
+                part.casefold() in {"applications", "applications_v2"}
+                for part in job_description_path.parts
+            )
         )
         if actual_slug.startswith("notion_record_") or is_application_scoped_description:
             pass
@@ -883,13 +888,10 @@ def prepare_analysis_from_page(
         raise SystemExit("The selected Notion page does not contain a usable job description.")
 
     payload_path = save_page_payload(payload, payload_output_dir)
-    title = ""
-    for alias in PROPERTY_ALIASES["title"]:
-        prop = payload.get("properties", {}).get(alias)
-        if prop and prop.get("text"):
-            title = prop["text"].strip()
-            break
-    company, role = infer_company_and_role(title)
+    title = extract_saved_property(payload, "title").strip()
+    inferred_company, inferred_role = infer_company_and_role(title)
+    company = extract_saved_property(payload, "company").strip() or inferred_company
+    role = extract_saved_property(payload, "role").strip() or inferred_role
     if not role:
         role = title or "vaga_notion"
 
@@ -2446,6 +2448,7 @@ def update_from_fit_map(
     status: str = "Aplicação andamento",
     extra_artifacts: Optional[list[Path]] = None,
     extra_notes: Optional[list[str]] = None,
+    governance: Optional[dict[str, Any]] = None,
 ) -> dict:
     fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
     status = sanitize_automation_status(status)
@@ -2500,6 +2503,8 @@ def update_from_fit_map(
         "final_state": fit_map.get("service_stage", ""),
     }
     mappings.update(governance_field_values(fit_map))
+    if isinstance(governance, dict):
+        mappings.update({key: value for key, value in governance.items() if key in PROPERTY_ALIASES})
     for logical_name, value in mappings.items():
         prop_name, prop = find_prop(schema, logical_name)
         if not prop_name or prop_name == title_name:

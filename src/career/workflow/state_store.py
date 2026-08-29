@@ -6,7 +6,7 @@ from typing import Any
 
 from career.paths import CAREER_STATE
 from career.services import application_context
-from career.services.database import Database
+from career.services.database import Database, RuntimePersistenceMode
 from career.services.persistence.gate_repository import GateRepository
 from career.utils import read_json, utc_now_iso, write_json
 
@@ -73,6 +73,11 @@ class WorkflowStateStore:
             if not self._uses_file_backed_compatibility_store():
                 raise RuntimeError("unscoped workflow state writes are not supported")
             write_json(self.path, self.payload)
+            return
+        if self._database().persistence_mode is RuntimePersistenceMode.SQLITE_ONLY:
+            # SQLite-only is intentionally not a dual writer.  The companion
+            # JSON remains a read-only/archival snapshot until an explicit
+            # compatibility export is requested.
             return
         companion = self._application_state_path()
         companion.parent.mkdir(parents=True, exist_ok=True)
@@ -194,8 +199,20 @@ class WorkflowStateStore:
             payload = self._empty_payload()
             payload["application_id"] = application_id
             payload["next_required_step"] = None
+        projected_active_job = payload.get("active_job")
+        projected_active_intake = payload.get("active_intake")
         active_job = metadata.get("active_job")
         active_intake = metadata.get("active_intake")
+        if self._database().persistence_mode is RuntimePersistenceMode.SQLITE_ONLY:
+            # In sqlite_only, JSON metadata is deliberately not authoritative.
+            # Reconstruct the intake pointer from the application projection so
+            # a new process can resume after the original intake call.
+            active_job = projected_active_job
+            active_intake = projected_active_intake
+        elif not isinstance(active_intake, dict):
+            active_intake = projected_active_intake
+        elif not isinstance(active_job, dict):
+            active_job = projected_active_job
         if isinstance(active_job, dict):
             payload["active_job"] = active_job
         if isinstance(active_intake, dict):
@@ -211,6 +228,8 @@ class WorkflowStateStore:
         application_id: str,
         error: ValueError,
     ) -> bool:
+        if self._database().persistence_mode is RuntimePersistenceMode.SQLITE_ONLY:
+            raise ValueError(f"application_not_in_sqlite: {application_id}")
         if self.application_id is not None:
             return False
         if str(error) != f"unknown application: {application_id}":

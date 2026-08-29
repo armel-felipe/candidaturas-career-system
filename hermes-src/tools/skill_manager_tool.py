@@ -590,7 +590,12 @@ def _find_skill(name: str) -> Optional[Dict[str, Any]]:
     external dirs configured via skills.external_dirs.  Returns
     {"path": Path} or None.
     """
-    from agent.skill_utils import get_all_skills_dirs, is_excluded_skill_path
+    from agent.skill_utils import (
+        get_all_skills_dirs,
+        is_excluded_skill_path,
+        validate_project_skill_sources,
+    )
+    validate_project_skill_sources()
     for skills_dir in get_all_skills_dirs():
         if not skills_dir.exists():
             continue
