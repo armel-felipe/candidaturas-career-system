@@ -160,7 +160,7 @@
 		* Aumentamos a receita com análises de produtos em estoque fora de linha e propostas
 		* Relatórios diários da equipe de vendas que demoravam 4 horas para serem produzidos passaram a ser feitos e entregues em 14 minutos com rotinas automáticas
 		* Criei um sistema automatizado com Excel e VBA para tomar decisão de alocação do estoque para pedidos, maximizando a margem e o faturamento total. Naquele ano saimos de 80 para 120 milhões ano de faturamento
-	* Coordenador de S&OP (jan/2010 a set/2014)
+	* Coordenador de S&OP e Planejamento de Produção (jan/2010 a set/2014)
 		* Criei a área de S&OP do zero e sustentei os ritos e operações por 4 anos. 
 		* Fui responsável pelo projeto entrega certa, que buscava maximizar o OTIF dos pedidos, medindo pedidos on time e o fill rate. Gerenciando 40K SKUs de produto acabado distribuídos em duas marcas, Trifil e Scala, em todos os canais de distribuição (distribuidor, varejo, Key Accounts, Lojas Franqueadas)
 		* Fui responsável por determinar estoque de segurança dos SKUS de maior giro, otimizando entrega com trade-offs financeiro (maximização da liquidez do estoque)
@@ -274,13 +274,14 @@
 		* Utilizei python, SQL, metabase para integração e visualização de dados
 
 ## Formação
-* Técnico em Química — SENAI Mario Amato (concluído 1997)
-* Engenheiro Químico — Faculdades Oswaldo Cruz (concluído 2014)
-* MBA Corporate Strategy — Business School São Paulo (concluido 2017)
+* Técnico em Química — SENAI Mario Amato (1997)
+* Engenheiro Químico — Faculdades Oswaldo Cruz (2014)
+* Planejamento e Orçamento - Saint Paul Escola de Negócios (2016)
+* MBA Corporate Strategy — Business School São Paulo (2017)
 * Six Sigma Green Belt - Setec Consulting (2020)
 * Problem Solving - Ventus Consulting (2020)
 * ILEad liderança para líder de líderes - Fundação Dom Cabral (2021)
-* Planejamento e Orçamento - Saint Paul Escola de Negócios (concluido 2016) 
+* MBA  Inteligëncia Artificial Aplicada a Negócios - FAAP (conclusão mai/2027)
 
 ## Formação Complementar (levantada do CV antigo — verificar o que ainda é relevante destacar)
 * De vendedor para gerente de clientes (10h) — Bizrevolution (2014)
