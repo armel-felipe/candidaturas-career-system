@@ -303,12 +303,11 @@ def _compose_cv(context: CellExecutionContext) -> CellOutput:
             raise ValueError("repaired CV content belongs to another compose attempt")
     else:
         positioning_pack = _positioning_pack_for_application(context)
+        build_kwargs = {"language": language}
+        if positioning_pack is not None:
+            build_kwargs["positioning_pack"] = positioning_pack
         payload = cv_content_service.build_cv_content(
-            context.paths,
-            fit_map_path,
-            candidate_revision,
-            language=language,
-            positioning_pack=positioning_pack,
+            context.paths, fit_map_path, candidate_revision, **build_kwargs
         )
     return CellOutput(
         artifacts={"cv_content.json": _json_bytes(payload)},
@@ -464,9 +463,10 @@ def _normalized_packs_for_application(context: CellExecutionContext) -> tuple[di
 def _positioning_pack_for_application(
     context: CellExecutionContext,
 ) -> dict[str, Any] | None:
-    if context.control_db_path is None:
+    control_db_path = getattr(context, "control_db_path", None)
+    if control_db_path is None:
         return None
-    database = Database(context.control_db_path)
+    database = Database(control_db_path)
     try:
         try:
             return build_positioning_pack(context.application_id, database)
