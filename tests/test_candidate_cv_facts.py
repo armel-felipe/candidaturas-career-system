@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
 from career.services import cv_content, provenance
+from career.services import candidate_evidence
 from career.utils import ValidationFailure
 
 
@@ -54,3 +56,107 @@ def test_select_experiences_does_not_promote_fixed_trifil_fallback_for_cx():
     selected_ids = [item["id"] for item in selected]
     assert "renault_cs" in selected_ids
     assert "trifil_expedicao" not in selected_ids
+
+
+def test_new_evidence_story_is_available_to_cv_view() -> None:
+    evidence = {
+        "schema_version": 1,
+        "candidate": {"name": "Felipe Armel"},
+        "stories": [
+            {
+                "story_id": "sanofi_process_automation",
+                "title": "Automação em produção",
+                "experience_id": "sanofi_operador_producao",
+                "context": "Contexto",
+                "actions": ["Ação"],
+                "results": ["Resultado"],
+                "metrics": ["180 POPs"],
+                "capabilities": ["produção"],
+                "allowed_claims": ["Claim"],
+                "source_refs": [{"path": "autoconhecimento.md", "lines": "53-65"}],
+                "artifact_guidance": {"cv": "Formulação curta"},
+                "cv_facts": {
+                    "company": "Sanofi-Aventis",
+                    "role": "Operador de Produção",
+                    "period": "fev/1998 — jun/2000",
+                    "scope_bullet": "Atuei em produção farmacêutica.",
+                    "result_bullet": "Escrevi mais de 180 POPs.",
+                    "focus_terms": ["produção"],
+                    "leverage": {"default": "Estruturei controles operacionais."},
+                },
+            }
+        ],
+    }
+    legacy = {
+        "schema_version": 1,
+        "candidate": {"name": "Felipe Armel"},
+        "experiences": [
+            {
+                "id": "wehandle_head_operacoes",
+                "company": "wehandle",
+                "role": "Head de Operações",
+                "period": "maio/2024 — fev/2026",
+            }
+        ],
+    }
+
+    view = candidate_evidence.build_cv_facts_view(evidence, legacy_facts=legacy)
+
+    assert [item["id"] for item in view["experiences"]] == [
+        "wehandle_head_operacoes",
+        "sanofi_operador_producao",
+    ]
+    assert view["experiences"][1]["result_bullet"] == "Escrevi mais de 180 POPs."
+
+
+def test_rebuild_candidate_facts_writes_the_derived_view(tmp_path: Path) -> None:
+    evidence_path = tmp_path / "candidate_evidence.json"
+    legacy_path = tmp_path / "candidate_cv_facts.json"
+    output_path = tmp_path / "derived_candidate_cv_facts.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "candidate": {"name": "Felipe Armel"},
+                "stories": [
+                    {
+                        "story_id": "story_one",
+                        "title": "História um",
+                        "context": "Contexto",
+                        "actions": ["Ação"],
+                        "results": ["Resultado"],
+                        "metrics": [],
+                        "capabilities": ["operações"],
+                        "allowed_claims": ["Claim"],
+                        "source_refs": [{"path": "autoconhecimento.md", "lines": "1-2"}],
+                        "artifact_guidance": {"cv": "Formulação curta"},
+                        "cv_facts": {
+                            "company": "Acme",
+                            "role": "Head de Operações",
+                            "period": "2024 — 2026",
+                            "scope_bullet": "Escopo.",
+                            "result_bullet": "Resultado.",
+                            "focus_terms": ["operações"],
+                            "leverage": {"default": "Mecanismo."},
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    legacy_path.write_text(
+        json.dumps({"schema_version": 1, "candidate": {}, "experiences": []}),
+        encoding="utf-8",
+    )
+
+    result = candidate_evidence.rebuild_candidate_facts(
+        evidence_path=evidence_path,
+        legacy_facts_path=legacy_path,
+        output_path=output_path,
+    )
+
+    assert result["output"] == output_path
+    rebuilt = json.loads(output_path.read_text(encoding="utf-8"))
+    assert rebuilt["experiences"][0]["id"] == "story_one"

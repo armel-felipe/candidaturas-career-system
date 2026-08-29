@@ -177,6 +177,40 @@
         "project_management": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, organizei a base do ERP e dei previsibilidade à diretoria para priorizar decisões comerciais e implantação do sistema B2B.",
         "product_revenue_business_ops": "Estruturei análises com BI, dashboards e rotinas em Excel/VBA, normalizei dados do ERP e preparei a base para decisões comerciais orientadas por margem, receita e canais."
       }
+    },
+    {
+      "id": "sanofi_operador_producao",
+      "company": "Sanofi-Aventis",
+      "role": "Operador de Produção",
+      "period": "fev/1998 — jun/2000",
+      "scope_bullet": "Atuei em produção farmacêutica, controles operacionais, validação de processos e documentação da área.",
+      "result_bullet": "Escrevi mais de 180 POPs e fui efetivado em cinco meses por desempenho.",
+      "focus_terms": [
+        "produção",
+        "qualidade",
+        "processos"
+      ],
+      "leverage": {
+        "default": "Estruturei controles operacionais e documentação para dar previsibilidade à rotina produtiva."
+      },
+      "order": 8
+    },
+    {
+      "id": "essencis_analista_negocios",
+      "company": "Essencis",
+      "role": "Analista de Negócios",
+      "period": "nov/2001 — abr/2002",
+      "scope_bullet": "Avaliei projetos de expansão e aquisições, estruturando planos de negócios para decisão do conselho.",
+      "result_bullet": "Aprovei 1 projeto de aquisição em estágio de engenharia com análise de viabilidade.",
+      "focus_terms": [
+        "business case",
+        "M&A",
+        "viabilidade"
+      ],
+      "leverage": {
+        "default": "Usei DCF, VPL e payback para transformar alternativas de expansão em decisões comparáveis de valor."
+      },
+      "order": 9
     }
   ],
   "education": {

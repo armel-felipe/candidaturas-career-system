@@ -40,31 +40,31 @@
 - `ReferenceRepository.upsert_version(kind="candidate_evidence", key="candidate", content, source_hash)`
 - O registro de cada história deve aceitar `story_id`, `source_refs`, `allowed_claims`, `capabilities`, `metrics` e `artifact_guidance`.
 
-- [ ] **Step 1: Escrever testes RED para o contrato.**
+- [x] **Step 1: Escrever testes RED para o contrato.**
 
   Cobrir história válida, `story_id` duplicado, história sem `source_refs`, claim sem texto e métrica não textual. O teste deve afirmar que o payload válido retorna o mesmo objeto normalizado e que cada inválido produz `ValidationFailure` com o caminho do campo.
 
-- [ ] **Step 2: Executar os testes para confirmar a falha.**
+- [x] **Step 2: Executar os testes para confirmar a falha.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_candidate_evidence.py`
 
   Expected: FAIL porque o schema e a referência estruturada ainda não existem.
 
-- [ ] **Step 3: Implementar o schema e cadastrar a primeira versão.**
+- [x] **Step 3: Implementar o schema e cadastrar a primeira versão.**
 
   Usar `Mapping`/`Sequence`, rejeitar placeholders, exigir `source_refs.path` e `source_refs.lines`, e manter campos livres somente dentro de `payload`. O conteúdo inicial deve representar as histórias já presentes em `candidate_cv_facts.json` e apontar para linhas reais do `autoconhecimento.md`; não inventar histórias durante a migração.
 
-- [ ] **Step 4: Incluir a nova fonte na revisão de candidato.**
+- [x] **Step 4: Incluir a nova fonte na revisão de candidato.**
 
   Atualizar `provenance.candidate_facts_revision()` para incluir `candidate_evidence.json`, preservando as fontes atuais. Registrar a referência no SQLite pela mesma rotina usada para `candidate_cv_facts` e estender o parser de `ReferenceRepository` para indexar stories, claims e evidence.
 
-- [ ] **Step 5: Executar GREEN e regressões de proveniência.**
+- [x] **Step 5: Executar GREEN e regressões de proveniência.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_candidate_evidence.py tests/test_fit_map_provenance.py tests/test_analysis_revisions.py`
 
   Expected: PASS; a revisão muda quando o arquivo de evidências muda e FIT_MAPs antigos continuam identificando a revisão que consumiram.
 
-- [ ] **Step 6: Commitar a unidade.**
+- [x] **Step 6: Commitar a unidade.**
 
   Run: `git add .agents/skills/career-system/references/candidate_evidence.json src/career/schemas/candidate_evidence.py src/career/services/provenance.py src/career/services/persistence/reference_repository.py tests/test_candidate_evidence.py tests/test_fit_map_provenance.py && git commit -m "feat: version candidate evidence separately from cv facts"`
 
@@ -87,31 +87,31 @@
 - `rebuild_candidate_facts() -> dict[str, Path]`
 - O view gerado deve manter `experiences`, `education`, `languages`, `summary_profiles`, `summary_fragments`, `experience_locators` e `selectors` existentes.
 
-- [ ] **Step 1: Escrever teste RED para a view.**
+- [x] **Step 1: Escrever teste RED para a view.**
 
   Inserir uma história nova no fixture de evidências, executar `build_cv_facts_view`, e afirmar que a experiência correspondente aparece na visão CV sem alterar as demais experiências. Também afirmar que `source_refs` permanece acessível no payload de evidências.
 
-- [ ] **Step 2: Executar o teste para confirmar a falha.**
+- [x] **Step 2: Executar o teste para confirmar a falha.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_candidate_cv_facts.py::test_new_evidence_story_is_available_to_cv_view`
 
   Expected: FAIL porque a view ainda não é derivada da base de evidências.
 
-- [ ] **Step 3: Implementar a derivação compatível.**
+- [x] **Step 3: Implementar a derivação compatível.**
 
   Centralizar a leitura em `candidate_evidence.py`; gerar o formato atual de CV a partir de stories/facts e preservar o arquivo canônico existente como fixture de compatibilidade durante a transição. O gerador não deve usar texto bruto desconhecido sem passar pelo schema.
 
-- [ ] **Step 4: Expor comando de reconstrução.**
+- [x] **Step 4: Expor comando de reconstrução.**
 
   Adicionar `candidate-facts:rebuild` ao `package.json`, chamando o script via `scripts/python.sh`. O comando deve validar o payload, escrever uma cópia com JSON determinístico e retornar revisão/hash e paths sem imprimir o conteúdo completo.
 
-- [ ] **Step 5: Executar GREEN e regressões do CV.**
+- [x] **Step 5: Executar GREEN e regressões do CV.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_candidate_cv_facts.py tests/test_reference_repository.py tests/test_cv_experience_selection.py`
 
   Expected: PASS; a seleção continua compatível e uma história nova fica disponível para seleção sem fallback fixo.
 
-- [ ] **Step 6: Commitar a unidade.**
+- [x] **Step 6: Commitar a unidade.**
 
   Run: `git add src/career/services/candidate_evidence.py scripts/rebuild_candidate_facts.py src/career/services/cv_content.py src/career/services/persistence/reference_repository.py package.json tests/test_candidate_cv_facts.py tests/test_reference_repository.py && git commit -m "feat: derive cv facts from candidate evidence"`
 
@@ -349,7 +349,9 @@ commit conhecido, limpo e alinhado ao `origin/main`.
 ## Ordem de execução
 
 Executar Onda 1, depois Onda 2 e somente então Onda 3. Cada onda passa por
-revisão/merge/deploy antes da próxima. A primeira entrega útil é a Onda 1:
+revisão/merge/deploy antes da próxima. A Onda 1 foi implementada nesta branch
+com testes focados e validação estrutural; sua integração em `main` ocorre
+após a revisão final do commit.
 ela torna as evidências completas e o `candidate_cv_facts` derivado, sem ainda
 alterar o fluxo de produção dos demais artefatos.
 

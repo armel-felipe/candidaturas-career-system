@@ -31,6 +31,7 @@
     "fit-map:guard": "./scripts/python.sh scripts/career_cli.py fit-map guard --draft .career-state/fit_map.draft.json --fit-map .career-state/fit_map.json",
     "keywords:register": "./scripts/python.sh scripts/register_keywords.py --fit-map .career-state/fit_map.json --translation-registry .agents/skills/career-system/references/keyword_translation_registry.json",
     "registry:rebuild": "./scripts/python.sh scripts/rebuild_keyword_registry.py",
+    "candidate-facts:rebuild": "./scripts/python.sh scripts/rebuild_candidate_facts.py",
     "registry:summary": "./scripts/python.sh scripts/career_cli.py fit-map registry-summary --fit-map .career-state/fit_map.json --registry .career-state/derived/keyword_ats_registry.json",
     "derive:job-pack": "./scripts/python.sh scripts/career_cli.py derive job-pack",
     "derive:job-sections": "./scripts/python.sh scripts/career_cli.py derive job-sections",

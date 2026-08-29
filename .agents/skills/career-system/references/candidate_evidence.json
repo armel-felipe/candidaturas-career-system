@@ -20,7 +20,7 @@
       "allowed_claims": ["Construiu controles operacionais e documentação em produção farmacêutica."],
       "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "53-65"}],
       "artifact_guidance": {"cv": "Evidência de base industrial e disciplina operacional.", "feras": "Começo de carreira com responsabilidade assumida rapidamente.", "interview": "Resposta sobre aprendizado rápido e melhoria de processo."},
-      "cv_facts": {"company": "Sanofi-Aventis", "role": "Operador de Produção", "period": "fev/1998 — jun/2000", "scope_bullet": "Atuei em produção farmacêutica, controles operacionais, validação de processos e documentação da área.", "result_bullet": "Escrevi mais de 180 POPs e fui efetivado em cinco meses por desempenho.", "focus_terms": ["produção", "qualidade", "processos"], "leverage": {"default": "Estruturei controles operacionais e documentação para dar previsibilidade à rotina produtiva."}}
+      "cv_facts": {"company": "Sanofi-Aventis", "role": "Operador de Produção", "period": "fev/1998 — jun/2000", "order": 8, "scope_bullet": "Atuei em produção farmacêutica, controles operacionais, validação de processos e documentação da área.", "result_bullet": "Escrevi mais de 180 POPs e fui efetivado em cinco meses por desempenho.", "focus_terms": ["produção", "qualidade", "processos"], "leverage": {"default": "Estruturei controles operacionais e documentação para dar previsibilidade à rotina produtiva."}}
     },
     {
       "story_id": "essencis_value_analysis",
@@ -28,13 +28,13 @@
       "experience_id": "essencis_analista_negocios",
       "context": "Avaliação de projetos de expansão e aquisição para novos negócios.",
       "actions": ["Montei planos de negócios e analisei projetos com fluxo de caixa descontado, VPL e payback."],
-      "results": ["Aprovei um projeto de aquisição em estágio de engenharia."],
+      "results": ["Aprovei 1 projeto de aquisição em estágio de engenharia."],
       "metrics": [],
       "capabilities": ["análise financeira", "viabilidade de projetos", "decisão executiva"],
       "allowed_claims": ["Defendeu decisões de investimento com análise de valor e viabilidade financeira."],
       "source_refs": [{"path": ".agents/skills/career-system/references/autoconhecimento.md", "lines": "83-88"}],
       "artifact_guidance": {"cv": "Evidência de business case e análise de investimentos.", "feras": "Aprendizado de valor aplicado a decisões reais.", "interview": "Resposta sobre trade-offs e defesa de investimento."},
-      "cv_facts": {"company": "Essencis", "role": "Analista de Negócios", "period": "nov/2001 — abr/2002", "scope_bullet": "Avaliei projetos de expansão e aquisições, estruturando planos de negócios para decisão do conselho.", "result_bullet": "Aprovei um projeto de aquisição em estágio de engenharia com análise de viabilidade.", "focus_terms": ["business case", "M&A", "viabilidade"], "leverage": {"default": "Usei DCF, VPL e payback para transformar alternativas de expansão em decisões comparáveis de valor."}}
+      "cv_facts": {"company": "Essencis", "role": "Analista de Negócios", "period": "nov/2001 — abr/2002", "order": 9, "scope_bullet": "Avaliei projetos de expansão e aquisições, estruturando planos de negócios para decisão do conselho.", "result_bullet": "Aprovei 1 projeto de aquisição em estágio de engenharia com análise de viabilidade.", "focus_terms": ["business case", "M&A", "viabilidade"], "leverage": {"default": "Usei DCF, VPL e payback para transformar alternativas de expansão em decisões comparáveis de valor."}}
     },
     {
       "story_id": "trifil_process_systems",
