@@ -238,6 +238,13 @@ verde.
 
 ## Histórico de decisões
 
+- 2026-08-30 — O smoke de runtime pós-deploy revelou que o bind mount do
+  workspace fazia `scripts/python.sh` escolher o `.venv` do host antes do
+  ambiente Hermes da imagem. O launcher passou a priorizar
+  `/opt/hermes/.venv/bin/python` quando detecta o marcador Docker, mantendo a
+  precedência do `.venv` local fora de containers. O teste de regressão passou
+  e os dois agentes foram recriados; `runtime:verify -- --strict` passou em
+  ambos com PyYAML `6.0.3`.
 - 2026-08-30 — O modo serial do pacote-base foi aceito após a Onda 4: a
   fixture descartável mostrou que `applications:inspect-run` mantém apenas o
   estágio corrente e não reserva attempts posteriores; os canários offline de
