@@ -38,6 +38,7 @@ from career.services.persistence.analysis_repository import AnalysisRepository
 from career.services.persistence.artifact_repository import ArtifactRepository
 from career.services.persistence.gate_repository import GateRepository
 from career.services.cell_store import CellStore
+from career.cells.serial import serial_stage_report
 from career.services.database import Database
 from career.services.job_language import detect_job_language
 from career.utils import (
@@ -3051,20 +3052,26 @@ def _run_cellular_analyze_agent(
     *,
     options: HeartbeatV2Options,
     config: dict[str, Any],
+    request_paths: tuple[Path, Path] | None = None,
 ) -> dict[str, Any]:
     workspace_owner = options.workspace_owner or os.environ.get(
         "CAREER_WORKSPACE_OWNER"
     ) or ""
-    request_json, request_md = _write_cellular_analyze_request(
-        paths,
-        prepared,
-        workspace_owner=workspace_owner,
-        control_db_id=str(
-            options.control_db_id
-            or os.environ.get("CAREER_CONTROL_DB_ID")
-            or ""
-        ),
-    )
+    if request_paths is None:
+        request_json, request_md = _write_cellular_analyze_request(
+            paths,
+            prepared,
+            workspace_owner=workspace_owner,
+            control_db_id=str(
+                options.control_db_id
+                or os.environ.get("CAREER_CONTROL_DB_ID")
+                or ""
+            ),
+        )
+    else:
+        request_json, request_md = request_paths
+        if not request_json.is_file() or not request_md.is_file():
+            raise ValidationFailure("cellular analyze compact request is missing")
     supervisor = HarnessSupervisor(_cellular_workspace_root())
     return supervisor.run_application_stage(
         stage="analyze",
@@ -3368,12 +3375,40 @@ def _drain_cellular_ready_waves(executor: Any, run_id: str) -> list[Any]:
 
 def _execute_cellular_ready(executor: Any, run_id: str) -> list[Any]:
     """Execute one cellular window, respecting the persisted run policy."""
+    if not hasattr(executor, "_load_run"):
+        # Compatibility adapter for legacy service doubles. Production
+        # executors always expose the persisted policy below.
+        executed = list(executor.run_ready(run_id))
+        executed.extend(_drain_cellular_ready_waves(executor, run_id))
+        return executed
     plan, _paths = executor._load_run(run_id)
     if plan.execution_mode == "serial":
         return list(executor.run_serial_stage(run_id))
     executed = list(executor.run_ready(run_id))
     executed.extend(_drain_cellular_ready_waves(executor, run_id))
     return executed
+
+
+def _cellular_analyze_dispatch_allowed(
+    *,
+    plan: Any,
+    statuses: dict[str, str],
+    ready_nodes: set[str] | tuple[str, ...] | list[str],
+    request_json: Path,
+    request_md: Path,
+) -> bool:
+    """Keep external FIT_MAP dispatch scoped to the current serial window."""
+    if plan.execution_mode == "serial":
+        report = serial_stage_report(plan, statuses)
+        if report.stage != "analyze" or report.status != "ready":
+            return False
+    elif "analyze_fit" not in ready_nodes:
+        return False
+    return (
+        "analyze_fit" in ready_nodes
+        and request_json.is_file()
+        and request_md.is_file()
+    )
 
 
 def _existing_blocked_cellular_review(
@@ -3545,12 +3580,67 @@ def _process_cellular_application(
             application, paths=paths, executor=executor, config=config
         )
 
-        if "analyze_fit" in executor.ready_nodes(run_id):
+        ready_before_analyze = set(executor.ready_nodes(run_id))
+        if "analyze_fit" in ready_before_analyze:
+            plan, _run_paths = executor._load_run(run_id)
+            dispatch_statuses = dict(executor.resume(run_id).statuses)
             _quarantine_cellular_draft(paths, reason="stale")
             prepared = executor.prepare_ready_node(run_id, "analyze_fit")
+            try:
+                request_json, request_md = _write_cellular_analyze_request(
+                    paths,
+                    prepared,
+                    workspace_owner=options.workspace_owner
+                    or os.environ.get("CAREER_WORKSPACE_OWNER")
+                    or "",
+                    control_db_id=str(
+                        options.control_db_id
+                        or os.environ.get("CAREER_CONTROL_DB_ID")
+                        or ""
+                    ),
+                )
+            except Exception as exc:
+                reason = f"analyze_request_preparation_failed:{type(exc).__name__}:{exc}"
+                executor.defer_prepared_attempt(prepared, reason=reason)
+                return [
+                    {
+                        "status": "awaiting_agent",
+                        "application_id": paths.application_id,
+                        "run_id": run_id,
+                        "node_id": "analyze_fit",
+                        "manifest_path": str(prepared.manifest_path),
+                        "artifact_paths": [],
+                        "blocker": reason,
+                    }
+                ]
+            if not _cellular_analyze_dispatch_allowed(
+                plan=plan,
+                statuses=dispatch_statuses,
+                ready_nodes=ready_before_analyze,
+                request_json=request_json,
+                request_md=request_md,
+            ):
+                executor.defer_prepared_attempt(
+                    prepared, reason="cellular_analyze_dispatch_gate_not_satisfied"
+                )
+                return [
+                    {
+                        "status": "awaiting_agent",
+                        "application_id": paths.application_id,
+                        "run_id": run_id,
+                        "node_id": "analyze_fit",
+                        "manifest_path": str(prepared.manifest_path),
+                        "artifact_paths": [],
+                        "blocker": "cellular_analyze_dispatch_gate_not_satisfied",
+                    }
+                ]
             with executor.keep_prepared_attempt_alive(prepared) as keepalive:
                 agent_result = _run_cellular_analyze_agent(
-                    paths, prepared, options=options, config=config
+                    paths,
+                    prepared,
+                    options=options,
+                    config=config,
+                    request_paths=(request_json, request_md),
                 )
             agent_ok = (
                 agent_result.get("returncode") == 0
@@ -3849,16 +3939,35 @@ def run_explicit_cellular(
             str(item["node_id"])
             for item in CellStore(inspection).list_ready_nodes(run_id)
         ]
+        status_map = {
+            str(item["node_id"]): str(item["status"]) for item in statuses
+        }
+        persisted_plan, _persisted_paths = CellExecutor(
+            inspection,
+            applications_root=V2_DIR,
+            worker_id="applications-cellular-status",
+        )._load_run(run_id)
+        stage_report = (
+            serial_stage_report(persisted_plan, status_map)
+            if persisted_plan.execution_mode == "serial"
+            else None
+        )
     finally:
         inspection.close()
     blocked = [str(item["node_id"]) for item in statuses if item["status"] == "blocked"]
     if any(item.get("status") == "awaiting_agent" for item in results):
         status = "awaiting_agent"
+    elif stage_report and stage_report.status in {
+        "awaiting_agent",
+        "awaiting_approval",
+        "blocked",
+    }:
+        status = stage_report.status
     elif blocked:
         status = "blocked"
     elif run_row and run_row["status"] == "completed":
         status = "completed"
-    elif ready:
+    elif ready or stage_report and stage_report.status == "ready":
         status = "ready"
     else:
         status = "running"
@@ -3871,6 +3980,19 @@ def run_explicit_cellular(
         "results": results,
         "ready_nodes": ready,
         "blocked_nodes": blocked,
+        "execution_mode": persisted_plan.execution_mode,
+        "serial_stage": (
+            {
+                "stage": stage_report.stage,
+                "status": stage_report.status,
+                "allowed_nodes": list(stage_report.allowed_nodes),
+                "completed_nodes": list(stage_report.completed_nodes),
+                "next_stage": stage_report.next_stage,
+                "blocked_nodes": list(stage_report.blocked_nodes),
+            }
+            if stage_report
+            else None
+        ),
     }
 
 

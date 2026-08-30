@@ -33,6 +33,7 @@ from career.services.persistence.application_repository import ApplicationNotFou
 from career.services.reconciliation import Reconciler
 from career.services.session_memory import SessionMemoryService
 from career.cells.executor import CellExecutor
+from career.cells.serial import serial_stage_report
 from career.cells.handlers import (
     production_handler_registry,
     production_validator_registry,
@@ -660,6 +661,7 @@ def _applications_status_human_summary(result: dict) -> str:
 
 def _cell_run_payload(executor: CellExecutor, run_id: str, *, status: str | None = None) -> dict:
     resumed = executor.resume(run_id)
+    plan, _paths = executor._load_run(run_id)
     blocked_nodes = sorted(
         node_id for node_id, node_status in resumed.statuses.items() if node_status == "blocked"
     )
@@ -703,17 +705,32 @@ def _cell_run_payload(executor: CellExecutor, run_id: str, *, status: str | None
             "career applications inspect-run "
             f"--application-id {resumed.application_id} --run-id {run_id}"
         )
-    resolved_status = status or (
-        "blocked"
-        if blocked_nodes
-        else "running"
-        if active_nodes
-        else "ready"
-        if ready_nodes
-        else "pending"
-        if pending_nodes
-        else "completed"
-    )
+    serial_stage = None
+    if plan.execution_mode == "serial":
+        serial_stage = asdict(serial_stage_report(plan, resumed.statuses))
+        resolved_status = status or (
+            serial_stage["status"]
+            if serial_stage["status"] in {"blocked", "awaiting_agent", "awaiting_approval"}
+            else "running"
+            if active_nodes
+            else "ready"
+            if ready_nodes
+            else "pending"
+            if pending_nodes
+            else "completed"
+        )
+    else:
+        resolved_status = status or (
+            "blocked"
+            if blocked_nodes
+            else "running"
+            if active_nodes
+            else "ready"
+            if ready_nodes
+            else "pending"
+            if pending_nodes
+            else "completed"
+        )
     return {
         "status": resolved_status,
         "run_id": run_id,
@@ -721,6 +738,8 @@ def _cell_run_payload(executor: CellExecutor, run_id: str, *, status: str | None
         "blocked_nodes": blocked_nodes,
         "artifact_paths": artifact_paths,
         "next_action": next_action,
+        "execution_mode": plan.execution_mode,
+        "serial_stage": serial_stage,
     }
 
 

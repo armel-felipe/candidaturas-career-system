@@ -675,6 +675,13 @@ npm run applications:authorize-handoff -- --control-db-id <CONTROL_DB_ID> --owne
 npm run applications:verify-parallel -- --fixture-dir <diretorio-temporario>
 ```
 
+Para o pacote-base acionado por `processe-a-vaga`, planejar `cv` e `notion` na
+mesma run com `--execution-mode serial`; cada continuação usa o mesmo
+`application_id` e `run_id`, chama `applications:run --run-agent` uma vez e
+para em `ready`, `running`, `awaiting_agent`, `awaiting_approval` ou `blocked`.
+Somente `core_package_sealed` pode retornar `completed`; a numeração do pedido
+não substitui a ordem canônica persistida.
+
 Contrato obrigatório:
 - request celular contém `application_id`, `run_id`, `node_id`, `manifest_path`, `read_allowlist` e `write_allowlist`; ausência, path cruzado ou identidade divergente bloqueia a execução
 - allowlists do request são subconjuntos exatos das capabilities do manifesto; em modo celular o harness aceita somente `write_allowlist` e não une outputs legados

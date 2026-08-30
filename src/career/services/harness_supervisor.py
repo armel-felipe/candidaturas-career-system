@@ -1460,13 +1460,38 @@ class HarnessSupervisor:
         self._sync_menu_state_for_result(envelope.get("result"))
         result_status = envelope.get("result", {}).get("status") if isinstance(envelope.get("result"), dict) else None
         envelope["executed"] = result_status != "awaiting_input"
-        envelope["status"] = result_status if result_status in {"blocked", "awaiting_input", "awaiting_approval"} else "completed"
+        envelope["status"] = (
+            result_status
+            if result_status
+            in {
+                "blocked",
+                "awaiting_input",
+                "awaiting_approval",
+                "awaiting_agent",
+                "ready",
+                "running",
+                "pending",
+            }
+            else "completed"
+        )
         return envelope
 
     @staticmethod
     def _pipeline_result(*, intake: dict[str, Any], specialist: dict[str, Any]) -> dict[str, Any]:
         specialist_status = str(specialist.get("status") or "")
-        status = specialist_status if specialist_status in {"blocked", "awaiting_approval"} else "completed"
+        status = (
+            specialist_status
+            if specialist_status
+            in {
+                "blocked",
+                "awaiting_approval",
+                "awaiting_agent",
+                "ready",
+                "running",
+                "pending",
+            }
+            else "completed"
+        )
         return {"status": status, "intake": intake, "specialist": specialist}
 
     def _execute_pipeline_request(
@@ -1481,6 +1506,13 @@ class HarnessSupervisor:
         channel: str,
     ) -> dict[str, Any]:
         """Advance one scoped package step at a time without changing vacancy identity."""
+        if self._is_serial_package_base_request(requested_steps):
+            return self._run_serial_package_base(
+                requested_steps=requested_steps,
+                application_id=application_id,
+                model=model,
+                variant=variant,
+            )
         from career.services import intake as intake_service
 
         scoped_id = str(application_id or "").strip()
@@ -1551,11 +1583,197 @@ class HarnessSupervisor:
             }
         stage_status = str(stages[-1].get("status") or "blocked") if stages else "blocked"
         return {
-            "status": "completed" if stage_status in {"completed", "awaiting_approval"} else "blocked",
+            "status": "completed" if stage_status == "completed" else stage_status,
             "application_id": scoped_id,
             "resume": resume,
             "requested_steps": requested_steps,
             "stages": stages,
+        }
+
+    @staticmethod
+    def _is_serial_package_base_request(requested_steps: list[str]) -> bool:
+        base_steps = {
+            str(step).strip() for step in requested_steps
+        } & {"cv", "onedrive", "notion"}
+        return len(base_steps) >= 2
+
+    def _latest_cellular_run(self, application_id: str) -> dict[str, Any] | None:
+        row = self.db.fetch_one(
+            """SELECT run_id, application_id, status, created_at
+                 , graph_json
+                 FROM application_runs
+                WHERE application_id = ?
+                ORDER BY created_at DESC, run_id DESC
+                LIMIT 1""",
+            (application_id,),
+        )
+        return dict(row) if row is not None else None
+
+    @staticmethod
+    def _is_serial_cellular_run(run: dict[str, Any] | None) -> bool:
+        if not run:
+            return False
+        raw_graph = run.get("graph_json")
+        if not raw_graph:
+            # Compatibility for test/adapter rows that already expose only
+            # the projected fields. Real SQLite rows always carry graph_json.
+            return str(run.get("execution_mode") or "serial") == "serial"
+        try:
+            graph = json.loads(str(raw_graph))
+        except json.JSONDecodeError:
+            return False
+        return isinstance(graph, dict) and graph.get("execution_mode") == "serial"
+
+    @staticmethod
+    def _parse_cli_json(output: str) -> dict[str, Any]:
+        text = str(output or "").strip()
+        if not text:
+            return {}
+        decoder = json.JSONDecoder()
+        parsed: dict[str, Any] | None = None
+        for offset, character in enumerate(text):
+            if character != "{":
+                continue
+            try:
+                value, _end = decoder.raw_decode(text[offset:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                parsed = value
+        if parsed is not None:
+            return parsed
+        return {}
+
+    def _run_serial_package_base(
+        self,
+        *,
+        requested_steps: list[str],
+        application_id: str | None,
+        model: str | None,
+        variant: str | None,
+    ) -> dict[str, Any]:
+        """Create or resume the persisted serial package plan once per turn."""
+        del model, variant
+        scoped_id = str(application_id or "").strip()
+        if not scoped_id:
+            return {
+                "status": "blocked",
+                "blocker_reason": "explicit_application_scope_required",
+                "requested_steps": requested_steps,
+            }
+        latest = self._latest_cellular_run(scoped_id)
+        if latest and not self._is_serial_cellular_run(latest):
+            latest = None
+        if latest and str(latest.get("status") or "") == "completed":
+            return {
+                "status": "completed",
+                "application_id": scoped_id,
+                "run_id": str(latest.get("run_id") or ""),
+                "requested_steps": requested_steps,
+                "next_stage": None,
+            }
+        commands: list[list[str]] = []
+        run_id = str(latest.get("run_id") or "") if latest else ""
+        if not run_id:
+            plan_command = [
+                "npm",
+                "run",
+                "applications:plan",
+                "--",
+                "--application-id",
+                scoped_id,
+                "--deliverable",
+                "cv",
+                "--deliverable",
+                "notion",
+                "--execution-mode",
+                "serial",
+            ]
+            planned = subprocess.run(
+                plan_command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=90 * 60,
+            )
+            commands.append(plan_command)
+            plan_payload = self._parse_cli_json(planned.stdout)
+            run_id = str(plan_payload.get("run_id") or "").strip()
+            if planned.returncode != 0 or not run_id:
+                return {
+                    "status": "blocked",
+                    "application_id": scoped_id,
+                    "requested_steps": requested_steps,
+                    "commands": commands,
+                    "blocker_reason": "serial_plan_creation_failed",
+                    "stderr": (planned.stderr or "")[-4000:],
+                }
+        run_command = [
+            "npm",
+            "run",
+            "applications:run",
+            "--",
+            "--application-id",
+            scoped_id,
+            "--run-id",
+            run_id,
+            "--run-agent",
+        ]
+        executed = subprocess.run(
+            run_command,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90 * 60,
+        )
+        commands.append(run_command)
+        payload = self._parse_cli_json(executed.stdout)
+        if executed.returncode != 0:
+            return {
+                "status": "blocked",
+                "application_id": scoped_id,
+                "run_id": run_id,
+                "requested_steps": requested_steps,
+                "commands": commands,
+                "blocker_reason": "serial_run_failed",
+                "stderr": (executed.stderr or "")[-4000:],
+            }
+        status = str(payload.get("status") or "running")
+        serial_stage = payload.get("serial_stage")
+        if not isinstance(serial_stage, dict):
+            serial_stage = {}
+        if str(serial_stage.get("status") or "") in {
+            "blocked",
+            "awaiting_agent",
+            "awaiting_approval",
+        }:
+            status = str(serial_stage["status"])
+        if status == "completed" and str(serial_stage.get("stage") or "") != "seal":
+            status = "running"
+        if status not in {
+            "blocked",
+            "awaiting_agent",
+            "awaiting_approval",
+            "running",
+            "ready",
+            "pending",
+            "completed",
+        }:
+            status = "blocked"
+        return {
+            "status": status,
+            "application_id": scoped_id,
+            "run_id": run_id,
+            "execution_mode": payload.get("execution_mode", "serial"),
+            "serial_stage": serial_stage,
+            "next_stage": serial_stage.get("next_stage"),
+            "requested_steps": requested_steps,
+            "commands": commands,
+            "payload": payload,
         }
 
     def _deliver_scoped_cv(self, application_id: str) -> dict[str, Any]:

@@ -34,6 +34,20 @@ class ProcesseAVagaContractTests(unittest.TestCase):
         self.assertIn("injetar provenance", text.casefold())
         self.assertIn("não pode cair para `fit-map:finalize`", text.casefold())
 
+    def test_package_base_uses_persisted_serial_plan_and_explicit_continuation(self) -> None:
+        text = (ROOT / ".agents/skills/processe-a-vaga/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("--execution-mode serial", text)
+        self.assertIn("--deliverable notion", text)
+        self.assertIn("awaiting_agent", text)
+        self.assertIn("awaiting_approval", text)
+        self.assertIn("next_stage", text)
+        self.assertIn("mesmo `application_id` e `run_id`", text)
+        self.assertIn("Não executar etapa posterior manualmente", text)
+        self.assertNotIn("permanece uma ação separada", text)
+
     def test_governance_docs_agree_on_post_processing_boundary(self) -> None:
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         career_system = (

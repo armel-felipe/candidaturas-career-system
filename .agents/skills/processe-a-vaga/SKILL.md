@@ -54,26 +54,41 @@ retomar com `npm run intake:resume -- --application-id "<id>"`.
 
 O pedido end-to-end (`processe a vaga`, `faz tudo`, `analisa e registra`) não é
 executado como uma sequência livre de comandos pelo modelo. Depois do intake,
-usar o orquestrador celular:
+criar ou retomar um único plano serial do pacote-base:
 
 ```bash
-npm run applications:plan -- --application-id "<id>" --deliverable cv
+npm run applications:plan -- --application-id "<id>" --deliverable cv --deliverable notion --execution-mode serial
 npm run applications:run -- --application-id "<id>" --run-id "<run_id_retornado>" --run-agent
 npm run applications:inspect-run -- --application-id "<id>" --run-id "<run_id>"
 ```
 
-Se uma célula bloquear, reparar somente o nó indicado e retomar o mesmo
-`run_id`:
+O plano persiste a ordem canônica `normalize -> analyze -> cv -> delivery ->
+notion -> seal`. Cada continuação executa somente o estágio atual e chama
+`applications:run --run-agent` uma vez. Após uma etapa intermediária, parar e
+retornar `ready`/`running` com `next_stage`; estados `awaiting_agent`,
+`awaiting_approval` e `blocked` também interrompem o avanço. Uma confirmação
+curta como “continue” retoma o mesmo `application_id` e `run_id`; não criar um
+novo plano nem recomeçar uma etapa validada. `completed` só é válido quando o
+SQLite tiver selado `core_package_sealed`.
+
+O pedido do usuário pode listar as ações em outra numeração, mas não altera essa
+ordem nem autoriza execução em ondas. Não executar etapa posterior manualmente,
+usar o executor wave, ou chamar comandos de CV/Notion fora do plano serial.
+
+Se uma célula bloquear, reparar somente o nó indicado e retomar o mesmo `run_id`:
 
 ```bash
 npm run applications:repair -- --application-id "<id>" --run-id "<run_id>" --node "<node_id>" --reason "<motivo objetivo>"
 ```
 
-O agente não pode cair para `fit-map:finalize`, executar uma etapa posterior
-manualmente ou injetar provenance no FIT_MAP para contornar um bloqueio
-celular. Se faltar binding, manifest ou receipt, declarar a execução bloqueada
-com o nó e o motivo objetivos. A criação/atualização no Notion permanece uma
-ação separada e só ocorre quando o usuário a autorizar explicitamente.
+O agente não pode cair para `fit-map:finalize` ou injetar provenance no FIT_MAP
+para contornar um bloqueio celular. Se faltar binding, manifest ou receipt,
+declarar a execução bloqueada com o nó e o motivo objetivos. Quando `notion`
+faz parte do plano, ele é o estágio final do mesmo pacote-base, depois do receipt
+de entrega do CV; não criar uma sequência Notion paralela. Autorizações externas
+e receipts continuam gates obrigatórios: se o Notion retornar
+`awaiting_approval`, permanecer pendente e retomar o mesmo plano após a
+autorização.
 
 ### 2. FIT_MAP
 

@@ -200,16 +200,21 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_cell_serial_in
 **Arquivos:** `src/career/services/applications_v2.py`,
 `src/career/cells/executor.py`, testes de workspace, repair e dispatch.
 
-- [ ] Disparar `analyze_fit` somente quando o estágio `analyze` estiver atual e o
+- [x] Disparar `analyze_fit` somente quando o estágio `analyze` estiver atual e o
    request compacto da candidatura existir.
-- [ ] Disparar repair de CV somente após blocker de `review_cv`, com nova attempt
+- [x] Disparar repair de CV somente após blocker de `review_cv`, com nova attempt
    e binding scoped, sem delivery ou Notion no mesmo ciclo.
-- [ ] Manter a proteção de `analyze_fit` contra consumo sem
+- [x] Manter a proteção de `analyze_fit` contra consumo sem
    `fit_map.draft.json`/binding, aproveitando `CELLULAR-003`.
-- [ ] Testar falha de subprocesso, timeout, aprovação pendente, lease expirado e
+- [x] Testar falha de subprocesso, timeout, aprovação pendente, lease expirado e
    receipt inválido; todos devem gerar retomada explícita ou bloqueio.
-- [ ] Testar duas aplicações distintas em paralelo e duas invocações concorrentes
+- [x] Testar duas aplicações distintas em paralelo e duas invocações concorrentes
    da mesma aplicação; a segunda deve ser bloqueada pelo lease.
+
+Evidência: dispatch/repair e regressões celulares aprovados na suíte canônica
+`tests/` (`661 passed, 3 warnings`) em 2026-08-30; a coleta irrestrita do
+workspace permanece inválida por duplicatas de backups/runtimes e binários
+incompatíveis, registrada no handoff da onda.
 
 **Teste de passagem:**
 
@@ -225,16 +230,20 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_cell_workspace
 **Arquivos:** `src/career/services/harness_supervisor.py`, `src/career/cli.py`,
 `tests/test_harness_continuity.py`, `tests/test_harness_dispatch.py`.
 
-- [ ] Fazer a intenção composta de `processe-a-vaga` criar ou retomar um plano
+- [x] Fazer a intenção composta de `processe-a-vaga` criar ou retomar um plano
    serial do pacote-base, sem transformar a lista textual em autorização para
    executar todas as etapas na mesma chamada.
-- [ ] Manter a ordem canônica persistida no plano; a numeração do usuário não
+- [x] Manter a ordem canônica persistida no plano; a numeração do usuário não
    substitui dependências ou gates.
-- [ ] Manter `awaiting_approval` pendente e retornar `running`/`ready` com
+- [x] Manter `awaiting_approval` pendente e retornar `running`/`ready` com
    `next_stage` após etapa intermediária; `completed` só vale para sealed.
-- [ ] Garantir que confirmação curta retome o mesmo `application_id`/`run_id`.
-- [ ] Isolar o failure pré-existente de handoff oficial, registrando-o como
+- [x] Garantir que confirmação curta retome o mesmo `application_id`/`run_id`.
+- [x] Isolar o failure pré-existente de handoff oficial, registrando-o como
    pendência separada se continuar.
+
+Evidência: `tests/test_harness_serial_pipeline.py`, `tests/test_harness_dispatch.py`
+e `tests/test_harness_continuity.py` aprovados; o status conversacional preserva
+`awaiting_agent`, `awaiting_approval`, `ready` e `running`.
 
 **Teste de passagem:**
 
@@ -251,18 +260,21 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_harness_contin
 `tests/test_skill_contracts.py`, documentação de `career-system` se exigida
 pelos contratos.
 
-- [ ] Documentar que o pacote-base usa entrada celular com
+- [x] Documentar que o pacote-base usa entrada celular com
    `--execution-mode serial`.
-- [ ] Atualizar o exemplo para planejar `cv` e `notion` na mesma run, com
+- [x] Atualizar o exemplo para planejar `cv` e `notion` na mesma run, com
    `application_id` explícito, e executar `applications:run --run-agent` uma
    vez por continuação.
-- [ ] Descrever a parada após cada estágio e os estados que exigem nova
+- [x] Descrever a parada após cada estágio e os estados que exigem nova
    invocação, aprovação ou correção.
-- [ ] Remover a ambiguidade que trata Notion como ação separada quando ele faz
+- [x] Remover a ambiguidade que trata Notion como ação separada quando ele faz
    parte do critério do pacote-base; manter autorização externa e receipt como
    gates.
-- [ ] Proibir na skill o uso do executor wave ou o disparo manual de etapa
+- [x] Proibir na skill o uso do executor wave ou o disparo manual de etapa
    posterior fora da run.
+
+Evidência: `tests/test_skill_contracts.py` passou `5/5` após o ciclo RED/GREEN;
+o contrato canônico foi atualizado em `.agents/skills/processe-a-vaga/SKILL.md`.
 
 **Teste de passagem:**
 
@@ -322,5 +334,5 @@ executada de duas formas:
 
 - [ ] **Subagent-driven:** uma tarefa por vez, com revisão entre tarefas;
    adequado para checkpoints entre planner, executor e Harness.
-- [ ] **Inline:** implementação contínua nesta sessão, mantendo os mesmos gates e
+- [x] **Inline:** implementação contínua nesta sessão, mantendo os mesmos gates e
    executando a suíte após cada grupo de mudanças.

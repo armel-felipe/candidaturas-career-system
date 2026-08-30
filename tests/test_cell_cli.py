@@ -85,6 +85,8 @@ def test_plan_requires_application_id_and_emits_run_id(capsys, seeded_applicatio
         "blocked_nodes",
         "artifact_paths",
         "next_action",
+        "execution_mode",
+        "serial_stage",
     }
 
 
