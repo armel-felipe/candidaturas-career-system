@@ -211,6 +211,7 @@ def build_cv_content(
         language=language or _application_cv_language(application_paths, fit_map),
         positioning_pack=positioning_pack,
     )
+    return payload
 
 
 def build_from_positioning_pack(pack: Mapping[str, Any]) -> dict[str, Any]:
@@ -223,7 +224,6 @@ def build_from_positioning_pack(pack: Mapping[str, Any]) -> dict[str, Any]:
     )
     content = f"{validated['thesis']} {story_text} {artifact_claim_text(validated)}".strip()
     return {"content": content, "provenance": artifact_provenance(validated)}
-    return payload
 
 
 def output_name_for_application(

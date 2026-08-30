@@ -455,13 +455,17 @@ class HarnessSupervisor:
                 requires_approval=True, parameters=parameters,
             )
 
-        if application_match and self._is_delivery_status_question(lowered):
+        if self._is_delivery_status_question(lowered):
             return self._decision(
                 "application_status",
                 "status",
                 "high",
                 "scoped_delivery_status_request",
-                parameters={"application_id": application_match.group(1)},
+                parameters={
+                    "application_id": application_match.group(1)
+                    if application_match
+                    else ""
+                },
             )
 
         if self._is_meta_question_about_generated_outputs(lowered):
@@ -590,8 +594,14 @@ class HarnessSupervisor:
                 execute=True,
                 max_per_run=payload.get("max_per_run"),
             )
+            resumed_result = resumed.get("result") if isinstance(resumed, dict) else None
+            resumed_status = (
+                resumed_result.get("status")
+                if isinstance(resumed_result, dict)
+                else resumed.get("status") if isinstance(resumed, dict) else None
+            )
             return {
-                "status": "blocked",
+                "status": "completed" if resumed_status == "completed" else "blocked",
                 "approval": consumed,
                 "storage_identity": storage_identity,
                 "resumed": resumed,

@@ -203,7 +203,8 @@ verde.
 | `TEST-006` | `DONE` | Trivial | Mock de `guard()` não aceitava o parâmetro `database` introduzido no contrato atual. | Mock atualizado; suíte focada de intake/runtime passou em 2026-08-21. |
 | `TEST-007` | `BACKLOG` | Baixo | Teste de geração de request tenta mockar `_prepare_compact_inputs_for_step`, função removida/renomeada. | Teste usa a API atual (`_prepare_scoped_compact_inputs`) ou uma compatibilidade deliberada é documentada. |
 | `TEST-008` | `BACKLOG` | Médio | Fixture de intake Notion usa banco temporário sem schema/tabelas disponíveis no caminho observado. | Fixture injeta o banco canônico temporário corretamente; a descrição é persistida antes do template. |
-| `TEST-009` | `BACKLOG` | Baixo | `test_cell_planner.py::test_cv_and_notion_plan_has_ordered_nodes` ainda espera que `compose_cv` dependa apenas de `analyze_fit`, embora o plano atual também exija `normalize_job`. | Atualizar a expectativa do teste para refletir a dependência canônica de normalização, sem relaxar a ordem do pipeline celular. |
+| `TEST-009` | `DONE` | Baixo | `test_cell_planner.py::test_cv_and_notion_plan_has_ordered_nodes` ainda esperava que `compose_cv` dependesse apenas de `analyze_fit`, embora o plano atual também exija `normalize_job`. | `fix/pre-wave2-regressions`; expectativa atualizada para `("analyze_fit", "normalize_job")`; teste do planner passou em 2026-08-30. |
+| `TEST-010` | `DONE` | Médio | Quatro regressões da suíte ampla impediam o pipeline CV celular, o retorno correto do handoff aprovado e a classificação determinística de status de entrega; uma delas expunha o retorno deslocado de `build_cv_content` após a Onda 2. | `fix/pre-wave2-regressions`; pipeline CV concorrente, handoff, status, planner e suíte de posicionamento passaram no conjunto focado de 80 testes em 2026-08-30. |
 
 ## Registro de planos
 

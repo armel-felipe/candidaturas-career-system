@@ -11,7 +11,7 @@ from career.services.application_context import paths_for
 
 def test_cv_and_notion_plan_has_ordered_nodes(tmp_path):
     plan = compile_run_plan("app-1", {"cv", "notion"}, paths_for("app-1", root=tmp_path))
-    assert plan.dependencies_of("compose_cv") == ("analyze_fit",)
+    assert plan.dependencies_of("compose_cv") == ("analyze_fit", "normalize_job")
     assert plan.dependencies_of("review_cv") == ("render_cv", "analyze_fit")
     assert plan.dependencies_of("sync_notion_final") == ("analyze_fit", "sync_notion_initial", "review_cv")
     assert plan.is_acyclic()

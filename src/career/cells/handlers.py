@@ -27,6 +27,7 @@ from career.services import notion as notion_service
 from career.services import review as review_service
 from career.services.application_context import ApplicationPaths
 from career.services.database import Database
+from career.services.persistence.application_repository import ApplicationNotFoundError
 from career.services.positioning_pack import artifact_provenance, build_positioning_pack
 from career.paths import ROOT
 from career.utils import read_json, write_json
@@ -470,8 +471,10 @@ def _positioning_pack_for_application(
     try:
         try:
             return build_positioning_pack(context.application_id, database)
-        except ValueError as exc:
+        except (ApplicationNotFoundError, ValueError) as exc:
             if "candidate evidence reference is missing" in str(exc):
+                return None
+            if isinstance(exc, ApplicationNotFoundError):
                 return None
             raise
     finally:
