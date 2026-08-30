@@ -102,6 +102,16 @@ class RuntimeMountTests(unittest.TestCase):
         launcher = (ROOT / "scripts" / "python.sh").read_text(encoding="utf-8")
         self.assertIn('/opt/hermes/.venv/bin/python', launcher)
 
+    def test_container_python_launcher_checks_hermes_before_host_venv(self) -> None:
+        launcher = (ROOT / "scripts" / "python.sh").read_text(encoding="utf-8")
+        hermes_branch = launcher.index('if [ -f "/opt/hermes/.install_method" ]')
+        host_branch = launcher.index('if [ -x "$project_root/.venv/bin/python" ]')
+        self.assertLess(
+            hermes_branch,
+            host_branch,
+            "a mounted host .venv must not shadow the container dependency environment",
+        )
+
     def test_bots_mount_canonical_root_and_isolated_writable_overlays(self) -> None:
         for compose_path in COMPOSE_FILES:
             payload = yaml.safe_load(compose_path.read_text(encoding="utf-8"))

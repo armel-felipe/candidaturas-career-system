@@ -9,13 +9,22 @@ resolve_python() {
     return 0
   fi
 
+  # The canonical workspace is bind-mounted into Hermes containers.  That
+  # mount can include the host's .venv, which is not the image's dependency
+  # environment.  Prefer the immutable container venv when the Docker image
+  # marker is present so project commands do not shadow it with host packages.
+  if [ -f "/opt/hermes/.install_method" ] && [ "$(tr -d '[:space:]' < /opt/hermes/.install_method)" = "docker" ] && [ -x "/opt/hermes/.venv/bin/python" ]; then
+    printf '%s\n' "/opt/hermes/.venv/bin/python"
+    return 0
+  fi
+
   if [ -x "$project_root/.venv/bin/python" ]; then
     printf '%s\n' "$project_root/.venv/bin/python"
     return 0
   fi
 
-  # Hermes containers carry the project's dependencies in this virtualenv;
-  # use it when a project-local environment is not available.
+  # Hermes containers or local Hermes installs may carry the project's
+  # dependencies in this virtualenv when no host environment is available.
   if [ -x "/opt/hermes/.venv/bin/python" ]; then
     printf '%s\n' "/opt/hermes/.venv/bin/python"
     return 0
