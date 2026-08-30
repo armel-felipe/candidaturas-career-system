@@ -139,10 +139,21 @@ class CellExecutor:
             "metadata_sha256": hashlib.sha256(serialized.encode("utf-8")).hexdigest()
         }
 
-    def plan(self, application_id: str, deliverables: Iterable[str]) -> RunPlan:
+    def plan(
+        self,
+        application_id: str,
+        deliverables: Iterable[str],
+        *,
+        execution_mode: str = "wave",
+    ) -> RunPlan:
         self._renew_workspace_lease()
         paths = self._paths(application_id)
-        plan = compile_run_plan(application_id, deliverables, paths)
+        plan = compile_run_plan(
+            application_id,
+            deliverables,
+            paths,
+            execution_mode=execution_mode,
+        )
         self.store.create_run(application_id, plan.run_id, graph=plan.as_dict())
         self.database.execute(
             "UPDATE application_runs SET contract_version = ? WHERE run_id = ?",
@@ -2614,6 +2625,7 @@ class CellExecutor:
             resource_locks=tuple(payload["resource_locks"]),
             created_at=payload["created_at"],
             contract_version=payload["contract_version"],
+            execution_mode=payload.get("execution_mode", "wave"),
         )
         if plan.run_id != run_id or plan.application_id != row["application_id"]:
             raise ValueError("persisted run plan identity mismatch")

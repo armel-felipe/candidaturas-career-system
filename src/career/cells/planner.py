@@ -26,6 +26,16 @@ _FINAL_NOTION_DEPENDENCIES: dict[str, str] = {
     "habilidades": "review_habilidades",
 }
 
+EXECUTION_MODES = frozenset({"wave", "serial"})
+
+
+def validate_execution_mode(value: str) -> str:
+    mode = str(value or "").strip().lower()
+    if mode not in EXECUTION_MODES:
+        allowed = ", ".join(sorted(EXECUTION_MODES))
+        raise ValueError(f"unknown execution mode: {value!r}; expected one of {allowed}")
+    return mode
+
 
 @dataclass(frozen=True)
 class NodePlan:
@@ -64,6 +74,10 @@ class RunPlan:
     resource_locks: tuple[str, ...]
     created_at: str
     contract_version: str
+    execution_mode: str = "wave"
+
+    def __post_init__(self) -> None:
+        validate_execution_mode(self.execution_mode)
 
     def dependencies_of(self, node_id: str) -> tuple[str, ...]:
         node = next((item for item in self.nodes if item.node_id == node_id), None)
@@ -109,6 +123,7 @@ class RunPlan:
             "resource_locks": list(self.resource_locks),
             "created_at": self.created_at,
             "contract_version": self.contract_version,
+            "execution_mode": self.execution_mode,
         }
 
 
@@ -116,12 +131,15 @@ def compile_run_plan(
     application_id: str,
     requested_deliverables: Iterable[str],
     application_paths: ApplicationPaths,
+    *,
+    execution_mode: str = "wave",
 ) -> RunPlan:
     """Compile, validate, and persist an immutable application DAG."""
     if not application_id or application_paths.application_id != application_id:
         raise ValueError("application_id must match application_paths")
     if isinstance(requested_deliverables, (str, bytes)):
         raise ValueError("requested_deliverables must be an iterable of deliverable names")
+    execution_mode = validate_execution_mode(execution_mode)
 
     requested = frozenset(requested_deliverables)
     unknown = requested - _DELIVERABLE_TARGETS.keys()
@@ -179,6 +197,7 @@ def compile_run_plan(
         resource_locks=resource_locks,
         created_at=datetime.now(UTC).isoformat(),
         contract_version=CONTRACT_VERSION,
+        execution_mode=execution_mode,
     )
     if not plan.is_acyclic():
         raise ValueError("cell plan contains a cycle")

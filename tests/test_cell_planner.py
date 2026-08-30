@@ -36,6 +36,27 @@ def test_plan_is_frozen_and_persisted_after_validation(tmp_path):
         plan.application_id = "other-app"
 
 
+def test_serial_execution_mode_is_persisted_in_plan(tmp_path):
+    paths = paths_for("app-serial", root=tmp_path)
+    paths.job_description.parent.mkdir(parents=True)
+    paths.job_description.write_text("A persisted job description", encoding="utf-8")
+
+    plan = compile_run_plan("app-serial", {"cv", "notion"}, paths, execution_mode="serial")
+
+    persisted = json.loads((paths.app_dir / "plans" / f"{plan.run_id}.json").read_text())
+    assert plan.execution_mode == "serial"
+    assert persisted["execution_mode"] == "serial"
+
+
+def test_unknown_execution_mode_is_rejected_without_persisting(tmp_path):
+    paths = paths_for("app-serial", root=tmp_path)
+
+    with pytest.raises(ValueError, match="unknown execution mode"):
+        compile_run_plan("app-serial", {"cv"}, paths, execution_mode="burst")
+
+    assert not (paths.app_dir / "plans").exists()
+
+
 def test_capture_source_is_only_included_without_a_job_description(tmp_path):
     paths = paths_for("app-1", root=tmp_path)
     paths.job_description.parent.mkdir(parents=True)

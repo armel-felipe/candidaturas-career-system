@@ -88,6 +88,24 @@ def test_plan_requires_application_id_and_emits_run_id(capsys, seeded_applicatio
     }
 
 
+def test_plan_accepts_and_persists_serial_execution_mode(capsys, seeded_application):
+    code = cli.main(
+        [
+            "applications",
+            "plan",
+            "--application-id",
+            seeded_application,
+            "--deliverable",
+            "cv",
+            "--execution-mode",
+            "serial",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["run_id"]
+
+
 def test_cellular_run_rejects_missing_application_id(capsys):
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["applications", "run", "--run-id", "run-1"])

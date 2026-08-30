@@ -93,16 +93,16 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_cell_planner.p
 **Arquivos:** `src/career/cells/planner.py`, `src/career/cells/executor.py`,
 `src/career/cli.py`, `tests/test_cell_planner.py`, `tests/test_cell_cli.py`.
 
-- [ ] Adicionar `execution_mode` ao `RunPlan`, aceitando apenas `wave` e
+- [x] Adicionar `execution_mode` ao `RunPlan`, aceitando apenas `wave` e
    `serial`, com default `wave` ao ler planos antigos.
-- [ ] Incluir o campo em `as_dict()` e no `_load_run()`; manter a comparação
+- [x] Incluir o campo em `as_dict()` e no `_load_run()`; manter a comparação
    exata entre JSON persistido e linha SQLite.
-- [ ] Estender `compile_run_plan()` e `CellExecutor.plan()` com o modo explícito,
+- [x] Estender `compile_run_plan()` e `CellExecutor.plan()` com o modo explícito,
    sem alterar o default dos chamadores atuais.
-- [ ] Adicionar `--execution-mode {wave,serial}` a `applications:plan`.
-- [ ] Rejeitar modo desconhecido antes de criar arquivo ou linha de run.
-- [ ] Testar persistência, compatibilidade com plano antigo e rejeição de troca de
-   modo durante `applications:run`.
+- [x] Adicionar `--execution-mode {wave,serial}` a `applications:plan`.
+- [x] Rejeitar modo desconhecido antes de criar arquivo ou linha de run.
+- [x] Testar persistência, compatibilidade com plano antigo e rejeição de troca de
+   modo durante `applications:run`; a regressão celular final passou `236/236`.
 
 **Teste de passagem:**
 
@@ -118,16 +118,17 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_cell_planner.p
 **Arquivos:** novo `src/career/cells/serial.py`,
 `src/career/cells/__init__.py`, `tests/test_cell_serial.py`.
 
-- [ ] Definir uma tabela ordenada de estágios: `normalize`, `analyze`, `cv`,
+- [x] Definir uma tabela ordenada de estágios: `normalize`, `analyze`, `cv`,
    `delivery`, `notion` e `seal`.
-- [ ] Mapear cada estágio aos node IDs permitidos; `cv` deve ordenar
+- [x] Mapear cada estágio aos node IDs permitidos; `cv` deve ordenar
    `compose_cv`, `render_cv`, `review_cv`.
-- [ ] Implementar funções puras para descobrir o estágio atual a partir do estado
+- [x] Implementar funções puras para descobrir o estágio atual a partir do estado
    persistido, reconhecendo blockers, `awaiting_agent` e `awaiting_approval`.
-- [ ] Bloquear `sync_notion_initial` e `sync_notion_final` antes de `deliver_cv`,
+- [x] Bloquear `sync_notion_initial` e `sync_notion_final` antes de `deliver_cv`,
    mesmo quando o DAG legado os reportar como ready.
-- [ ] Retornar `stage`, `status`, `completed_nodes`, `next_stage` e
-   `blocked_nodes`, sem declarar conclusão do pacote.
+- [x] Retornar `stage`, `status`, `completed_nodes`, `next_stage` e
+   `blocked_nodes`, sem declarar conclusão do pacote. Os testes dedicados
+   passaram `4/4`.
 
 **Teste de passagem:**
 

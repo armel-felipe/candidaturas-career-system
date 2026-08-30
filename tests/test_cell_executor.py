@@ -82,6 +82,25 @@ def test_executor_never_runs_child_before_parent(orchestrator):
     assert "render_cv" not in orchestrator.ready_nodes(run_id)
 
 
+def test_legacy_plan_without_execution_mode_loads_as_wave(orchestrator):
+    plan = orchestrator.plan("legacy-app", {"cv"})
+    plan_path = (
+        orchestrator._paths("legacy-app").plans_dir / f"{plan.run_id}.json"
+    )
+    persisted = json.loads(plan_path.read_text(encoding="utf-8"))
+    persisted.pop("execution_mode")
+    legacy_graph = json.dumps(persisted, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    plan_path.write_text(legacy_graph, encoding="utf-8")
+    orchestrator.database.execute(
+        "UPDATE application_runs SET graph_json = ? WHERE run_id = ?",
+        (legacy_graph, plan.run_id),
+    )
+
+    loaded, _paths = orchestrator._load_run(plan.run_id)
+
+    assert loaded.execution_mode == "wave"
+
+
 def test_two_runs_for_same_application_use_distinct_attempt_data(tmp_path):
     database = Database(tmp_path / "career.db")
     database.init_schema()

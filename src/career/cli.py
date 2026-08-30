@@ -331,6 +331,12 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=["cv", "notion", "feras", "cover_letter", "habilidades"],
     )
+    applications_plan.add_argument(
+        "--execution-mode",
+        choices=["wave", "serial"],
+        default="wave",
+        help="execution policy persisted with the cellular run",
+    )
     applications_run = applications_sub.add_parser("run")
     applications_run.add_argument("--application-id", required=True)
     applications_run.add_argument("--run-id", required=True)
@@ -1297,7 +1303,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             try:
                 if args.action == "plan":
-                    plan = executor.plan(args.application_id, args.deliverable)
+                    plan = executor.plan(
+                        args.application_id,
+                        args.deliverable,
+                        execution_mode=args.execution_mode,
+                    )
                     _dump(_cell_run_payload(executor, plan.run_id, status="planned"))
                     return 0
                 _scoped_cell_run(executor, args.application_id, args.run_id)
