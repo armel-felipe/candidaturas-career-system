@@ -22,6 +22,7 @@ from career.cells.handlers import (
 )
 from career.cells.manifests import ManifestStore, PublishedArtifact, RunCompletion
 from career.cells.planner import NodePlan, RunPlan, compile_run_plan
+from career.cells.serial import serial_stage_report
 from career.services.application_context import (
     APPLICATIONS_DIR,
     ApplicationPaths,
@@ -173,21 +174,41 @@ class CellExecutor:
             raise KeyError(f"unknown cell node: {run_id}/{node_id}")
         return str(row["status"])
 
-    def run_ready(self, run_id: str) -> tuple[CellExecutionResult, ...]:
+    def run_ready(
+        self,
+        run_id: str,
+        *,
+        _allowed_nodes: set[str] | None = None,
+        _max_nodes: int | None = None,
+    ) -> tuple[CellExecutionResult, ...]:
         self._renew_workspace_lease()
         plan, paths = self._load_run(run_id)
+        if plan.execution_mode == "serial" and _allowed_nodes is None:
+            return self.run_serial_stage(run_id)
+        if plan.execution_mode == "serial" and _allowed_nodes is not None:
+            report = serial_stage_report(plan, self.resume(run_id).statuses)
+            if not set(_allowed_nodes) <= set(report.allowed_nodes):
+                invalid = ", ".join(sorted(set(_allowed_nodes) - set(report.allowed_nodes)))
+                raise ValueError(f"node is outside current serial stage: {invalid}")
         self._recover_canonical_journals(paths, run_id)
         results: list[CellExecutionResult] = []
 
         for reservation in self._owned_ready_reservations(run_id):
             self._renew_workspace_lease()
-            node = self._node(plan, reservation["node_id"])
+            node_id = str(reservation["node_id"])
+            if _allowed_nodes is not None and node_id not in _allowed_nodes:
+                continue
+            node = self._node(plan, node_id)
             results.append(self._execute_reserved(plan, paths, node, reservation))
+            if _max_nodes is not None and len(results) >= _max_nodes:
+                return tuple(results)
 
         self._reactivate_ready_superseded(run_id)
         for ready in self.store.list_ready_nodes(run_id):
             self._renew_workspace_lease()
             node_id = str(ready["node_id"])
+            if _allowed_nodes is not None and node_id not in _allowed_nodes:
+                continue
             # analyze_fit has an external, agent-authored draft/binding. Do
             # not reserve and consume an attempt merely because normalize_job
             # was repaired; wait until the agent has prepared those inputs.
@@ -229,6 +250,61 @@ class CellExecutor:
             results.append(
                 self._execute_reserved(plan, paths, self._node(plan, node_id), reservation)
             )
+            if _max_nodes is not None and len(results) >= _max_nodes:
+                return tuple(results)
+        return tuple(results)
+
+    def run_one_ready(
+        self, run_id: str, node_id: str | None = None
+    ) -> tuple[CellExecutionResult, ...]:
+        """Execute at most one ready node from the current serial stage."""
+        self._renew_workspace_lease()
+        plan, _paths = self._load_run(run_id)
+        if plan.execution_mode != "serial":
+            raise ValueError("run_one_ready requires a serial execution mode")
+        report = serial_stage_report(plan, self.resume(run_id).statuses)
+        if report.status not in {"ready", "running"}:
+            if node_id is not None:
+                raise ValueError(
+                    f"node is not executable in current serial stage: {node_id}"
+                )
+            return ()
+        allowed_nodes = set(report.allowed_nodes)
+        if node_id is not None:
+            if node_id not in allowed_nodes:
+                raise ValueError(f"node is outside current serial stage: {node_id}")
+            allowed_nodes = {node_id}
+        return self.run_ready(
+            run_id,
+            _allowed_nodes=allowed_nodes,
+            _max_nodes=1,
+        )
+
+    def run_serial_stage(self, run_id: str) -> tuple[CellExecutionResult, ...]:
+        """Consume only the current serial stage, stopping at its boundary."""
+        self._renew_workspace_lease()
+        plan, _paths = self._load_run(run_id)
+        if plan.execution_mode != "serial":
+            raise ValueError("run_serial_stage requires a serial execution mode")
+
+        results: list[CellExecutionResult] = []
+        while True:
+            current_plan, _current_paths = self._load_run(run_id)
+            report = serial_stage_report(
+                current_plan, self.resume(run_id).statuses
+            )
+            if report.status not in {"ready", "running"}:
+                break
+            current_stage = report.stage
+            executed = self.run_one_ready(run_id)
+            if not executed:
+                break
+            results.extend(executed)
+            next_report = serial_stage_report(
+                current_plan, self.resume(run_id).statuses
+            )
+            if next_report.stage != current_stage:
+                break
         return tuple(results)
 
     def prepare_ready_node(self, run_id: str, node_id: str) -> PreparedCellAttempt:

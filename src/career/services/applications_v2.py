@@ -3366,6 +3366,16 @@ def _drain_cellular_ready_waves(executor: Any, run_id: str) -> list[Any]:
     return executed
 
 
+def _execute_cellular_ready(executor: Any, run_id: str) -> list[Any]:
+    """Execute one cellular window, respecting the persisted run policy."""
+    plan, _paths = executor._load_run(run_id)
+    if plan.execution_mode == "serial":
+        return list(executor.run_serial_stage(run_id))
+    executed = list(executor.run_ready(run_id))
+    executed.extend(_drain_cellular_ready_waves(executor, run_id))
+    return executed
+
+
 def _existing_blocked_cellular_review(
     executor: Any, paths: Any, run_id: str
 ) -> Any | None:
@@ -3607,8 +3617,7 @@ def _process_cellular_application(
         if existing_blocked_review is not None:
             executed = [existing_blocked_review]
         else:
-            executed = list(executor.run_ready(run_id))
-            executed.extend(_drain_cellular_ready_waves(executor, run_id))
+            executed = _execute_cellular_ready(executor, run_id)
         repair_round = 0
         processed_review_attempts: set[tuple[int, str]] = set()
         max_repair_rounds = max(0, int(config.get("repair_max_attempts") or 0))
@@ -3713,8 +3722,7 @@ def _process_cellular_application(
                 )
                 return results
 
-            executed.extend(list(executor.run_ready(run_id)))
-            executed.extend(_drain_cellular_ready_waves(executor, run_id))
+            executed.extend(_execute_cellular_ready(executor, run_id))
 
         results = [
             _cell_execution_payload(item, application_id=paths.application_id)

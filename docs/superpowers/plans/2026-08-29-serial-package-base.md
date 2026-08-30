@@ -144,17 +144,17 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_cell_serial.py
 **Arquivos:** `src/career/cells/executor.py`,
 `tests/test_cell_executor_serial.py`.
 
-- [ ] Extrair uma primitiva interna que reserve e execute um único node ID ready,
+- [x] Extrair uma primitiva interna que reserve e execute um único node ID ready,
    usando os mesmos leases, attempts, manifests, validators e receipts de
    `run_ready()`.
-- [ ] Recusar node ausente, dependência não validada ou node fora do estágio
+- [x] Recusar node ausente, dependência não validada ou node fora do estágio
    serial atual.
-- [ ] Manter inalterada a semântica de `run_ready()` para planos `wave`.
-- [ ] Fazer reparos chamarem a primitiva autorizada e devolverem a attempt ao
+- [x] Manter inalterada a semântica de `run_ready()` para planos `wave`.
+- [x] Fazer reparos chamarem a primitiva autorizada e devolverem a attempt ao
    estado previsto quando o agente não produzir binding.
-- [ ] Testar o caso em que `compose_cv` e `sync_notion_initial` estão prontos: o
+- [x] Testar o caso em que `compose_cv` e `sync_notion_initial` estão prontos: o
    modo serial consome somente o primeiro estágio permitido e deixa Notion sem
-   attempt reservada.
+   attempt reservada. Testes dedicados e de branches passaram `24/24`.
 
 **Teste de passagem:**
 
@@ -170,20 +170,21 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_cell_executor_
 **Arquivos:** `src/career/services/applications_v2.py`,
 `tests/test_cell_serial_integration.py`, testes de repair celular existentes.
 
-- [ ] Fazer `run_explicit_cellular()` e o heartbeat celular lerem o
+- [x] Fazer `run_explicit_cellular()` e o heartbeat celular lerem o
    `execution_mode` da run e encaminharem runs seriais ao scheduler novo.
-- [ ] No modo serial, substituir o avanço incondicional de
+- [x] No modo serial, substituir o avanço incondicional de
    `_drain_cellular_ready_waves()` por uma chamada que consome somente o
    estágio corrente.
-- [ ] Parar após `analyze_fit`, após `review_cv` e após o receipt `delivered`,
+- [x] Parar após `analyze_fit`, após `review_cv` e após o receipt `delivered`,
    antes de iniciar o estágio posterior.
-- [ ] Preservar o worker pool entre candidaturas diferentes e garantir no máximo
+- [x] Preservar o worker pool entre candidaturas diferentes e garantir no máximo
    um agente externo ativo por candidatura.
-- [ ] Retornar `ready`/`running` quando um estágio terminou mas o pacote não;
+- [x] Retornar `ready`/`running` quando um estágio terminou mas o pacote não;
    retornar `awaiting_agent`, `awaiting_approval` ou `blocked` quando aplicável;
    usar `completed` somente com SQLite sealed.
-- [ ] Validar que nova invocação com o mesmo `run_id` retoma o estágio correto e
-   não reprocessa receipts já verificados.
+- [x] Validar que nova invocação com o mesmo `run_id` retoma o estágio correto e
+   não reprocessa receipts já verificados. Regressão celular completa passou
+   `240/240` em 2026-08-30.
 
 **Teste de passagem:**
 
