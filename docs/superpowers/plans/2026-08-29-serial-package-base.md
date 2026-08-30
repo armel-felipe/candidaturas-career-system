@@ -289,23 +289,52 @@ PYTHONPATH=src .venv/bin/pytest -q -p no:cacheprovider tests/test_skill_contract
 **Roadmap:** `TEST-009`, `CELLULAR-011`, `HARNESS-016`
 **Arquivos:** `docs/roadmap.md` e registro de plano.
 
-- [ ] Executar a suíte focada sem esconder failures de baseline.
-- [ ] Executar:
+- [x] Executar a suíte focada sem esconder failures de baseline. Resultado em
+   2026-08-30: `55 passed`.
+- [x] Executar:
 
    ```bash
    npm run validate:structure
    npm run runtime:verify -- --strict
    git diff --check
    ```
+   `validate:structure`, `runtime:verify -- --strict` e `git diff --check`
+   passaram em 2026-08-30.
 
-- [ ] Criar fixture descartável e comprovar em `applications:inspect-run` a ordem
-   dos estágios e a ausência de attempts posteriores antes do gate atual.
-- [ ] Rodar canário serial controlado para cada agente, com `run_id` explícito;
-   confirmar artefatos, status, leases e receipts. Credencial externa ausente
-   deve ser registrada como `BLOCKED`, sem contorno.
-- [ ] Atualizar o roadmap: `TEST-009` só vira `DONE` com teste verde;
-   `CELLULAR-011` e `HARNESS-016` recebem estado baseado em evidência.
-- [ ] Registrar comandos, datas, artefatos e falhas residuais no registro do plano.
+- [x] Criar fixture descartável e comprovar em `applications:inspect-run` a ordem
+   dos estágios e a ausência de attempts posteriores antes do gate atual. A run
+   `run_e2244b8213a745b69775cf98b8d5fdf4` validou somente `normalize_job`; o
+   `inspect-run` reportou `execution_mode=serial`, estágio atual `analyze`,
+   `analyze_fit` como único nó permitido/pronto e `latest_attempt=0` para todos
+   os nós posteriores de CV, entrega e Notion. A fixture foi removida ao fim do
+   processo (`/tmp/serial-wave4-fixture-4r21_c4y`).
+- [x] Rodar canário controlado para cada agente, com `run_id` explícito;
+   confirmar artefatos, status, leases e receipts. Os canários offline da
+   candidatura selada `notion_578` passaram sem mutação de origem:
+   `canary_f636e113753e451b8187115b71f87221` (`vagas_bot_01`) e
+   `canary_b445566a3248400b82b1861b35f8e252` (`vagas_bot_02`). Ambos reportaram
+   `core_package_sealed`, integridade/foreign keys válidas e zero blockers; a
+   inspeção SQLite confirmou zero leases ativos, runs concluídas, sete receipts
+   de validação `passed` e zero artefatos inválidos. O preflight live foi
+   explicitamente `BLOCKED` para os dois agentes
+   (`canary_719591ffd8e34eaeadf148ddb95949d1` e
+   `canary_97ff100d44f24acaaac99d835e428414`), pois o runtime live é somente
+   preflight e não há deployment/credencial externa autorizada; nenhum
+   container, agente ou integração foi iniciado como contorno.
+- [x] Atualizar o roadmap: `TEST-009` permanece `DONE` com teste verde;
+   `CELLULAR-011` e `HARNESS-016` foram marcados `DONE` com base na suíte,
+   fixture, validações estruturais/runtime e canários documentados acima.
+- [x] Registrar comandos, datas, artefatos e falhas residuais no registro do plano.
+
+**Evidência final (2026-08-30):** o teste de passagem completo da Onda 4
+(`tests/test_cell_planner.py`, `test_cell_serial.py`,
+`test_cell_executor_serial.py`, `test_cell_serial_integration.py`,
+`test_cell_cli.py`, `test_skill_contracts.py`, `test_harness_continuity.py` e
+`test_harness_dispatch.py`) passou `55/55`. A coleta irrestrita da raiz do
+workspace continua fora do gate por duplicatas de módulos em backups/runtimes
+e dependências binárias incompatíveis; isso não afeta a suíte canônica em
+`tests/` e permanece registrado como limitação residual. O canário live segue
+bloqueado por desenho até existir deployment/credencial externa explícita.
 
 **Teste de passagem:**
 
