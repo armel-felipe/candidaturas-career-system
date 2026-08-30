@@ -2016,6 +2016,53 @@ def ats_keyword_lines(fit_map: dict) -> list[str]:
     return lines
 
 
+def positioning_memory_blocks(fit_map: dict) -> list[dict]:
+    """Project only a compact positioning receipt into the Notion body."""
+    pack = fit_map.get("positioning_pack") or fit_map.get("service_positioning_pack")
+    if not isinstance(pack, dict):
+        return []
+    revision_lines = []
+    for label, key in (
+        ("FIT_MAP", "fit_map_revision_id"),
+        ("posicionamento", "positioning_revision_id"),
+        ("evidências", "candidate_evidence_revision_id"),
+    ):
+        value = str(pack.get(key) or "").strip()
+        if value:
+            revision_lines.append(f"{label}: {value}")
+    if not revision_lines:
+        return []
+    blocks = [heading_block("Memória complementar", level=3)]
+    blocks.append(bullet_block("Revisões: " + " | ".join(revision_lines)))
+    thesis = str(pack.get("thesis") or "").strip()
+    persona = str(pack.get("persona") or "").strip()
+    if thesis:
+        blocks.append(bullet_block(f"Tese: {thesis}"))
+    if persona:
+        blocks.append(bullet_block(f"Persona: {persona}"))
+    stories = pack.get("stories")
+    story_lines = []
+    if isinstance(stories, list):
+        for story in stories[:8]:
+            if not isinstance(story, dict):
+                continue
+            story_id = str(story.get("story_id") or "").strip()
+            title = str(story.get("title") or "").strip()
+            if story_id:
+                story_lines.append(f"{story_id}: {title}" if title else story_id)
+    if story_lines:
+        blocks.append(bullet_block("Stories selecionadas: " + " | ".join(story_lines)))
+    claims = _string_list(pack.get("claims", []))
+    if claims:
+        blocks.append(bullet_block("Claims: " + " | ".join(claims[:8])))
+    coverage = pack.get("coverage")
+    if isinstance(coverage, dict):
+        uncovered = coverage.get("uncovered")
+        if uncovered:
+            blocks.append(bullet_block("Cobertura pendente: " + str(uncovered)))
+    return blocks
+
+
 def notion_analysis_blocks(
     fit_map: dict,
     *,
@@ -2047,6 +2094,7 @@ def notion_analysis_blocks(
     blocks.append(heading_block("Keywords-habilidade para ATS", level=3))
     keyword_lines = ats_keyword_lines(fit_map)
     blocks.extend(bullet_block(line) for line in (keyword_lines or ["Nenhuma keyword-habilidade registrada."]))
+    blocks.extend(positioning_memory_blocks(fit_map))
     if fit_map.get("service_status") or fit_map.get("service_stage"):
         blocks.append(heading_block("Status do serviço", level=3))
         service_lines = []

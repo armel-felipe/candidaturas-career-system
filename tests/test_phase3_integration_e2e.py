@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -20,6 +21,9 @@ from career.services.persistence.reference_repository import ReferenceRepository
 from career.utils import read_json, sha256_file, sha256_text, write_json
 from career.workflow import state_store as state_store_module
 from career.workflow.state_store import WorkflowStateStore
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import notion_sync
 
 
 def _score_item(label: str) -> dict:
@@ -313,6 +317,91 @@ class Phase3IntegrationE2ETests(unittest.TestCase):
             f".career-state/applications_v2/{record.application_id}/",
             json.dumps(request, ensure_ascii=False),
         )
+
+    def test_positioning_story_reaches_context_and_compact_notion_snapshot(self) -> None:
+        with self._runtime():
+            record = self._intake("DESCRICAO POSICIONAMENTO CONEXA " * 80)
+            evidence_reference = ReferenceRepository(self.database).upsert_version(
+                "candidate_evidence",
+                "candidate",
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "candidate": {"name": "Felipe Armel"},
+                        "stories": [
+                            {
+                                "story_id": "story_a",
+                                "title": "Escala operacional",
+                                "context": "Contexto A",
+                                "actions": ["Ação A"],
+                                "results": ["Resultado A"],
+                                "metrics": [],
+                                "capabilities": ["operações"],
+                                "allowed_claims": ["Claim A"],
+                                "source_refs": [{"path": "autoconhecimento.md", "lines": "1-2"}],
+                                "artifact_guidance": {"feras": "Caso A"},
+                            },
+                            {
+                                "story_id": "story_b",
+                                "title": "Transformação",
+                                "context": "Contexto B",
+                                "actions": ["Ação B"],
+                                "results": ["Resultado B"],
+                                "metrics": [],
+                                "capabilities": ["transformação"],
+                                "allowed_claims": ["Claim B"],
+                                "source_refs": [{"path": "autoconhecimento.md", "lines": "3-4"}],
+                                "artifact_guidance": {"feras": "Caso B"},
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                "candidate-evidence-e2e-v1",
+            )
+            analysis = AnalysisRepository(self.database).create_revision(
+                record.application_id,
+                {
+                    "metadata": {"job_fingerprint": record.fingerprint},
+                    "reference_versions": [{"reference_id": evidence_reference}],
+                    "keywords": [],
+                },
+                source_hash="fit-e2e-v1",
+            )
+            AnalysisRepository(self.database).create_positioning_revision(
+                record.application_id,
+                analysis,
+                {
+                    "reference_versions": [{"reference_id": evidence_reference}],
+                    "thesis": "Escalar operações com governança.",
+                    "persona": "Executivo de operações",
+                    "stories": [
+                        {"story_id": "story_a", "narrative": "Narrativa A"},
+                        {"story_id": "story_b", "narrative": "Narrativa B"},
+                    ],
+                    "claims": ["Claim A", "Claim B"],
+                    "artifact_targets": {
+                        "feras": {"required_story_ids": ["story_a", "story_b"]}
+                    },
+                },
+            )
+            payload = ContextMaterializer(self.database).build(
+                record.application_id, "feras_input"
+            )
+            pack = payload["context"]["positioning_pack"]
+            blocks = notion_sync.notion_analysis_blocks(
+                {"positioning_pack": pack, "keywords_para_ats": [], "gaps_sem_cobertura": []}
+            )
+
+        serialized = json.dumps(blocks, ensure_ascii=False)
+        self.assertEqual(pack["application_id"], record.application_id)
+        self.assertEqual(pack["candidate_evidence_revision_id"], evidence_reference)
+        self.assertEqual(
+            [story["story_id"] for story in pack["stories"]], ["story_a", "story_b"]
+        )
+        self.assertIn(evidence_reference, serialized)
+        self.assertIn("story_a", serialized)
+        self.assertIn("story_b", serialized)
 
     def _intake(self, text: str):
         result = intake.from_paste(

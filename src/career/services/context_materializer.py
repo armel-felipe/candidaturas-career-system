@@ -99,7 +99,10 @@ class ContextMaterializer:
             )
             application_fingerprint = linked_revision.fingerprint
         references = self._references_for(analysis_revision, pinned=revision_id is not None)
-        positioning_pack = self._positioning_pack_for(analysis_revision)
+        positioning_pack = self._positioning_pack_for(
+            analysis_revision,
+            allow_historical=revision_id is not None,
+        )
         context = self._context(
             kind=kind,
             application=application,
@@ -250,7 +253,10 @@ class ContextMaterializer:
         return context
 
     def _positioning_pack_for(
-        self, analysis_revision: AnalysisRevision | None
+        self,
+        analysis_revision: AnalysisRevision | None,
+        *,
+        allow_historical: bool = False,
     ) -> dict[str, Any] | None:
         if analysis_revision is None or analysis_revision.positioning is None:
             return None
@@ -261,11 +267,18 @@ class ContextMaterializer:
             # reference. Keep their context backward-compatible until the
             # reference is explicitly registered.
             return None
-        return build_positioning_pack(
+        pack = build_positioning_pack(
             analysis_revision.application_id,
             self.database,
             positioning_revision_id=analysis_revision.positioning.revision_id,
         )
+        if not allow_historical:
+            current_evidence = self.references.get_current(
+                "candidate_evidence", "candidate"
+            )
+            if pack["candidate_evidence_revision_id"] != current_evidence.reference_id:
+                raise ValueError("stale positioning candidate evidence reference")
+        return pack
 
     def _references_for(
         self, analysis_revision: AnalysisRevision | None, *, pinned: bool

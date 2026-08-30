@@ -9,11 +9,13 @@ from uuid import uuid4
 
 from career.schemas.review import CvReviewReportSchema
 from career.services.database import Database
+from career.services.positioning_coverage import evaluate_positioning_coverage
+from career.services.positioning_pack import build_positioning_pack
 from career.services.persistence.application_repository import (
     ApplicationNotFoundError,
     ApplicationRepository,
 )
-from career.utils import sha256_file, sha256_text, utc_now_iso
+from career.utils import ValidationFailure, sha256_file, sha256_text, utc_now_iso
 
 
 DOCX_MIME: Final[str] = (
@@ -503,6 +505,65 @@ class ArtifactRepository:
             )
             if row is None:
                 return "invalid_positioning_revision_dependency"
+        evidence_dependency = next(
+            (
+                dependency_id
+                for dependency_type, dependency_id in dependency_pairs
+                if dependency_type == "candidate_evidence_reference"
+            ),
+            None,
+        )
+        if evidence_dependency is not None:
+            current_evidence = self.database.fetch_one(
+                """SELECT reference_id, content_hash
+                     FROM reference_documents
+                    WHERE kind = 'candidate_evidence'
+                      AND logical_key = 'candidate'
+                    ORDER BY created_at DESC, reference_id DESC
+                    LIMIT 1"""
+            )
+            if current_evidence is None:
+                return "candidate_evidence_reference_missing"
+            if str(current_evidence["reference_id"]) != evidence_dependency:
+                return "stale_candidate_evidence_reference"
+            if artifact.positioning_revision_id is not None:
+                try:
+                    pack = build_positioning_pack(
+                        artifact.application_id,
+                        self.database,
+                        positioning_revision_id=artifact.positioning_revision_id,
+                    )
+                    coverage = evaluate_positioning_coverage(
+                        pack,
+                        [
+                            {
+                                "artifact_id": artifact.artifact_id,
+                                "kind": artifact.kind,
+                                "positioning_story_ids": [
+                                    dependency_id
+                                    for dependency_type, dependency_id in dependency_pairs
+                                    if dependency_type == "positioning_story"
+                                ],
+                                "positioning_claim_ids": [
+                                    dependency_id
+                                    for dependency_type, dependency_id in dependency_pairs
+                                    if dependency_type == "positioning_claim"
+                                ],
+                                "candidate_evidence_revision_id": evidence_dependency,
+                                "positioning_revision_id": artifact.positioning_revision_id,
+                                "fit_map_revision_id": artifact.source_revision_id,
+                            }
+                        ],
+                    )
+                except (ValueError, ValidationFailure):
+                    return "invalid_positioning_pack_dependency"
+                if coverage["unsupported_claims"]:
+                    return "unsupported_positioning_claim"
+                if any(
+                    value not in ([], "not_required")
+                    for value in coverage["uncovered"].values()
+                ):
+                    return "positioning_coverage_incomplete"
         return None
 
     def _review_error(self, artifact: ArtifactRecord) -> str | None:

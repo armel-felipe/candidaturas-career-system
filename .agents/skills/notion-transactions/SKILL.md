@@ -132,6 +132,11 @@ Memória complementar opcional:
 - usar isso para hipóteses, listas alternativas de habilidades, sugestões de outro runtime/projeto ou observações humanas que valham como base de conhecimento
 - a fonte oficial continua sendo o arquivo local; o Notion recebe uma cópia resumida/legível no corpo da página
 
+Snapshot de posicionamento:
+- quando o FIT_MAP carregado contiver `positioning_pack`, a atualização projeta no corpo apenas um resumo compacto das revisões, tese, persona, IDs das stories e claims selecionados
+- narrativas completas, fatos pessoais e o JSON integral de evidências permanecem na fonte canônica local; não são enviados ao Notion como autoridade
+- a projeção usa os campos existentes e não cria propriedades novas no database
+
 Sincronizar histórico/cache antes de consultar candidaturas anteriores:
 
 ```bash

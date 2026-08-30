@@ -226,31 +226,31 @@
 - Resultado: `covered`, `uncovered`, `unsupported_claims`, `stale_dependencies`, `approved`.
 - `artifact_repository` deve devolver motivo explícito quando a revisão de evidências/posicionamento não corresponde ao artefato.
 
-- [ ] **Step 1: Escrever teste RED do gate.**
+- [x] **Step 1: Escrever teste RED do gate.**
 
   Criar um pacote com duas stories, registrar um CV cobrindo uma e FERAS cobrindo as duas; afirmar que o resultado identifica a story ausente no CV. Alterar a revisão de evidências e afirmar `stale_dependencies` no artefato antigo.
 
-- [ ] **Step 2: Executar para confirmar a falha.**
+- [x] **Step 2: Executar para confirmar a falha.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_positioning_coverage.py`
 
   Expected: FAIL porque não existe cálculo de cobertura estratégica nem dependência explícita da revisão de evidências.
 
-- [ ] **Step 3: Implementar o gate.**
+- [x] **Step 3: Implementar o gate.**
 
   Comparar IDs, não similaridade textual; claims sem evidência são blockers; estratégia opcional não usada em determinado formato permanece `not_required`, não `missing`. Reutilizar o padrão de blockers/receipts já usado pelo reviewer de CV.
 
-- [ ] **Step 4: Integrar a invalidação aos builders e receipts.**
+- [x] **Step 4: Integrar a invalidação aos builders e receipts.**
 
   Resolver `candidate_evidence_revision_id/hash` pela dependência `candidate_evidence_reference` e pelo snapshot de posicionamento; bloquear aprovação de artefato stale. Não apagar artefatos históricos; marcar incompatibilidade e exigir regeneração.
 
-- [ ] **Step 5: Executar GREEN e a suíte completa da frente.**
+- [x] **Step 5: Executar GREEN e a suíte completa da frente.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_positioning_coverage.py tests/test_artifact_provenance.py tests/test_context_materialization.py tests/test_candidate_cv_facts.py tests/test_cv_experience_selection.py`
 
   Expected: PASS; alterações nas fontes não são silenciosamente reutilizadas.
 
-- [ ] **Step 6: Commitar a unidade.**
+- [x] **Step 6: Commitar a unidade.**
 
   Run: `git add src/career/services/positioning_coverage.py src/career/services/persistence/artifact_repository.py src/career/services/context_materializer.py src/career/services/provenance.py src/career/services/workflow_reset.py tests/test_positioning_coverage.py tests/test_artifact_provenance.py && git commit -m "feat: gate positioning coverage and stale artifacts"`
 
@@ -269,27 +269,27 @@
 - O payload existente de governança continua preenchendo `narrative_decisions`, `persona_angle`, `prioritized_experiences`, `top8_keywords`, `covered_keywords`, `declared_gap_keywords`, `review_status` e `final_artifact`.
 - A sincronização pode incluir no corpo uma seção compacta `Memória complementar` com revisão/IDs dos artefatos, mas não exige propriedade nova no database.
 
-- [ ] **Step 1: Escrever teste RED de projeção.**
+- [x] **Step 1: Escrever teste RED de projeção.**
 
   Dar ao `notion_sync` um FIT_MAP/positioning pack com tese, stories e cobertura; afirmar que o payload mantém os campos atuais e inclui somente um resumo legível, sem enviar o JSON completo de evidências.
 
-- [ ] **Step 2: Executar para confirmar a falha.**
+- [x] **Step 2: Executar para confirmar a falha.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_notion_sync.py`
 
   Expected: FAIL apenas se o resumo de revisão ainda não estiver projetado; os campos atuais devem continuar passando.
 
-- [ ] **Step 3: Implementar a projeção sem mudar a autoridade.**
+- [x] **Step 3: Implementar a projeção sem mudar a autoridade.**
 
   Derivar o payload a partir do estado final scoped; manter dry-run obrigatório e nenhuma elevação automática de `Etapa Funil`. Não sincronizar histórias inteiras ou fatos pessoais como se Notion fosse fonte canônica.
 
-- [ ] **Step 4: Executar canário end-to-end.**
+- [x] **Step 4: Executar canário end-to-end.**
 
   Run: `PYTHONPATH=src ./.venv/bin/pytest -q tests/test_notion_sync.py tests/test_phase3_integration_e2e.py tests/test_positioning_artifacts.py tests/test_positioning_coverage.py`
 
   Expected: PASS; uma história adicionada à base chega ao pack, aos artefatos selecionados, aos receipts e ao snapshot Notion, sempre pelo mesmo `application_id`.
 
-- [ ] **Step 5: Rodar validações estruturais do projeto.**
+- [x] **Step 5: Rodar validações estruturais do projeto.**
 
   Run: `npm run validate:structure`
 
@@ -297,7 +297,7 @@
 
   Expected: PASS sem tocar credenciais, overlays Hermes ou workspaces de bots.
 
-- [ ] **Step 6: Registrar a evidência no roadmap.**
+- [x] **Step 6: Registrar a evidência no roadmap.**
 
   Atualizar `POSITION-001`, `POSITION-002` e `POSITION-003` para `DONE` somente com os testes, hashes/revisões e canário registrados. Se a cobertura de respostas de entrevista ou networking não estiver implementada no primeiro corte, criar um novo item separado em `BACKLOG`; não encerrar o item abrangente por inferência.
 

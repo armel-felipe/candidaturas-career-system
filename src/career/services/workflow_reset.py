@@ -26,6 +26,8 @@ DERIVED_TRANSIENT_FILES = [
     "habilidades_input_pack.json",
     "feras_input_pack.json",
     "cover_letter_input_pack.json",
+    "positioning_coverage.json",
+    "positioning_snapshot.json",
     "manifest.json",
 ]
 

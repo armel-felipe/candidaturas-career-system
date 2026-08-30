@@ -228,6 +228,121 @@ class ArtifactProvenanceTests(unittest.TestCase):
         self.assertEqual(validation.stored_hash, sha256_text("docx-conexa-v1"))
         self.assertEqual(validation.current_hash, sha256_file(artifact_path))
 
+    def test_validate_path_rejects_artifact_when_candidate_evidence_revision_changes(self) -> None:
+        source_revision_id = self._create_validated_fit_map(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        positioning_revision_id = self.analysis.create_positioning_revision(
+            self.primary.application_id,
+            source_revision_id,
+            {"stories": [{"story_key": "story_a", "narrative": "Narrativa A"}]},
+        )
+        first_reference_id = self.references.upsert_version(
+            "candidate_evidence",
+            "candidate",
+            json.dumps({"schema_version": 1, "stories": []}),
+            "candidate-evidence-v1",
+        )
+        artifact = self.artifacts.register(
+            self.primary.application_id,
+            "feras",
+            None,
+            "FERAS v1",
+            source_revision_id,
+            "run-feras-v1",
+            positioning_revision_id=positioning_revision_id,
+            candidate_evidence_reference_id=first_reference_id,
+            positioning_story_ids=["story_a"],
+        )
+        self.references.upsert_version(
+            "candidate_evidence",
+            "candidate",
+            json.dumps({"schema_version": 2, "stories": []}),
+            "candidate-evidence-v2",
+        )
+
+        validation = self.artifacts.validate_path(artifact.artifact_id)
+
+        self.assertFalse(validation.valid)
+        self.assertEqual(validation.reason, "stale_candidate_evidence_reference")
+
+    def test_validate_path_rejects_artifact_missing_a_required_positioning_story(self) -> None:
+        source_revision_id = self._create_validated_fit_map(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        evidence_reference_id = self.references.upsert_version(
+            "candidate_evidence",
+            "candidate",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "candidate": {"name": "Felipe Armel"},
+                    "stories": [
+                        {
+                            "story_id": "story_a",
+                            "title": "História A",
+                            "context": "Contexto A",
+                            "actions": ["Ação A"],
+                            "results": ["Resultado A"],
+                            "metrics": [],
+                            "capabilities": ["operações"],
+                            "allowed_claims": ["claim_a"],
+                            "source_refs": [{"path": "autoconhecimento.md", "lines": "1-2"}],
+                            "artifact_guidance": {"feras": "Caso A"},
+                        },
+                        {
+                            "story_id": "story_b",
+                            "title": "História B",
+                            "context": "Contexto B",
+                            "actions": ["Ação B"],
+                            "results": ["Resultado B"],
+                            "metrics": [],
+                            "capabilities": ["transformação"],
+                            "allowed_claims": ["claim_b"],
+                            "source_refs": [{"path": "autoconhecimento.md", "lines": "3-4"}],
+                            "artifact_guidance": {"feras": "Caso B"},
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            "candidate-evidence-v1",
+        )
+        positioning_revision_id = self.analysis.create_positioning_revision(
+            self.primary.application_id,
+            source_revision_id,
+            {
+                "reference_versions": [{"reference_id": evidence_reference_id}],
+                "stories": [
+                    {"story_id": "story_a", "narrative": "Narrativa A"},
+                    {"story_id": "story_b", "narrative": "Narrativa B"},
+                ],
+                "claims": ["claim_a", "claim_b"],
+                "artifact_targets": {
+                    "feras": {"required_story_ids": ["story_a", "story_b"]}
+                },
+            },
+        )
+        artifact = self.artifacts.register(
+            self.primary.application_id,
+            "feras",
+            None,
+            "FERAS com apenas a história A",
+            source_revision_id,
+            "run-feras-incomplete",
+            positioning_revision_id=positioning_revision_id,
+            candidate_evidence_reference_id=evidence_reference_id,
+            positioning_story_ids=["story_a"],
+            positioning_claim_ids=["claim_a"],
+        )
+
+        validation = self.artifacts.validate_path(artifact.artifact_id)
+
+        self.assertFalse(validation.valid)
+        self.assertEqual(validation.reason, "positioning_coverage_incomplete")
+
     def test_register_is_idempotent_for_equivalent_artifact(self) -> None:
         source_revision_id = self._create_validated_fit_map(
             self.primary.application_id,
