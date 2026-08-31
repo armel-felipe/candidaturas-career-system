@@ -286,6 +286,9 @@ class HarnessSupervisor:
         if not text:
             return self._decision("help", "route", "high", "empty_message")
 
+        if self._is_harness_result_report(lowered):
+            return self._decision("generic_assistant", "chat", "high", "harness_result_report")
+
         pipeline_steps = self._requested_pipeline_steps(text)
         application_match = APPLICATION_ID_RE.search(text)
         run_match = RUN_ID_RE.search(text)
@@ -1906,6 +1909,26 @@ class HarnessSupervisor:
             "retomar o trabalho", "faça isso", "faca isso",
         )
         return any(term in lowered for term in operational_terms)
+
+    @staticmethod
+    def _is_harness_result_report(lowered: str) -> bool:
+        """Keep forwarded supervisor reports out of pasted-job intake."""
+        if not lowered:
+            return False
+        explicit_report = (
+            ("harnesssupervisor" in lowered or "harness supervisor" in lowered)
+            and ("status:" in lowered or "executed: false" in lowered or "não foi executada" in lowered)
+        )
+        result_markers = (
+            "pasted_job_missing_metadata",
+            "pasted_job_requires_empresa_and_cargo_headers",
+            "bloqueio objetivo",
+            "próximo passo",
+            "proximo passo",
+            "executed: false",
+        )
+        marker_count = sum(marker in lowered for marker in result_markers)
+        return explicit_report or marker_count >= 3
 
     @staticmethod
     def _is_delivery_status_question(message: str) -> bool:

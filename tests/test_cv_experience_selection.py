@@ -410,6 +410,18 @@ def test_concise_contract_requires_metric_in_bullet_three() -> None:
         applications_v2._validate_concise_bullet2(experience, 1)
 
 
+def test_concise_validator_accepts_english_mechanism_signals() -> None:
+    experience = {
+        "bullets": [
+            {"text": "Led the shipping center across picking, packing, and warehousing."},
+            {"text": "Implemented RF and Wi-Fi inventory slotting and cycle counting to eliminate double handling and calibrate picking processes."},
+            {"text": "Raised inventory accuracy from 85% to 98% and increased productivity by 35%."},
+        ]
+    }
+
+    applications_v2._validate_concise_bullet2(experience, 1)
+
+
 def test_portuguese_cv_materializes_supported_customer_experience_and_zendesk() -> None:
     experience = next(
         item

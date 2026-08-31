@@ -54,6 +54,23 @@ def test_explicit_run_resume_extracts_natural_language_repair_node():
     assert decision.parameters["repair_node"] == "normalize_job"
 
 
+def test_harness_result_report_is_not_classified_as_a_pasted_job():
+    message = """
+    Resumo do resultado (executado pelo HarnessSupervisor)
+    Status: blocked — a mensagem não foi executada (executed: false).
+    O supervisor classificou errado a sua mensagem como vaga colada.
+    Workflow: pasted_job_missing_metadata. Stage: intake. Confidence: high.
+    O bloqueio objetivo está relacionado ao CV e ao fit_map, não a uma nova vaga.
+    O próximo passo é confirmar o estado de applications_v2.py e preparar o patch.
+    Quer que eu confirme o estado atual e corrija os sinais em inglês?
+    """ + (" Contexto operacional do resultado. " * 30)
+
+    decision = HarnessSupervisor().classify(message)
+
+    assert decision.workflow == "generic_assistant"
+    assert decision.reason == "harness_result_report"
+
+
 def test_explicit_cellular_resume_runs_scoped_official_repair_command(monkeypatch):
     supervisor = HarnessSupervisor()
     supervisor.db.fetch_one = lambda *_args: {"application_id": "app_modaxo"}
