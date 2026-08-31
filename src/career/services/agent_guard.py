@@ -146,10 +146,15 @@ def guard(
             "application_id": application_id,
             "forbidden_actions": FORBIDDEN_ACTIONS,
         }
+    runtime_database = (
+        database
+        or getattr(state_store, "database", None)
+        or application_context_service.canonical_database()
+    )
     try:
         application = application_context_service.resolve_application(
             application_id=application_id,
-            database=database,
+            database=runtime_database,
             allow_legacy=False,
         )
     except ApplicationNotFoundError:
@@ -175,7 +180,7 @@ def guard(
         }
     if state_store is None or state_store.application_id is None:
         state_store = WorkflowStateStore.for_application(
-            application_id, database=database
+            application_id, database=runtime_database
         )
     forbidden_files = forbidden_root_files()
     active = _active_intake_payload(state_store)
@@ -298,12 +303,16 @@ def guard(
             "must_not_continue_with": FORBIDDEN_ACTIONS,
             "fit_map_guard": scoped_fit_guard,
         }
+    application_projection = application_context_service.build_application_projection(
+        application_id,
+        runtime_database,
+    )
     return {
         "status": "ok",
         "active_intake": active,
-        "allowed_next_action": "follow_fit_map_guard",
-        "allowed_next_command": scoped_fit_guard.get("required_next_command")
-        or scoped_fit_guard.get("next_required_step"),
+        "allowed_next_action": "follow_application_stage",
+        "allowed_next_command": application_projection.next_required_step,
+        "application_stage": application_projection.stage.value,
         "must_not_continue_with": FORBIDDEN_ACTIONS,
         "fit_map_guard": scoped_fit_guard,
     }

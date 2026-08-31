@@ -14,6 +14,7 @@ from career import cli
 from career.cells import executor as executor_module
 from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
+from career.services import applications_v2
 from career.services.application_context import paths_for
 from career.services.database import Database
 from career.utils import write_json
@@ -219,6 +220,51 @@ def test_run_agent_flag_delegates_to_explicit_cellular_runner(
         assert calls[0]["options"].cellular is True
     finally:
         database.close()
+
+
+def test_explicit_cellular_runner_can_load_persisted_plan_after_processing(
+    tmp_path, monkeypatch
+):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    application_paths = paths_for("app-explicit", root=applications_root)
+    application_paths.app_dir.mkdir(parents=True)
+    application_paths.job_description.write_text(
+        "# Operations Manager\n\nLead planning and logistics operations.",
+        encoding="utf-8",
+    )
+    executor = CellExecutor(database, applications_root=applications_root)
+    plan = executor.plan("app-explicit", {"cv"})
+    executor.release_workspace_lease()
+
+    monkeypatch.setattr(applications_v2, "canonical_database", lambda: database)
+    monkeypatch.setattr(applications_v2, "V2_DIR", applications_root)
+    monkeypatch.setattr(
+        applications_v2,
+        "_load_explicit_cellular_application",
+        lambda application_id: {"application_id": application_id},
+    )
+    monkeypatch.setattr(
+        applications_v2, "_process_cellular_application", lambda *args, **kwargs: []
+    )
+    try:
+        result = applications_v2.run_explicit_cellular(
+            application_id="app-explicit",
+            run_id=plan.run_id,
+            options=applications_v2.HeartbeatV2Options(
+                max_per_run=1,
+                run_agent=True,
+                dry_run=False,
+                cellular=True,
+                control_db_id=database.control_db_identity(),
+            ),
+        )
+    finally:
+        database.close()
+
+    assert result["status"] in {"ready", "running", "awaiting_agent"}
+    assert result["run_id"] == plan.run_id
 
 
 def test_run_repair_and_inspect_are_scoped_to_the_application(capsys, seeded_application):

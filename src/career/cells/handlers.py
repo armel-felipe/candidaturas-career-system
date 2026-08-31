@@ -280,7 +280,7 @@ def _compose_cv(context: CellExecutionContext) -> CellOutput:
     if not candidate_revision:
         raise ValueError("FIT_MAP is missing candidate facts revision")
     repair_reason = getattr(context, "repair_reason", None)
-    if repair_reason:
+    if repair_reason and not str(repair_reason).startswith("handler_error:"):
         repair_candidate = (
             context.paths.requests_dir
             / "cellular"
@@ -472,7 +472,14 @@ def _positioning_pack_for_application(
         try:
             return build_positioning_pack(context.application_id, database)
         except (ApplicationNotFoundError, ValueError) as exc:
-            if "candidate evidence reference is missing" in str(exc):
+            if any(
+                reason in str(exc)
+                for reason in (
+                    "candidate evidence reference is missing",
+                    "application has no positioning revision",
+                    "no fit_map revision found",
+                )
+            ):
                 return None
             if isinstance(exc, ApplicationNotFoundError):
                 return None

@@ -3,9 +3,13 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+CONTAINER_HERMES_BINARY = Path("/opt/hermes/bin/hermes")
 
 
 @dataclass(frozen=True)
@@ -36,17 +40,29 @@ class SubprocessAgentRunner:
 
     def build_command(self, request: AgentRunRequest) -> list[str]:
         command_name = str(request.runner_config.get("command") or "opencode")
-        hermes_binary = Path("/opt/hermes/bin/hermes")
-        if command_name == "hermes" and hermes_binary.is_file():
-            resolved = str(hermes_binary)
+        local_hermes_binary: Path | None = None
+        if command_name == "hermes" and CONTAINER_HERMES_BINARY.is_file():
+            resolved = str(CONTAINER_HERMES_BINARY)
         else:
             resolved = shutil.which(command_name) or shutil.which("opencode.cmd") or command_name
+            if command_name == "hermes" and resolved == command_name:
+                local_hermes_binary = self.root / "hermes-src" / "hermes"
+                if local_hermes_binary.is_file():
+                    resolved = str(local_hermes_binary)
         runner_kind = str(request.runner_config.get("kind") or Path(resolved).name).casefold()
 
         if runner_kind == "hermes":
             request_rel = request.request_path.relative_to(self.root)
             prompt = f"Leia o arquivo {request_rel}. {request.instruction}"
-            command = [resolved, "--accept-hooks"]
+            if local_hermes_binary is not None:
+                local_hermes_python = local_hermes_binary.parent / "venv" / "bin" / "python"
+                command = [
+                    str(local_hermes_python if local_hermes_python.is_file() else sys.executable),
+                    resolved,
+                ]
+            else:
+                command = [resolved]
+            command.append("--accept-hooks")
             profile_name = str(
                 request.profile_name
                 or request.runner_config.get("profile_name")

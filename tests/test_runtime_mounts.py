@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 import os
+import tempfile
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -52,6 +54,33 @@ class RuntimeMountTests(unittest.TestCase):
         ):
             command = SubprocessAgentRunner(ROOT).build_command(request)
         self.assertEqual(command[0], "/opt/hermes/bin/hermes")
+
+    def test_hermes_runner_resolves_local_workspace_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            local_binary = root / "hermes-src" / "hermes"
+            local_binary.parent.mkdir(parents=True)
+            local_binary.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            local_binary.chmod(0o755)
+            local_python = root / "hermes-src" / "venv" / "bin" / "python"
+            local_python.parent.mkdir(parents=True)
+            local_python.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            local_python.chmod(0o755)
+            request = AgentRunRequest(
+                stage="fit-map",
+                record_key="test-run",
+                request_path=root / "README.md",
+                instruction="test",
+                runner_config={"kind": "hermes", "command": "hermes"},
+            )
+            with mock.patch.object(agent_runner.shutil, "which", return_value=None), mock.patch.object(
+                agent_runner,
+                "CONTAINER_HERMES_BINARY",
+                root / "missing-hermes",
+                create=True,
+            ):
+                command = SubprocessAgentRunner(root).build_command(request)
+            self.assertEqual(command[:2], [str(local_python), str(local_binary)])
 
     def test_hermes_cellular_runner_selects_the_active_profile(self) -> None:
         request = AgentRunRequest(

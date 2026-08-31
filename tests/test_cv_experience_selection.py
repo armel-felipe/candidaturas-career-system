@@ -54,7 +54,7 @@ def test_fifth_experience_is_most_recent_non_direct_fallback() -> None:
     assert "trifil_expedicao" not in [item["id"] for item in selected]
 
 
-def test_vivo_fit_map_does_not_append_customer_success_when_targets_are_sufficient() -> None:
+def test_vivo_fit_map_fills_material_career_gap_when_targets_are_sufficient() -> None:
     selected_ids = [item["id"] for item in _select_experiences(_vivo_mis_fit_map())]
 
     assert "renault_cs" not in selected_ids
@@ -62,10 +62,25 @@ def test_vivo_fit_map_does_not_append_customer_success_when_targets_are_sufficie
         "wehandle_head_operacoes",
         "ifood_diretor_operacoes",
         "ifood_head_operacoes",
+        "vivareal_planejamento_operacoes",
         "trifil_sop",
         "trifil_inteligencia_comercial",
         "trifil_expedicao",
     }
+
+
+def test_selection_fills_a_gap_longer_than_three_years_before_stopping_at_eight() -> None:
+    selected_ids = [item["id"] for item in _select_experiences(_vivo_mis_fit_map())]
+
+    assert selected_ids == [
+        "wehandle_head_operacoes",
+        "ifood_diretor_operacoes",
+        "ifood_head_operacoes",
+        "vivareal_planejamento_operacoes",
+        "trifil_sop",
+        "trifil_inteligencia_comercial",
+        "trifil_expedicao",
+    ]
 
 
 def test_vivo_targeted_fit_map_does_not_fill_minimum_with_unrelated_customer_success() -> None:

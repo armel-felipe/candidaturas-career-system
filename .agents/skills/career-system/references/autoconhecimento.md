@@ -281,7 +281,7 @@
 * Six Sigma Green Belt - Setec Consulting (2020)
 * Problem Solving - Ventus Consulting (2020)
 * ILEad liderança para líder de líderes - Fundação Dom Cabral (2021)
-* MBA  Inteligëncia Artificial Aplicada a Negócios - FAAP (conclusão mai/2027)
+* MBA em Inteligência Artificial Aplicada a Negócios — FAAP (conclusão mai/2027)
 
 ## Formação Complementar (levantada do CV antigo — verificar o que ainda é relevante destacar)
 * De vendedor para gerente de clientes (10h) — Bizrevolution (2014)

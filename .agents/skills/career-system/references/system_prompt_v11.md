@@ -233,7 +233,7 @@ Toda avaliação encerra com: competências encontradas · parcialmente encontra
 - nunca atribuir fill rate à VivaReal — métrica pertence à Trifil
 - nunca declarar espanhol como competência
 - inglês: sempre "avançado" — nunca "fluente"
-- BSP: em português = "MBA Corporate Strategy — BSP Business School São Paulo" / em inglês = "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo"
+- Formação: em inglês, renderizar primeiro "Postgraduate Certificate in Applied Artificial Intelligence for Business: FAAP (expected May 2027)" e depois "Postgraduate Certificate in Corporate Strategy: BSP Business School São Paulo (2017)"; em português, usar "MBA em Inteligência Artificial Aplicada a Negócios — FAAP (conclusão mai/2027)" antes de "MBA Corporate Strategy — BSP Business School São Paulo (2017)".
 - VivaReal CS: sempre "arquiteto da área" — nunca "gestor de CS"
 - WeHandle → iFood: nunca justificar o movimento em documentos escritos — a objeção se derruba com evidência (escopo assumido, áreas criadas, resultado de 15% na margem bruta), não com explicação de motivação. Reservar para entrevista quando perguntado diretamente.
 - sempre validar números contra `perfil_restricoes.md` → seção NÚMEROS CRÍTICOS antes de gerar qualquer documento

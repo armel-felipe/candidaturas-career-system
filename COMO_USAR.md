@@ -692,7 +692,9 @@ Estas regras valem para qualquer modelo ou runtime. Nenhum deles pode viola-las:
 - wehandle: sempre em minúsculas nos documentos finais
 - Movimento iFood → wehandle: apresentar pelos fatos (escopo, time, resultado) — nunca por justificativa motivacional
 - BSP em português: "MBA Corporate Strategy — BSP Business School São Paulo"
-- BSP em inglês: "Specialization Certificate in Corporate Strategies — BSP Business School São Paulo"
+- FAAP em inglês: "Postgraduate Certificate in Applied Artificial Intelligence for Business: FAAP (expected May 2027)"
+- BSP em inglês: "Postgraduate Certificate in Corporate Strategy: BSP Business School São Paulo (2017)"
+- A formação da FAAP deve aparecer antes da BSP.
 - Tom: factual, direto, primeira pessoa real — sem linguagem de coach, frases de efeito ou formulário de RH
 - Em respostas curtas de formulário/entrevista, responder direto, mitigar com fatos e evitar frases abertas como “minha abordagem é setor-agnóstica”, “aprendo rápido” ou “eu faria o mesmo”.
 - `output-reviewer` roda obrigatoriamente após toda skill de produção, antes de entregar qualquer documento

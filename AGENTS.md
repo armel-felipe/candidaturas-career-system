@@ -297,6 +297,7 @@ Regra global para CV em DOCX:
 - o `english_editorial_guard` bloqueia traduções literais e narrativa autobiográfica recorrente antes do DOCX; corrigir a fonte canônica e regenerar, sem editar o DOCX manualmente para contornar o gate
 - CV de vaga em português não usa sufixo `_en` e texto visível em português
 - em nenhum CV é permitido juntar experiências, cargos, promoções, fases ou escopos em uma única entrada; se houver limite de espaço, selecionar experiências separadas por aderência, nunca consolidar
+- depois da seleção por aderência, preencher até 8 experiências quando necessário para cobrir lacunas profissionais superiores a 36 meses; priorizar a experiência canônica que fecha o intervalo sem remover experiências aderentes ou inventar cobertura
 - `register_keywords.py --cv` deve rodar sobre o artefato final em `outputs/` antes do `review_output.py`
 - se `review_output.py` falhar, não for executado, ou retornar `approved_for_delivery=false`, a entrega do CV conta como incompleta
 - o gate do CV usa blockers e warnings: blockers impedem entrega; warnings não impedem entrega sozinhos
@@ -816,7 +817,9 @@ Todo texto devolvido ao Notion deve permanecer em UTF-8 legível. Nunca enviar o
 - wehandle: sempre em minúsculas nos documentos finais
 - Movimento iFood → wehandle: apresentar pelos fatos (escopo, time, resultado) — nunca por justificativa motivacional
 - BSP em português: "MBA Corporate Strategy: BSP Business School São Paulo"
-- BSP em inglês: "Specialization Certificate in Corporate Strategies: BSP Business School São Paulo"
+- FAAP em inglês: "Postgraduate Certificate in Applied Artificial Intelligence for Business: FAAP (expected May 2027)"
+- BSP em inglês: "Postgraduate Certificate in Corporate Strategy: BSP Business School São Paulo (2017)"
+- Em qualquer CV, a formação da FAAP deve aparecer antes da BSP.
 - Tom: factual, direto, primeira pessoa real — sem linguagem de coach, frases de efeito ou formulário de RH
 - Respostas a perguntas de candidatura devem responder de forma direta, com defesa curta e fatos verificáveis. Evitar encerramentos genéricos como “aprendo rápido”, “minha abordagem é setor-agnóstica” ou hipóteses amplas do tipo “eu faria o mesmo”.
 - `output-reviewer` roda obrigatoriamente após toda skill de produção, antes de entregar qualquer documento

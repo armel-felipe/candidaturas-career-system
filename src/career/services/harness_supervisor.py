@@ -2235,6 +2235,24 @@ class HarnessSupervisor:
             }
         output = (completed.stdout or "").strip()
         error = (completed.stderr or "").strip()
+        reported_error = ""
+        if output:
+            try:
+                reported = json.loads(output)
+            except json.JSONDecodeError:
+                reported = {}
+            if isinstance(reported, dict):
+                reported_error = str(
+                    reported.get("error") or reported.get("message") or ""
+                ).strip()
+        permission_failure = any(
+            marker in f"{output}\n{error}\n{reported_error}".casefold()
+            for marker in (
+                "permissionerror",
+                "permission denied",
+                "cellular workspace preflight cannot read",
+            )
+        )
         return {
             "status": "completed" if completed.returncode == 0 else "blocked",
             "application_id": application_id,
@@ -2245,7 +2263,29 @@ class HarnessSupervisor:
             "returncode": completed.returncode,
             "stdout": output[-4000:],
             "stderr": error[-4000:],
-            **({"blocker_reason": "cellular_resume_failed"} if completed.returncode else {}),
+            **(
+                {
+                    "blocker_reason": (
+                        "cellular_workspace_permission"
+                        if permission_failure
+                        else "cellular_resume_failed"
+                    ),
+                    "error": reported_error or error or output,
+                    **(
+                        {
+                            "next_action": (
+                                "repair the exact application tree ownership/readability "
+                                "for Hermes UID 10000, then repeat the same application_id "
+                                "and run_id"
+                            )
+                        }
+                        if permission_failure
+                        else {}
+                    ),
+                }
+                if completed.returncode
+                else {}
+            ),
         }
 
     def _session_application_id(self, runtime_context: dict[str, Any] | None, *, channel: str) -> str | None:

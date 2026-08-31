@@ -93,6 +93,14 @@ ser o último desempate determinístico. Nunca promover automaticamente um cargo
 específico, como Coordenador de Expedição, para a quinta experiência de uma vaga
 não relacionada.
 
+Depois da seleção por aderência, faça obrigatoriamente uma checagem de continuidade
+profissional. Se houver espaço até o limite de 8 e existir uma lacuna superior a 36
+meses entre experiências selecionadas, inclua a experiência canônica que melhor
+cobre esse intervalo, priorizando a cobertura temporal sobre o último desempate de
+recência. Recalcule as lacunas após cada inclusão. Não invente cobertura e não
+remova uma experiência aderente para abrir espaço; se não houver experiência
+canônica que cubra a lacuna, preserve o gap de forma factual.
+
 No modo conciso (padrão), use exatamente 3 bullets por experiência:
 
 1. escopo, responsabilidade e time, começando naturalmente por `Fui responsável por`;

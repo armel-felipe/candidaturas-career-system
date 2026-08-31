@@ -13,7 +13,7 @@ from career.services import intake
 from career.services import application_context as application_context_module
 from career.services import project as project_module
 from career.services import database as database_module
-from career.services.database import Database
+from career.services.database import Database, RuntimePersistenceMode
 from career.services.persistence.analysis_repository import AnalysisRepository
 from career.services.persistence.application_repository import (
     ApplicationIdentity,
@@ -576,6 +576,30 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertEqual(payload["task_history"], [])
         self.assertEqual(payload["fingerprints"], {})
         self.assertEqual(payload["active_intake"]["company"], "Conexa")
+
+    def test_stale_active_pointer_does_not_crash_sqlite_only_runtime_diagnosis(self) -> None:
+        career_state = self.root / ".career-state"
+        global_state = career_state / "workflow_state.json"
+        pointer = career_state / "active_application.json"
+        WorkflowStateStore.write_active_pointer(
+            application_id="stale-container-app",
+            active_job={"fingerprint": "fp-stale"},
+            active_intake={"application_id": "stale-container-app"},
+            path=pointer,
+        )
+        self.db.persistence_mode = RuntimePersistenceMode.SQLITE_ONLY
+
+        with mock.patch.object(state_store_module, "CAREER_STATE", career_state), mock.patch.object(
+            state_store_module, "DEFAULT_STATE_PATH", global_state
+        ), mock.patch.object(
+            application_context_module, "canonical_database", return_value=self.db
+        ):
+            payload = WorkflowStateStore().load()
+
+        self.assertEqual(payload["application_id"], "stale-container-app")
+        self.assertEqual(payload["completed_states"], [])
+        self.assertEqual(payload["task_history"], [])
+        self.assertEqual(payload["active_intake"]["application_id"], "stale-container-app")
 
     def test_unscoped_store_ignores_stale_global_workflow_state_as_pointer(self) -> None:
         career_state = self.root / ".career-state"

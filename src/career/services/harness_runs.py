@@ -16,7 +16,24 @@ from career.utils import ValidationFailure, read_json, utc_now_iso, write_json, 
 
 def _file_hash(path: Path) -> str:
     digest = hashlib.sha256()
-    digest.update(path.read_bytes())
+    try:
+        digest.update(path.read_bytes())
+    except PermissionError as exc:
+        try:
+            metadata = path.stat()
+            ownership = (
+                f"owner={metadata.st_uid}:{metadata.st_gid} "
+                f"mode={metadata.st_mode & 0o777:o}"
+            )
+        except OSError:
+            ownership = "ownership=unavailable"
+        raise ValidationFailure(
+            "cellular workspace preflight cannot read "
+            f"{path} ({ownership}). Run the official cellular command as the "
+            "Hermes profile user (UID 10000), or repair this exact application "
+            "tree on the host so it is readable by UID 10000; do not edit the "
+            "FIT_MAP or provenance manually."
+        ) from exc
     return digest.hexdigest()
 
 

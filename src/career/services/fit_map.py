@@ -354,9 +354,20 @@ def status(
         fit_map_job_match = bool(cargo and empresa and cargo in job_text and empresa in job_text)
     if fit_map_job_match and isinstance(fit_map, dict):
         keyword_registration = _keywords_registered(fit_map, effective_registry_path)
+    final_fit_map_ready = (
+        isinstance(fit_map, dict)
+        and fit_map_error is None
+        and fit_map_job_match
+        and bool(keyword_registration.get("registered"))
+    )
 
     if not job_path:
         next_step = "salvar descrição da vaga"
+    elif final_fit_map_ready:
+        # Finalization may quarantine/remove the draft after persisting the
+        # canonical FIT_MAP. Do not send a completed application back to the
+        # template merely because the working draft no longer exists.
+        next_step = "análise concluída"
     elif not draft_path.exists() or draft_error:
         next_step = "npm run fit-map:template"
     elif draft_placeholders:

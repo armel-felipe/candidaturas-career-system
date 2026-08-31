@@ -645,8 +645,8 @@ def _role_specific_terms(role: str) -> set[str]:
     }
 
 
-def _period_end_key(period: str) -> int:
-    """Return a comparable month key for Portuguese or English periods."""
+def _period_bounds(period: str) -> tuple[int, int]:
+    """Return comparable start/end month keys for Portuguese or English periods."""
     months = {
         "jan": 1, "janeiro": 1, "january": 1,
         "fev": 2, "feb": 2, "fevereiro": 2, "february": 2,
@@ -663,12 +663,49 @@ def _period_end_key(period: str) -> int:
     }
     normalized = _normalize(period)
     if re.search(r"\b(?:present|current|atual)\b", normalized):
-        return 10**9
+        end_override = 10**9
+    else:
+        end_override = None
     matches = re.findall(r"([a-z]+)\s*/?\s*(\d{4})", normalized)
     if not matches:
-        return 0
-    month, year = matches[-1]
-    return int(year) * 12 + months.get(month, 0)
+        return 0, 0
+    keys = [int(year) * 12 + months.get(month, 0) for month, year in matches]
+    return keys[0], end_override if end_override is not None else keys[-1]
+
+
+def _period_end_key(period: str) -> int:
+    """Return a comparable month key for Portuguese or English periods."""
+    return _period_bounds(period)[1]
+
+
+def _period_start_key(period: str) -> int:
+    """Return the first comparable month key in a career period."""
+    return _period_bounds(period)[0]
+
+
+def _chronological_gaps(
+    experiences: list[dict[str, Any]], *, threshold_months: int = 36
+) -> list[tuple[int, int, int]]:
+    ordered = sorted(
+        experiences,
+        key=lambda item: _period_start_key(str(item.get("period") or "")),
+    )
+    gaps: list[tuple[int, int, int]] = []
+    for previous, following in zip(ordered, ordered[1:]):
+        previous_end = _period_end_key(str(previous.get("period") or ""))
+        following_start = _period_start_key(str(following.get("period") or ""))
+        gap_months = following_start - previous_end - 1
+        if gap_months > threshold_months:
+            gaps.append((gap_months, previous_end, following_start))
+    return sorted(gaps, reverse=True)
+
+
+def _experience_covers_gap(
+    experience: dict[str, Any], previous_end: int, following_start: int
+) -> bool:
+    start = _period_start_key(str(experience.get("period") or ""))
+    end = _period_end_key(str(experience.get("period") or ""))
+    return start <= following_start and end >= previous_end
 
 
 def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
@@ -721,6 +758,34 @@ def _select_experiences(fit_map: dict[str, Any]) -> list[dict[str, Any]]:
                 selected_ids.append(item["id"])
             if len(selected_ids) >= 5:
                 break
+
+    # Preserve career continuity when there is room in the CV.  Relevance
+    # remains the primary selector, but a gap longer than three years is a
+    # material omission when a canonical experience can cover it.
+    while len(selected_ids) < 8:
+        selected = [item for item in facts if item["id"] in selected_ids]
+        gaps = _chronological_gaps(selected)
+        if not gaps:
+            break
+        _gap_months, previous_end, following_start = gaps[0]
+        gap_candidates = [
+            item
+            for item in facts
+            if item["id"] not in selected_ids
+            and _experience_covers_gap(item, previous_end, following_start)
+        ]
+        if not gap_candidates:
+            break
+        gap_candidates.sort(
+            key=lambda item: (
+                _period_end_key(str(item.get("period") or ""))
+                - _period_start_key(str(item.get("period") or "")),
+                _experience_relevance_score(item, _top8_keywords(fit_map)),
+                -_period_start_key(str(item.get("period") or "")),
+            ),
+            reverse=True,
+        )
+        selected_ids.append(gap_candidates[0]["id"])
 
     deduped = [item for item in facts if item["id"] in selected_ids]
     deduped.sort(key=lambda item: (-_period_end_key(str(item.get("period") or "")), item["order"]))

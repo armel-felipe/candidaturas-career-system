@@ -101,3 +101,31 @@ def test_explicit_cellular_resume_runs_agent_nodes_for_plain_run(monkeypatch):
 
     assert result["status"] == "completed"
     assert captured["command"][-1] == "--run-agent"
+
+
+def test_explicit_cellular_resume_exposes_permission_preflight_blocker(monkeypatch):
+    supervisor = HarnessSupervisor()
+    supervisor.db.fetch_one = lambda *_args: {"application_id": "app_modaxo"}
+
+    def fake_run(command, **kwargs):
+        return SimpleNamespace(
+            returncode=1,
+            stdout=(
+                '{"status":"blocked","error":"cellular workspace preflight '
+                'cannot read identity.json (owner=0:0 mode=600)"}'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("career.services.harness_supervisor.subprocess.run", fake_run)
+
+    result = supervisor._resume_cellular_run(
+        application_id="app_modaxo",
+        run_id="run_modaxo",
+        repair_node=None,
+        reason="retomar o mesmo run",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "cellular_workspace_permission"
+    assert "UID 10000" in result["next_action"]

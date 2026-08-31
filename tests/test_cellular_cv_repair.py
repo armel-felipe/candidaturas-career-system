@@ -41,6 +41,24 @@ def test_explicit_cellular_application_uses_application_id_not_notion_record_id(
     ) == "617"
 
 
+def test_missing_legacy_positioning_revision_does_not_block_cellular_cv(
+    monkeypatch, tmp_path
+):
+    context = SimpleNamespace(
+        application_id="app-positioning-fallback",
+        control_db_path=tmp_path / "career.db",
+    )
+
+    def missing_positioning(*_args, **_kwargs):
+        raise ValueError("application has no positioning revision")
+
+    monkeypatch.setattr(
+        cell_handlers, "build_positioning_pack", missing_positioning
+    )
+
+    assert cell_handlers._positioning_pack_for_application(context) is None
+
+
 def test_cellular_cv_repair_request_is_scoped_and_lists_missing_top8(tmp_path):
     paths = paths_for("repair-cell", root=tmp_path / "applications")
     run_id = "run_repair"
@@ -480,6 +498,57 @@ def test_repaired_compose_consumes_candidate_instead_of_rebuilding_from_fit_map(
 
     output = cell_handlers._compose_cv(context)
     assert json.loads(output.artifacts["cv_content.json"]) == repaired_payload
+
+
+def test_handler_error_repair_rebuilds_compose_without_external_candidate(
+    monkeypatch, tmp_path
+):
+    paths = paths_for("handler-repair", root=tmp_path / "applications")
+    fit_map_path = paths.app_dir / "fit_map.json"
+    normalized_path = paths.app_dir / "job_normalized.json"
+    fit_map_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(fit_map_path, {"provenance": {"candidate_facts_revision": "facts-1"}})
+    write_json(normalized_path, {"job_identity": {"language": "pt-BR"}})
+    expected_payload = {"metadata": {"application_id": paths.application_id}}
+    monkeypatch.setattr(
+        cell_handlers.cv_content_service,
+        "build_cv_content",
+        lambda *_args, **_kwargs: expected_payload,
+    )
+    inputs = {
+        "fit_map.json": {
+            "path": str(fit_map_path),
+            "sha256": applications_v2.sha256_file(fit_map_path),
+            "application_id": paths.application_id,
+        },
+        "job_normalized.json": {
+            "path": str(normalized_path),
+            "sha256": applications_v2.sha256_file(normalized_path),
+            "application_id": paths.application_id,
+        },
+    }
+    context = CellExecutionContext(
+        application_id=paths.application_id,
+        run_id="run_handler_error",
+        node_id="compose_cv",
+        attempt=2,
+        paths=paths,
+        manifest_path=paths.app_dir / "manifest.json",
+        staging_dir=paths.app_dir / "staging",
+        inputs=inputs,
+        output_paths=(),
+        capabilities=CapabilitySet(
+            application_root=paths.app_dir,
+            read_paths=(fit_map_path, normalized_path),
+            write_paths=(),
+        ),
+        repair_scope="cv_content_only",
+        repair_reason="handler_error:ValueError:application has no positioning revision",
+    )
+
+    output = cell_handlers._compose_cv(context)
+
+    assert json.loads(output.artifacts["cv_content.json"]) == expected_payload
 
 
 def test_repaired_compose_rejects_candidate_from_another_run(tmp_path):

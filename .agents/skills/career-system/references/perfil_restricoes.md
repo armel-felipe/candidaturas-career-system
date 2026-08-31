@@ -107,8 +107,10 @@ Selecionar entre 4 e 8 experiências separadas que maximizem aderência às comp
 
 ## FORMAÇÃO — REGRAS DE TRADUÇÃO
 
-- **Lato Sensu (BSP):** sempre renderizar em inglês como **"Specialization Certificate in Corporate Strategies — BSP Business School São Paulo"**. Nunca traduzir como "MBA in Corporate Strategy" ou "MBA Corporate Strategy".
-- Em português: usar "MBA Corporate Strategy — BSP Business School São Paulo".
+- **Pós-graduação (FAAP):** sempre renderizar em inglês como **"Postgraduate Certificate in Applied Artificial Intelligence for Business: FAAP (expected May 2027)"**.
+- **Lato Sensu (BSP):** sempre renderizar em inglês como **"Postgraduate Certificate in Corporate Strategy: BSP Business School São Paulo (2017)"**. Nunca traduzir como "MBA in Corporate Strategy", "MBA Corporate Strategy" ou usar "Corporate Strategies" no plural.
+- Em português: usar "MBA Corporate Strategy — BSP Business School São Paulo (2017)".
+- A formação mais recente deve aparecer primeiro: FAAP antes da BSP.
 - Em qualquer idioma, usar somente o ano de conclusão `2017` quando a formação aparecer no CV; nunca renderizar a faixa `2016–2017`.
 
 ---

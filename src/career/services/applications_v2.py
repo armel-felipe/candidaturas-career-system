@@ -3884,6 +3884,8 @@ def run_explicit_cellular(
     *, application_id: str, run_id: str, options: HeartbeatV2Options
 ) -> dict[str, Any]:
     """Execute one locally persisted cellular run, including agent nodes."""
+    from career.cells.executor import CellExecutor
+
     control_db_id = str(
         options.control_db_id or os.environ.get("CAREER_CONTROL_DB_ID") or ""
     ).strip()

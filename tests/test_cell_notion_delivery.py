@@ -286,6 +286,66 @@ def test_notion_adapter_does_not_drop_governance_for_legacy_service(tmp_path, mo
     assert captured["governance"] == {"review_status": "approved"}
 
 
+def test_initial_notion_sync_resolves_unique_source_url_duplicate_to_update(
+    tmp_path, monkeypatch
+):
+    paths = paths_for("app-1", root=tmp_path / "applications")
+    paths.app_dir.mkdir(parents=True)
+    paths.fit_map.write_text(
+        json.dumps({"empresa": "Sanofi", "cargo": "Operations Director"}),
+        encoding="utf-8",
+    )
+    paths.job_description.write_text("Fonte: https://jobs.example/sanofi-operations", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(
+        notion_service,
+        "find_duplicate_application_candidates",
+        lambda *args, **kwargs: [
+            {
+                "record_id": "622",
+                "page_id": "page-622",
+                "source_url": "https://jobs.example/sanofi-operations",
+                "duplicate_reasons": ["source_url"],
+            }
+        ],
+    )
+
+    def update_record(*args, **kwargs):
+        captured["record_id"] = args[2]
+        return {
+            "page": {"id": "page-622", "url": "https://notion.so/page-622"},
+            "resolved_page_id": "page-622",
+            "resolved_record_id": 622,
+        }
+
+    def fail_create(*args, **kwargs):
+        raise AssertionError("duplicate source URL must never call create")
+
+    monkeypatch.setattr(notion_service, "update_from_fit_map_record", update_record)
+    monkeypatch.setattr(notion_service.legacy_notion, "create_from_fit_map", fail_create)
+    adapter = NotionCellAdapter(credentials=("token", "database"))
+
+    result = adapter.sync_cell(
+        {
+            "operation": "notion_initial_sync",
+            "application_id": "app-1",
+            "run_id": "run-1",
+            "node_id": "sync_notion_initial",
+            "status": "Aplicação andamento",
+            "fit_map_path": str(paths.fit_map),
+            "job_description_path": str(paths.job_description),
+        }
+    )
+
+    assert captured["record_id"] == 622
+    assert result == {
+        "page_id": "page-622",
+        "record_id": "622",
+        "url": "https://notion.so/page-622",
+    }
+
+
 def test_executor_delivery_uses_exact_rendered_docx_and_review_manifest(tmp_path):
     database = Database(tmp_path / "career.db")
     database.init_schema()

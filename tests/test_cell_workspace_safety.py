@@ -16,7 +16,7 @@ from career import cli
 from career.services import applications_v2, derived_context, multiagent
 from career.services.application_context import WorkspaceLease, workspace_owner_from_env
 from career.services.database import Database
-from career.services.harness_runs import HarnessRunStore, allowed_outputs_from_request
+from career.services.harness_runs import HarnessRunStore, _file_hash, allowed_outputs_from_request
 from career.services.harness_supervisor import HarnessSupervisor
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json
 
@@ -2064,6 +2064,24 @@ def test_cellular_harness_detects_global_and_cross_application_writes(tmp_path):
     }
 
 
+def test_harness_hash_reports_actionable_permission_preflight(tmp_path, monkeypatch):
+    target = tmp_path / "identity.json"
+    target.write_text("{}", encoding="utf-8")
+    original_read_bytes = Path.read_bytes
+
+    def deny_target(path):
+        if path == target:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", deny_target)
+
+    with pytest.raises(ValidationFailure, match="cellular workspace preflight cannot read") as exc_info:
+        _file_hash(target)
+
+    assert "UID 10000" in str(exc_info.value)
+
+
 def test_cellular_harness_detects_request_control_and_authoritative_db_writes(
     tmp_path,
 ):
@@ -2254,6 +2272,9 @@ def test_cellular_request_rules_never_direct_the_agent_to_global_state(tmp_path)
     assert ".career-state/fit_map.json" not in joined
     assert "configure_" not in joined
     assert "global" in joined.casefold()
+    assert "Do not run the full test suite" in joined
+    assert "write" in joined.casefold()
+    assert "fit_map.draft.json" in joined
 
 
 def test_cellular_fit_map_specialist_never_runs_the_legacy_global_postprocess():

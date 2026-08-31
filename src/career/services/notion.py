@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 import hashlib
 import json
@@ -565,6 +566,13 @@ class NotionCellAdapter:
         if operation == "notion_final_sync" and not record_id and not page_id:
             raise RuntimeError("Notion final sync requires an existing record or page")
         try:
+            if operation == "notion_initial_sync" and not record_id and not page_id:
+                record_id, page_id = self._resolve_initial_duplicate(
+                    token,
+                    database_id,
+                    fit_map_path=fit_map_path,
+                    job_description_path=job_description_path,
+                )
             # The legacy service adapter predates the final governance
             # payload.  Route governed final syncs through the compatibility
             # function so review/delivery state is not silently discarded.
@@ -612,3 +620,58 @@ class NotionCellAdapter:
             "record_id": str(result.get("resolved_record_id") or record_id or ""),
             "url": url,
         }
+
+    @staticmethod
+    def _resolve_initial_duplicate(
+        token: str,
+        database_id: str,
+        *,
+        fit_map_path: Path,
+        job_description_path: Path,
+    ) -> tuple[str, str]:
+        """Resolve one existing vacancy before allowing an initial create.
+
+        A source URL is a stable identity for a vacancy.  Company/role alone
+        is intentionally insufficient because the same employer can publish
+        multiple roles with similar titles.
+        """
+        fit_map = json.loads(fit_map_path.read_text(encoding="utf-8"))
+        description = job_description_path.read_text(encoding="utf-8")
+        metadata = legacy_notion.job_description_metadata(
+            description,
+            job_description_path,
+            company=str(fit_map.get("empresa") or ""),
+            role=str(fit_map.get("cargo") or ""),
+        )
+        source_url = str(metadata.get("source_url") or "").strip()
+        if not source_url:
+            return "", ""
+        candidates = find_duplicate_application_candidates(
+            token,
+            database_id,
+            company=str(metadata.get("company") or ""),
+            role=str(metadata.get("role") or ""),
+            source_url=source_url,
+        )
+        source_matches = [
+            item
+            for item in candidates
+            if isinstance(item, Mapping)
+            and "source_url" in (item.get("duplicate_reasons") or ())
+        ]
+        if len(source_matches) > 1:
+            raise RuntimeError(
+                "Notion initial sync found multiple records with the same source_url"
+            )
+        if not source_matches:
+            return "", ""
+        match = source_matches[0]
+        resolved_record_id = str(match.get("record_id") or "").strip()
+        resolved_page_id = str(match.get("page_id") or "").strip()
+        if not resolved_record_id.isdigit() and not resolved_page_id:
+            raise RuntimeError(
+                "Notion duplicate match has no usable record_id or page_id"
+            )
+        if resolved_record_id.isdigit():
+            return resolved_record_id, ""
+        return "", resolved_page_id

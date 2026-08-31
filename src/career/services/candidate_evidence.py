@@ -28,6 +28,29 @@ def build_cv_facts_view(
     base = deepcopy(dict(legacy_facts)) if legacy_facts is not None else read_json(LEGACY_CV_FACTS_PATH)
     if not isinstance(base, dict):
         raise ValueError("legacy candidate CV facts must be an object")
+    source_facts = validated.get("facts")
+    source_education = (
+        source_facts.get("education")
+        if isinstance(source_facts, Mapping)
+        else None
+    )
+    if isinstance(source_education, Mapping):
+        education = base.setdefault("education", {})
+        if not isinstance(education, dict):
+            raise ValueError("legacy candidate CV facts education must be an object")
+        for language, entries in source_education.items():
+            if not isinstance(entries, list) or not entries or not all(
+                isinstance(entry, str) and entry.strip() for entry in entries
+            ):
+                raise ValueError(
+                    f"candidate evidence education.{language} must be a non-empty text list"
+                )
+            education[str(language)] = list(entries)
+    elif isinstance(source_education, list):
+        education = base.setdefault("education", {})
+        if not isinstance(education, dict):
+            raise ValueError("legacy candidate CV facts education must be an object")
+        education["pt-BR"] = list(source_education)
     experiences = base.setdefault("experiences", [])
     if not isinstance(experiences, list):
         raise ValueError("legacy candidate CV facts experiences must be an array")
@@ -65,6 +88,8 @@ def rebuild_candidate_facts(
     rebuilt = build_cv_facts_view(evidence, legacy_facts=read_json(legacy_path))
     destination = Path(output_path or legacy_path)
     write_json(destination, rebuilt)
+    if destination.is_file():
+        destination.chmod(destination.stat().st_mode | 0o004)
     return {
         "evidence": Path(evidence_path or CANDIDATE_EVIDENCE_PATH),
         "output": destination,

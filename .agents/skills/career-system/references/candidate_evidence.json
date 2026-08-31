@@ -168,11 +168,20 @@
     }
   ],
   "facts": {
-    "education": [
-      "MBA Corporate Strategy — BSP Business School São Paulo (2017)",
-      "Engenheiro Químico — Faculdades Oswaldo Cruz (2014)",
-      "Six Sigma Green Belt — Setec Consulting (2020)"
-    ],
+    "education": {
+      "pt-BR": [
+        "MBA em Inteligência Artificial Aplicada a Negócios — FAAP (conclusão mai/2027)",
+        "MBA Corporate Strategy — BSP Business School São Paulo (2017)",
+        "Engenheiro Químico — Faculdades Oswaldo Cruz (2014)",
+        "Six Sigma Green Belt — Setec Consulting (2020)"
+      ],
+      "en": [
+        "Postgraduate Certificate in Applied Artificial Intelligence for Business: FAAP (expected May 2027)",
+        "Postgraduate Certificate in Corporate Strategy: BSP Business School São Paulo (2017)",
+        "B.Sc. in Chemical Engineering — Faculdades Oswaldo Cruz (2014)",
+        "Six Sigma Green Belt — Setec Consulting (2020)"
+      ]
+    },
     "stack": ["Excel/VBA", "SQL", "Python", "Databricks", "Grafana", "Tableau", "Power BI", "Metabase"]
   }
 }

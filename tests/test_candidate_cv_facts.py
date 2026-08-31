@@ -109,6 +109,48 @@ def test_new_evidence_story_is_available_to_cv_view() -> None:
     assert view["experiences"][1]["result_bullet"] == "Escrevi mais de 180 POPs."
 
 
+def test_candidate_evidence_education_replaces_stale_localized_facts() -> None:
+    evidence = {
+        "schema_version": 1,
+        "candidate": {"name": "Felipe Armel"},
+        "stories": [
+            {
+                "story_id": "story_one",
+                "title": "História um",
+                "context": "Contexto",
+                "actions": ["Ação"],
+                "results": ["Resultado"],
+                "metrics": [],
+                "capabilities": ["operação"],
+                "allowed_claims": ["Claim"],
+                "source_refs": [{"path": "autoconhecimento.md", "lines": "1-2"}],
+                "artifact_guidance": {"cv": "Formulação curta"},
+            }
+        ],
+        "facts": {
+            "education": {
+                "pt-BR": ["MBA em Inteligência Artificial Aplicada a Negócios — FAAP"],
+                "en": [
+                    "Postgraduate Certificate in Applied Artificial Intelligence for Business: FAAP (expected May 2027)",
+                    "Postgraduate Certificate in Corporate Strategy: BSP Business School São Paulo (2017)",
+                ],
+            }
+        },
+    }
+    legacy = {
+        "education": {
+            "pt-BR": ["formação antiga"],
+            "en": ["Specialization Certificate in Corporate Strategies"],
+        },
+        "experiences": [],
+    }
+
+    view = candidate_evidence.build_cv_facts_view(evidence, legacy_facts=legacy)
+
+    assert view["education"]["en"] == evidence["facts"]["education"]["en"]
+    assert view["education"]["pt-BR"] == evidence["facts"]["education"]["pt-BR"]
+
+
 def test_rebuild_candidate_facts_writes_the_derived_view(tmp_path: Path) -> None:
     evidence_path = tmp_path / "candidate_evidence.json"
     legacy_path = tmp_path / "candidate_cv_facts.json"
@@ -160,3 +202,47 @@ def test_rebuild_candidate_facts_writes_the_derived_view(tmp_path: Path) -> None
     assert result["output"] == output_path
     rebuilt = json.loads(output_path.read_text(encoding="utf-8"))
     assert rebuilt["experiences"][0]["id"] == "story_one"
+
+
+def test_rebuild_candidate_facts_restores_readability_for_runtime_agent(
+    tmp_path: Path,
+) -> None:
+    evidence_path = tmp_path / "candidate_evidence.json"
+    legacy_path = tmp_path / "candidate_cv_facts.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "candidate": {"name": "Felipe Armel"},
+                "stories": [
+                    {
+                        "story_id": "story_one",
+                        "title": "História um",
+                        "context": "Contexto",
+                        "actions": ["Ação"],
+                        "results": ["Resultado"],
+                        "metrics": [],
+                        "capabilities": ["operação"],
+                        "allowed_claims": ["Claim"],
+                        "source_refs": [{"path": "autoconhecimento.md", "lines": "1-2"}],
+                        "artifact_guidance": {"cv": "Formulação curta"},
+                    }
+                ],
+                "facts": {"education": {"en": ["Postgraduate Certificate"]}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    legacy_path.write_text(
+        json.dumps({"schema_version": 1, "candidate": {}, "experiences": []}),
+        encoding="utf-8",
+    )
+    legacy_path.chmod(0o600)
+
+    candidate_evidence.rebuild_candidate_facts(
+        evidence_path=evidence_path,
+        legacy_facts_path=legacy_path,
+        output_path=legacy_path,
+    )
+
+    assert legacy_path.stat().st_mode & 0o004

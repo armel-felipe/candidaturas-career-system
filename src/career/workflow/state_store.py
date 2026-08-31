@@ -42,7 +42,11 @@ class WorkflowStateStore:
                     scoped = self.for_application(pointed_application_id, database=self._database())
                     payload = scoped.load()
                 except ValueError as exc:
-                    if str(exc) != f"unknown application: {pointed_application_id}":
+                    missing_errors = {
+                        f"unknown application: {pointed_application_id}",
+                        f"application_not_in_sqlite: {pointed_application_id}",
+                    }
+                    if str(exc) not in missing_errors:
                         raise
                     payload = self._empty_payload()
                     payload["application_id"] = pointed_application_id

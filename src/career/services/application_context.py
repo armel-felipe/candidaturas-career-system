@@ -610,6 +610,7 @@ def persist_intake(
     source_metadata_hash = hashlib.sha256(
         source_metadata_json.encode("utf-8")
     ).hexdigest()
+    application_revision_kind = "job_description"
     revision_payload = {
         "job_description_id": description_id,
         "job_source_id": source_row_id,
@@ -621,6 +622,28 @@ def persist_intake(
     }
 
     with repository_database.transaction(immediate=True) as conn:
+        current_revision = conn.execute(
+            """SELECT fingerprint FROM application_revisions
+               WHERE application_id = ?
+               ORDER BY created_at DESC, revision_id DESC
+               LIMIT 1""",
+            (application_id,),
+        ).fetchone()
+        historical_revision = conn.execute(
+            """SELECT revision_id FROM application_revisions
+               WHERE application_id = ? AND fingerprint = ?
+               ORDER BY created_at DESC, revision_id DESC
+               LIMIT 1""",
+            (application_id, fingerprint),
+        ).fetchone()
+        if (
+            current_revision is not None
+            and str(current_revision["fingerprint"] or "") != fingerprint
+            and historical_revision is not None
+        ):
+            application_revision_kind = (
+                f"job_description_reactivation_{application_revision_id}"
+            )
         existing = conn.execute(
             "SELECT created_at FROM applications WHERE id = ?", (application_id,)
         ).fetchone()
@@ -697,10 +720,11 @@ def persist_intake(
             """INSERT OR IGNORE INTO application_revisions
                (revision_id, application_id, revision_kind, fingerprint, source_hash,
                 payload_json, created_at)
-               VALUES (?, ?, 'job_description', ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 application_revision_id,
                 application_id,
+                application_revision_kind,
                 fingerprint,
                 fingerprint,
                 json.dumps(

@@ -180,6 +180,7 @@ Regras:
 - em modo conciso, bullet 2 é posicionamento, mecanismo ou caso derivado da evidência canônica e das keywords coerentes da experiência, sem métrica de resultado; bullet 3 concentra o resultado quantitativo no formato ação → resultado → de → para quando houver faixa comparativa; medidas de escopo/responsabilidade podem ficar no bullet 1, mas uma mesma métrica não pode ser repetida entre bullets 1 e 3, e a validação bloqueia inversão ou duplicação
 - se o agente inferir que modo expandido pode ser mais inteligente por vaga multiarea, formulário, indicação, reposicionamento, CV mestre ou maximização ATS, deve validar com o usuário antes de gerar; sem confirmação explícita, manter conciso
 - todo CV orientado por vaga deve trazer entre 4 e 8 experiências por padrão; reduzir abaixo de 4 só com pedido explícito do usuário
+- após selecionar por aderência, verificar lacunas cronológicas superiores a 36 meses e, havendo espaço até 8, incluir a experiência canônica que melhor cubra cada intervalo; recalcular depois de cada inclusão e nunca inventar cobertura
 - nunca juntar experiências, cargos, promoções, fases ou escopos em uma única entrada de CV; se houver limite de espaço, selecionar experiências separadas por aderência
 - as 8 keywords-habilidade ATS prioritárias devem ser distribuídas em experiências defensáveis do CV; ausência sem explicação vira blocker e deve gerar pedido de reparo objetivo
 

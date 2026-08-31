@@ -444,6 +444,8 @@ def cellular_operational_rules(context: dict[str, Any]) -> list[str]:
         ),
         f"Read the immutable attempt manifest first: {context['manifest_path']}.",
         "Read only paths in read_allowlist and write only paths in write_allowlist.",
+        "Do not run the full test suite, pytest, npm test, or unrelated diagnostics.",
+        "Write a complete fit_map.draft.json to the declared write allowlist, then stop.",
         "Do not use global active state, session memory, or legacy compatibility paths.",
         "If identity, manifest, or allowlists are missing or inconsistent, return blocked instead of falling back.",
         "Persist a compact handover in the attempt and report only paths, hashes, validation status, and blocker reason.",
@@ -462,17 +464,7 @@ def write_request(
     contract = CONTRACTS.get(step)
     if not contract:
         raise ValidationFailure(f"Unknown multiagent step: {step}")
-    if isinstance(contract, dict):
-        contract = AgentContract(
-            step=step,
-            agent=step,
-            purpose=f"Execute {step}",
-            allowed_files=tuple(contract.get("inputs", ())),
-            allowed_commands=(),
-            expected_outputs=tuple(contract.get("outputs", ())),
-            forbidden_actions=BASE_FORBIDDEN_ACTIONS,
-            validation_commands=tuple(contract.get("rules", ())),
-        )
+    contract = _normalize_contract(step, contract)
     request_extras = dict(extras or {})
     scoped_application_id = str(application_id or "").strip()
     if not scoped_application_id:
@@ -591,6 +583,23 @@ def write_request(
         "versioned_request_json": str((run_dir / "request.json").relative_to(ROOT)),
         "versioned_request_md": str((run_dir / "request.md").relative_to(ROOT)),
     }
+
+
+def _normalize_contract(
+    step: str, contract: AgentContract | dict[str, Any]
+) -> AgentContract:
+    if isinstance(contract, AgentContract):
+        return contract
+    return AgentContract(
+        step=step,
+        agent=step,
+        purpose=f"Execute {step}",
+        allowed_files=tuple(contract.get("inputs", ())),
+        allowed_commands=(),
+        expected_outputs=tuple(contract.get("outputs", ())),
+        forbidden_actions=BASE_FORBIDDEN_ACTIONS,
+        validation_commands=tuple(contract.get("rules", ())),
+    )
 
 
 def validate_request(step: str, *, request_path: Path | None = None) -> dict[str, Any]:
@@ -907,6 +916,17 @@ def _operational_rules(contract: AgentContract, app_paths) -> list[str]:
 
 
 def write_runbook() -> dict[str, Any]:
+    steps: list[dict[str, Any]] = []
+    for index, (step, raw_contract) in enumerate(CONTRACTS.items()):
+        contract = _normalize_contract(step, raw_contract)
+        steps.append(
+            {
+                "order": index + 1,
+                "step": step,
+                "agent": contract.agent,
+                "purpose": contract.purpose,
+            }
+        )
     payload = {
         "created_at": utc_now_iso(),
         "maestro": {
@@ -919,10 +939,7 @@ def write_runbook() -> dict[str, Any]:
                 "respect project write policy: Gmail manual; Notion may autoexecute on explicit write requests",
             ],
         },
-        "steps": [
-            {"order": index + 1, "step": step, "agent": contract.agent, "purpose": contract.purpose}
-            for index, (step, contract) in enumerate(CONTRACTS.items())
-        ],
+        "steps": steps,
     }
     write_json(RUNBOOK_PATH, payload)
     return {"status": "ok", "runbook": str(RUNBOOK_PATH.relative_to(ROOT)), "steps": [item["step"] for item in payload["steps"]]}

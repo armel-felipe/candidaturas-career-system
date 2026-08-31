@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from career import cli
@@ -317,6 +318,61 @@ class IntakeSQLiteScopeTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["active_intake"]["application_id"], record.application_id)
+
+    def test_guard_routes_completed_fit_map_to_sqlite_application_stage(self):
+        record = self._start(
+            self._source(
+                application_id="notion_578",
+                company="Conexa",
+                role="Diretor de Growth",
+                text="Descricao Conexa " * 80,
+            )
+        )
+        state_store = WorkflowStateStore.for_application(
+            record.application_id,
+            database=self.database,
+            root=self.applications_dir,
+        )
+        state_store.payload = {
+            "active_intake": {
+                "application_id": record.application_id,
+                "fingerprint": record.fingerprint,
+                "job_description_path": str(
+                    application_context.paths_for(
+                        record.application_id, root=self.applications_dir
+                    ).job_description.relative_to(self.root)
+                ),
+            }
+        }
+        state_store.save()
+
+        with self._guard_context(), mock.patch.object(
+            agent_guard.fit_map_service,
+            "progress_guard",
+            return_value={
+                "guard": "clear",
+                "blocked": False,
+                "next_required_step": "análise concluída",
+            },
+        ), mock.patch.object(
+            agent_guard.application_context_service,
+            "build_application_projection",
+            return_value=SimpleNamespace(
+                stage=SimpleNamespace(value="fit_map_validated"),
+                next_required_step="build_cv",
+            ),
+        ):
+            result = agent_guard.guard(
+                application_id=record.application_id,
+                fingerprint=record.fingerprint,
+                state_store=state_store,
+                database=self.database,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["allowed_next_action"], "follow_application_stage")
+        self.assertEqual(result["allowed_next_command"], "build_cv")
+        self.assertEqual(result["application_stage"], "fit_map_validated")
 
     def test_guard_rejects_fingerprint_mismatch_before_consulting_draft_or_context(self):
         source = self._source(
