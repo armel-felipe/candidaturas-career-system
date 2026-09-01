@@ -6,6 +6,7 @@
   "scripts": {
     "test": "./scripts/python.sh -m pytest -q tests --import-mode=importlib",
     "hook:install": "sh scripts/install_git_hook.sh",
+    "career": "./scripts/python.sh scripts/career_cli.py",
     "harness": "./scripts/python.sh scripts/career_cli.py harness handle",
     "harness:route": "./scripts/python.sh scripts/career_cli.py harness route",
     "harness:approve": "./scripts/python.sh scripts/career_cli.py harness approve",

@@ -907,6 +907,16 @@ class MaintenanceOrchestrator:
     @staticmethod
     def _path_requires_profile_reload(path: str) -> bool:
         normalized = str(path).replace("\\", "/").strip()
+        if normalized.startswith("hermes-src/"):
+            relative = normalized.removeprefix("hermes-src/")
+            parts = relative.split("/")
+            filename = parts[-1].casefold()
+            if (
+                parts[0].casefold() in {"docs", "tests", "test"}
+                or filename in {"readme.md", "changelog.md"}
+                or filename.startswith("test_")
+            ):
+                return False
         return normalized in _RUNTIME_AFFECTING_FILES or normalized.startswith(
             _RUNTIME_AFFECTING_PREFIXES
         )
@@ -994,12 +1004,20 @@ class MaintenanceOrchestrator:
                 "stdout": reload_result.stdout,
                 "stderr": reload_result.stderr + str(exc),
             }
+        ps_output = ps_result.stdout or ""
+        missing_profiles = [profile for profile in _PROFILE_NAMES if profile not in ps_output]
+        profiles_running = not missing_profiles
         return {
-            "status": "reloaded" if ps_result.returncode == 0 else "blocked",
+            "status": "reloaded" if ps_result.returncode == 0 and profiles_running else "blocked",
+            "blocker_reason": (
+                None
+                if ps_result.returncode == 0 and profiles_running
+                else "docker_compose_ps_missing_profiles: " + ", ".join(missing_profiles)
+            ),
             "policy": policy,
             "command": command,
             "docker_compose_ps_command": ps_command,
-            "docker_compose_ps": ps_result.stdout,
+            "docker_compose_ps": ps_output,
             "returncode": ps_result.returncode,
             "stdout": reload_result.stdout,
             "stderr": reload_result.stderr + ps_result.stderr,

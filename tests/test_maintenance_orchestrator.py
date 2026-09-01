@@ -135,10 +135,12 @@ def test_successful_skill_change_reloads_both_profiles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[list[str]] = []
+    ps_output = "NAME\tSERVICE\tSTATUS\ncontainer-01\tvagas_bot_01\trunning\ncontainer-02\tvagas_bot_02\trunning\n"
 
     def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(command)
-        return subprocess.CompletedProcess(command, 0, "running\n", "")
+        stdout = "up\n" if command[4] == "up" else ps_output
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
     monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", fake_run)
 
@@ -161,7 +163,57 @@ def test_successful_skill_change_reloads_both_profiles(
     ]
     assert calls[1][-2:] == ["vagas_bot_01", "vagas_bot_02"]
     assert result["policy"]["runtime_affecting"] is True
-    assert result["docker_compose_ps"] == "running\n"
+    assert result["docker_compose_ps"] == ps_output
+
+
+@pytest.mark.parametrize(
+    "ps_output",
+    [
+        "",
+        "NAME\tSERVICE\tSTATUS\n",
+    ],
+)
+def test_reload_blocks_when_ps_does_not_confirm_both_profiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ps_output: str
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        stdout = "up\n" if command[4] == "up" else ps_output
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", fake_run)
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=["src/career/services/maintenance_orchestrator.py"]
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == (
+        "docker_compose_ps_missing_profiles: vagas_bot_01, vagas_bot_02"
+    )
+    assert result["docker_compose_ps"] == ps_output
+    assert calls[1][-2:] == ["vagas_bot_01", "vagas_bot_02"]
+
+
+def test_reload_blocks_when_ps_confirms_only_one_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ps_output = "NAME\tSERVICE\tSTATUS\ncontainer-01\tvagas_bot_01\trunning\n"
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        stdout = "up\n" if command[4] == "up" else ps_output
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", fake_run)
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=["src/career/services/maintenance_orchestrator.py"]
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "docker_compose_ps_missing_profiles: vagas_bot_02"
 
 
 def test_reload_blocks_when_docker_compose_up_is_unavailable(
@@ -229,6 +281,21 @@ def test_documentation_and_tests_do_not_reload_profiles(
 @pytest.mark.parametrize(
     "changed_path",
     [
+        "hermes-src/docs/architecture.md",
+        "hermes-src/tests/test_runtime.py",
+        "hermes-src/scripts/tests/test_install.sh",
+        "hermes-src/README.md",
+    ],
+)
+def test_hermes_documentation_and_tests_do_not_reload_profiles(
+    changed_path: str,
+) -> None:
+    assert MaintenanceOrchestrator._path_requires_profile_reload(changed_path) is False
+
+
+@pytest.mark.parametrize(
+    "changed_path",
+    [
         "src/career/services/maintenance_orchestrator.py",
         "hermes-src/agent.py",
         "compose.yaml",
@@ -239,10 +306,12 @@ def test_runtime_and_config_changes_reload_both_profiles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_path: str
 ) -> None:
     calls: list[list[str]] = []
+    ps_output = "NAME\tSERVICE\tSTATUS\ncontainer-01\tvagas_bot_01\trunning\ncontainer-02\tvagas_bot_02\trunning\n"
 
     def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(command)
-        return subprocess.CompletedProcess(command, 0, "running\n", "")
+        stdout = "up\n" if command[4] == "up" else ps_output
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
     monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", fake_run)
 
@@ -253,6 +322,14 @@ def test_runtime_and_config_changes_reload_both_profiles(
     assert result["status"] == "reloaded"
     assert result["policy"]["runtime_affecting"] is True
     assert calls[0][-2:] == ["vagas_bot_01", "vagas_bot_02"]
+
+
+def test_package_exposes_canonical_career_cli() -> None:
+    package = json.loads(
+        (Path(__file__).resolve().parents[1] / "package.json").read_text(encoding="utf-8")
+    )
+
+    assert package["scripts"]["career"] == "./scripts/python.sh scripts/career_cli.py"
 
 
 def test_candidate_diff_includes_allowlisted_new_file(tmp_path: Path) -> None:
