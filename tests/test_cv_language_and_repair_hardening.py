@@ -72,6 +72,23 @@ def test_changed_cv_repair_candidate_remains_retryable():
     assert result["status"] == "retryable"
 
 
+def test_polish_blockers_are_part_of_repair_fingerprint():
+    review = {"blockers": [{"id": "summary_support"}]}
+    baseline = applications_v2.inspect_repair_progress(
+        review_report=review,
+        cv_content_sha256="same-cv",
+        polish_report={"approval_blockers": []},
+    )
+    result = applications_v2.inspect_repair_progress(
+        review_report=review,
+        cv_content_sha256="same-cv",
+        previous_progress=baseline,
+        polish_report={"approval_blockers": [{"id": "english_editorial_guard"}]},
+    )
+
+    assert result["status"] == "retryable"
+
+
 def test_cell_compose_uses_the_validated_normalized_language_input(tmp_path, monkeypatch):
     from career.cells.capabilities import CapabilitySet
     from career.cells.handlers import _compose_cv

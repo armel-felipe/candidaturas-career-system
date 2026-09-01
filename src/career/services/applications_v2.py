@@ -3211,6 +3211,7 @@ def inspect_repair_progress(
     )
     blocker_fingerprint = _sha256_json(
         {
+            "cv_content_sha256": str(cv_content_sha256 or ""),
             "blocker_ids": blocker_ids,
             "missing_top8": missing_top8,
             "polish_blocker_ids": polish_blocker_ids,
@@ -3298,6 +3299,7 @@ def _latest_cellular_repair_progress(
         / "staging"
         / "cv_review.json"
     )
+    previous_polish = previous_review.parent / "polish_review.json"
     previous_compose = (
         paths.cells_dir
         / run_id
@@ -3308,6 +3310,7 @@ def _latest_cellular_repair_progress(
     if not previous_review.is_file() or not previous_compose.is_file():
         return None
     report = read_json(previous_review)
+    polish_report = read_json(previous_polish) if previous_polish.is_file() else {}
     compose_manifest = read_json(previous_compose)
     cv_hash = ""
     for output in compose_manifest.get("outputs", []):
@@ -3325,6 +3328,7 @@ def _latest_cellular_repair_progress(
         **inspect_repair_progress(
             review_report=report,
             cv_content_sha256=cv_hash,
+            polish_report=polish_report,
         ),
     }
     return None
@@ -4048,13 +4052,22 @@ def _process_cellular_application(
                 previous_progress=previous_progress,
                 polish_report=polish_report,
             )
-            if progress_decision["status"] == "changed" and previous_progress is None:
-                _persist_cellular_repair_progress(
-                    paths, run_id, int(blocked_review.attempt), progress_decision
-                )
+            compose_row = executor.database.fetch_one(
+                "SELECT latest_attempt FROM cell_nodes "
+                "WHERE run_id = ? AND node_id = 'compose_cv'",
+                (run_id,),
+            )
+            next_compose_attempt = (
+                int(compose_row["latest_attempt"] or 0) + 1
+                if compose_row is not None
+                else int(blocked_review.attempt) + 1
+            )
+            _persist_cellular_repair_progress(
+                paths, run_id, next_compose_attempt, progress_decision
+            )
             if progress_decision["status"] == "no_progress":
                 _persist_cellular_repair_progress(
-                    paths, run_id, int(blocked_review.attempt), progress_decision
+                    paths, run_id, next_compose_attempt, progress_decision
                 )
                 results = [
                     _cell_execution_payload(item, application_id=paths.application_id)
