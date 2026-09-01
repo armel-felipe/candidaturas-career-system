@@ -13,7 +13,19 @@ from career.paths import CAREER_STATE, ROOT
 
 
 CANONICAL_PREFIXES = ("src/", ".agents/skills/", "hermes-src/")
+MAINTENANCE_REQUEST_VERSION = 2
 GENERATED_STATE_PREFIXES = (".career-state/", "outputs/", "control-plane/")
+SQLITE_SUFFIXES = (
+    ".sqlite",
+    ".sqlite3",
+    ".sqlite-wal",
+    ".sqlite-shm",
+    ".sqlite-journal",
+    ".db",
+    ".db-wal",
+    ".db-shm",
+    ".db-journal",
+)
 FORBIDDEN_PATH_MARKERS = (
     ".env",
     "credentials",
@@ -79,6 +91,8 @@ def _path_blocker(root: Path, relative_path: str) -> str | None:
     if relative_path.startswith(GENERATED_STATE_PREFIXES):
         return "generated_state_forbidden"
     path_parts = relative_path.split("/")
+    if path_parts[-1].lower().endswith(SQLITE_SUFFIXES):
+        return "sqlite_artifact_forbidden"
     if any(
         marker in part.lower() or (marker == ".env" and part.lower().startswith(".env"))
         for part in path_parts
@@ -139,8 +153,11 @@ def maintenance_request_fingerprint(payload: dict[str, Any]) -> str:
 
 def validate_maintenance_request(root: Path, request_path: Path) -> dict[str, Any]:
     payload = json.loads(Path(request_path).read_text(encoding="utf-8"))
-    if payload.get("schema_version") != 2:
+    if payload.get("schema_version") != MAINTENANCE_REQUEST_VERSION:
         raise ValueError("unknown maintenance request schema_version")
+    for field in ("request_id", "requester_profile", "roadmap_id", "base_commit"):
+        if not str(payload.get(field, "")).strip():
+            raise ValueError(f"maintenance request {field} is required")
     if not str(payload.get("objective", "")).strip():
         raise ValueError("maintenance objective is required")
     spec = payload.get("spec")
@@ -189,7 +206,7 @@ def create_maintenance_request(
         "status": "requested",
         "objective": objective.strip(),
         "allowed_paths": normalised,
-        "schema_version": 2,
+        "schema_version": MAINTENANCE_REQUEST_VERSION,
         "requester_profile": requester_profile,
         "application_id": application_id,
         "run_id": run_id,
@@ -243,6 +260,13 @@ def apply_maintenance_patch(
     allowed = {_normalise_relative_path(path) for path in request.get("allowed_paths", [])}
     if not allowed:
         raise ValueError("maintenance request has no canonical allowlist")
+    policy = validate_maintenance_paths(root, sorted(allowed))
+    if policy["status"] != "ok":
+        detail = policy.get("path", "")
+        raise ValueError(
+            f"maintenance path policy blocked: {policy['blocker']}"
+            + (f" ({detail})" if detail else "")
+        )
     patch_files = set(_patch_paths(patch_path.read_text(encoding="utf-8")))
     outside = sorted(patch_files - allowed)
     if outside:

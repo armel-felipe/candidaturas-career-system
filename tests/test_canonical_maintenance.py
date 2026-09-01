@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import unittest
@@ -141,8 +142,10 @@ def test_request_contains_spec_evidence_scope_and_fingerprint(tmp_path: Path) ->
         requester_profile="vagas_bot_01",
         application_id="app_demo",
         run_id="run_demo",
+        base_commit="base",
     )
-    assert request["schema_version"] == 2
+    assert maintenance.MAINTENANCE_REQUEST_VERSION == 2
+    assert request["schema_version"] == maintenance.MAINTENANCE_REQUEST_VERSION
     assert request["application_id"] == "app_demo"
     assert request["spec"]["requirements"][0]["id"] == "REQ-1"
     assert len(request["request_fingerprint"]) == 64
@@ -152,7 +155,11 @@ def test_request_contains_spec_evidence_scope_and_fingerprint(tmp_path: Path) ->
 
 def test_request_rejects_missing_requirement_spec(tmp_path: Path) -> None:
     request = create_maintenance_request(
-        tmp_path, objective="Sem spec", allowed_paths=["src/x.py"]
+        tmp_path,
+        objective="Sem spec",
+        allowed_paths=["src/x.py"],
+        requester_profile="vagas_bot_01",
+        base_commit="base",
     )
     validator = getattr(maintenance, "validate_maintenance_request", None)
     assert callable(validator)
@@ -184,6 +191,64 @@ def test_generated_state_is_rejected_even_when_versioned_scope_is_requested(tmp_
     result = validator(root, [".career-state/applications_v2/demo/fit_map.json"])
     assert result["status"] == "blocked"
     assert result["blocker"] == "generated_state_forbidden"
+
+
+@pytest.mark.parametrize("filename", ["state.sqlite", "state.sqlite3", "state.db", "state.db-wal"])
+def test_sqlite_artifacts_are_rejected_under_canonical_prefix(tmp_path: Path, filename: str) -> None:
+    root = make_git_fixture(tmp_path, files={"src/existing.py": "base\n"})
+    result = maintenance.validate_maintenance_paths(root, [f"src/{filename}"])
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "sqlite_artifact_forbidden"
+
+
+@pytest.mark.parametrize("field", ["request_id", "requester_profile", "roadmap_id", "base_commit"])
+def test_request_requires_nonempty_metadata(tmp_path: Path, field: str) -> None:
+    request = create_maintenance_request(
+        tmp_path,
+        objective="Pedido completo",
+        allowed_paths=["src/x.py"],
+        spec={"requirements": [{"id": "REQ-1", "text": "Executar teste"}]},
+        evidence={"error": "reprodução"},
+        requester_profile="vagas_bot_01",
+    )
+    payload = json.loads(Path(request["request_path"]).read_text(encoding="utf-8"))
+    payload[field] = ""
+    Path(request["request_path"]).write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=field):
+        maintenance.validate_maintenance_request(tmp_path, Path(request["request_path"]))
+
+
+def test_legacy_create_contract_remains_compatible_but_is_not_autonomous_valid(tmp_path: Path) -> None:
+    request = create_maintenance_request(
+        tmp_path, objective="Caller legado", allowed_paths=["src/x.py"]
+    )
+    assert request["request_id"]
+    assert request["requester_profile"] == ""
+    with pytest.raises(ValueError, match="requester_profile"):
+        maintenance.validate_maintenance_request(tmp_path, Path(request["request_path"]))
+
+
+def test_apply_uses_the_same_path_policy_before_dry_run(tmp_path: Path) -> None:
+    root = make_git_fixture(tmp_path, files={"README.md": "base\n"})
+    request = create_maintenance_request(
+        root,
+        objective="Tentativa de skill nova",
+        allowed_paths=[".agents/skills/new-skill/SKILL.md"],
+    )
+    patch = root / "maintenance.patch"
+    patch.write_text(
+        "diff --git a/.agents/skills/new-skill/SKILL.md b/.agents/skills/new-skill/SKILL.md\n"
+        "new file mode 100644\n--- /dev/null\n+++ b/.agents/skills/new-skill/SKILL.md\n"
+        "@@ -0,0 +1 @@\n+forbidden\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="new_skill_forbidden"):
+        apply_maintenance_patch(
+            root=root,
+            patch_path=patch,
+            request_path=Path(request["request_path"]),
+            apply=False,
+        )
 
 
 if __name__ == "__main__":
