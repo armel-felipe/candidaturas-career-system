@@ -29,6 +29,49 @@ def test_job_language_detector_is_shared_for_mixed_language_job_text():
     assert derived_context._infer_language(text) == "en"
 
 
+def test_identical_cv_repair_candidate_stops_without_progress():
+    review = {
+        "blockers": [{"id": "ats_top8_no_missing_unexplained"}],
+        "top8_keywords": [
+            {"keyword": "NPS", "coverage_class": "missing_unexplained"}
+        ],
+    }
+    previous = applications_v2.inspect_repair_progress(
+        review_report=review,
+        cv_content_sha256="same-cv",
+    )
+
+    result = applications_v2.inspect_repair_progress(
+        review_report=review,
+        cv_content_sha256="same-cv",
+        previous_progress=previous,
+    )
+
+    assert result["status"] == "no_progress"
+    assert result["blocker_reason"] == "cv_repair_no_progress"
+
+
+def test_changed_cv_repair_candidate_remains_retryable():
+    review = {
+        "blockers": [{"id": "ats_top8_no_missing_unexplained"}],
+        "top8_keywords": [
+            {"keyword": "NPS", "coverage_class": "missing_unexplained"}
+        ],
+    }
+    previous = applications_v2.inspect_repair_progress(
+        review_report=review,
+        cv_content_sha256="old-cv",
+    )
+
+    result = applications_v2.inspect_repair_progress(
+        review_report=review,
+        cv_content_sha256="new-cv",
+        previous_progress=previous,
+    )
+
+    assert result["status"] == "retryable"
+
+
 def test_cell_compose_uses_the_validated_normalized_language_input(tmp_path, monkeypatch):
     from career.cells.capabilities import CapabilitySet
     from career.cells.handlers import _compose_cv

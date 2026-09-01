@@ -3163,6 +3163,130 @@ def _cellular_cv_repair_candidate_path(paths: Any, run_id: str, attempt: int) ->
     )
 
 
+def _cellular_repair_progress_path(paths: Any, run_id: str, attempt: int) -> Path:
+    return (
+        paths.requests_dir
+        / "cellular"
+        / run_id
+        / "repair"
+        / str(attempt)
+        / "progress.json"
+    )
+
+
+def _sha256_json(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def inspect_repair_progress(
+    *,
+    review_report: dict[str, Any],
+    cv_content_sha256: str,
+    previous_progress: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Classify a cellular CV repair using artifact and blocker fingerprints."""
+    blockers = review_report.get("blockers", []) if isinstance(review_report, dict) else []
+    blocker_ids = sorted(
+        str(item.get("id"))
+        for item in blockers
+        if isinstance(item, dict) and item.get("id")
+    )
+    top8 = review_report.get("top8_keywords", []) if isinstance(review_report, dict) else []
+    missing_top8 = sorted(
+        str(item.get("keyword"))
+        for item in top8
+        if isinstance(item, dict)
+        and item.get("coverage_class") == "missing_unexplained"
+        and item.get("keyword")
+    )
+    blocker_fingerprint = _sha256_json(
+        {"blocker_ids": blocker_ids, "missing_top8": missing_top8}
+    )
+    evidence = {
+        "cv_content_sha256": str(cv_content_sha256 or ""),
+        "blocker_fingerprint": blocker_fingerprint,
+        "blocker_ids": blocker_ids,
+        "missing_top8": missing_top8,
+    }
+    if not isinstance(previous_progress, dict):
+        return {"status": "initial", **evidence}
+    if (
+        evidence["cv_content_sha256"]
+        and previous_progress.get("cv_content_sha256")
+        and previous_progress.get("cv_content_sha256") == evidence["cv_content_sha256"]
+        and previous_progress.get("blocker_fingerprint")
+        == evidence["blocker_fingerprint"]
+    ):
+        return {
+            "status": "no_progress",
+            "blocker_reason": "cv_repair_no_progress",
+            **evidence,
+        }
+    return {"status": "retryable", **evidence}
+
+
+def _latest_cellular_cv_content_sha256(executor: Any, paths: Any, run_id: str) -> str:
+    row = executor.database.fetch_one(
+        "SELECT latest_attempt FROM cell_nodes "
+        "WHERE run_id = ? AND node_id = 'compose_cv' AND status = 'validated'",
+        (run_id,),
+    )
+    if row is None or int(row["latest_attempt"] or 0) <= 0:
+        return ""
+    manifest_path = (
+        paths.cells_dir
+        / run_id
+        / "compose_cv"
+        / str(int(row["latest_attempt"]))
+        / "manifest.json"
+    )
+    if not manifest_path.is_file():
+        return ""
+    manifest = read_json(manifest_path)
+    for output in manifest.get("outputs", []):
+        if not isinstance(output, dict) or output.get("artifact_name") != "cv_content.json":
+            continue
+        artifact_path = Path(str(output.get("path") or ""))
+        if artifact_path.is_file():
+            return sha256_file(artifact_path)
+    return ""
+
+
+def _latest_cellular_repair_progress(paths: Any, run_id: str) -> dict[str, Any] | None:
+    repair_root = paths.requests_dir / "cellular" / run_id / "repair"
+    candidates = sorted(
+        (path for path in repair_root.glob("*/progress.json") if path.is_file()),
+        key=lambda path: int(path.parent.name) if path.parent.name.isdigit() else -1,
+    )
+    for path in reversed(candidates):
+        payload = read_json(path)
+        if isinstance(payload, dict) and payload.get("run_id") == run_id:
+            return payload
+    return None
+
+
+def _persist_cellular_repair_progress(
+    paths: Any, run_id: str, attempt: int, evidence: dict[str, Any]
+) -> Path:
+    path = _cellular_repair_progress_path(paths, run_id, attempt)
+    write_json(
+        path,
+        {
+            "kind": "cellular_cv_repair_progress",
+            "application_id": paths.application_id,
+            "run_id": run_id,
+            "compose_attempt": attempt,
+            "recorded_at": utc_now_iso(),
+            **evidence,
+        },
+    )
+    return path
+
+
 def _prepare_external_agent_handoff(
     *,
     request_json: Path,
@@ -3847,6 +3971,37 @@ def _process_cellular_application(
             if not blockers or not blockers.issubset(repairable):
                 break
 
+            current_cv_hash = _latest_cellular_cv_content_sha256(
+                executor, paths, run_id
+            )
+            progress_decision = inspect_repair_progress(
+                review_report=review_report,
+                cv_content_sha256=current_cv_hash,
+                previous_progress=_latest_cellular_repair_progress(paths, run_id),
+            )
+            if progress_decision["status"] == "no_progress":
+                _persist_cellular_repair_progress(
+                    paths, run_id, int(blocked_review.attempt), progress_decision
+                )
+                results = [
+                    _cell_execution_payload(item, application_id=paths.application_id)
+                    for item in executed
+                ]
+                results.append(
+                    {
+                        "status": "blocked",
+                        "application_id": paths.application_id,
+                        "run_id": run_id,
+                        "node_id": "review_cv",
+                        "attempt": blocked_review.attempt,
+                        "manifest_path": str(blocked_review.manifest_path),
+                        "artifact_paths": [],
+                        "blocker": "cv_repair_no_progress",
+                        "progress": progress_decision,
+                    }
+                )
+                return results
+
             repair_round += 1
             reason = blocked_review.blocker or ",".join(sorted(blockers))
             repair_result = executor.repair(run_id, "compose_cv", reason)
@@ -3913,6 +4068,34 @@ def _process_cellular_application(
                 return results
 
             executed.extend(_execute_cellular_ready(executor, run_id))
+            latest_blocked_review = next(
+                (
+                    item
+                    for item in reversed(executed)
+                    if item.node_id == "review_cv" and item.status == "blocked"
+                ),
+                None,
+            )
+            if latest_blocked_review is not None:
+                latest_report_path = (
+                    Path(latest_blocked_review.manifest_path).parent
+                    / "staging"
+                    / "cv_review.json"
+                )
+                if latest_report_path.is_file():
+                    latest_report = read_json(latest_report_path)
+                    latest_evidence = inspect_repair_progress(
+                        review_report=latest_report,
+                        cv_content_sha256=_latest_cellular_cv_content_sha256(
+                            executor, paths, run_id
+                        ),
+                    )
+                    _persist_cellular_repair_progress(
+                        paths,
+                        run_id,
+                        int(repair_result.attempt),
+                        latest_evidence,
+                    )
 
         results = [
             _cell_execution_payload(item, application_id=paths.application_id)
