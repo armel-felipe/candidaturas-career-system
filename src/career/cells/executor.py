@@ -199,7 +199,9 @@ class CellExecutor:
             if _allowed_nodes is not None and node_id not in _allowed_nodes:
                 continue
             node = self._node(plan, node_id)
-            results.append(self._execute_reserved(plan, paths, node, reservation))
+            results.append(
+                self._execute_reserved_serialized(plan, paths, node, reservation)
+            )
             if _max_nodes is not None and len(results) >= _max_nodes:
                 return tuple(results)
 
@@ -241,7 +243,9 @@ class CellExecutor:
                 )
                 continue
             results.append(
-                self._execute_reserved(plan, paths, self._node(plan, node_id), reservation)
+                self._execute_reserved_serialized(
+                    plan, paths, self._node(plan, node_id), reservation
+                )
             )
             if _max_nodes is not None and len(results) >= _max_nodes:
                 return tuple(results)
@@ -986,6 +990,18 @@ class CellExecutor:
             self.workspace_owner, ttl_seconds=self.lease_seconds
         ):
             raise RuntimeError("workspace lease heartbeat failed")
+
+    def _execute_reserved_serialized(
+        self,
+        plan: RunPlan,
+        paths: ApplicationPaths,
+        node: NodePlan,
+        reservation: Mapping[str, Any],
+    ) -> CellExecutionResult:
+        if node.node_id == "analyze_fit":
+            with self._external_attempt_lock(paths, plan.run_id):
+                return self._execute_reserved(plan, paths, node, reservation)
+        return self._execute_reserved(plan, paths, node, reservation)
 
     def _execute_reserved(
         self,

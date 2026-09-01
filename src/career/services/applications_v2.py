@@ -2444,6 +2444,19 @@ def _quarantine_cellular_draft(
     return quarantined
 
 
+def _prepare_cellular_analyze_attempt(executor: Any, paths: Any, run_id: str) -> Any:
+    """Quarantine and reserve analyze_fit as one serialized operation."""
+    lock_factory = getattr(executor, "_external_attempt_lock", None)
+    if callable(lock_factory):
+        with lock_factory(paths, run_id):
+            _quarantine_cellular_draft(paths, reason="stale")
+            return executor.prepare_ready_node(
+                run_id, "analyze_fit", _lock_held=True
+            )
+    _quarantine_cellular_draft(paths, reason="stale")
+    return executor.prepare_ready_node(run_id, "analyze_fit")
+
+
 def _ensure_cellular_application(
     application: dict[str, Any],
     *,
@@ -2603,6 +2616,16 @@ def _cancel_run_for_changed_source(database: Database, run_id: str) -> None:
 
 
 def _select_or_plan_cellular_run(
+    application: dict[str, Any], *, paths: Any, executor: Any, config: dict[str, Any]
+) -> str:
+    lock_path = paths.requests_dir / "cellular" / ".run-selection.lock"
+    with ExclusiveRunLock(lock_path, f"cellular run selection: {paths.application_id}"):
+        return _select_or_plan_cellular_run_unlocked(
+            application, paths=paths, executor=executor, config=config
+        )
+
+
+def _select_or_plan_cellular_run_unlocked(
     application: dict[str, Any], *, paths: Any, executor: Any, config: dict[str, Any]
 ) -> str:
     database = executor.database
@@ -3662,8 +3685,7 @@ def _process_cellular_application(
         if "analyze_fit" in ready_before_analyze:
             plan, _run_paths = executor._load_run(run_id)
             dispatch_statuses = dict(executor.resume(run_id).statuses)
-            _quarantine_cellular_draft(paths, reason="stale")
-            prepared = executor.prepare_ready_node(run_id, "analyze_fit")
+            prepared = _prepare_cellular_analyze_attempt(executor, paths, run_id)
             try:
                 request_json, request_md = _write_cellular_analyze_request(
                     paths,
