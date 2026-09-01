@@ -14,7 +14,7 @@ ROOT = bootstrap()
 from career.services.harness_supervisor import HarnessSupervisor
 from career.services import application_context as application_context_service
 from career.utils import read_json
-from telegram_harness_adapter import dispatch_harness_job
+from telegram_harness_adapter import _dispatch_metadata, dispatch_harness_job
 
 
 def reply_state_path(session_id: str) -> str:
@@ -122,23 +122,22 @@ def main() -> int:
         history_size = len(history) if isinstance(history, list) else 0
         identity = f"{session_id}\n{history_size}\n{message}"
     message_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    dispatch_payload = {
+        "message_id": message_id,
+        "message": message,
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "runtime_context": {
+            "runtime": "hermes",
+            "profile_id": application_context_service.profile_id_from_env(),
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "application_id": None,
+            "run_id": None,
+        },
+    }
     try:
-        result = dispatch_harness_job(
-            {
-                "message_id": message_id,
-                "message": message,
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "runtime_context": {
-                    "runtime": "hermes",
-                    "profile_id": application_context_service.profile_id_from_env(),
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "application_id": None,
-                    "run_id": None,
-                },
-            },
-        )
+        result = dispatch_harness_job(dispatch_payload)
     except Exception as exc:  # pragma: no cover - exercised by live hook failures
         # A pre-LLM hook failure must remain inside the HarnessSupervisor
         # contract. Exit code 1 lets Hermes continue with an unconstrained
@@ -147,6 +146,9 @@ def main() -> int:
         result = {
             "status": "blocked",
             "kind": "harness_hook_failure",
+            "request_id": message_id,
+            "message_id": message_id,
+            **_dispatch_metadata(dispatch_payload, "blocked"),
             "blocker_reason": "harness_execution_failed",
             "error_type": type(exc).__name__,
             "error": str(exc)[:500],

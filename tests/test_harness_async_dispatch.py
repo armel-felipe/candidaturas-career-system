@@ -95,6 +95,26 @@ def test_duplicate_message_id_reuses_one_worker(tmp_path, monkeypatch):
     assert second["deduplicated"] is True
 
 
+def test_duplicate_message_id_keeps_original_scope(tmp_path, monkeypatch):
+    def fake_popen(command, **kwargs):
+        return _FakeWorkerProcess(command, **kwargs)
+
+    monkeypatch.setattr(adapter.subprocess, "Popen", fake_popen)
+    adapter.dispatch_harness_job(_payload(), root=tmp_path)
+    replay = _payload(
+        runtime_context={
+            **_payload()["runtime_context"],
+            "application_id": "ignored-app",
+            "run_id": "ignored-run",
+        },
+    )
+
+    result = adapter.dispatch_harness_job(replay, root=tmp_path)
+
+    assert result["scope"]["application_id"] == "app-1"
+    assert result["scope"]["run_id"] == "run-1"
+
+
 def test_dispatch_stale_lease_is_structured_blocked_without_new_worker(tmp_path, monkeypatch):
     def fail_popen(*_args, **_kwargs):
         raise AssertionError("stale dispatch must not start another worker")
@@ -225,3 +245,32 @@ def test_context_hook_dispatches_without_executing_pipeline(monkeypatch, capsys,
     assert "awaiting_agent" in output["context"]
     assert captured["payload"]["runtime_context"]["application_id"] is None
     assert captured["payload"]["session_id"] == "session-1"
+
+
+def test_context_hook_failure_still_emits_complete_block_envelope(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(hook, "ROOT", tmp_path)
+    monkeypatch.setattr(hook, "should_intercept", lambda _message: True)
+    monkeypatch.setattr(
+        hook,
+        "dispatch_harness_job",
+        lambda _payload: (_ for _ in ()).throw(RuntimeError("dispatch down")),
+    )
+    monkeypatch.setattr(
+        hook,
+        "application_context_service",
+        type("Context", (), {"profile_id_from_env": staticmethod(lambda: "vagas_bot_01")}),
+    )
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({
+            "session_id": "session-1",
+            "extra": {"user_message": "analise a vaga", "turn_id": "turn-1"},
+        })),
+    )
+
+    assert hook.main() == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["action"] == "block"
+    assert output["harness_result"]["scope"]["session_id"] == "session-1"
+    assert output["harness_result"]["next_state"] == "blocked"

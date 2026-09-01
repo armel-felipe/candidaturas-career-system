@@ -85,11 +85,24 @@ def dispatch_harness_job(
         if status_path.is_file():
             status = read_json(status_path)
             current_status = str(status.get("status") or "")
+            original_payload = payload
+            request_path = dispatch_dir / "request.json"
+            if request_path.is_file():
+                try:
+                    stored_request = read_json(request_path)
+                    if isinstance(stored_request, dict):
+                        original_payload = stored_request
+                except Exception:
+                    original_payload = payload
             if current_status in {"completed", "blocked"}:
                 result = read_json(result_path) if result_path.is_file() else status
                 return {
                     **result,
                     "request_id": message_id,
+                    **_dispatch_metadata(
+                        original_payload,
+                        str(result.get("next_state") or current_status),
+                    ),
                     "deduplicated": True,
                 }
             if current_status in {"awaiting_agent", "running"}:
@@ -99,7 +112,7 @@ def dispatch_harness_job(
                         "status": "blocked",
                         "request_id": message_id,
                         "message_id": message_id,
-                        **_dispatch_metadata(payload, "blocked"),
+                        **_dispatch_metadata(original_payload, "blocked"),
                         "blocker_reason": (
                             "dispatch_lease_expired"
                             if lease_path.is_file()
@@ -113,7 +126,7 @@ def dispatch_harness_job(
                     "status": "awaiting_agent",
                     "request_id": message_id,
                     "message_id": message_id,
-                    **_dispatch_metadata(payload, "awaiting_agent"),
+                    **_dispatch_metadata(original_payload, "awaiting_agent"),
                     "worker_started": False,
                     "deduplicated": True,
                 }
