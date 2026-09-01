@@ -91,12 +91,12 @@ class TestParseResponse:
         )
         assert r == {"context": "child role=leaf"}
 
-    def test_pre_llm_call_block_from_script_is_not_a_context_payload(self):
-        """Only the timeout path creates the internal pre-LLM block directive."""
+    def test_pre_llm_call_block_from_script_is_a_block_directive(self):
+        """A supervisory pre-LLM block must prevent the model turn."""
         r = shell_hooks._parse_response(
             "pre_llm_call", '{"decision": "block", "reason": "no"}',
         )
-        assert r is None
+        assert r == {"action": "block", "message": "no"}
 
     def test_pre_llm_timeout_returns_block_directive(self):
         spec = shell_hooks.ShellHookSpec(

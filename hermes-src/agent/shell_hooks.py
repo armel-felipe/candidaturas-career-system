@@ -583,8 +583,10 @@ def _parse_response(event: str, stdout: str) -> Optional[Dict[str, Any]]:
     skipping the translation silently breaks every ``pre_tool_call``
     block directive.
 
-    For ``pre_llm_call``, ``{"context": "..."}`` is passed through
-    unchanged to match the existing plugin-hook contract.
+    For ``pre_llm_call``, context is passed through unchanged.  A structured
+    ``action=block``/``decision=block`` response is normalized to the same
+    blocking shape consumed by ``build_turn_context``; silently treating a
+    mandatory supervisory block as context would release the model turn.
 
     Anything else returns ``None``.
     """
@@ -621,6 +623,18 @@ def _parse_response(event: str, stdout: str) -> Optional[Dict[str, Any]]:
             if isinstance(message, str) and message.strip():
                 return {"action": "continue", "message": message.strip()}
         return None
+
+    if event == "pre_llm_call":
+        if data.get("action") == "block":
+            return {
+                "action": "block",
+                "message": _block_message(data.get("message"), data.get("reason")),
+            }
+        if data.get("decision") == "block":
+            return {
+                "action": "block",
+                "message": _block_message(data.get("reason"), data.get("message")),
+            }
 
     context = data.get("context")
     if isinstance(context, str) and context.strip():

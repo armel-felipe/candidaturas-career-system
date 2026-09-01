@@ -60,6 +60,9 @@ def test_pre_llm_dispatch_returns_without_waiting_for_pipeline(tmp_path, monkeyp
     assert result["message_id"] == "m1"
     assert result["request_id"] == "m1"
     assert result["worker_started"] is True
+    assert result["decision"] == "block"
+    assert result["scope"]["application_id"] == "app-1"
+    assert result["next_state"] == "awaiting_agent"
     assert started[0][1]["start_new_session"] is True
     assert started[0][1]["env"]["CAREER_HARNESS_SUBAGENT"] == "1"
 
@@ -70,6 +73,8 @@ def test_pre_llm_dispatch_returns_without_waiting_for_pipeline(tmp_path, monkeyp
     request = json.loads((envelope / "request.json").read_text(encoding="utf-8"))
     assert request["runtime_context"]["application_id"] == "app-1"
     assert request["runtime_context"]["run_id"] == "run-1"
+    assert request["decision"] == "block"
+    assert request["scope"]["application_id"] == "app-1"
 
 
 def test_duplicate_message_id_reuses_one_worker(tmp_path, monkeypatch):
@@ -150,6 +155,21 @@ def test_worker_executes_outside_hook_and_persists_completed(tmp_path, monkeypat
     assert not (dispatch_dir / "lease.json").exists()
 
 
+def test_worker_rejects_missing_lease_before_pipeline(tmp_path, monkeypatch):
+    dispatch_dir = tmp_path / "dispatch"
+    dispatch_dir.mkdir()
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
+    monkeypatch.setattr(worker, "process_message", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("worker must validate lease before executing")
+    ))
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "dispatch_lease_missing"
+
+
 def test_worker_reentrancy_is_blocked(tmp_path):
     dispatch_dir = tmp_path / "dispatch"
     dispatch_dir.mkdir()
@@ -200,6 +220,8 @@ def test_context_hook_dispatches_without_executing_pipeline(monkeypatch, capsys,
 
     assert hook.main() == 0
     output = json.loads(capsys.readouterr().out)
+    assert output["action"] == "block"
+    assert output["decision"] == "block"
     assert "awaiting_agent" in output["context"]
     assert captured["payload"]["runtime_context"]["application_id"] is None
     assert captured["payload"]["session_id"] == "session-1"

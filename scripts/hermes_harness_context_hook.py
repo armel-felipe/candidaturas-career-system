@@ -61,6 +61,16 @@ def build_context(result: dict) -> str:
     )
 
 
+def build_block_message(result: dict) -> str:
+    request_id = str(result.get("request_id") or result.get("message_id") or "unknown")
+    status = str(result.get("status") or "blocked")
+    reason = str(result.get("blocker_reason") or "supervisor_dispatch")
+    return (
+        "HarnessSupervisor bloqueou o turno para impedir execução fora do fluxo "
+        f"canônico (status={status}, reason={reason}, request_id={request_id})."
+    )
+
+
 def should_intercept(message: str) -> bool:
     pending_path = ROOT / ".career-state" / "harness" / "pending_input.json"
     menu_state_path = ROOT / ".career-state" / "harness" / "menu_state.json"
@@ -145,7 +155,18 @@ def main() -> int:
     if isinstance(reply_text, str) and reply_text.strip():
         write_transform_reply(session_id, turn_id, reply_text.strip())
     context = build_context(result)
-    print(json.dumps({"context": context}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "action": "block",
+                "decision": "block",
+                "message": build_block_message(result),
+                "context": context,
+                "harness_result": result,
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

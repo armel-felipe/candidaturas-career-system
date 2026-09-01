@@ -13,10 +13,15 @@ from _bootstrap import bootstrap
 ROOT = bootstrap()
 
 from career.utils import read_json, utc_now_iso, write_json
-from telegram_harness_adapter import process_message
+from telegram_harness_adapter import _dispatch_lock, _lease_alive, process_message
 
 
 def run_worker(dispatch_dir: Path) -> dict:
+    with _dispatch_lock(dispatch_dir):
+        return _run_worker_locked(dispatch_dir)
+
+
+def _run_worker_locked(dispatch_dir: Path) -> dict:
     request_path = dispatch_dir / "request.json"
     status_path = dispatch_dir / "status.json"
     result_path = dispatch_dir / "result.json"
@@ -31,14 +36,41 @@ def run_worker(dispatch_dir: Path) -> dict:
     status = read_json(status_path)
     if str(status.get("status") or "") in {"completed", "blocked"}:
         return read_json(result_path) if result_path.is_file() else status
-    lease = read_json(lease_path) if lease_path.is_file() else {}
     if str(status.get("status") or "") == "running":
         return _blocked(dispatch_dir, "dispatch_reentrancy")
+    if not lease_path.is_file():
+        return _blocked(dispatch_dir, "dispatch_lease_missing")
+    lease = read_json(lease_path)
+    try:
+        lease_pid = int(lease.get("pid") or 0)
+    except (TypeError, ValueError):
+        lease_pid = 0
+    if lease_pid != os.getpid():
+        return _blocked(
+            dispatch_dir,
+            "dispatch_lease_owner_mismatch",
+            lease_pid=lease_pid,
+            worker_pid=os.getpid(),
+        )
+    if not _lease_alive(lease):
+        return _blocked(dispatch_dir, "dispatch_lease_expired")
+    lease = {
+        **lease,
+        "owner": f"harness-worker-{os.getpid()}",
+        "pid": os.getpid(),
+        "state": "running",
+        "claimed_at": utc_now_iso(),
+    }
+    write_json(lease_path, lease)
     running = {
         "status": "running",
         "request_id": request.get("message_id"),
         "message_id": request.get("message_id"),
         "started_at": utc_now_iso(),
+        "decision": request.get("decision") or "block",
+        "dispatch_action": request.get("dispatch_action") or "awaiting_agent",
+        "next_state": "running",
+        "scope": request.get("scope") or {},
     }
     write_json(status_path, running)
     try:
@@ -66,6 +98,10 @@ def run_worker(dispatch_dir: Path) -> dict:
             "message_id": request.get("message_id"),
             "completed_at": utc_now_iso(),
             "result": result,
+            "decision": request.get("decision") or "block",
+            "dispatch_action": request.get("dispatch_action") or "awaiting_agent",
+            "next_state": final_status,
+            "scope": request.get("scope") or {},
         }
         write_json(result_path, persisted)
         write_json(status_path, {key: value for key, value in persisted.items() if key != "result"})
@@ -80,10 +116,19 @@ def run_worker(dispatch_dir: Path) -> dict:
 
 
 def _blocked(dispatch_dir: Path, reason: str, **extra) -> dict:
+    request = {}
+    try:
+        request = read_json(dispatch_dir / "request.json")
+    except Exception:
+        pass
     payload = {
         "status": "blocked",
         "blocker_reason": reason,
         "completed_at": utc_now_iso(),
+        "decision": request.get("decision") or "block",
+        "dispatch_action": request.get("dispatch_action") or "awaiting_agent",
+        "next_state": "blocked",
+        "scope": request.get("scope") or {},
         **extra,
     }
     write_json(dispatch_dir / "result.json", payload)

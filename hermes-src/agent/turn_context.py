@@ -532,6 +532,11 @@ def build_turn_context(
             _ctx_parts.append(_piece)
         if _ctx_parts:
             plugin_user_context = "\n\n".join(_ctx_parts)
+    except PreLlmHookBlocked:
+        # A supervisory hook's explicit block is a control-flow decision, not
+        # a best-effort context plugin failure.  Re-raise it so the caller
+        # cannot proceed to the model with an unconstrained turn.
+        raise
     except Exception as exc:
         logger.warning("pre_llm_call hook failed: %s", exc)
 

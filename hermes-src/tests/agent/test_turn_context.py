@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent.context_compressor import ContextCompressor
-from agent.turn_context import TurnContext, build_turn_context
+from agent.turn_context import PreLlmHookBlocked, TurnContext, build_turn_context
 from hermes_state import SessionDB
 
 
@@ -173,6 +173,16 @@ def test_returns_turn_context_with_user_message_appended():
     assert ctx.messages[-1] == {"role": "user", "content": "hello"}
     assert ctx.current_turn_user_idx == len(ctx.messages) - 1
     assert ctx.active_system_prompt == "SYSTEM"
+
+
+def test_pre_llm_supervisory_block_stops_turn_prologue():
+    agent = _FakeAgent()
+    with patch(
+        "hermes_cli.plugins.invoke_hook",
+        return_value=[{"action": "block", "message": "supervisor pending"}],
+    ):
+        with pytest.raises(PreLlmHookBlocked, match="supervisor pending"):
+            _build(agent)
 
 
 def test_applies_agent_side_effects():
@@ -363,4 +373,3 @@ def test_expired_cooldown_allows_preflight(tmp_path):
     assert isinstance(ctx, TurnContext)
     agent._emit_status.assert_called_once()
     agent._compress_context.assert_called()
-

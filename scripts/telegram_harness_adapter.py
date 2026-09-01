@@ -38,7 +38,10 @@ def _lease_alive(lease: dict[str, Any]) -> bool:
     expires_at = _parse_timestamp(lease.get("expires_at"))
     if expires_at is None or expires_at <= datetime.now(timezone.utc):
         return False
-    pid = int(lease.get("pid") or 0)
+    try:
+        pid = int(lease.get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
     if pid <= 0:
         return True
     try:
@@ -84,7 +87,11 @@ def dispatch_harness_job(
             current_status = str(status.get("status") or "")
             if current_status in {"completed", "blocked"}:
                 result = read_json(result_path) if result_path.is_file() else status
-                return {**result, "request_id": message_id, "deduplicated": True}
+                return {
+                    **result,
+                    "request_id": message_id,
+                    "deduplicated": True,
+                }
             if current_status in {"awaiting_agent", "running"}:
                 lease = read_json(lease_path) if lease_path.is_file() else {}
                 if not _lease_alive(lease):
@@ -92,6 +99,7 @@ def dispatch_harness_job(
                         "status": "blocked",
                         "request_id": message_id,
                         "message_id": message_id,
+                        **_dispatch_metadata(payload, "blocked"),
                         "blocker_reason": (
                             "dispatch_lease_expired"
                             if lease_path.is_file()
@@ -105,6 +113,7 @@ def dispatch_harness_job(
                     "status": "awaiting_agent",
                     "request_id": message_id,
                     "message_id": message_id,
+                    **_dispatch_metadata(payload, "awaiting_agent"),
                     "worker_started": False,
                     "deduplicated": True,
                 }
@@ -113,6 +122,7 @@ def dispatch_harness_job(
             **payload,
             "message_id": message_id,
             "created_at": utc_now_iso(),
+            **_dispatch_metadata(payload, "awaiting_agent"),
         }
         write_json(dispatch_dir / "request.json", request)
         write_json(
@@ -122,6 +132,23 @@ def dispatch_harness_job(
                 "request_id": message_id,
                 "message_id": message_id,
                 "created_at": request["created_at"],
+                **_dispatch_metadata(payload, "awaiting_agent"),
+            },
+        )
+        # Publish the lease before spawning.  The child claims this lease
+        # after acquiring the same dispatch lock; this closes the window in
+        # which a fast worker could finish before the parent persisted one.
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(hours=2)
+        ).isoformat()
+        write_json(
+            lease_path,
+            {
+                "owner": f"harness-dispatcher-{os.getpid()}",
+                "pid": os.getpid(),
+                "acquired_at": utc_now_iso(),
+                "expires_at": expires_at,
+                "state": "starting",
             },
         )
         worker_command = [
@@ -142,15 +169,16 @@ def dispatch_harness_job(
                 "status": "blocked",
                 "request_id": message_id,
                 "message_id": message_id,
+                **_dispatch_metadata(payload, "blocked"),
                 "blocker_reason": "dispatch_worker_start_failed",
                 "error": f"{type(exc).__name__}: {exc}"[:500],
             }
             write_json(status_path, blocked)
             write_json(result_path, blocked)
+            lease_path.unlink(missing_ok=True)
             return blocked
-        expires_at = (
-            datetime.now(timezone.utc) + timedelta(hours=2)
-        ).isoformat()
+        # The child cannot enter run_worker until this lock is released, so
+        # it will observe the real PID rather than the dispatcher PID.
         write_json(
             lease_path,
             {
@@ -158,12 +186,14 @@ def dispatch_harness_job(
                 "pid": worker.pid,
                 "acquired_at": utc_now_iso(),
                 "expires_at": expires_at,
+                "state": "starting",
             },
         )
         return {
             "status": "awaiting_agent",
             "request_id": message_id,
             "message_id": message_id,
+            **_dispatch_metadata(payload, "awaiting_agent"),
             "worker_pid": worker.pid,
             "worker_started": True,
             "deduplicated": False,
@@ -210,6 +240,26 @@ def process_message(
         envelope["reply_text"] = display_text
     write_json(cache_path, envelope)
     return envelope
+
+
+def _dispatch_metadata(payload: dict[str, Any], next_state: str) -> dict[str, Any]:
+    runtime_context = payload.get("runtime_context")
+    runtime_context = runtime_context if isinstance(runtime_context, dict) else {}
+    scope = {
+        "runtime": runtime_context.get("runtime") or "hermes",
+        "profile_id": runtime_context.get("profile_id"),
+        "session_id": payload.get("session_id") or runtime_context.get("session_id"),
+        "turn_id": payload.get("turn_id") or runtime_context.get("turn_id"),
+        "application_id": runtime_context.get("application_id"),
+        "run_id": runtime_context.get("run_id"),
+        "source": "pre_llm_call",
+    }
+    return {
+        "decision": "block",
+        "dispatch_action": "awaiting_agent",
+        "next_state": next_state,
+        "scope": scope,
+    }
 
 
 def _should_retry_cached_message(cached: dict[str, Any]) -> bool:
