@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import math
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from career.services.maintenance import create_maintenance_request
+from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.maintenance_orchestrator import MaintenanceOrchestrator
 
 from test_canonical_maintenance import make_git_fixture
@@ -167,6 +171,20 @@ def test_reviewer_rejects_98_99_even_without_blockers(tmp_path: Path) -> None:
     )
 
 
+def test_reviewer_rejects_non_finite_nan_score(tmp_path: Path) -> None:
+    review = reviewer_payload()
+    review["score"] = json.loads("NaN")
+    orchestrator = MaintenanceOrchestrator(tmp_path)
+
+    assert isinstance(review["score"], float)
+    assert math.isnan(review["score"])
+    assert not orchestrator._accept_review(
+        review,
+        diff_sha256=str(review["diff_sha256"]),
+        spec_sha256=str(review["spec_sha256"]),
+    )
+
+
 def test_reviewer_rejects_missing_schema_field_and_mismatched_hashes(tmp_path: Path) -> None:
     review = reviewer_payload()
     review.pop("reviewer_model")
@@ -208,6 +226,7 @@ def test_reviewer_input_is_read_only_and_contains_required_evidence(
     diff_path.write_bytes(b"diff --git a/src/x.py b/src/x.py\n")
     review_input_dir = tmp_path / "review-input"
     request = make_valid_request(root, allowed_paths=["src/x.py"])
+    request["reviewer_config"] = {"kind": "codex", "command": "codex"}
     captured: dict[str, object] = {}
 
     class FakeReviewerRunner:
@@ -254,6 +273,7 @@ def test_reviewer_input_is_read_only_and_contains_required_evidence(
 
     assert result["status"] == "approved"
     assert captured["root"] == review_input_dir
+    assert captured["request"].read_only is True
     assert (review_input_dir / "spec.json").is_file()
     assert (review_input_dir / "candidate.diff").read_bytes() == diff_path.read_bytes()
     assert json.loads((review_input_dir / "changed_files.json").read_text(encoding="utf-8")) == [
@@ -264,6 +284,109 @@ def test_reviewer_input_is_read_only_and_contains_required_evidence(
     assert len(hashes["diff_sha256"]) == 64
     assert len(hashes["spec_sha256"]) == 64
     assert (review_input_dir.stat().st_mode & 0o222) == 0
+
+
+def test_reviewer_rejects_write_capable_runner_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_git_fixture(tmp_path)
+    diff_path = tmp_path.parent / "candidate.patch"
+    diff_path.write_bytes(b"diff --git a/src/x.py b/src/x.py\n")
+    request = make_valid_request(root, allowed_paths=["src/x.py"])
+    request["reviewer_config"] = {
+        "kind": "codex",
+        "command": "codex",
+        "sandbox": "workspace-write",
+    }
+    checks = {
+        "status": "passed",
+        "commands": [
+            {"name": name, "returncode": 0}
+            for name in [
+                "git_diff_check",
+                "base_commit",
+                "changed_paths",
+                "candidate_diff",
+                "required_pytest",
+            ]
+        ],
+        "changed_files": ["src/x.py"],
+    }
+
+    class UnexpectedReviewerRunner:
+        def __init__(self, runner_root: Path) -> None:
+            raise AssertionError("write-capable reviewer must be rejected before spawning")
+
+    monkeypatch.setattr(
+        "career.services.maintenance_orchestrator.SubprocessAgentRunner",
+        UnexpectedReviewerRunner,
+    )
+
+    result = MaintenanceOrchestrator(root)._run_reviewer(
+        tmp_path / "review-input", request, diff_path, checks
+    )
+
+    assert result["status"] == "rejected"
+    assert result["blocker_reason"] == "reviewer_runner_must_be_read_only"
+
+
+def test_codex_reviewer_command_uses_read_only_sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    request = AgentRunRequest(
+        stage="maintenance_review",
+        record_key="request-1",
+        request_path=tmp_path / "review_request.json",
+        instruction="review",
+        runner_config={"kind": "codex", "command": "codex"},
+        read_only=True,
+    )
+    request.request_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr("career.services.agent_runner.shutil.which", lambda _: "/usr/bin/codex")
+
+    command = SubprocessAgentRunner(tmp_path).build_command(request)
+
+    assert command[command.index("--sandbox") + 1] == "read-only"
+    assert "workspace-write" not in command
+
+
+def test_deterministic_checks_pass_in_current_worktree_and_record_portable_pytest_command(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    clean_root = tmp_path / "clean-worktree"
+    subprocess.run(["git", "clone", "--no-local", "--quiet", str(root), str(clean_root)], check=True)
+    shutil.copy2(
+        root / "src/career/services/maintenance_orchestrator.py",
+        clean_root / "src/career/services/maintenance_orchestrator.py",
+    )
+    base_commit = subprocess.run(
+        ["git", "-C", str(clean_root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    diff_path = tmp_path / "candidate.patch"
+    diff_path.write_bytes(b"candidate diff\n")
+    request = {
+        "base_commit": base_commit,
+        "allowed_paths": [
+            "src/career/services/maintenance_orchestrator.py",
+        ],
+        "spec": {"requirements": [{"id": "REQ-1", "text": "checks"}]},
+    }
+
+    checks = MaintenanceOrchestrator(clean_root)._run_deterministic_checks(clean_root, request, diff_path)
+
+    assert checks["status"] == "passed"
+    pytest_check = next(command for command in checks["commands"] if command["name"] == "required_pytest")
+    assert pytest_check["returncode"] == 0
+    assert pytest_check["command"] == [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_canonical_maintenance.py",
+        "tests/test_harness_dispatch.py",
+    ]
 
 
 def test_deterministic_checks_validate_untracked_changed_paths(tmp_path: Path) -> None:

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -320,10 +322,16 @@ class MaintenanceOrchestrator:
             diff_file_check["sha256"] = self._sha256_bytes(diff_path.read_bytes())
         commands.append(diff_file_check)
 
-        pytest_env = {**os.environ, "PYTHONPATH": "src"}
+        pythonpath = os.environ.get("PYTHONPATH", "")
+        pytest_env = {
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(part for part in ("src", pythonpath) if part),
+        }
         tests_check = self._command_result(
             [
-                ".venv/bin/pytest",
+                sys.executable,
+                "-m",
+                "pytest",
                 "-q",
                 "tests/test_canonical_maintenance.py",
                 "tests/test_harness_dispatch.py",
@@ -350,6 +358,17 @@ class MaintenanceOrchestrator:
         """Run a separate, read-only reviewer over a sealed review input bundle."""
         if not self._checks_passed(checks):
             return {"status": "rejected", "blocker_reason": "deterministic_checks_failed"}
+
+        runner_config = request.get("reviewer_config")
+        if not isinstance(runner_config, dict):
+            runner_config = {"kind": "codex", "command": "codex"}
+        runner_kind = str(
+            runner_config.get("kind")
+            or Path(str(runner_config.get("command") or "opencode")).name
+        ).casefold()
+        configured_sandbox = str(runner_config.get("sandbox") or "").casefold()
+        if runner_kind != "codex" or (configured_sandbox and configured_sandbox != "read-only"):
+            return {"status": "rejected", "blocker_reason": "reviewer_runner_must_be_read_only"}
 
         review_input_dir = Path(review_input_dir)
         review_input_dir.mkdir(parents=True, exist_ok=True)
@@ -394,9 +413,6 @@ class MaintenanceOrchestrator:
             path.chmod(0o444)
         review_input_dir.chmod(0o555)
 
-        runner_config = request.get("reviewer_config")
-        if not isinstance(runner_config, dict):
-            runner_config = {"kind": "opencode"}
         runner = SubprocessAgentRunner(review_input_dir)
         runner_result = runner.run(
             AgentRunRequest(
@@ -408,6 +424,7 @@ class MaintenanceOrchestrator:
                     "com o JSON do contrato de revisão solicitado."
                 ),
                 runner_config=runner_config,
+                read_only=True,
             )
         )
         if runner_result.returncode != 0:
@@ -448,7 +465,12 @@ class MaintenanceOrchestrator:
         if review.get("status") != "approved":
             return False
         score = review.get("score")
-        if isinstance(score, bool) or not isinstance(score, (int, float)) or score < 99.0:
+        if (
+            isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(score)
+            or score < 99.0
+        ):
             return False
         if review.get("blockers") != [] or not isinstance(review.get("warnings"), list):
             return False

@@ -22,6 +22,7 @@ class AgentRunRequest:
     model: str = ""
     variant: str = ""
     profile_name: str = ""
+    read_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ class SubprocessAgentRunner:
                 "exec",
                 "--ephemeral",
                 "--sandbox",
-                "workspace-write",
+                "read-only" if request.read_only else "workspace-write",
                 "-C",
                 str(self.root),
             ]
