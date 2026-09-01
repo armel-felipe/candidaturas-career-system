@@ -662,15 +662,34 @@ def _git_log(root: Path) -> list[str]:
     ).stdout.splitlines()
 
 
-def test_reviewer_feedback_retry_retries_twice_then_succeeds(tmp_path: Path) -> None:
+def _stub_successful_profile_reload(
+    monkeypatch: pytest.MonkeyPatch, orchestrator: MaintenanceOrchestrator
+) -> None:
+    monkeypatch.setattr(
+        orchestrator,
+        "reload_profiles_if_needed",
+        lambda changed_paths: {
+            "status": "reloaded",
+            "policy": {"runtime_affecting": True, "changed_paths": changed_paths},
+            "command": ["docker", "compose", "stubbed"],
+            "docker_compose_ps": "running\n",
+        },
+    )
+
+
+def test_reviewer_feedback_retry_retries_twice_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = make_git_fixture(
         tmp_path,
         files={"src/career/services/cv_content.py": "BASE\n"},
     )
     request = _transaction_request(root)
     runner = SequencedRunner(root, ["reject", "reject", "approve"])
+    orchestrator = MaintenanceOrchestrator(root, runner=runner)
+    _stub_successful_profile_reload(monkeypatch, orchestrator)
 
-    result = MaintenanceOrchestrator(root, runner=runner).process(Path(str(request["request_path"])))
+    result = orchestrator.process(Path(str(request["request_path"])))
 
     assert result["status"] == "committed"
     assert result["attempts"] == 3
@@ -723,7 +742,9 @@ def test_retry_limit_is_persisted_across_process_calls(tmp_path: Path) -> None:
     assert _git_log(root) == ["base"]
 
 
-def test_completed_fingerprint_is_idempotently_refused_without_a_second_commit(tmp_path: Path) -> None:
+def test_completed_fingerprint_is_idempotently_refused_without_a_second_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = make_git_fixture(
         tmp_path,
         files={"src/career/services/cv_content.py": "BASE\n"},
@@ -731,6 +752,7 @@ def test_completed_fingerprint_is_idempotently_refused_without_a_second_commit(t
     request = _transaction_request(root)
     runner = SequencedRunner(root, ["approve"])
     orchestrator = MaintenanceOrchestrator(root, runner=runner)
+    _stub_successful_profile_reload(monkeypatch, orchestrator)
 
     first = orchestrator.process(Path(str(request["request_path"])))
     second = orchestrator.process(Path(str(request["request_path"])))
@@ -742,15 +764,19 @@ def test_completed_fingerprint_is_idempotently_refused_without_a_second_commit(t
     assert _git_log(root)[0] == "base"
 
 
-def test_successful_commit_contains_request_roadmap_and_receipt(tmp_path: Path) -> None:
+def test_successful_commit_contains_request_roadmap_and_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = make_git_fixture(
         tmp_path,
         files={"src/career/services/cv_content.py": "BASE\n"},
     )
     request = _transaction_request(root)
     runner = SequencedRunner(root, ["approve"])
+    orchestrator = MaintenanceOrchestrator(root, runner=runner)
+    _stub_successful_profile_reload(monkeypatch, orchestrator)
 
-    result = MaintenanceOrchestrator(root, runner=runner).process(Path(str(request["request_path"])))
+    result = orchestrator.process(Path(str(request["request_path"])))
 
     assert result["status"] == "committed"
     assert "maintenance_" in _git_log(root)[-1]
