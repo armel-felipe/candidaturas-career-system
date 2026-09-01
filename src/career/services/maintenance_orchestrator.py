@@ -297,7 +297,11 @@ class MaintenanceOrchestrator:
         )
         paths_check["changed_files"] = changed_files
         if paths_check["returncode"] == 0:
-            path_policy = validate_maintenance_paths(worktree, changed_files)
+            path_policy = (
+                {"status": "ok", "paths": []}
+                if not changed_files
+                else validate_maintenance_paths(worktree, changed_files)
+            )
             allowed_policy = validate_maintenance_paths(worktree, list(request["allowed_paths"]))
             paths_check["path_policy"] = path_policy
             paths_check["allowed_policy"] = allowed_policy
