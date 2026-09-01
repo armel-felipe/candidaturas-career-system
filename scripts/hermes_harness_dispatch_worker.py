@@ -88,10 +88,18 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
             else None,
             root=worker_root,
         )
-        payload = result.get("result") if isinstance(result, dict) else {}
+        payload = (
+            result.get("result")
+            if isinstance(result, dict) and isinstance(result.get("result"), dict)
+            else {}
+        )
         final_status = str(payload.get("status") or result.get("status") or "completed")
-        if final_status not in {"completed", "blocked", "awaiting_agent"}:
-            final_status = "completed"
+        if final_status == "awaiting_agent" or final_status not in {"completed", "blocked"}:
+            return _blocked(
+                dispatch_dir,
+                "dispatch_worker_invalid_status",
+                observed_status=final_status,
+            )
         persisted = {
             "status": final_status,
             "request_id": request.get("message_id"),
@@ -123,6 +131,8 @@ def _blocked(dispatch_dir: Path, reason: str, **extra) -> dict:
         pass
     payload = {
         "status": "blocked",
+        "request_id": request.get("message_id") or dispatch_dir.name,
+        "message_id": request.get("message_id") or dispatch_dir.name,
         "blocker_reason": reason,
         "completed_at": utc_now_iso(),
         "decision": request.get("decision") or "block",

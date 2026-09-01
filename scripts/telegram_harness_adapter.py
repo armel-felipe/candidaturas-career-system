@@ -24,12 +24,9 @@ def _dispatch_dir(root: Path, message_id: str) -> Path:
     raw_id = str(message_id or "").strip()
     if not raw_id:
         raise ValueError("message_id is required for harness dispatch")
-    if len(raw_id) <= 80 and all(
-        ch.isalnum() or ch in {"-", "_"} for ch in raw_id
-    ):
-        safe_id = raw_id
-    else:
-        safe_id = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
+    # Always hash the external identifier.  Keeping a readable ID for some
+    # inputs would collide with an unsafe ID whose digest happens to equal it.
+    safe_id = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
     return root / ".career-state" / "harness" / "dispatches" / safe_id
 
 
@@ -189,13 +186,29 @@ def dispatch_harness_job(
             write_json(result_path, blocked)
             lease_path.unlink(missing_ok=True)
             return blocked
+        try:
+            worker_pid = int(worker.pid)
+        except (AttributeError, TypeError, ValueError):
+            worker_pid = 0
+        if worker_pid <= 0:
+            blocked = {
+                "status": "blocked",
+                "request_id": message_id,
+                "message_id": message_id,
+                **_dispatch_metadata(payload, "blocked"),
+                "blocker_reason": "dispatch_worker_invalid_pid",
+            }
+            write_json(status_path, blocked)
+            write_json(result_path, blocked)
+            lease_path.unlink(missing_ok=True)
+            return blocked
         # The child cannot enter run_worker until this lock is released, so
         # it will observe the real PID rather than the dispatcher PID.
         write_json(
             lease_path,
             {
-                "owner": f"harness-worker-{worker.pid}",
-                "pid": worker.pid,
+                "owner": f"harness-worker-{worker_pid}",
+                "pid": worker_pid,
                 "acquired_at": utc_now_iso(),
                 "expires_at": expires_at,
                 "state": "starting",
@@ -206,7 +219,7 @@ def dispatch_harness_job(
             "request_id": message_id,
             "message_id": message_id,
             **_dispatch_metadata(payload, "awaiting_agent"),
-            "worker_pid": worker.pid,
+            "worker_pid": worker_pid,
             "worker_started": True,
             "deduplicated": False,
         }

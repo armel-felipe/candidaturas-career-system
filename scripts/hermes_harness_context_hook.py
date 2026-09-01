@@ -11,7 +11,6 @@ from _bootstrap import bootstrap
 
 ROOT = bootstrap()
 
-from career.services.harness_supervisor import HarnessSupervisor
 from career.services import application_context as application_context_service
 from career.utils import read_json
 from telegram_harness_adapter import _dispatch_metadata, dispatch_harness_job
@@ -94,9 +93,16 @@ def should_intercept(message: str) -> bool:
                     pending_path.unlink(missing_ok=True)
     if menu_state_path.exists() and text.isdigit() and 1 <= len(text) <= 2:
         return True
-    supervisor = HarnessSupervisor(ROOT)
-    decision = supervisor.classify(message)
-    return decision.workflow != "generic_assistant" or decision.reason == "meta_question_about_previous_output"
+    # Compatibility predicate for older diagnostics.  The live hook does not
+    # call this helper: all classification belongs to the asynchronous worker.
+    lowered = text.casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            "vaga", "currículo", "curriculo", "candidatura", "notion",
+            "linkedin", "cv", "carta", "pitch", "status", "olá", "ola",
+        )
+    )
 
 
 def _hook_failure_result(exc: Exception, payload: dict) -> dict:
@@ -132,7 +138,23 @@ def _emit_block(result: dict) -> None:
 
 def main() -> int:
     if os.environ.get("CAREER_HARNESS_SUBAGENT") == "1":
-        print("{}")
+        result = _hook_failure_result(
+            RuntimeError("harness subagent hook invocation is forbidden"),
+            {
+                "message_id": "subagent",
+                "session_id": "subagent",
+                "turn_id": "",
+                "runtime_context": {
+                    "runtime": "hermes",
+                    "profile_id": None,
+                    "session_id": "subagent",
+                    "turn_id": "",
+                    "application_id": None,
+                    "run_id": None,
+                },
+            },
+        )
+        _emit_block(result)
         return 0
     dispatch_payload = {
         "message_id": "unknown",
@@ -153,8 +175,7 @@ def main() -> int:
         extra = payload.get("extra") if isinstance(payload.get("extra"), dict) else {}
         message = str(extra.get("user_message") or "").strip()
         if not message:
-            print("{}")
-            return 0
+            raise ValueError("pre-LLM hook received an empty user message")
         # Every inbound Telegram turn is dispatched to the supervisor.  The
         # classification belongs in the worker so the pre-LLM hook remains a
         # bounded transport gate and never performs supervisor work inline.

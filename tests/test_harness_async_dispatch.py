@@ -63,7 +63,7 @@ def test_pre_llm_dispatch_returns_without_waiting_for_pipeline(tmp_path, monkeyp
     assert started[0][1]["start_new_session"] is True
     assert started[0][1]["env"]["CAREER_HARNESS_SUBAGENT"] == "1"
 
-    envelope = tmp_path / ".career-state" / "harness" / "dispatches" / "m1"
+    envelope = adapter._dispatch_dir(tmp_path, "m1")
     assert (envelope / "request.json").is_file()
     assert (envelope / "status.json").is_file()
     assert (envelope / "lease.json").is_file()
@@ -117,7 +117,7 @@ def test_dispatch_stale_lease_is_structured_blocked_without_new_worker(tmp_path,
         raise AssertionError("stale dispatch must not start another worker")
 
     monkeypatch.setattr(adapter.subprocess, "Popen", fail_popen)
-    dispatch_dir = tmp_path / ".career-state" / "harness" / "dispatches" / "m1"
+    dispatch_dir = adapter._dispatch_dir(tmp_path, "m1")
     dispatch_dir.mkdir(parents=True)
     write_json(dispatch_dir / "request.json", _payload())
     write_json(dispatch_dir / "status.json", {"status": "running", "request_id": "m1"})
@@ -288,7 +288,7 @@ def test_dispatch_rejects_future_lease_without_pid(tmp_path, monkeypatch):
         raise AssertionError("invalid lease must not start another worker")
 
     monkeypatch.setattr(adapter.subprocess, "Popen", fail_popen)
-    dispatch_dir = tmp_path / ".career-state" / "harness" / "dispatches" / "m1"
+    dispatch_dir = adapter._dispatch_dir(tmp_path, "m1")
     dispatch_dir.mkdir(parents=True)
     write_json(dispatch_dir / "request.json", _payload())
     write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
@@ -308,3 +308,37 @@ def test_dispatch_directory_hashes_unsafe_ids_without_collision(tmp_path):
     long_a = "a" * 81
     long_b = "b" * 81
     assert adapter._dispatch_dir(tmp_path, long_a) != adapter._dispatch_dir(tmp_path, long_b)
+
+
+def test_dispatch_rejects_invalid_worker_pid(tmp_path, monkeypatch):
+    class InvalidProcess:
+        pid = 0
+
+    monkeypatch.setattr(adapter.subprocess, "Popen", lambda *_a, **_k: InvalidProcess())
+
+    result = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "dispatch_worker_invalid_pid"
+
+
+def test_worker_converts_awaiting_agent_result_to_blocked(tmp_path, monkeypatch):
+    dispatch_dir = tmp_path / "dispatch"
+    dispatch_dir.mkdir()
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
+    write_json(
+        dispatch_dir / "lease.json",
+        {"owner": "worker", "pid": os.getpid(), "expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+    monkeypatch.setattr(
+        worker,
+        "process_message",
+        lambda *_args, **_kwargs: {"status": "awaiting_agent"},
+    )
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "dispatch_worker_invalid_status"
+    assert result["request_id"] == "m1"
