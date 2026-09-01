@@ -21,9 +21,15 @@ from career.utils import read_json, utc_now_iso, write_json
 
 
 def _dispatch_dir(root: Path, message_id: str) -> Path:
-    safe_id = "".join(ch for ch in str(message_id) if ch.isalnum() or ch in {"-", "_"})[:80]
-    if not safe_id:
+    raw_id = str(message_id or "").strip()
+    if not raw_id:
         raise ValueError("message_id is required for harness dispatch")
+    if len(raw_id) <= 80 and all(
+        ch.isalnum() or ch in {"-", "_"} for ch in raw_id
+    ):
+        safe_id = raw_id
+    else:
+        safe_id = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
     return root / ".career-state" / "harness" / "dispatches" / safe_id
 
 
@@ -47,14 +53,7 @@ def _lease_alive(lease: dict[str, Any]) -> bool:
     try:
         os.kill(pid, 0)
     except OSError:
-        acquired_at = _parse_timestamp(lease.get("acquired_at"))
-        # Allow a short spawn grace period: the parent may persist the lease
-        # before the child is visible to kill(2). Expired/dead old leases do
-        # not receive this grace period.
-        return bool(
-            acquired_at
-            and datetime.now(timezone.utc) - acquired_at < timedelta(seconds=5)
-        )
+        return False
     return True
 
 

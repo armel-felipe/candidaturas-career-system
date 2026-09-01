@@ -14,11 +14,8 @@ from career.utils import write_json
 
 
 class _FakeWorkerProcess:
-    _next_pid = 41000
-
     def __init__(self, command, *, env, start_new_session):
-        type(self)._next_pid += 1
-        self.pid = type(self)._next_pid
+        self.pid = os.getpid()
         self.command = command
         self.env = env
         self.start_new_session = start_new_session
@@ -304,3 +301,10 @@ def test_dispatch_rejects_future_lease_without_pid(tmp_path, monkeypatch):
 
     assert result["status"] == "blocked"
     assert result["blocker_reason"] == "dispatch_lease_expired"
+
+
+def test_dispatch_directory_hashes_unsafe_ids_without_collision(tmp_path):
+    assert adapter._dispatch_dir(tmp_path, "a/b") != adapter._dispatch_dir(tmp_path, "ab")
+    long_a = "a" * 81
+    long_b = "b" * 81
+    assert adapter._dispatch_dir(tmp_path, long_a) != adapter._dispatch_dir(tmp_path, long_b)

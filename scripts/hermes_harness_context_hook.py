@@ -155,9 +155,9 @@ def main() -> int:
         if not message:
             print("{}")
             return 0
-        if not should_intercept(message):
-            print("{}")
-            return 0
+        # Every inbound Telegram turn is dispatched to the supervisor.  The
+        # classification belongs in the worker so the pre-LLM hook remains a
+        # bounded transport gate and never performs supervisor work inline.
         session_id = str(payload.get("session_id") or "telegram")
         clear_transform_reply(session_id)
         turn_id = str(extra.get("turn_id") or "").strip()
