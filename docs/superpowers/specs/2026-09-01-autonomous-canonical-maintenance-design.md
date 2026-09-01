@@ -1,6 +1,6 @@
 # Manutenção canônica autônoma com revisão independente
 
-**Status:** proposta para revisão do usuário  
+**Status:** aprovada para implementação, com escopo revisado
 **Data:** 2026-09-01  
 **Roadmap:** `MAINT-002`  
 **Plano futuro:** `2026-09-01-autonomous-canonical-maintenance`
@@ -20,7 +20,12 @@ bots escrita irrestrita no workspace de produção.
 
 Incluído:
 
-- alterações em `src/`, `.agents/skills/` e `hermes-src/`, respeitando allowlist;
+- alterações em arquivos versionados que façam parte do acervo canônico do
+  projeto, respeitando uma allowlist exata por pedido;
+- alterações em skills canônicas existentes, incluindo seu `SKILL.md`,
+  referências, scripts e assets versionados, quando o pedido os especificar;
+- alterações em código, testes, documentação e configurações versionadas que
+  pertençam ao projeto e sejam necessárias para a correção;
 - correções solicitadas por qualquer um dos dois bots;
 - criação de especificação estruturada, patch, evidências e receipts;
 - execução em worktree isolado e aplicação transacional no checkout canônico;
@@ -33,10 +38,26 @@ Fora do escopo:
 - edição para burlar provenance, FIT_MAP, review, delivery ou seal;
 - alteração direta de `outputs/`, `.career-state/`, `control-plane/`, SQLite ou
   artefatos selados como manutenção de código;
+- criação de uma nova skill, de uma nova pasta de skill ou de um namespace
+  canônico inexistente;
+- alteração de segredos, tokens, `.env`, chaves privadas, caches de runtime,
+  dumps ou arquivos gerados não versionados;
 - escrita externa em Notion, Gmail, OneDrive ou outros serviços sem os
   workflows e gates próprios;
 - dar permissão de escrita no checkout canônico aos processos Hermes dos bots;
 - usar temperatura do modelo como mecanismo de autorização.
+
+### Política do acervo canônico
+
+O supervisor considera elegível um arquivo rastreado pelo Git ou um novo
+arquivo criado dentro de um diretório canônico já existente, desde que ele
+esteja na `allowed_paths` do pedido e não pertença às exclusões acima. A
+verificação é feita no commit-base e também no diff produzido pelo executor.
+
+Uma skill só pode ser alterada quando sua pasta já existir no commit-base.
+Qualquer tentativa de criar uma skill ou escapar do repositório é rejeitada
+antes da execução do agente. A revisão independente complementa essa proteção,
+mas não a substitui.
 
 ## Fluxo de estados
 
@@ -60,14 +81,16 @@ O bot deve enviar um `MaintenanceRequest` versionado contendo, no mínimo:
 - `spec`, com requisitos verificáveis e comportamento esperado;
 - `evidence`, incluindo erro observado, arquivos relevantes e comando de
   reprodução;
-- `allowed_paths`, limitados aos caminhos canônicos autorizados;
+- `allowed_paths`, com os caminhos exatos do acervo canônico que podem ser
+  alterados;
 - `roadmap_id`;
 - `base_commit` e fingerprint do contexto usado;
 - classificação de risco e indicação se a correção pode retomar o run.
 
 O supervisor rejeita pedidos sem escopo de candidatura quando o contexto for
-celular, sem spec verificável, sem evidência ou com allowlist fora dos prefixos
-canônicos. O pedido é idempotente por hash de objetivo, spec, base e caminhos.
+celular, sem spec verificável, sem evidência, com allowlist fora do acervo
+canônico ou que tente criar uma skill. O pedido é idempotente por hash de
+objetivo, spec, base e caminhos.
 
 ## Papéis
 
@@ -165,6 +188,8 @@ Antes de habilitar em produção, a implementação deve testar:
 
 - pedido válido e malformado;
 - rejeição de caminhos fora da allowlist;
+- aceitação de alteração em uma skill canônica existente;
+- rejeição de criação de nova skill ou alteração de estado/artefato gerado;
 - worktree isolado e ausência de escrita no checkout durante a execução;
 - revisor que aprova exatamente `99/100` e rejeita `98.99/100`;
 - hard gate que rejeita mesmo com score alto;
@@ -183,4 +208,3 @@ os dois perfis capazes de resolver a mesma skill/código canônico após reload.
 Esta proposta assume que alterações allowlisted em código e skills serão
 aplicadas e commitadas automaticamente após os gates. Operações externas e
 artefatos selados continuam fora dessa autorização.
-

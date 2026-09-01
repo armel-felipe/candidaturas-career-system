@@ -4,7 +4,7 @@
 
 **Goal:** Fazer o HarnessSupervisor receber pedidos de manutenção dos dois bots, validá-los, executar a correção em worktree isolado, submetê-la a gates e revisão independente com score mínimo de 99/100, commitá-la e retomar o run original.
 
-**Architecture:** O pedido versionado será persistido no estado do projeto e validado contra a allowlist canônica. Um orquestrador próprio criará um worktree temporário para o agente de manutenção, coletará o diff e executará os testes; um segundo processo receberá somente spec, diff e evidências para revisar. Somente a combinação de hard gates aprovados, score do revisor `>=99/100` e base de checkout ainda válida poderá aplicar o patch e gerar o commit.
+**Architecture:** O pedido versionado será persistido no estado do projeto e validado contra o acervo canônico versionado, as exclusões de segurança e a allowlist exata do pedido. Um orquestrador próprio criará um worktree temporário para o agente de manutenção, coletará o diff e executará os testes; um segundo processo receberá somente spec, diff e evidências para revisar. Somente a combinação de hard gates aprovados, score do revisor `>=99/100` e base de checkout ainda válida poderá aplicar o patch e gerar o commit.
 
 **Tech Stack:** Python 3, `pathlib`, `subprocess`, Git worktrees, pytest, HarnessSupervisor existente, `SubprocessAgentRunner`, JSON receipts e Docker Compose.
 
@@ -13,13 +13,26 @@
 ## Global Constraints
 
 - Manter o mount de código dos bots read-only; nenhum processo Hermes de `vagas_bot_01` ou `vagas_bot_02` escreve no checkout canônico.
-- Alterações canônicas ficam limitadas a `src/`, `.agents/skills/` e `hermes-src/`.
+- Alterações podem atingir arquivos versionados do acervo canônico do projeto,
+  incluindo código, skills existentes, referências, testes, documentação e
+  configurações, desde que cada caminho esteja explicitamente em
+  `allowed_paths`.
 - Nunca alterar `outputs/`, `.career-state/`, `control-plane/`, SQLite ou artefatos selados para contornar gates.
+- Nunca criar uma nova skill, uma nova pasta de skill ou um namespace canônico inexistente.
+- Nunca alterar `.env`, tokens, chaves privadas, caches, dumps ou artefatos gerados não versionados.
 - O pedido celular preserva `application_id` e `run_id` e nunca cria uma candidatura nova durante a retomada.
 - O score de 99% é conformidade verificável; confiança textual do modelo não substitui hard gates.
 - O limite de retry é três tentativas idempotentes por `request_id`.
 - Operações externas em Notion, Gmail e OneDrive continuam usando seus próprios workflows e aprovações.
 - Cada tarefa termina com teste executável e commit isolado antes da próxima tarefa.
+
+## Método operacional reutilizável
+
+Quando um plano ou pedido indicar `método de resolução: Loop Gauntlet`, o
+orquestrador deve executar o ciclo de executor e revisor independente, usando a
+crítica estruturada para alimentar novas tentativas do executor até a aprovação
+de `>=99/100` ou o bloqueio após três tentativas. Esse é um método reutilizável
+de execução e revisão; não é o nome deste plano nem de uma feature do sistema.
 
 ---
 
@@ -30,7 +43,7 @@
 - Modify: `src/career/services/agent_runner.py` — permitir que o runner receba um workspace temporário e um perfil explícito sem alterar o comportamento dos especialistas existentes.
 - Modify: `src/career/services/harness_supervisor.py` — reconhecer pedidos de manutenção estruturados e encaminhá-los ao orquestrador; preservar a classificação de relatórios e pipelines atuais.
 - Modify: `src/career/cli.py` — adicionar `maintenance process` para execução pelo supervisor/worker e manter os subcomandos existentes.
-- Create: `tests/test_maintenance_orchestrator.py` — contrato, isolamento, retry, revisão e commit usando repositórios Git temporários.
+- Create: `tests/test_maintenance_orchestrator.py` — contrato, isolamento, política do acervo, retry, revisão e commit usando repositórios Git temporários.
 - Modify: `tests/test_canonical_maintenance.py` — compatibilidade, fingerprints e novas regras de request.
 - Modify: `tests/test_harness_dispatch.py` — roteamento do pedido vindo de cada perfil e ausência de falsa classificação como vaga colada.
 - Modify: `compose.yaml` — somente se o worker precisar de um serviço dedicado; o primeiro release usará o host do Harness, sem conceder escrita aos dois serviços Hermes.
@@ -82,6 +95,7 @@ obrigatórios estiverem `met`, `blockers` estiver vazio e os hashes conferirem.
 
 **Interfaces:**
 - Produces `MAINTENANCE_REQUEST_VERSION = 2`.
+- Produces `validate_maintenance_paths(root, allowed_paths) -> dict[str, Any]`, rejeitando exclusões, symlinks que escapem do repositório e criação de novas skills.
 - Extends `create_maintenance_request(root, *, objective, allowed_paths, spec=None, evidence=None, requester_profile="", application_id=None, run_id=None, roadmap_id="MAINT-002", base_commit=None)` without breaking callers that pass only the current arguments.
 - Produces `validate_maintenance_request(root, request_path) -> dict[str, Any]` and `maintenance_request_fingerprint(payload) -> str`.
 
@@ -125,6 +139,37 @@ Canonicalize the JSON used for the fingerprint with sorted keys and compact
 separators. Preserve the existing path normalization and reject absolute paths,
 `..`, empty objectives, missing requirements, missing evidence, unknown schema
 versions and an `application_id`/`run_id` pair with only one member.
+
+Implement `validate_maintenance_paths` using the commit-base Git index and the
+following deterministic rules: normalize every path as a repository-relative
+POSIX path; require each path to be explicitly listed in `allowed_paths`; reject
+`.career-state/`, `outputs/`, `control-plane/`, SQLite, `.env*`, credentials,
+caches, dumps and sealed artifacts; reject a resolved path outside the repository;
+allow a new file only when its parent directory already exists in the base
+checkout; and allow files below `.agents/skills/<name>/` only when that skill
+directory already exists in the base checkout. Return the normalized paths and
+the precise blocker for every rejection.
+
+Add these regression cases to `tests/test_canonical_maintenance.py`:
+
+```python
+def test_existing_canonical_skill_file_is_allowed(tmp_path):
+    root = make_git_fixture(tmp_path, files={".agents/skills/demo/SKILL.md": "base\n"})
+    result = validate_maintenance_paths(root, [".agents/skills/demo/SKILL.md"])
+    assert result["status"] == "ok"
+
+def test_new_skill_directory_is_rejected(tmp_path):
+    root = make_git_fixture(tmp_path)
+    result = validate_maintenance_paths(root, [".agents/skills/new-skill/SKILL.md"])
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "new_skill_forbidden"
+
+def test_generated_state_is_rejected_even_when_versioned_scope_is_requested(tmp_path):
+    root = make_git_fixture(tmp_path)
+    result = validate_maintenance_paths(root, [".career-state/applications_v2/demo/fit_map.json"])
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "generated_state_forbidden"
+```
 
 - [ ] **Step 4: Run compatibility and focused tests.**
 
@@ -186,8 +231,12 @@ Set `base_commit=$(git rev-parse HEAD)` after validating the request, then use
 request into the worktree under `.career-state/maintenance/requests/` so the
 agent can read it without access to the original checkout. Run the maintenance
 agent with `SubprocessAgentRunner(worktree)` and a dedicated `stage="maintenance"`.
-Generate the candidate diff with `git diff --binary "$base_commit" --` and reject
-every changed path not in `allowed_paths` before any canonical apply.
+Generate the candidate diff with `git diff --binary "$base_commit" --`, run
+`validate_maintenance_paths` against the request and candidate paths, and reject
+every changed path not in `allowed_paths` before any canonical apply. The
+worktree may contain request metadata and receipts for the attempt, but those
+files must be excluded from the candidate diff and never copied to the
+canonical checkout.
 
 - [ ] **Step 4: Run focused isolation tests.**
 
@@ -444,7 +493,11 @@ Load the request with `read_json`, invoke `HarnessSupervisor(Path.cwd()).process
 - [ ] **Step 4: Implement profile reload and scoped resume.**
 
 Reload both services with the canonical `compose.yaml` only after a successful
-commit when changed paths begin with `src/`, `.agents/skills/` or `hermes-src/`.
+commit when the validated maintenance policy marks the changed paths as
+runtime-affecting: application code, Hermes code, existing skills, runtime
+configuration or their dependencies. Documentation-only and test-only changes
+do not trigger reload. The policy result, command and `docker compose ps`
+output must be stored in the receipt.
 Verify `docker compose ps --status running vagas_bot_01 vagas_bot_02` and record
 the output. Resume only with the exact `application_id`/`run_id` from the request,
 using `npm run applications:run -- --application-id "$application_id" --run-id "$run_id" --run-agent`;
@@ -511,11 +564,14 @@ Expected: no output and exit 0.
 
 - [ ] **Step 4: Run one controlled live request from each bot.**
 
-Use a harmless allowlisted maintenance request that changes a test fixture in a
-throwaway worktree but exercises the real supervisor route. Confirm the request
-from `vagas_bot_01` and `vagas_bot_02` reaches `committed`, the reviewer score is
-at least `99.0`, the canonical commit hash is recorded, both services reload,
-and no unrelated workspace path changes.
+Use a harmless allowlisted maintenance request that changes an existing test
+fixture in a disposable Git checkout, while exercising the real supervisor
+route once with `requester_profile="vagas_bot_01"` and once with
+`requester_profile="vagas_bot_02"`. Confirm both requests reach `committed`,
+the reviewer score is at least `99.0`, the commit hashes and receipts are
+recorded, and no production checkout path changes. Separately exercise the
+runtime-affecting policy with a mocked reload command and verify that it names
+both services; a disposable test-fixture commit must not reload production.
 
 - [ ] **Step 5: Update roadmap only with evidence.**
 
@@ -536,6 +592,9 @@ git commit -m "test: valida manutencao autonoma nos dois bots"
 
 - [ ] A request from each bot is recognized as `maintenance`, never as pasted job.
 - [ ] Missing scope, invalid spec and forbidden paths are blocked before a worker starts.
+- [ ] An existing canonical skill can be changed when explicitly allowlisted.
+- [ ] Creation of a new skill is rejected before the worker starts.
+- [ ] Versioned tests, docs and configuration may be changed only when explicitly allowlisted.
 - [ ] The worker writes only in a temporary worktree.
 - [ ] The reviewer is a separate read-only process and receives the original spec.
 - [ ] `99.0` passes; `98.99` fails; hard gates override model confidence.
