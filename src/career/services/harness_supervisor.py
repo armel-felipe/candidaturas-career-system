@@ -17,6 +17,11 @@ from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.approvals import ApprovalStore
 from career.services.approved_actions import ApprovedActionExecutor
 from career.services.harness_runs import HarnessRunStore, begin_specialist_run
+from career.services.maintenance import (
+    create_maintenance_request,
+    validate_maintenance_request,
+)
+from career.services.maintenance_orchestrator import MaintenanceOrchestrator
 from career.services.pipeline_intent import PipelineIntentStore
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json
 
@@ -286,6 +291,16 @@ class HarnessSupervisor:
         if not text:
             return self._decision("help", "route", "high", "empty_message")
 
+        maintenance_payload = self._maintenance_request_payload(raw_text)
+        if maintenance_payload is not None:
+            return self._decision(
+                "maintenance",
+                "maintenance",
+                "high",
+                "canonical_maintenance_request",
+                parameters={"payload": maintenance_payload},
+            )
+
         if self._is_harness_result_report(lowered):
             return self._decision("generic_assistant", "chat", "high", "harness_result_report")
 
@@ -490,6 +505,89 @@ class HarnessSupervisor:
             return self._decision("fit_map", "fit-map", "medium", "job_analysis_request")
 
         return self._decision("generic_assistant", "chat", "low", "no_deterministic_route")
+
+    @classmethod
+    def _is_maintenance_request(cls, message: str) -> bool:
+        return cls._maintenance_request_payload(message) is not None
+
+    @staticmethod
+    def _maintenance_request_payload(message: str) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(str(message or ""))
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("kind") != "canonical_maintenance":
+            return None
+        return payload
+
+    def _process_maintenance_request(
+        self, payload: dict[str, Any], *, execute: bool
+    ) -> dict[str, Any]:
+        if not self.root:
+            return {
+                "status": "blocked",
+                "kind": "canonical_maintenance",
+                "blocker_reason": "maintenance_root_required",
+            }
+        if payload.get("cellular") is True and (
+            not str(payload.get("application_id") or "").strip()
+            or not str(payload.get("run_id") or "").strip()
+        ):
+            return {
+                "status": "blocked",
+                "kind": "canonical_maintenance",
+                "blocker_reason": "explicit_application_scope_required",
+            }
+        try:
+            request = create_maintenance_request(
+                self.root,
+                objective=str(payload.get("objective") or ""),
+                allowed_paths=list(payload.get("allowed_paths") or []),
+                spec=payload.get("spec") if isinstance(payload.get("spec"), dict) else None,
+                evidence=payload.get("evidence") if isinstance(payload.get("evidence"), dict) else None,
+                requester_profile=str(payload.get("requester_profile") or ""),
+                application_id=str(payload.get("application_id") or "").strip()
+                or None,
+                run_id=str(payload.get("run_id") or "").strip() or None,
+                roadmap_id=str(payload.get("roadmap_id") or "MAINT-002"),
+                base_commit=str(payload.get("base_commit") or "").strip() or None,
+            )
+            validation = validate_maintenance_request(
+                self.root, Path(str(request["request_path"]))
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            return {
+                "status": "blocked",
+                "kind": "canonical_maintenance",
+                "blocker_reason": str(exc),
+            }
+        prepared = {
+            "status": "prepared",
+            "kind": "canonical_maintenance",
+            "request": request,
+            "request_path": request["request_path"],
+            "validation": validation,
+        }
+        if not execute:
+            return prepared
+        result = MaintenanceOrchestrator(self.root).process(
+            Path(str(request["request_path"]))
+        )
+        if not isinstance(result, dict):
+            return {
+                **prepared,
+                "status": "blocked",
+                "blocker_reason": "maintenance_orchestrator_result_invalid",
+            }
+        return {
+            **prepared,
+            **result,
+            "kind": "canonical_maintenance",
+            "application_id": request.get("application_id"),
+            "run_id": request.get("run_id"),
+        }
 
     @staticmethod
     def _notion_application_filter_request(text: str) -> str | None:
@@ -1213,6 +1311,16 @@ class HarnessSupervisor:
             envelope["menu_selection"] = selection
         if pending:
             envelope["pending_input"] = pending
+        if decision.workflow == "maintenance":
+            payload = (decision.parameters or {}).get("payload")
+            result = self._process_maintenance_request(
+                payload if isinstance(payload, dict) else {},
+                execute=execute,
+            )
+            envelope["result"] = result
+            envelope["status"] = str(result.get("status") or "blocked")
+            envelope["executed"] = bool(execute) and result.get("status") != "prepared"
+            return envelope
         if not execute:
             return envelope
         workflow = decision.workflow

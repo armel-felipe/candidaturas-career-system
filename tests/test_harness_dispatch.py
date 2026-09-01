@@ -1,6 +1,139 @@
+import json
 from types import SimpleNamespace
 
+import pytest
+
 from career.services.harness_supervisor import HarnessSupervisor
+
+from test_canonical_maintenance import make_git_fixture
+
+
+def _maintenance_payload(**overrides):
+    payload = {
+        "kind": "canonical_maintenance",
+        "requester_profile": "vagas_bot_01",
+        "objective": "corrigir leitor canonico",
+        "allowed_paths": ["src/career/services/cv_content.py"],
+        "roadmap_id": "MAINT-002",
+        "spec": {
+            "requirements": [
+                {"id": "REQ-1", "text": "Encaminhar pedido ao orquestrador"}
+            ]
+        },
+        "evidence": {"error": "falha reproduzida pelo bot"},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _maintenance_root(tmp_path):
+    return make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+
+
+@pytest.mark.parametrize("profile", ["vagas_bot_01", "vagas_bot_02"])
+def test_bot_maintenance_request_is_not_classified_as_pasted_job(profile):
+    decision = HarnessSupervisor().classify(
+        json.dumps(_maintenance_payload(requester_profile=profile))
+    )
+
+    assert decision.workflow == "maintenance"
+    assert decision.requires_approval is False
+
+
+def test_maintenance_prose_is_not_classified_as_maintenance():
+    decision = HarnessSupervisor().classify(
+        "manutencao canonica solicitada pelo bot para corrigir src/career/services/cv_content.py"
+    )
+
+    assert decision.workflow != "maintenance"
+
+
+def test_maintenance_request_requires_canonical_application_scope_when_cellular(
+    tmp_path, monkeypatch
+):
+    class ExplodingOrchestrator:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("cellular scope must block before orchestrator")
+
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.MaintenanceOrchestrator",
+        ExplodingOrchestrator,
+        raising=False,
+    )
+    supervisor = HarnessSupervisor(_maintenance_root(tmp_path))
+
+    result = supervisor.handle_message(
+        json.dumps(_maintenance_payload(cellular=True)),
+        execute=True,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["result"]["status"] == "blocked"
+    assert result["result"]["blocker_reason"] == "explicit_application_scope_required"
+
+
+def test_maintenance_request_execute_false_prepares_and_validates(tmp_path):
+    supervisor = HarnessSupervisor(_maintenance_root(tmp_path))
+
+    result = supervisor.handle_message(
+        json.dumps(_maintenance_payload()),
+        execute=False,
+    )
+
+    assert result["status"] == "prepared"
+    assert result["executed"] is False
+    assert result["decision"]["workflow"] == "maintenance"
+    assert result["result"]["status"] == "prepared"
+    assert result["result"]["validation"]["status"] == "ok"
+    assert result["result"]["request"]["requester_profile"] == "vagas_bot_01"
+
+
+@pytest.mark.parametrize("status", ["blocked", "rejected", "committed"])
+def test_maintenance_request_execute_true_preserves_orchestrator_status(
+    tmp_path, monkeypatch, status
+):
+    captured = {}
+
+    class FakeOrchestrator:
+        def __init__(self, root):
+            captured["root"] = root
+
+        def process(self, request_path):
+            captured["request_path"] = request_path
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            captured["request"] = request
+            return {
+                "status": status,
+                "request_id": request["request_id"],
+                "attempts": 1,
+                "blocker_reason": "reviewer_rejected" if status != "committed" else None,
+            }
+
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.MaintenanceOrchestrator",
+        FakeOrchestrator,
+        raising=False,
+    )
+    supervisor = HarnessSupervisor(_maintenance_root(tmp_path))
+
+    result = supervisor.handle_message(
+        json.dumps(
+            _maintenance_payload(
+                cellular=True,
+                application_id="app_demo",
+                run_id="run_demo",
+            )
+        ),
+        execute=True,
+    )
+
+    assert result["status"] == status
+    assert result["result"]["status"] == status
+    assert result["result"]["application_id"] == "app_demo"
+    assert captured["request"]["run_id"] == "run_demo"
 
 
 def test_cv_onedrive_notion_is_one_scoped_pipeline():
