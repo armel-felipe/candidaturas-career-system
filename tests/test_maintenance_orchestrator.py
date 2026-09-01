@@ -107,6 +107,30 @@ def test_cli_process_returns_blocked_receipt_for_invalid_request(
     assert json.loads(capsys.readouterr().out)["status"] == "blocked"
 
 
+def test_cli_process_uses_public_maintenance_supervisor_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps({"kind": "canonical_maintenance"}), encoding="utf-8")
+    calls: list[dict[str, object]] = []
+
+    class FakeSupervisor:
+        def __init__(self, root: Path) -> None:
+            assert root == Path.cwd()
+
+        def process_maintenance_request(self, payload: dict[str, object]) -> dict[str, object]:
+            calls.append(payload)
+            return {"status": "blocked", "blocker_reason": "test"}
+
+    monkeypatch.setattr(cli, "HarnessSupervisor", FakeSupervisor)
+
+    exit_code = cli.main(["maintenance", "process", "--request", str(request_path)])
+
+    assert exit_code == 1
+    assert calls == [{"kind": "canonical_maintenance"}]
+    assert json.loads(capsys.readouterr().out)["blocker_reason"] == "test"
+
+
 def test_successful_skill_change_reloads_both_profiles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -138,6 +162,50 @@ def test_successful_skill_change_reloads_both_profiles(
     assert calls[1][-2:] == ["vagas_bot_01", "vagas_bot_02"]
     assert result["policy"]["runtime_affecting"] is True
     assert result["docker_compose_ps"] == "running\n"
+
+
+def test_reload_blocks_when_docker_compose_up_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unavailable(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", unavailable)
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=["src/career/services/maintenance_orchestrator.py"]
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "docker_compose_unavailable"
+    assert result["docker_compose_ps"] == ""
+
+
+def test_reload_blocks_when_docker_compose_ps_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    def up_then_unavailable(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return subprocess.CompletedProcess(command, 0, "up\n", "")
+        raise OSError("docker compose ps unavailable")
+
+    monkeypatch.setattr(
+        "career.services.maintenance_orchestrator.subprocess.run", up_then_unavailable
+    )
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=["src/career/services/maintenance_orchestrator.py"]
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "docker_compose_unavailable"
+    assert result["docker_compose_ps"] == ""
 
 
 def test_documentation_and_tests_do_not_reload_profiles(
@@ -832,6 +900,41 @@ def test_blocked_reload_prevents_resume_and_blocks_operational_result(
     assert receipt["status"] == "blocked"
     assert receipt["reload"]["status"] == "blocked"
     assert receipt["resume"]["status"] == "not_requested"
+
+
+def test_blocked_resume_blocks_operational_result_and_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(
+        root, application_id="app_exact", run_id="run_exact"
+    )
+    orchestrator = MaintenanceOrchestrator(root, runner=SequencedRunner(root, ["approve"]))
+    _stub_successful_profile_reload(monkeypatch, orchestrator)
+    monkeypatch.setattr(
+        orchestrator,
+        "resume_original_run",
+        lambda request_payload: {
+            "status": "blocked",
+            "command": ["npm", "run", "applications:run"],
+            "returncode": 1,
+            "stdout": "",
+            "stderr": "resume failed",
+        },
+    )
+
+    result = orchestrator.process(Path(str(request["request_path"])))
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "original_run_resume_blocked"
+    assert result["reload"]["status"] == "reloaded"
+    assert result["resume"]["status"] == "blocked"
+    receipt = json.loads(Path(str(result["receipt_path"])).read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked"
+    assert receipt["resume"]["status"] == "blocked"
 
 
 def test_injected_approval_with_mismatched_reviewer_hash_is_blocked(tmp_path: Path) -> None:

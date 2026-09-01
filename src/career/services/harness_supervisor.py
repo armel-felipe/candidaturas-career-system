@@ -522,6 +522,11 @@ class HarnessSupervisor:
             return None
         return payload
 
+    def process_maintenance_request(
+        self, payload: dict[str, Any], *, execute: bool = True
+    ) -> dict[str, Any]:
+        return self._process_maintenance_request(payload, execute=execute)
+
     def _process_maintenance_request(
         self, payload: dict[str, Any], *, execute: bool
     ) -> dict[str, Any]:

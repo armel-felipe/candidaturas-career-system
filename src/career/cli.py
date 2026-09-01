@@ -1765,9 +1765,7 @@ def main(argv: list[str] | None = None) -> int:
                 payload = read_json(Path(args.request))
                 if not isinstance(payload, dict):
                     raise ValueError("maintenance request must be a JSON object")
-                result = HarnessSupervisor(Path.cwd())._process_maintenance_request(
-                    payload, execute=True
-                )
+                result = HarnessSupervisor(Path.cwd()).process_maintenance_request(payload)
                 _dump(result)
                 return 1 if result.get("status") in {"blocked", "rejected"} else 0
         except (OSError, ValueError, json.JSONDecodeError) as exc:

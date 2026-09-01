@@ -880,6 +880,19 @@ class MaintenanceOrchestrator:
                 "reload": reload_result,
                 "resume": {"status": "not_requested", "command": None},
             }
+        resume_result = self.resume_original_run(request)
+        if resume_result.get("status") == "blocked":
+            return {
+                "status": "blocked",
+                "blocker_reason": "original_run_resume_blocked",
+                "commit": commit_id["stdout"].strip(),
+                "changed_files": changed_files,
+                "checks": post_apply_checks,
+                "review": review,
+                "dry_run": dry_run,
+                "reload": reload_result,
+                "resume": resume_result,
+            }
         return {
             "status": "committed",
             "commit": commit_id["stdout"].strip(),
@@ -888,7 +901,7 @@ class MaintenanceOrchestrator:
             "review": review,
             "dry_run": dry_run,
             "reload": reload_result,
-            "resume": self.resume_original_run(request),
+            "resume": resume_result,
         }
 
     @staticmethod
@@ -923,12 +936,24 @@ class MaintenanceOrchestrator:
             "--force-recreate",
             *_PROFILE_NAMES,
         ]
-        reload_result = subprocess.run(
-            command,
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            reload_result = subprocess.run(
+                command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            return {
+                "status": "blocked",
+                "blocker_reason": "docker_compose_unavailable",
+                "policy": policy,
+                "command": command,
+                "docker_compose_ps": "",
+                "returncode": None,
+                "stdout": "",
+                "stderr": str(exc),
+            }
         if reload_result.returncode != 0:
             return {
                 "status": "blocked",
@@ -950,12 +975,25 @@ class MaintenanceOrchestrator:
             "running",
             *_PROFILE_NAMES,
         ]
-        ps_result = subprocess.run(
-            ps_command,
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            ps_result = subprocess.run(
+                ps_command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            return {
+                "status": "blocked",
+                "blocker_reason": "docker_compose_unavailable",
+                "policy": policy,
+                "command": command,
+                "docker_compose_ps_command": ps_command,
+                "docker_compose_ps": "",
+                "returncode": None,
+                "stdout": reload_result.stdout,
+                "stderr": reload_result.stderr + str(exc),
+            }
         return {
             "status": "reloaded" if ps_result.returncode == 0 else "blocked",
             "policy": policy,
