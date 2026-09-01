@@ -342,3 +342,21 @@ def test_worker_converts_awaiting_agent_result_to_blocked(tmp_path, monkeypatch)
     assert result["status"] == "blocked"
     assert result["blocker_reason"] == "dispatch_worker_invalid_status"
     assert result["request_id"] == "m1"
+
+
+def test_worker_converts_missing_status_result_to_blocked(tmp_path, monkeypatch):
+    dispatch_dir = tmp_path / "dispatch"
+    dispatch_dir.mkdir()
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
+    write_json(
+        dispatch_dir / "lease.json",
+        {"owner": "worker", "pid": os.getpid(), "expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+    monkeypatch.setattr(worker, "process_message", lambda *_args, **_kwargs: {})
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "dispatch_worker_invalid_status"
+    assert result["observed_status"] is None

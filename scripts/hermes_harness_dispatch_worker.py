@@ -93,7 +93,16 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
             if isinstance(result, dict) and isinstance(result.get("result"), dict)
             else {}
         )
-        final_status = str(payload.get("status") or result.get("status") or "completed")
+        reported_status = payload.get("status") or (
+            result.get("status") if isinstance(result, dict) else None
+        )
+        if not isinstance(reported_status, str) or not reported_status.strip():
+            return _blocked(
+                dispatch_dir,
+                "dispatch_worker_invalid_status",
+                observed_status=reported_status,
+            )
+        final_status = reported_status.strip()
         if final_status == "awaiting_agent" or final_status not in {"completed", "blocked"}:
             return _blocked(
                 dispatch_dir,
