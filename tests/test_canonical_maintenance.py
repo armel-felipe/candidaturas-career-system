@@ -5,10 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 from career.services.maintenance import (
     apply_maintenance_patch,
     create_maintenance_request,
 )
+from career.services import maintenance
 
 
 class CanonicalMaintenanceTests(unittest.TestCase):
@@ -103,6 +106,84 @@ class CanonicalMaintenanceTests(unittest.TestCase):
                 request_path=Path(request["request_path"]),
                 apply=False,
             )
+
+
+def make_git_fixture(root: Path, *, files: dict[str, str] | None = None) -> Path:
+    fixture_files = files or {"README.md": "base\n"}
+    for relative_path, content in fixture_files.items():
+        target = root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "tests@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "Tests"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-qm", "base"],
+        check=True,
+    )
+    return root
+
+
+def test_request_contains_spec_evidence_scope_and_fingerprint(tmp_path: Path) -> None:
+    request = create_maintenance_request(
+        tmp_path,
+        objective="Corrigir seletor canônico",
+        allowed_paths=["src/career/services/cv_content.py"],
+        spec={"requirements": [{"id": "REQ-1", "text": "Cobrir lacunas >36 meses"}]},
+        evidence={"error": "seleção parava em seis experiências"},
+        requester_profile="vagas_bot_01",
+        application_id="app_demo",
+        run_id="run_demo",
+    )
+    assert request["schema_version"] == 2
+    assert request["application_id"] == "app_demo"
+    assert request["spec"]["requirements"][0]["id"] == "REQ-1"
+    assert len(request["request_fingerprint"]) == 64
+    assert callable(getattr(maintenance, "validate_maintenance_request", None))
+    assert maintenance.validate_maintenance_request(tmp_path, Path(request["request_path"]))["status"] == "ok"
+
+
+def test_request_rejects_missing_requirement_spec(tmp_path: Path) -> None:
+    request = create_maintenance_request(
+        tmp_path, objective="Sem spec", allowed_paths=["src/x.py"]
+    )
+    validator = getattr(maintenance, "validate_maintenance_request", None)
+    assert callable(validator)
+    with pytest.raises(ValueError, match="spec"):
+        validator(tmp_path, Path(request["request_path"]))
+
+
+def test_existing_canonical_skill_file_is_allowed(tmp_path: Path) -> None:
+    root = make_git_fixture(tmp_path, files={".agents/skills/demo/SKILL.md": "base\n"})
+    validator = getattr(maintenance, "validate_maintenance_paths", None)
+    assert callable(validator)
+    result = validator(root, [".agents/skills/demo/SKILL.md"])
+    assert result["status"] == "ok"
+
+
+def test_new_skill_directory_is_rejected(tmp_path: Path) -> None:
+    root = make_git_fixture(tmp_path)
+    validator = getattr(maintenance, "validate_maintenance_paths", None)
+    assert callable(validator)
+    result = validator(root, [".agents/skills/new-skill/SKILL.md"])
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "new_skill_forbidden"
+
+
+def test_generated_state_is_rejected_even_when_versioned_scope_is_requested(tmp_path: Path) -> None:
+    root = make_git_fixture(tmp_path)
+    validator = getattr(maintenance, "validate_maintenance_paths", None)
+    assert callable(validator)
+    result = validator(root, [".career-state/applications_v2/demo/fit_map.json"])
+    assert result["status"] == "blocked"
+    assert result["blocker"] == "generated_state_forbidden"
 
 
 if __name__ == "__main__":
