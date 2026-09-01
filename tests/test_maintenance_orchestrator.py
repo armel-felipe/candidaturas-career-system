@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import shutil
 import subprocess
@@ -454,3 +455,244 @@ def test_deterministic_checks_validate_untracked_changed_paths(tmp_path: Path) -
     checks = MaintenanceOrchestrator(root)._run_deterministic_checks(root, request, diff_path)
 
     assert checks["changed_files"] == ["src/new_file.py"]
+
+
+def _transaction_request(root: Path) -> dict[str, object]:
+    base_commit = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return create_maintenance_request(
+        root,
+        objective="Aplicar ajuste canônico testado",
+        allowed_paths=["src/career/services/cv_content.py"],
+        spec={"requirements": [{"id": "REQ-1", "text": "Aplicar ajuste testado"}]},
+        evidence={"error": "falha reproduzível"},
+        requester_profile="vagas_bot_01",
+        base_commit=base_commit,
+    )
+
+
+def _passing_checks() -> dict[str, object]:
+    return {
+        "status": "passed",
+        "commands": [
+            {"name": name, "returncode": 0}
+            for name in [
+                "git_diff_check",
+                "base_commit",
+                "changed_paths",
+                "candidate_diff",
+                "required_pytest",
+            ]
+        ],
+        "changed_files": ["src/career/services/cv_content.py"],
+    }
+
+
+class SequencedRunner:
+    """Test seam that returns an independently reviewed maintenance outcome per attempt."""
+
+    def __init__(self, root: Path, decisions: list[str], *, bad_review_hash: bool = False) -> None:
+        self.root = root
+        self.decisions = decisions
+        self.bad_review_hash = bad_review_hash
+        self.requests: list[dict[str, object]] = []
+
+    def run_attempt(self, request: dict[str, object], attempt_number: int) -> dict[str, object]:
+        self.requests.append(dict(request))
+        decision = self.decisions[attempt_number - 1]
+        if decision == "reject":
+            return {
+                "status": "rejected",
+                "checks": _passing_checks(),
+                "review": {
+                    "status": "rejected",
+                    "blockers": [f"blocker-{attempt_number}"],
+                },
+                "blocker_reason": "reviewer_rejected",
+            }
+
+        patch_path = self.root / ".career-state" / "maintenance" / f"candidate-{attempt_number}.patch"
+        patch_path.parent.mkdir(parents=True, exist_ok=True)
+        patch_text = (
+            "--- a/src/career/services/cv_content.py\n"
+            "+++ b/src/career/services/cv_content.py\n"
+            "@@ -1 +1 @@\n"
+            "-BASE\n"
+            "+CHANGED\n"
+        )
+        patch_path.write_text(patch_text, encoding="utf-8")
+        review = reviewer_payload()
+        review["diff_sha256"] = hashlib.sha256(patch_text.encode("utf-8")).hexdigest()
+        review["spec_sha256"] = hashlib.sha256(
+            json.dumps(request["spec"], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if self.bad_review_hash:
+            review["diff_sha256"] = "0" * 64
+        return {
+            "status": "approved",
+            "candidate": {
+                "patch_path": str(patch_path),
+                "changed_files": ["src/career/services/cv_content.py"],
+            },
+            "checks": _passing_checks(),
+            "review": review,
+        }
+
+    def post_apply_checks(self, request: dict[str, object], patch_path: Path) -> dict[str, object]:
+        assert patch_path.is_file()
+        return _passing_checks()
+
+
+def _git_log(root: Path) -> list[str]:
+    return subprocess.run(
+        ["git", "-C", str(root), "log", "--format=%s", "--reverse"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+
+
+def test_reviewer_feedback_retry_retries_twice_then_succeeds(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+    runner = SequencedRunner(root, ["reject", "reject", "approve"])
+
+    result = MaintenanceOrchestrator(root, runner=runner).process(Path(str(request["request_path"])))
+
+    assert result["status"] == "committed"
+    assert result["attempts"] == 3
+    assert runner.requests[1]["reviewer_feedback"] == ["blocker-1"]
+    assert runner.requests[2]["reviewer_feedback"] == ["blocker-2"]
+    for attempt in (1, 2, 3):
+        manifest = root / ".career-state" / "maintenance" / "attempts" / str(request["request_id"]) / str(attempt) / "manifest.json"
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        assert payload["status"] in {"rejected", "approved"}
+        assert len(payload["spec_sha256"]) == 64
+        assert len(payload["diff_sha256"]) == 64
+        assert "checks" in payload
+        assert "review" in payload
+
+
+def test_retry_limit_blocks_fourth_failure_without_apply(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+    runner = SequencedRunner(root, ["reject", "reject", "reject"])
+
+    result = MaintenanceOrchestrator(root, runner=runner).process(Path(str(request["request_path"])))
+
+    assert result["status"] == "blocked"
+    assert result["attempts"] == 3
+    assert _git_log(root) == ["base"]
+
+
+def test_retry_limit_is_persisted_across_process_calls(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+    runner = SequencedRunner(root, ["reject", "reject", "reject"])
+    orchestrator = MaintenanceOrchestrator(root, runner=runner)
+
+    first = orchestrator.process(Path(str(request["request_path"])), max_attempts=1)
+    second = orchestrator.process(Path(str(request["request_path"])), max_attempts=1)
+    third = orchestrator.process(Path(str(request["request_path"])), max_attempts=1)
+    fourth = MaintenanceOrchestrator(root, runner=SequencedRunner(root, ["approve"])).process(
+        Path(str(request["request_path"]))
+    )
+
+    assert [first["attempts"], second["attempts"], third["attempts"]] == [1, 2, 3]
+    assert fourth["status"] == "blocked"
+    assert fourth["attempts"] == 3
+    assert _git_log(root) == ["base"]
+
+
+def test_completed_fingerprint_is_idempotently_refused_without_a_second_commit(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+    runner = SequencedRunner(root, ["approve"])
+    orchestrator = MaintenanceOrchestrator(root, runner=runner)
+
+    first = orchestrator.process(Path(str(request["request_path"])))
+    second = orchestrator.process(Path(str(request["request_path"])))
+
+    assert first["status"] == "committed"
+    assert second["status"] == "blocked"
+    assert second["blocker_reason"] == "request_fingerprint_already_completed"
+    assert len(_git_log(root)) == 2
+    assert _git_log(root)[0] == "base"
+
+
+def test_successful_commit_contains_request_roadmap_and_receipt(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+    runner = SequencedRunner(root, ["approve"])
+
+    result = MaintenanceOrchestrator(root, runner=runner).process(Path(str(request["request_path"])))
+
+    assert result["status"] == "committed"
+    assert "maintenance_" in _git_log(root)[-1]
+    assert "MAINT-002" in _git_log(root)[-1]
+    receipt_path = Path(str(result["receipt_path"]))
+    assert receipt_path.is_file()
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["request_id"] == request["request_id"]
+    assert receipt["status"] == "committed"
+    assert len(receipt["spec_sha256"]) == 64
+    assert len(receipt["diff_sha256"]) == 64
+    assert receipt["changed_files"] == ["src/career/services/cv_content.py"]
+
+
+def test_injected_approval_with_mismatched_reviewer_hash_is_blocked(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+
+    result = MaintenanceOrchestrator(
+        root,
+        runner=SequencedRunner(root, ["approve", "approve", "approve"], bad_review_hash=True),
+    ).process(Path(str(request["request_path"])))
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "reviewer_rejected"
+    assert _git_log(root) == ["base"]
+
+
+def test_failed_commit_restores_worktree_and_index(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", ""], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", ""], check=True)
+
+    result = MaintenanceOrchestrator(root, runner=SequencedRunner(root, ["approve"])).process(
+        Path(str(request["request_path"]))
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "canonical_commit_failed"
+    assert (root / "src/career/services/cv_content.py").read_text(encoding="utf-8") == "BASE\n"
+    assert subprocess.run(
+        ["git", "-C", str(root), "diff", "--cached", "--quiet", "--"],
+        check=False,
+    ).returncode == 0

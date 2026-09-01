@@ -14,6 +14,7 @@ from typing import Any
 
 from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.maintenance import (
+    apply_maintenance_patch,
     maintenance_request_fingerprint,
     validate_maintenance_paths,
     validate_maintenance_request,
@@ -43,8 +44,9 @@ _REQUIRED_CHECK_NAMES = frozenset(
 class MaintenanceOrchestrator:
     """Runs one maintenance candidate in a disposable Git worktree."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, runner: Any | None = None) -> None:
         self.root = Path(root)
+        self.runner = runner
 
     def _create_worktree(self, base_commit: str) -> Path:
         worktree = Path(tempfile.mkdtemp(prefix="career-maintenance-worktree-"))
@@ -88,6 +90,7 @@ class MaintenanceOrchestrator:
                 instruction=(
                     "Implemente somente a manutenção solicitada. "
                     "Altere exclusivamente os caminhos permitidos no pedido."
+                    + self._reviewer_feedback_instruction(request)
                 ),
                 runner_config=runner_config,
             )
@@ -98,6 +101,16 @@ class MaintenanceOrchestrator:
             "stdout": result.stdout,
             "stderr": result.stderr,
         }
+
+    @staticmethod
+    def _reviewer_feedback_instruction(request: dict[str, Any]) -> str:
+        feedback = request.get("reviewer_feedback")
+        if not isinstance(feedback, list) or not feedback:
+            return ""
+        blockers = [str(blocker).strip() for blocker in feedback if str(blocker).strip()]
+        if not blockers:
+            return ""
+        return " Corrija os blockers do revisor anterior: " + "; ".join(blockers)
 
     def _changed_paths(self, worktree: Path) -> list[str]:
         tracked = subprocess.run(
@@ -543,6 +556,504 @@ class MaintenanceOrchestrator:
                 return False
             command_names.add(name)
         return _REQUIRED_CHECK_NAMES.issubset(command_names)
+
+    @staticmethod
+    def _now() -> str:
+        from datetime import datetime, timezone
+
+        return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _write_json(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+
+    def _maintenance_state_dir(self) -> Path:
+        return self.root / _WORKTREE_METADATA_PREFIX
+
+    def _attempt_dir(self, request: dict[str, Any], attempt_number: int) -> Path:
+        return self._maintenance_state_dir() / "attempts" / str(request["request_id"]) / str(attempt_number)
+
+    def _persisted_attempts(self, request: dict[str, Any]) -> int:
+        attempts_dir = self._maintenance_state_dir() / "attempts" / str(request["request_id"])
+        if not attempts_dir.is_dir():
+            return 0
+        attempt_numbers = [
+            int(path.name)
+            for path in attempts_dir.iterdir()
+            if path.is_dir() and path.name.isdecimal() and (path / "manifest.json").is_file()
+        ]
+        return max(attempt_numbers, default=0)
+
+    def _persist_attempt(
+        self,
+        request: dict[str, Any],
+        attempt_number: int,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        attempt_dir = self._attempt_dir(request, attempt_number)
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        spec = request.get("spec") if isinstance(request.get("spec"), dict) else {}
+        candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else {}
+        patch_path = Path(str(candidate.get("patch_path", ""))) if candidate.get("patch_path") else None
+        diff_bytes = patch_path.read_bytes() if patch_path and patch_path.is_file() else b""
+        checks = result.get("checks") if isinstance(result.get("checks"), dict) else {}
+        review = result.get("review") if isinstance(result.get("review"), dict) else {}
+        manifest = {
+            "request_id": request["request_id"],
+            "request_fingerprint": request["request_fingerprint"],
+            "attempt": attempt_number,
+            "status": result.get("status", "rejected"),
+            "spec_sha256": self._sha256_bytes(self._json_bytes(spec)),
+            "diff_sha256": self._sha256_bytes(diff_bytes),
+            "checks": checks,
+            "review": review,
+            "changed_files": candidate.get("changed_files", []),
+            "blocker_reason": result.get("blocker_reason"),
+            "completed_at": self._now(),
+        }
+        self._write_json(attempt_dir / "checks.json", checks)
+        self._write_json(attempt_dir / "review.json", review)
+        self._write_json(attempt_dir / "manifest.json", manifest)
+        return {**result, "attempt": attempt_number, "attempt_path": str(attempt_dir), "manifest": manifest}
+
+    def _run_injected_attempt(
+        self, request: dict[str, Any], attempt_number: int
+    ) -> dict[str, Any]:
+        handler = getattr(self.runner, "run_attempt", None)
+        if not callable(handler):
+            return {
+                "status": "rejected",
+                "blocker_reason": "maintenance_runner_contract_invalid",
+                "checks": {},
+                "review": {},
+            }
+        result = handler(request, attempt_number)
+        if not isinstance(result, dict):
+            return {
+                "status": "rejected",
+                "blocker_reason": "maintenance_runner_result_invalid",
+                "checks": {},
+                "review": {},
+            }
+        return result
+
+    def _process_real_attempt(self, request: dict[str, Any], attempt_number: int) -> dict[str, Any]:
+        base_commit = str(request["base_commit"])
+        worktree = self._create_worktree(base_commit)
+        try:
+            workspace_request = self._copy_request(worktree, request)
+            agent_result = self._run_maintenance_agent(
+                worktree,
+                {**request, "workspace_request_path": str(workspace_request)},
+            )
+            if agent_result.get("status") != "completed":
+                return {
+                    "status": "rejected",
+                    "blocker_reason": "maintenance_agent_failed",
+                    "agent": agent_result,
+                    "checks": {},
+                    "review": {},
+                }
+
+            candidate = self._collect_candidate(worktree, base_commit, list(request["allowed_paths"]))
+            if candidate.get("status") != "candidate_ready":
+                return {
+                    "status": "rejected",
+                    "blocker_reason": candidate.get("blocker_reason", "candidate_rejected"),
+                    "candidate": candidate,
+                    "checks": {},
+                    "review": {},
+                }
+
+            attempt_dir = self._attempt_dir(request, attempt_number)
+            attempt_dir.mkdir(parents=True, exist_ok=True)
+            patch_path = attempt_dir / "candidate.patch"
+            patch_path.write_text(str(candidate["diff"]), encoding="utf-8")
+            candidate = {
+                **candidate,
+                "patch_path": str(patch_path),
+            }
+            checks = self._run_deterministic_checks(worktree, request, patch_path)
+            review = self._run_reviewer(attempt_dir / "review", request, patch_path, checks)
+            decision = self._approval_decision(
+                review=review,
+                checks=checks,
+                diff_sha256=self._sha256_bytes(patch_path.read_bytes()),
+                spec_sha256=self._sha256_bytes(self._json_bytes(request["spec"])),
+            )
+            return {
+                "status": decision["status"],
+                "blocker_reason": decision.get("blocker_reason"),
+                "candidate": candidate,
+                "checks": checks,
+                "review": review,
+                "agent": agent_result,
+            }
+        finally:
+            self._remove_worktree(worktree)
+
+    def _process_attempt(self, request: dict[str, Any], attempt_number: int) -> dict[str, Any]:
+        """Produce and review one isolated candidate, retaining its evidence before retrying."""
+        result = (
+            self._run_injected_attempt(request, attempt_number)
+            if self.runner is not None
+            else self._process_real_attempt(request, attempt_number)
+        )
+        if result.get("status") == "approved":
+            candidate = result.get("candidate")
+            review = result.get("review")
+            checks = result.get("checks")
+            patch_value = candidate.get("patch_path") if isinstance(candidate, dict) else None
+            patch_path = Path(str(patch_value)) if patch_value else None
+            if not patch_path or not patch_path.is_file():
+                result = {**result, "status": "rejected", "blocker_reason": "candidate_patch_missing"}
+            elif not isinstance(review, dict) or not isinstance(checks, dict):
+                result = {**result, "status": "rejected", "blocker_reason": "reviewer_rejected"}
+            else:
+                decision = self._approval_decision(
+                    review=review,
+                    checks=checks,
+                    diff_sha256=self._sha256_bytes(patch_path.read_bytes()),
+                    spec_sha256=self._sha256_bytes(self._json_bytes(request["spec"])),
+                )
+                if decision["status"] != "approved":
+                    result = {
+                        **result,
+                        "status": "rejected",
+                        "blocker_reason": decision["blocker_reason"],
+                    }
+        return self._persist_attempt(request, attempt_number, result)
+
+    def _tracked_checkout_is_clean(self) -> bool:
+        for command in (
+            ["git", "diff", "--quiet", "HEAD", "--"],
+            ["git", "diff", "--cached", "--quiet", "--"],
+        ):
+            result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+            if result.returncode != 0:
+                return False
+        return True
+
+    def _run_post_apply_checks(self, request: dict[str, Any], patch_path: Path) -> dict[str, Any]:
+        if self.runner is not None:
+            handler = getattr(self.runner, "post_apply_checks", None)
+            if callable(handler):
+                result = handler(request, patch_path)
+                if isinstance(result, dict):
+                    return result
+        return self._run_deterministic_checks(self.root, request, patch_path)
+
+    def _restore_inverse_patch(self, patch_path: Path, paths: list[str]) -> dict[str, Any]:
+        result = subprocess.run(
+            ["git", "-C", str(self.root), "apply", "--reverse", str(patch_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            return {
+                "status": "restore_failed",
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+        unstage = subprocess.run(
+            ["git", "-C", str(self.root), "reset", "--", *paths],
+            capture_output=True,
+            text=True,
+        )
+        return {
+            "status": "restored" if unstage.returncode == 0 else "restore_failed",
+            "stdout": result.stdout + unstage.stdout,
+            "stderr": result.stderr + unstage.stderr,
+        }
+
+    def _apply_and_commit(
+        self,
+        candidate: dict[str, Any],
+        request: dict[str, Any],
+        review: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply exactly one approved patch and commit only after post-apply hard gates pass."""
+        patch_value = candidate.get("patch_path")
+        patch_path = Path(str(patch_value)) if patch_value else None
+        if patch_path is None or not patch_path.is_file():
+            return {"status": "blocked", "blocker_reason": "candidate_patch_missing"}
+        head = self._command_result(["git", "rev-parse", "HEAD"], cwd=self.root)
+        if head["returncode"] != 0 or head["stdout"].strip() != str(request["base_commit"]):
+            return {"status": "blocked", "blocker_reason": "canonical_base_commit_mismatch"}
+        if not self._tracked_checkout_is_clean():
+            return {"status": "blocked", "blocker_reason": "canonical_checkout_not_clean"}
+
+        request_path = Path(str(request["request_path"]))
+        try:
+            dry_run = apply_maintenance_patch(
+                root=self.root,
+                patch_path=patch_path,
+                request_path=request_path,
+                apply=False,
+            )
+            apply_maintenance_patch(
+                root=self.root,
+                patch_path=patch_path,
+                request_path=request_path,
+                apply=True,
+            )
+        except ValueError as exc:
+            return {"status": "blocked", "blocker_reason": f"canonical_apply_rejected: {exc}"}
+
+        post_apply_checks = self._run_post_apply_checks(request, patch_path)
+        if not self._checks_passed(post_apply_checks):
+            restore = self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            blocker = "post_apply_checks_failed"
+            if restore["status"] != "restored":
+                blocker = "post_apply_checks_failed_restore_failed"
+            return {
+                "status": "blocked",
+                "blocker_reason": blocker,
+                "checks": post_apply_checks,
+                "restore": restore,
+                "dry_run": dry_run,
+            }
+
+        staged = self._command_result(
+            ["git", "add", "-A", "--", *list(request["allowed_paths"])], cwd=self.root
+        )
+        if staged["returncode"] != 0:
+            self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            return {"status": "blocked", "blocker_reason": "canonical_stage_failed", "checks": post_apply_checks}
+        staged_paths = self._command_result(
+            ["git", "diff", "--cached", "--name-only", "--"], cwd=self.root
+        )
+        allowed_paths = set(request["allowed_paths"])
+        committed_paths = {path for path in staged_paths["stdout"].splitlines() if path}
+        if staged_paths["returncode"] != 0 or not committed_paths or not committed_paths.issubset(allowed_paths):
+            self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            return {"status": "blocked", "blocker_reason": "canonical_stage_scope_invalid", "checks": post_apply_checks}
+        message = f"maintenance({request['request_id']}): {request['objective']} [{request['roadmap_id']}]"
+        commit = self._command_result(["git", "commit", "-m", message], cwd=self.root)
+        if commit["returncode"] != 0:
+            self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            return {"status": "blocked", "blocker_reason": "canonical_commit_failed", "checks": post_apply_checks}
+        commit_id = self._command_result(["git", "rev-parse", "HEAD"], cwd=self.root)
+        return {
+            "status": "committed",
+            "commit": commit_id["stdout"].strip(),
+            "changed_files": sorted(committed_paths),
+            "checks": post_apply_checks,
+            "review": review,
+            "dry_run": dry_run,
+        }
+
+    def _completed_receipt(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        if request.get("status") in {"committed", "resumed"}:
+            return {"receipt_path": request.get("receipt_path")}
+        receipts_dir = self._maintenance_state_dir() / "receipts"
+        if not receipts_dir.is_dir():
+            return None
+        for receipt_path in receipts_dir.glob("*.json"):
+            try:
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (
+                receipt.get("request_fingerprint") == request.get("request_fingerprint")
+                and receipt.get("status") in {"committed", "resumed"}
+            ):
+                return {"receipt_path": str(receipt_path)}
+        return None
+
+    def _update_request_state(
+        self,
+        request: dict[str, Any],
+        *,
+        status: str,
+        attempts: int,
+        blocker_reason: str | None = None,
+        receipt_path: Path | None = None,
+    ) -> None:
+        request_path = Path(str(request["request_path"]))
+        persisted = json.loads(request_path.read_text(encoding="utf-8"))
+        persisted.update(
+            {
+                "status": status,
+                "attempts": attempts,
+                "blocker_reason": blocker_reason,
+            }
+        )
+        if status == "committed":
+            persisted["committed_at"] = self._now()
+        if receipt_path is not None:
+            persisted["receipt_path"] = str(receipt_path)
+        self._write_json(request_path, persisted)
+
+    def _write_receipt(self, request: dict[str, Any], result: dict[str, Any]) -> Path:
+        """Persist the immutable execution summary outside the candidate diff and checkout index."""
+        receipt_path = self._maintenance_state_dir() / "receipts" / f"{request['request_id']}.json"
+        attempt_manifest: dict[str, Any] = {}
+        attempts = result.get("attempts", 0)
+        if isinstance(attempts, int) and attempts > 0:
+            manifest_path = self._attempt_dir(request, attempts) / "manifest.json"
+            try:
+                attempt_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                attempt_manifest = {}
+        receipt = {
+            "request_id": request["request_id"],
+            "request_fingerprint": request["request_fingerprint"],
+            "requester_profile": request.get("requester_profile"),
+            "application_id": request.get("application_id"),
+            "run_id": request.get("run_id"),
+            "roadmap_id": request.get("roadmap_id"),
+            "base_commit": request.get("base_commit"),
+            "allowed_paths": request.get("allowed_paths", []),
+            "status": result.get("status"),
+            "attempts": result.get("attempts", 0),
+            "blocker_reason": result.get("blocker_reason"),
+            "commit": result.get("commit"),
+            "spec_sha256": attempt_manifest.get(
+                "spec_sha256", self._sha256_bytes(self._json_bytes(request.get("spec", {})))
+            ),
+            "diff_sha256": attempt_manifest.get("diff_sha256", self._sha256_bytes(b"")),
+            "changed_files": result.get("changed_files", attempt_manifest.get("changed_files", [])),
+            "checks": result.get("checks", {}),
+            "review": result.get("review", {}),
+            "completed_at": self._now(),
+        }
+        self._write_json(receipt_path, receipt)
+        return receipt_path
+
+    @staticmethod
+    def _reviewer_blockers(result: dict[str, Any]) -> list[str]:
+        review = result.get("review")
+        if isinstance(review, dict) and isinstance(review.get("blockers"), list):
+            blockers = [str(value).strip() for value in review["blockers"] if str(value).strip()]
+            if blockers:
+                return blockers
+        blocker_reason = result.get("blocker_reason")
+        return [str(blocker_reason)] if isinstance(blocker_reason, str) and blocker_reason else []
+
+    def process(
+        self,
+        request_path: Path,
+        *,
+        max_attempts: int = 3,
+        maintenance_config: dict[str, Any] | None = None,
+        reviewer_config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Process one validated request with at most three persisted executor/reviewer attempts."""
+        del maintenance_config, reviewer_config
+        request_path = Path(request_path)
+        try:
+            validate_maintenance_request(self.root, request_path)
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            path_policy = validate_maintenance_paths(self.root, list(request["allowed_paths"]))
+            if path_policy["status"] != "ok":
+                raise ValueError(str(path_policy.get("blocker", "maintenance_path_policy_blocked")))
+            request["allowed_paths"] = list(path_policy["paths"])
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return {"status": "blocked", "attempts": 0, "blocker_reason": str(exc)}
+
+        already_completed = self._completed_receipt(request)
+        if already_completed is not None:
+            return {
+                "status": "blocked",
+                "request_id": request["request_id"],
+                "attempts": 0,
+                "blocker_reason": "request_fingerprint_already_completed",
+                "receipt_path": already_completed.get("receipt_path"),
+            }
+        head = self._command_result(["git", "rev-parse", "HEAD"], cwd=self.root)
+        if head["returncode"] != 0 or head["stdout"].strip() != str(request["base_commit"]):
+            result = {
+                "status": "blocked",
+                "request_id": request["request_id"],
+                "attempts": 0,
+                "blocker_reason": "canonical_base_commit_mismatch",
+            }
+            receipt_path = self._write_receipt(request, result)
+            self._update_request_state(request, status="blocked", attempts=0, blocker_reason=result["blocker_reason"], receipt_path=receipt_path)
+            return {**result, "receipt_path": str(receipt_path)}
+        if not self._tracked_checkout_is_clean():
+            result = {
+                "status": "blocked",
+                "request_id": request["request_id"],
+                "attempts": 0,
+                "blocker_reason": "canonical_checkout_not_clean",
+            }
+            receipt_path = self._write_receipt(request, result)
+            self._update_request_state(request, status="blocked", attempts=0, blocker_reason=result["blocker_reason"], receipt_path=receipt_path)
+            return {**result, "receipt_path": str(receipt_path)}
+
+        persisted_attempts = self._persisted_attempts(request)
+        if persisted_attempts >= 3:
+            result = {
+                "status": "blocked",
+                "request_id": request["request_id"],
+                "attempts": persisted_attempts,
+                "blocker_reason": "maintenance_retry_limit_reached",
+            }
+            receipt_path = self._write_receipt(request, result)
+            self._update_request_state(
+                request,
+                status="blocked",
+                attempts=persisted_attempts,
+                blocker_reason=result["blocker_reason"],
+                receipt_path=receipt_path,
+            )
+            return {**result, "receipt_path": str(receipt_path)}
+        attempts_limit = min(max(1, int(max_attempts)), 3 - persisted_attempts)
+        feedback: list[str] = []
+        final_result: dict[str, Any] = {}
+        for attempt_number in range(persisted_attempts + 1, persisted_attempts + attempts_limit + 1):
+            attempt_request = {**request, "reviewer_feedback": feedback}
+            attempt_result = self._process_attempt(attempt_request, attempt_number)
+            if attempt_result.get("status") == "approved":
+                candidate = attempt_result.get("candidate")
+                review = attempt_result.get("review")
+                if isinstance(candidate, dict) and isinstance(review, dict):
+                    applied = self._apply_and_commit(candidate, request, review)
+                    final_result = {
+                        **applied,
+                        "request_id": request["request_id"],
+                        "attempts": attempt_number,
+                        "review": review,
+                    }
+                    break
+                final_result = {
+                    "status": "blocked",
+                    "request_id": request["request_id"],
+                    "attempts": attempt_number,
+                    "blocker_reason": "approved_attempt_missing_candidate_or_review",
+                }
+                break
+            feedback = self._reviewer_blockers(attempt_result)
+            final_result = {
+                "status": "blocked",
+                "request_id": request["request_id"],
+                "attempts": attempt_number,
+                "blocker_reason": attempt_result.get("blocker_reason", "reviewer_rejected"),
+                "checks": attempt_result.get("checks", {}),
+                "review": attempt_result.get("review", {}),
+            }
+
+        if not final_result:
+            final_result = {
+                "status": "blocked",
+                "request_id": request["request_id"],
+                "attempts": 0,
+                "blocker_reason": "maintenance_attempts_not_started",
+            }
+        receipt_path = self._write_receipt(request, final_result)
+        self._update_request_state(
+            request,
+            status=str(final_result["status"]),
+            attempts=int(final_result["attempts"]),
+            blocker_reason=final_result.get("blocker_reason"),
+            receipt_path=receipt_path,
+        )
+        return {**final_result, "receipt_path": str(receipt_path)}
 
     def run_in_worktree(self, request_path: Path) -> dict[str, Any]:
         request_path = Path(request_path)

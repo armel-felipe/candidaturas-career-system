@@ -145,7 +145,18 @@ def validate_maintenance_paths(root: Path, allowed_paths: list[str]) -> dict[str
 
 
 def maintenance_request_fingerprint(payload: dict[str, Any]) -> str:
-    volatile = {"created_at", "request_fingerprint", "request_id", "request_path", "status"}
+    volatile = {
+        "applied_at",
+        "attempts",
+        "blocker_reason",
+        "committed_at",
+        "created_at",
+        "receipt_path",
+        "request_fingerprint",
+        "request_id",
+        "request_path",
+        "status",
+    }
     canonical = {key: value for key, value in payload.items() if key not in volatile}
     encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
