@@ -550,7 +550,9 @@ def test_deterministic_checks_validate_untracked_changed_paths(tmp_path: Path) -
     assert checks["changed_files"] == ["src/new_file.py"]
 
 
-def _transaction_request(root: Path) -> dict[str, object]:
+def _transaction_request(
+    root: Path, *, application_id: str | None = None, run_id: str | None = None
+) -> dict[str, object]:
     base_commit = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "HEAD"],
         capture_output=True,
@@ -564,6 +566,8 @@ def _transaction_request(root: Path) -> dict[str, object]:
         spec={"requirements": [{"id": "REQ-1", "text": "Aplicar ajuste testado"}]},
         evidence={"error": "falha reproduzível"},
         requester_profile="vagas_bot_01",
+        application_id=application_id,
+        run_id=run_id,
         base_commit=base_commit,
     )
 
@@ -759,6 +763,49 @@ def test_successful_commit_contains_request_roadmap_and_receipt(tmp_path: Path) 
     assert len(receipt["spec_sha256"]) == 64
     assert len(receipt["diff_sha256"]) == 64
     assert receipt["changed_files"] == ["src/career/services/cv_content.py"]
+
+
+def test_blocked_reload_prevents_resume_and_blocks_operational_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(
+        root, application_id="app_exact", run_id="run_exact"
+    )
+    orchestrator = MaintenanceOrchestrator(root, runner=SequencedRunner(root, ["approve"]))
+    resume_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        orchestrator,
+        "reload_profiles_if_needed",
+        lambda changed_paths: {
+            "status": "blocked",
+            "policy": {"runtime_affecting": True, "changed_paths": changed_paths},
+            "command": ["docker", "compose"],
+            "docker_compose_ps": "",
+        },
+    )
+
+    def unexpected_resume(request_payload: dict[str, object]) -> dict[str, object]:
+        resume_calls.append(request_payload)
+        return {"status": "resumed"}
+
+    monkeypatch.setattr(orchestrator, "resume_original_run", unexpected_resume)
+
+    result = orchestrator.process(Path(str(request["request_path"])))
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "profile_reload_blocked"
+    assert result["reload"]["status"] == "blocked"
+    assert result["resume"]["status"] == "not_requested"
+    assert resume_calls == []
+    receipt = json.loads(Path(str(result["receipt_path"])).read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked"
+    assert receipt["reload"]["status"] == "blocked"
+    assert receipt["resume"]["status"] == "not_requested"
 
 
 def test_injected_approval_with_mismatched_reviewer_hash_is_blocked(tmp_path: Path) -> None:

@@ -867,6 +867,19 @@ class MaintenanceOrchestrator:
             return {"status": "blocked", "blocker_reason": "canonical_commit_failed", "checks": post_apply_checks}
         commit_id = self._command_result(["git", "rev-parse", "HEAD"], cwd=self.root)
         changed_files = sorted(committed_paths)
+        reload_result = self.reload_profiles_if_needed(changed_files)
+        if reload_result.get("status") == "blocked":
+            return {
+                "status": "blocked",
+                "blocker_reason": "profile_reload_blocked",
+                "commit": commit_id["stdout"].strip(),
+                "changed_files": changed_files,
+                "checks": post_apply_checks,
+                "review": review,
+                "dry_run": dry_run,
+                "reload": reload_result,
+                "resume": {"status": "not_requested", "command": None},
+            }
         return {
             "status": "committed",
             "commit": commit_id["stdout"].strip(),
@@ -874,7 +887,7 @@ class MaintenanceOrchestrator:
             "checks": post_apply_checks,
             "review": review,
             "dry_run": dry_run,
-            "reload": self.reload_profiles_if_needed(changed_files),
+            "reload": reload_result,
             "resume": self.resume_original_run(request),
         }
 
