@@ -3610,6 +3610,38 @@ def _process_cellular_application(
             application, paths=paths, executor=executor, config=config
         )
 
+        stale_analyze_recovery = executor.recover_stale_external_attempt(
+            run_id, "analyze_fit"
+        )
+        if stale_analyze_recovery.get("status") == "blocked":
+            return [
+                {
+                    "status": "blocked",
+                    "application_id": paths.application_id,
+                    "run_id": run_id,
+                    "node_id": "analyze_fit",
+                    "artifact_paths": [],
+                    "blocker": stale_analyze_recovery.get(
+                        "blocker_reason", "active_analyze_fit_lease"
+                    ),
+                }
+            ]
+        if stale_analyze_recovery.get("status") == "planned":
+            return [
+                {
+                    "status": "awaiting_agent",
+                    "application_id": paths.application_id,
+                    "run_id": run_id,
+                    "node_id": "analyze_fit",
+                    "attempt": stale_analyze_recovery["next_attempt"],
+                    "manifest_path": stale_analyze_recovery.get(
+                        "handoff_manifest_path", ""
+                    ),
+                    "artifact_paths": [],
+                    "blocker": "stale_analyze_binding_recovered",
+                }
+            ]
+
         ready_before_analyze = set(executor.ready_nodes(run_id))
         if "analyze_fit" in ready_before_analyze:
             plan, _run_paths = executor._load_run(run_id)

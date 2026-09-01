@@ -369,6 +369,143 @@ class CellExecutor:
             write_json(prepared.manifest_path, manifest)
         return bool(deferred["deferred"])
 
+    def recover_stale_external_attempt(
+        self, run_id: str, node_id: str
+    ) -> dict[str, Any]:
+        """Requeue a blocked external attempt without consuming a fresh lease.
+
+        ``analyze_fit`` is the only node whose inputs are authored outside the
+        executor. A binding failure must quarantine those inputs and return
+        the node to ``planned`` so the next preparation creates the next
+        attempt with a valid manifest. Expired reservations are reconciled in
+        the same transaction; an active lease is never stolen.
+        """
+        if node_id != "analyze_fit":
+            raise ValueError("stale external attempt recovery is only supported for analyze_fit")
+        self._renew_workspace_lease()
+        plan, paths = self._load_run(run_id)
+        if plan.application_id != paths.application_id:
+            raise ValueError("cellular run application identity mismatch")
+        row = self.database.fetch_one(
+            """SELECT status, latest_attempt, reserved_by,
+                      reservation_expires_at
+                 FROM cell_nodes
+                WHERE run_id = ? AND node_id = ?""",
+            (run_id, node_id),
+        )
+        if row is None:
+            raise KeyError(f"unknown cell node: {run_id}/{node_id}")
+        latest_attempt = int(row["latest_attempt"] or 0)
+        if latest_attempt <= 0:
+            return {
+                "status": "unchanged",
+                "run_id": run_id,
+                "node_id": node_id,
+                "next_attempt": 1,
+            }
+
+        manifest_path = (
+            paths.cells_dir / node_id / str(latest_attempt) / "manifest.json"
+        )
+        blocker_reason = ""
+        if manifest_path.is_file():
+            try:
+                manifest = read_json(manifest_path)
+                blocker = manifest.get("blocker")
+                if isinstance(blocker, Mapping):
+                    blocker_reason = str(blocker.get("reason") or "")
+            except (OSError, TypeError, ValueError):
+                blocker_reason = ""
+        stale_binding = "draft_binding" in blocker_reason.casefold()
+        if not stale_binding:
+            binding_path = paths.app_dir / "fit_map.draft.binding.json"
+            stale_binding = paths.fit_map_draft.is_file() or binding_path.is_file()
+        if not stale_binding:
+            return {
+                "status": "unchanged",
+                "run_id": run_id,
+                "node_id": node_id,
+                "next_attempt": latest_attempt + 1,
+            }
+
+        # Validate once so the existing validator supplies the precise
+        # mismatch reasons and quarantines only the draft and its binding.
+        try:
+            self._validate_fit_map_draft_binding(
+                paths, run_id=run_id, attempt=latest_attempt
+            )
+        except ValueError as exc:
+            blocker_reason = str(exc)
+
+        now = utc_now_iso()
+        expiry = str(row["reservation_expires_at"] or "")
+        active_lease = (
+            str(row["status"] or "") in {"reserved", "running"}
+            and bool(expiry)
+            and expiry > now
+        )
+        if active_lease:
+            return {
+                "status": "blocked",
+                "run_id": run_id,
+                "node_id": node_id,
+                "next_attempt": latest_attempt + 1,
+                "blocker_reason": "active_analyze_fit_lease",
+            }
+
+        # A stale reservation may have no usable owner after a process crash.
+        # Reconcile both tables under one immediate transaction, then leave
+        # the node planned. The next prepare_ready_node owns the new lease.
+        with self.database.transaction(immediate=True) as conn:
+            current = conn.execute(
+                """SELECT status, latest_attempt, reservation_expires_at
+                     FROM cell_nodes
+                    WHERE run_id = ? AND node_id = ?""",
+                (run_id, node_id),
+            ).fetchone()
+            if current is None:
+                raise KeyError(f"unknown cell node: {run_id}/{node_id}")
+            current_expiry = str(current["reservation_expires_at"] or "")
+            current_active = (
+                str(current["status"] or "") in {"reserved", "running"}
+                and bool(current_expiry)
+                and current_expiry > now
+            )
+            if current_active:
+                return {
+                    "status": "blocked",
+                    "run_id": run_id,
+                    "node_id": node_id,
+                    "next_attempt": int(current["latest_attempt"] or 0) + 1,
+                    "blocker_reason": "active_analyze_fit_lease",
+                }
+            conn.execute(
+                """UPDATE cell_nodes
+                      SET status = 'planned', reserved_by = NULL,
+                          reservation_expires_at = NULL, updated_at = ?
+                    WHERE run_id = ? AND node_id = ?""",
+                (now, run_id, node_id),
+            )
+            conn.execute(
+                """UPDATE cell_attempts
+                      SET status = 'cancelled', finished_at = ?
+                    WHERE run_id = ? AND node_id = ? AND attempt = ?
+                      AND status IN ('reserved', 'running')
+                      AND finished_at IS NULL""",
+                (now, run_id, node_id, latest_attempt),
+            )
+
+        return {
+            "status": "planned",
+            "run_id": run_id,
+            "node_id": node_id,
+            "next_attempt": latest_attempt + 1,
+            "blocker_reason": blocker_reason or "stale_analyze_fit_binding",
+            "handoff_manifest_path": str(
+                paths.cells_dir / node_id / str(latest_attempt + 1) / "manifest.json"
+            ),
+        }
+
     def repair(self, run_id: str, node_id: str, reason: str) -> RepairResult:
         self._renew_workspace_lease()
         plan, paths = self._load_run(run_id)

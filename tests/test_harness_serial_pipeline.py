@@ -16,6 +16,19 @@ class _FakeDatabase:
         return None
 
 
+class _PlanFailureDatabase(_FakeDatabase):
+    def __init__(self):
+        super().__init__()
+        self.application_run_reads = 0
+
+    def fetch_one(self, query, params=()):
+        if "application_runs" in query:
+            self.application_run_reads += 1
+            if self.application_run_reads == 1:
+                return None
+        return super().fetch_one(query, params)
+
+
 def test_package_pipeline_starts_serial_plan_and_runs_once_per_continuation(
     tmp_path: Path, monkeypatch
 ):
@@ -87,6 +100,58 @@ def test_package_pipeline_starts_serial_plan_and_runs_once_per_continuation(
     assert plan_command[plan_command.index("--execution-mode") + 1] == "serial"
     assert plan_command.count("--deliverable") == 2
     assert calls[1][-1] == "--run-agent"
+
+
+def test_plan_failure_adopts_newly_persisted_serial_run_without_duplicate_plan(
+    tmp_path: Path, monkeypatch
+):
+    supervisor = HarnessSupervisor.__new__(HarnessSupervisor)
+    supervisor.root = tmp_path
+    supervisor.db = _PlanFailureDatabase()
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if command[2] == "applications:plan":
+            supervisor.db.latest = {
+                "run_id": "run_persisted_before_failure",
+                "application_id": "app-rappi",
+                "status": "running",
+                "graph_json": json.dumps({"execution_mode": "serial"}),
+            }
+            return type("Completed", (), {
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "planner exited after persisting the run",
+            })()
+        return type("Completed", (), {
+            "returncode": 0,
+            "stdout": json.dumps(
+                {
+                    "status": "running",
+                    "run_id": "run_persisted_before_failure",
+                    "execution_mode": "serial",
+                    "serial_stage": {"stage": "analyze", "status": "awaiting_agent"},
+                }
+            ),
+            "stderr": "",
+        })()
+
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.subprocess.run", fake_run
+    )
+
+    result = supervisor._run_serial_package_base(
+        requested_steps=["cv", "notion"],
+        application_id="app-rappi",
+        model=None,
+        variant=None,
+    )
+
+    assert result["run_id"] == "run_persisted_before_failure"
+    assert result["status"] == "awaiting_agent"
+    assert sum(command[2] == "applications:plan" for command in calls) == 1
+    assert sum(command[2] == "applications:run" for command in calls) == 1
 
 
 def test_pipeline_does_not_report_approval_as_completed(monkeypatch):

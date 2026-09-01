@@ -1818,14 +1818,31 @@ class HarnessSupervisor:
             plan_payload = self._parse_cli_json(planned.stdout)
             run_id = str(plan_payload.get("run_id") or "").strip()
             if planned.returncode != 0 or not run_id:
-                return {
-                    "status": "blocked",
-                    "application_id": scoped_id,
-                    "requested_steps": requested_steps,
-                    "commands": commands,
-                    "blocker_reason": "serial_plan_creation_failed",
-                    "stderr": (planned.stderr or "")[-4000:],
-                }
+                # The planner persists the run before the subprocess can
+                # report its final result. Re-read the authoritative index so
+                # a late planner failure cannot cause a duplicate plan on the
+                # next continuation.
+                recovered = self._latest_cellular_run(scoped_id)
+                if recovered and self._is_serial_cellular_run(recovered):
+                    recovered_status = str(recovered.get("status") or "")
+                    if recovered_status in {
+                        "planned",
+                        "running",
+                        "awaiting_agent",
+                        "awaiting_approval",
+                        "blocked",
+                    }:
+                        run_id = str(recovered.get("run_id") or "").strip()
+                if not run_id:
+                    return {
+                        "status": "blocked",
+                        "application_id": scoped_id,
+                        "requested_steps": requested_steps,
+                        "commands": commands,
+                        "blocker_reason": "serial_plan_creation_failed",
+                        "stdout": (planned.stdout or "")[-4000:],
+                        "stderr": (planned.stderr or "")[-4000:],
+                    }
         run_command = [
             "npm",
             "run",
