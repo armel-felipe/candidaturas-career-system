@@ -179,6 +179,9 @@ def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str
     root = root.resolve()
     application_dir = application_dir.resolve()
     ignored_names = {"career.db", "career.db-wal", "career.db-shm"}
+    ignored_roots = {
+        (root / ".career-state" / "telegram" / "messages").resolve(),
+    }
     for relative_root in (".career-state", "outputs"):
         base = root / relative_root
         if not base.exists():
@@ -188,6 +191,7 @@ def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str
             if (
                 not resolved.is_file()
                 or resolved.name in ignored_names
+                or any(resolved.is_relative_to(ignored_root) for ignored_root in ignored_roots)
                 or resolved.is_relative_to(application_dir)
             ):
                 continue

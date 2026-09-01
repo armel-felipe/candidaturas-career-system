@@ -2201,6 +2201,93 @@ def test_cellular_harness_reports_authoritative_database_corruption_as_violation
     assert any("career.db::integrity" in item for item in isolation["unauthorized_workspace_changes"])
 
 
+def test_cellular_harness_ignores_telegram_message_cache_mutations_and_hashing(
+    tmp_path, monkeypatch
+):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "request.json"
+    request_md = request.with_suffix(".md")
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(application_dir / "fit_map.draft.json")],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    messages_dir = tmp_path / ".career-state" / "telegram" / "messages"
+    altered = messages_dir / "altered.json"
+    removed = messages_dir / "removed.json"
+    altered.parent.mkdir(parents=True, exist_ok=True)
+    altered.write_text('{"message":"before"}', encoding="utf-8")
+    removed.write_text('{"message":"delete-me"}', encoding="utf-8")
+
+    original_read_bytes = Path.read_bytes
+    attempted_reads: list[Path] = []
+
+    def deny_telegram_message_reads(path: Path) -> bytes:
+        if path.is_relative_to(messages_dir):
+            attempted_reads.append(path)
+            raise AssertionError(f"snapshot should ignore telegram message cache: {path}")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", deny_telegram_message_reads)
+
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    altered.write_text('{"message":"after"}', encoding="utf-8")
+    removed.unlink()
+    (messages_dir / "created.json").write_text(
+        '{"message":"new"}', encoding="utf-8"
+    )
+
+    isolation = run.inspect()
+
+    assert isolation["status"] == "ok"
+    assert isolation["unauthorized_workspace_changes"] == []
+    assert attempted_reads == []
+
+
+def test_cellular_harness_tolerates_unreadable_existing_telegram_message_cache(
+    tmp_path, monkeypatch
+):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "request.json"
+    request_md = request.with_suffix(".md")
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(application_dir / "fit_map.draft.json")],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    messages_dir = tmp_path / ".career-state" / "telegram" / "messages"
+    cached_message = messages_dir / "cached.json"
+    cached_message.parent.mkdir(parents=True, exist_ok=True)
+    cached_message.write_text('{"message":"cached"}', encoding="utf-8")
+
+    original_read_bytes = Path.read_bytes
+
+    def deny_specific_cached_message(path: Path) -> bytes:
+        if path == cached_message:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", deny_specific_cached_message)
+
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    isolation = run.inspect()
+
+    assert isolation["status"] == "ok"
+    assert isolation["unauthorized_workspace_changes"] == []
+
+
 def test_cellular_harness_detects_notion_cache_and_schema_changes(tmp_path):
     application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
     allowed = application_dir / "fit_map.draft.json"
@@ -2250,6 +2337,38 @@ def test_cellular_harness_detects_notion_cache_and_schema_changes(tmp_path):
     changes = isolation["unauthorized_workspace_changes"]
     assert ".career-state/career.db::notion_cache" in changes
     assert ".career-state/career.db::schema" in changes
+
+
+def test_cellular_harness_still_blocks_telegram_state_outside_message_cache(
+    tmp_path,
+):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "request.json"
+    request_md = request.with_suffix(".md")
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(application_dir / "fit_map.draft.json")],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    protected_telegram_state = (
+        tmp_path / ".career-state" / "telegram" / "delivery-state.json"
+    )
+    protected_telegram_state.parent.mkdir(parents=True, exist_ok=True)
+    protected_telegram_state.write_text("rogue", encoding="utf-8")
+
+    isolation = run.inspect()
+
+    assert isolation["status"] == "blocked"
+    assert ".career-state/telegram/delivery-state.json" in isolation[
+        "unauthorized_workspace_changes"
+    ]
 
 
 def test_cellular_request_rules_never_direct_the_agent_to_global_state(tmp_path):
