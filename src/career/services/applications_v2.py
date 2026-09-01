@@ -3204,11 +3204,15 @@ def inspect_repair_progress(
         and item.get("coverage_class") == "missing_unexplained"
         and item.get("keyword")
     )
-    polish_blocker_ids = sorted(
-        str(item.get("id") or item.get("code"))
-        for item in (polish_report or {}).get("approval_blockers", [])
-        if isinstance(item, dict) and (item.get("id") or item.get("code"))
-    )
+    polish_blocker_ids: list[str] = []
+    for item in (polish_report or {}).get("approval_blockers", []):
+        if isinstance(item, dict):
+            value = item.get("id") or item.get("code")
+        else:
+            value = item if isinstance(item, str) else ""
+        if value:
+            polish_blocker_ids.append(str(value))
+    polish_blocker_ids.sort()
     blocker_fingerprint = _sha256_json(
         {
             "cv_content_sha256": str(cv_content_sha256 or ""),
@@ -3321,7 +3325,7 @@ def _latest_cellular_repair_progress(
                 break
     if not cv_hash:
         return None
-    return {
+    reconstructed = {
         "kind": "cellular_cv_repair_progress",
         "application_id": paths.application_id,
         "run_id": run_id,
@@ -3331,6 +3335,10 @@ def _latest_cellular_repair_progress(
             polish_report=polish_report,
         ),
     }
+    _persist_cellular_repair_progress(
+        paths, run_id, latest_review - 1, reconstructed
+    )
+    return reconstructed
     return None
 
 
