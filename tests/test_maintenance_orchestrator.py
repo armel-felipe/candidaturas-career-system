@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from career.services.maintenance import create_maintenance_request
 from career.services.maintenance_orchestrator import MaintenanceOrchestrator
@@ -119,3 +123,163 @@ def test_blocked_allowlist_is_rejected_before_worktree_or_agent(tmp_path: Path) 
     assert "new_skill_forbidden" in str(result["blocker_reason"])
     assert orchestrator.worktree_calls == 0
     assert orchestrator.agent_calls == 0
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def reviewer_payload(
+    *,
+    score: float = 99.0,
+    requirements_met: bool = True,
+    blockers: list[str] | None = None,
+) -> dict[str, object]:
+    fixture_name = (
+        "maintenance_reviewer_approved.json" if score >= 99.0 else "maintenance_reviewer_rejected.json"
+    )
+    payload = json.loads((FIXTURES / fixture_name).read_text(encoding="utf-8"))
+    payload["score"] = score
+    payload["blockers"] = [] if blockers is None else blockers
+    if not requirements_met:
+        payload["requirements"][0]["status"] = "missing"
+    return payload
+
+
+def test_reviewer_accepts_exactly_99_and_matching_hashes(tmp_path: Path) -> None:
+    review = reviewer_payload(score=99.0, requirements_met=True, blockers=[])
+    orchestrator = MaintenanceOrchestrator(tmp_path)
+
+    assert orchestrator._accept_review(
+        review,
+        diff_sha256=str(review["diff_sha256"]),
+        spec_sha256=str(review["spec_sha256"]),
+    )
+
+
+def test_reviewer_rejects_98_99_even_without_blockers(tmp_path: Path) -> None:
+    review = reviewer_payload(score=98.99, requirements_met=True, blockers=[])
+    orchestrator = MaintenanceOrchestrator(tmp_path)
+
+    assert not orchestrator._accept_review(
+        review,
+        diff_sha256=str(review["diff_sha256"]),
+        spec_sha256=str(review["spec_sha256"]),
+    )
+
+
+def test_reviewer_rejects_missing_schema_field_and_mismatched_hashes(tmp_path: Path) -> None:
+    review = reviewer_payload()
+    review.pop("reviewer_model")
+    orchestrator = MaintenanceOrchestrator(tmp_path)
+
+    assert not orchestrator._accept_review(
+        review,
+        diff_sha256="0" * 64,
+        spec_sha256=str(review["spec_sha256"]),
+    )
+
+
+def test_hard_gate_rejects_high_score_when_test_failed(tmp_path: Path) -> None:
+    checks = {"status": "failed", "commands": [{"returncode": 1}]}
+    result = MaintenanceOrchestrator(tmp_path)._approval_decision(
+        review=reviewer_payload(score=100.0),
+        checks=checks,
+    )
+
+    assert result["status"] == "rejected"
+    assert result["blocker_reason"] == "deterministic_checks_failed"
+
+
+def test_hard_gate_rejects_high_score_when_required_check_is_missing(tmp_path: Path) -> None:
+    result = MaintenanceOrchestrator(tmp_path)._approval_decision(
+        review=reviewer_payload(score=100.0),
+        checks={"status": "passed", "commands": [{"name": "required_pytest", "returncode": 0}]},
+    )
+
+    assert result["status"] == "rejected"
+    assert result["blocker_reason"] == "deterministic_checks_failed"
+
+
+def test_reviewer_input_is_read_only_and_contains_required_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_git_fixture(tmp_path)
+    diff_path = tmp_path.parent / "candidate.patch"
+    diff_path.write_bytes(b"diff --git a/src/x.py b/src/x.py\n")
+    review_input_dir = tmp_path / "review-input"
+    request = make_valid_request(root, allowed_paths=["src/x.py"])
+    captured: dict[str, object] = {}
+
+    class FakeReviewerRunner:
+        def __init__(self, runner_root: Path) -> None:
+            captured["root"] = runner_root
+
+        def run(self, run_request: object) -> object:
+            captured["request"] = run_request
+            payload = json.loads(
+                (FIXTURES / "maintenance_reviewer_approved.json").read_text(encoding="utf-8")
+            )
+            payload.update(
+                json.loads((review_input_dir / "hashes.json").read_text(encoding="utf-8"))
+            )
+            return type(
+                "ReviewResult",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": json.dumps(payload),
+                    "stderr": "",
+                },
+            )()
+
+    monkeypatch.setattr(
+        "career.services.maintenance_orchestrator.SubprocessAgentRunner", FakeReviewerRunner
+    )
+    checks = {
+        "status": "passed",
+        "commands": [
+            {"name": name, "returncode": 0}
+            for name in [
+                "git_diff_check",
+                "base_commit",
+                "changed_paths",
+                "candidate_diff",
+                "required_pytest",
+            ]
+        ],
+        "changed_files": ["src/x.py"],
+    }
+
+    result = MaintenanceOrchestrator(root)._run_reviewer(review_input_dir, request, diff_path, checks)
+
+    assert result["status"] == "approved"
+    assert captured["root"] == review_input_dir
+    assert (review_input_dir / "spec.json").is_file()
+    assert (review_input_dir / "candidate.diff").read_bytes() == diff_path.read_bytes()
+    assert json.loads((review_input_dir / "changed_files.json").read_text(encoding="utf-8")) == [
+        "src/x.py"
+    ]
+    assert json.loads((review_input_dir / "checks.json").read_text(encoding="utf-8")) == checks
+    hashes = json.loads((review_input_dir / "hashes.json").read_text(encoding="utf-8"))
+    assert len(hashes["diff_sha256"]) == 64
+    assert len(hashes["spec_sha256"]) == 64
+    assert (review_input_dir.stat().st_mode & 0o222) == 0
+
+
+def test_deterministic_checks_validate_untracked_changed_paths(tmp_path: Path) -> None:
+    root = make_git_fixture(tmp_path, files={"src/existing.py": "BASE\n"})
+    base_commit = (
+        subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        )
+        .stdout.strip()
+    )
+    (root / "src/new_file.py").write_text("NEW\n", encoding="utf-8")
+    diff_path = tmp_path.parent / "candidate.patch"
+    diff_path.write_bytes(b"diff --git a/src/new_file.py b/src/new_file.py\n")
+    request = make_valid_request(root, allowed_paths=["src/new_file.py"])
+    request["base_commit"] = base_commit
+
+    checks = MaintenanceOrchestrator(root)._run_deterministic_checks(root, request, diff_path)
+
+    assert checks["changed_files"] == ["src/new_file.py"]

@@ -1,0 +1,16 @@
+{
+  "status": "approved",
+  "score": 99.0,
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "status": "met",
+      "evidence": "tests/test_maintenance_orchestrator.py::test_reviewer_accepts_exactly_99_and_matching_hashes"
+    }
+  ],
+  "blockers": [],
+  "warnings": [],
+  "reviewer_model": "maintenance-reviewer",
+  "diff_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "spec_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+}

@@ -1,0 +1,18 @@
+{
+  "status": "rejected",
+  "score": 98.99,
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "status": "missing",
+      "evidence": "A cobertura do requisito obrigatório não foi demonstrada."
+    }
+  ],
+  "blockers": [
+    "requirement_not_met"
+  ],
+  "warnings": [],
+  "reviewer_model": "maintenance-reviewer",
+  "diff_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "spec_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+}

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +19,23 @@ from career.services.maintenance import (
 
 
 _WORKTREE_METADATA_PREFIX = ".career-state/maintenance/"
+_REVIEW_FIELDS = frozenset(
+    {
+        "status",
+        "score",
+        "requirements",
+        "blockers",
+        "warnings",
+        "reviewer_model",
+        "diff_sha256",
+        "spec_sha256",
+    }
+)
+_REVIEW_REQUIREMENT_FIELDS = frozenset({"id", "status", "evidence"})
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+_REQUIRED_CHECK_NAMES = frozenset(
+    {"git_diff_check", "base_commit", "changed_paths", "candidate_diff", "required_pytest"}
+)
 
 
 class MaintenanceOrchestrator:
@@ -198,6 +218,293 @@ class MaintenanceOrchestrator:
             "changed_files": changed_files,
             "diff": diff.stdout,
         }
+
+    @staticmethod
+    def _sha256_bytes(payload: bytes) -> str:
+        return hashlib.sha256(payload).hexdigest()
+
+    @staticmethod
+    def _json_bytes(payload: Any) -> bytes:
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+
+    @staticmethod
+    def _command_result(
+        command: list[str], *, cwd: Path, env: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError as exc:
+            return {
+                "command": command,
+                "returncode": 127,
+                "stdout": "",
+                "stderr": str(exc),
+            }
+        return {
+            "command": command,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        }
+
+    def _run_deterministic_checks(
+        self, worktree: Path, request: dict[str, Any], diff_path: Path
+    ) -> dict[str, Any]:
+        """Run the non-negotiable checks before an independent review."""
+        worktree = Path(worktree)
+        commands: list[dict[str, Any]] = []
+
+        diff_check = self._command_result(
+            ["git", "diff", "--check", str(request["base_commit"]), "--"], cwd=worktree
+        )
+        diff_check["name"] = "git_diff_check"
+        commands.append(diff_check)
+
+        base_check = self._command_result(["git", "rev-parse", "HEAD"], cwd=worktree)
+        base_check["name"] = "base_commit"
+        base_check["expected"] = str(request["base_commit"])
+        base_check["actual"] = base_check["stdout"].strip()
+        if base_check["returncode"] == 0 and base_check["actual"] != base_check["expected"]:
+            base_check["returncode"] = 1
+            base_check["stderr"] = "worktree HEAD does not match request base_commit"
+        commands.append(base_check)
+
+        paths_check = self._command_result(
+            ["git", "diff", "--name-only", "-z", str(request["base_commit"]), "--"], cwd=worktree
+        )
+        paths_check["name"] = "changed_paths"
+        changed_files = sorted(
+            {
+                *{path for path in paths_check["stdout"].split("\0") if path},
+                *{
+                    path
+                    for path in self._untracked_paths(worktree)
+                    if path and not path.startswith(_WORKTREE_METADATA_PREFIX)
+                },
+            }
+        )
+        paths_check["changed_files"] = changed_files
+        if paths_check["returncode"] == 0:
+            path_policy = validate_maintenance_paths(worktree, changed_files)
+            allowed_policy = validate_maintenance_paths(worktree, list(request["allowed_paths"]))
+            paths_check["path_policy"] = path_policy
+            paths_check["allowed_policy"] = allowed_policy
+            allowed = set(allowed_policy.get("paths", []))
+            outside = sorted(set(changed_files) - allowed)
+            if path_policy["status"] != "ok" or allowed_policy["status"] != "ok" or outside:
+                paths_check["returncode"] = 1
+                paths_check["stderr"] = (
+                    str(path_policy.get("blocker") or allowed_policy.get("blocker") or "paths_outside_allowlist")
+                )
+                paths_check["outside_allowlist"] = outside
+        commands.append(paths_check)
+
+        diff_file_check = {
+            "name": "candidate_diff",
+            "command": ["sha256", str(diff_path)],
+            "returncode": 0 if diff_path.is_file() else 1,
+            "stdout": "",
+            "stderr": "" if diff_path.is_file() else "candidate diff is missing",
+        }
+        if diff_path.is_file():
+            diff_file_check["sha256"] = self._sha256_bytes(diff_path.read_bytes())
+        commands.append(diff_file_check)
+
+        pytest_env = {**os.environ, "PYTHONPATH": "src"}
+        tests_check = self._command_result(
+            [
+                ".venv/bin/pytest",
+                "-q",
+                "tests/test_canonical_maintenance.py",
+                "tests/test_harness_dispatch.py",
+            ],
+            cwd=worktree,
+            env=pytest_env,
+        )
+        tests_check["name"] = "required_pytest"
+        commands.append(tests_check)
+
+        return {
+            "status": "passed" if all(command["returncode"] == 0 for command in commands) else "failed",
+            "commands": commands,
+            "changed_files": changed_files,
+        }
+
+    def _run_reviewer(
+        self,
+        review_input_dir: Path,
+        request: dict[str, Any],
+        diff_path: Path,
+        checks: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run a separate, read-only reviewer over a sealed review input bundle."""
+        if not self._checks_passed(checks):
+            return {"status": "rejected", "blocker_reason": "deterministic_checks_failed"}
+
+        review_input_dir = Path(review_input_dir)
+        review_input_dir.mkdir(parents=True, exist_ok=True)
+        spec = request.get("spec")
+        if not isinstance(spec, dict) or not isinstance(spec.get("requirements"), list):
+            return {"status": "rejected", "blocker_reason": "reviewer_spec_invalid"}
+        if not diff_path.is_file():
+            return {"status": "rejected", "blocker_reason": "candidate_diff_missing"}
+
+        spec_bytes = self._json_bytes(spec)
+        diff_bytes = diff_path.read_bytes()
+        changed_files = checks.get("changed_files", [])
+        if not isinstance(changed_files, list) or not all(isinstance(path, str) for path in changed_files):
+            return {"status": "rejected", "blocker_reason": "changed_files_invalid"}
+        hashes = {
+            "diff_sha256": self._sha256_bytes(diff_bytes),
+            "spec_sha256": self._sha256_bytes(spec_bytes),
+        }
+        bundle = {
+            "spec.json": spec_bytes,
+            "candidate.diff": diff_bytes,
+            "changed_files.json": self._json_bytes(changed_files),
+            "checks.json": self._json_bytes(checks),
+            "hashes.json": self._json_bytes(hashes),
+            "review_request.json": self._json_bytes(
+                {
+                    "request_id": request["request_id"],
+                    "required_contract_fields": sorted(_REVIEW_FIELDS),
+                    "input_files": [
+                        "spec.json",
+                        "candidate.diff",
+                        "changed_files.json",
+                        "checks.json",
+                        "hashes.json",
+                    ],
+                }
+            ),
+        }
+        for filename, payload in bundle.items():
+            path = review_input_dir / filename
+            path.write_bytes(payload)
+            path.chmod(0o444)
+        review_input_dir.chmod(0o555)
+
+        runner_config = request.get("reviewer_config")
+        if not isinstance(runner_config, dict):
+            runner_config = {"kind": "opencode"}
+        runner = SubprocessAgentRunner(review_input_dir)
+        runner_result = runner.run(
+            AgentRunRequest(
+                stage="maintenance_review",
+                record_key=str(request["request_id"]),
+                request_path=review_input_dir / "review_request.json",
+                instruction=(
+                    "Revise os artefatos de entrada em modo somente leitura e responda exclusivamente "
+                    "com o JSON do contrato de revisão solicitado."
+                ),
+                runner_config=runner_config,
+            )
+        )
+        if runner_result.returncode != 0:
+            return {
+                "status": "rejected",
+                "blocker_reason": "reviewer_runner_failed",
+                "returncode": runner_result.returncode,
+                "stdout": runner_result.stdout,
+                "stderr": runner_result.stderr,
+            }
+        try:
+            review = json.loads(runner_result.stdout)
+        except json.JSONDecodeError:
+            return {"status": "rejected", "blocker_reason": "reviewer_json_invalid"}
+        if not isinstance(review, dict):
+            return {"status": "rejected", "blocker_reason": "reviewer_contract_invalid"}
+
+        requirement_ids = {
+            str(requirement.get("id", ""))
+            for requirement in spec["requirements"]
+            if isinstance(requirement, dict)
+        }
+        review_ids = {
+            str(requirement.get("id", ""))
+            for requirement in review.get("requirements", [])
+            if isinstance(requirement, dict)
+        }
+        if requirement_ids != review_ids or not self._accept_review(
+            review, diff_sha256=hashes["diff_sha256"], spec_sha256=hashes["spec_sha256"]
+        ):
+            return {"status": "rejected", "blocker_reason": "reviewer_contract_invalid", "review": review}
+        return review
+
+    def _accept_review(self, review: dict[str, Any], *, diff_sha256: str, spec_sha256: str) -> bool:
+        """Accept only a complete, exact review contract at the 99/100 boundary."""
+        if set(review) != _REVIEW_FIELDS:
+            return False
+        if review.get("status") != "approved":
+            return False
+        score = review.get("score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or score < 99.0:
+            return False
+        if review.get("blockers") != [] or not isinstance(review.get("warnings"), list):
+            return False
+        if not isinstance(review.get("reviewer_model"), str) or not review["reviewer_model"].strip():
+            return False
+        if review.get("diff_sha256") != diff_sha256 or review.get("spec_sha256") != spec_sha256:
+            return False
+        if not isinstance(diff_sha256, str) or not isinstance(spec_sha256, str):
+            return False
+        if not _SHA256_RE.fullmatch(diff_sha256) or not _SHA256_RE.fullmatch(spec_sha256):
+            return False
+        requirements = review.get("requirements")
+        if not isinstance(requirements, list) or not requirements:
+            return False
+        for requirement in requirements:
+            if not isinstance(requirement, dict) or set(requirement) != _REVIEW_REQUIREMENT_FIELDS:
+                return False
+            if not isinstance(requirement["id"], str) or not requirement["id"].strip():
+                return False
+            if requirement["status"] != "met":
+                return False
+            if not isinstance(requirement["evidence"], str) or not requirement["evidence"].strip():
+                return False
+        return True
+
+    def _approval_decision(
+        self,
+        *,
+        review: dict[str, Any],
+        checks: dict[str, Any],
+        diff_sha256: str | None = None,
+        spec_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        """Combine deterministic gates and the independent review without overrides."""
+        if not self._checks_passed(checks):
+            return {"status": "rejected", "blocker_reason": "deterministic_checks_failed"}
+        expected_diff = diff_sha256 if diff_sha256 is not None else str(review.get("diff_sha256", ""))
+        expected_spec = spec_sha256 if spec_sha256 is not None else str(review.get("spec_sha256", ""))
+        if not self._accept_review(review, diff_sha256=expected_diff, spec_sha256=expected_spec):
+            return {"status": "rejected", "blocker_reason": "reviewer_rejected"}
+        return {"status": "approved", "review": review, "checks": checks}
+
+    @staticmethod
+    def _checks_passed(checks: dict[str, Any]) -> bool:
+        commands = checks.get("commands")
+        if checks.get("status") != "passed" or not isinstance(commands, list):
+            return False
+        command_names: set[str] = set()
+        for command in commands:
+            if not isinstance(command, dict) or command.get("returncode") != 0:
+                return False
+            name = command.get("name")
+            if not isinstance(name, str) or not name:
+                return False
+            command_names.add(name)
+        return _REQUIRED_CHECK_NAMES.issubset(command_names)
 
     def run_in_worktree(self, request_path: Path) -> dict[str, Any]:
         request_path = Path(request_path)
