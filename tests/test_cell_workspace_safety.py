@@ -2371,6 +2371,44 @@ def test_cellular_harness_still_blocks_telegram_state_outside_message_cache(
     ]
 
 
+def test_cellular_harness_blocks_symlink_outside_message_cache_even_when_target_is_inside(
+    tmp_path,
+):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    request = application_dir / "requests" / "request.json"
+    request_md = request.with_suffix(".md")
+    write_json(
+        request,
+        {
+            "cellular": True,
+            "write_allowlist": [str(application_dir / "fit_map.draft.json")],
+        },
+    )
+    request_md.write_text("immutable request", encoding="utf-8")
+    cached_message = (
+        tmp_path / ".career-state" / "telegram" / "messages" / "cached.json"
+    )
+    cached_message.parent.mkdir(parents=True, exist_ok=True)
+    cached_message.write_text('{"message":"cached"}', encoding="utf-8")
+
+    run = HarnessRunStore(tmp_path, application_dir).begin(
+        "analyze", request, request_md
+    )
+
+    protected_telegram_symlink = (
+        tmp_path / ".career-state" / "telegram" / "delivery-state.json"
+    )
+    protected_telegram_symlink.parent.mkdir(parents=True, exist_ok=True)
+    protected_telegram_symlink.symlink_to(cached_message)
+
+    isolation = run.inspect()
+
+    assert isolation["status"] == "blocked"
+    assert ".career-state/telegram/delivery-state.json" in isolation[
+        "unauthorized_workspace_changes"
+    ]
+
+
 def test_cellular_request_rules_never_direct_the_agent_to_global_state(tmp_path):
     context = {
         "cellular": True,

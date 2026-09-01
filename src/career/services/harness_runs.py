@@ -180,7 +180,7 @@ def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str
     application_dir = application_dir.resolve()
     ignored_names = {"career.db", "career.db-wal", "career.db-shm"}
     ignored_roots = {
-        (root / ".career-state" / "telegram" / "messages").resolve(),
+        root / ".career-state" / "telegram" / "messages",
     }
     for relative_root in (".career-state", "outputs"):
         base = root / relative_root
@@ -189,13 +189,13 @@ def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str
         for path in base.rglob("*"):
             resolved = path.resolve()
             if (
-                not resolved.is_file()
-                or resolved.name in ignored_names
-                or any(resolved.is_relative_to(ignored_root) for ignored_root in ignored_roots)
+                not path.is_file()
+                or path.name in ignored_names
+                or any(path.is_relative_to(ignored_root) for ignored_root in ignored_roots)
                 or resolved.is_relative_to(application_dir)
             ):
                 continue
-            snapshot[str(resolved.relative_to(root))] = _file_hash(resolved)
+            snapshot[str(path.relative_to(root))] = _file_hash(path)
     snapshot.update(_protected_database_snapshot(root))
     return snapshot
 
