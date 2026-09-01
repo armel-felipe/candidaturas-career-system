@@ -2445,7 +2445,10 @@ def _quarantine_cellular_draft(
 
 
 def _ensure_cellular_application(
-    application: dict[str, Any], *, applications_root: Path
+    application: dict[str, Any],
+    *,
+    applications_root: Path,
+    database_path: Path | None = None,
 ) -> Any:
     application_id = _record_key(application)
     if not application_id:
@@ -2481,7 +2484,12 @@ def _ensure_cellular_application(
         reprocess_marker.get("request_fingerprint") != reprocess_fingerprint
     )
     if previous_description != canonical_description or new_reprocess_request:
-        _quarantine_cellular_draft(paths, reason="stale")
+        # In the production cellular path, recovery owns draft quarantine and
+        # performs it under the analyze_fit recovery lock. Keep this helper's
+        # standalone legacy behavior for callers that do not have the
+        # authoritative database available (notably setup/tests).
+        if database_path is None:
+            _quarantine_cellular_draft(paths, reason="stale")
         write_text(paths.job_description, canonical_description)
         previous_fingerprint = (
             hashlib.sha256(previous_description.encode("utf-8")).hexdigest()
@@ -3555,7 +3563,11 @@ def _process_cellular_application(
 
     database = Database(database_path)
     database.init_schema()
-    paths = _ensure_cellular_application(application, applications_root=V2_DIR)
+    paths = _ensure_cellular_application(
+        application,
+        applications_root=V2_DIR,
+        database_path=database_path,
+    )
     executor = CellExecutor(
         database,
         applications_root=V2_DIR,

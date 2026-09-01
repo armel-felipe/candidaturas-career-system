@@ -219,31 +219,27 @@ class CellExecutor:
                 continue
             if not self._dependencies_validated(run_id, node_id):
                 continue
-            reservation = self._reserve_node_for_execution(
-                paths, run_id, node_id
+            reservation, reconciliation_error = self._reserve_node_for_execution(
+                paths,
+                run_id,
+                node_id,
+                previous_status=str(ready.get("status") or ""),
+                previous_attempt=int(ready.get("latest_attempt") or 0),
             )
             if reservation.get("status") != "reserved":
                 continue
-            if (
-                ready.get("status") in {"reserved", "running"}
-                and int(reservation["attempt"]) > int(ready["latest_attempt"])
-            ):
-                try:
-                    ManifestStore(paths).reconcile_expired_attempt(
-                        node_id, int(ready["latest_attempt"])
+            if reconciliation_error:
+                results.append(
+                    self._block_reserved(
+                        paths,
+                        self._node(plan, node_id),
+                        reservation,
+                        reconciliation_error,
+                        (),
+                        (),
                     )
-                except Exception as exc:
-                    results.append(
-                        self._block_reserved(
-                            paths,
-                            self._node(plan, node_id),
-                            reservation,
-                            f"reconciliation_error:{type(exc).__name__}:{exc}",
-                            (),
-                            (),
-                        )
-                    )
-                    continue
+                )
+                continue
             results.append(
                 self._execute_reserved(plan, paths, self._node(plan, node_id), reservation)
             )
@@ -326,22 +322,41 @@ class CellExecutor:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _reserve_node_for_execution(
-        self, paths: ApplicationPaths, run_id: str, node_id: str
-    ) -> dict[str, Any]:
-        if node_id != "analyze_fit":
-            return self.store.reserve_node(
+        self,
+        paths: ApplicationPaths,
+        run_id: str,
+        node_id: str,
+        *,
+        previous_status: str = "",
+        previous_attempt: int = 0,
+    ) -> tuple[dict[str, Any], str]:
+        @contextmanager
+        def maybe_locked():
+            if node_id == "analyze_fit":
+                with self._external_attempt_lock(paths, run_id):
+                    yield
+            else:
+                yield
+
+        with maybe_locked():
+            reservation = self.store.reserve_node(
                 run_id,
                 node_id,
                 self.worker_id,
                 lease_seconds=self.lease_seconds,
             )
-        with self._external_attempt_lock(paths, run_id):
-            return self.store.reserve_node(
-                run_id,
-                node_id,
-                self.worker_id,
-                lease_seconds=self.lease_seconds,
-            )
+            if (
+                reservation.get("status") == "reserved"
+                and previous_status in {"reserved", "running"}
+                and int(reservation["attempt"]) > previous_attempt
+            ):
+                try:
+                    ManifestStore(paths).reconcile_expired_attempt(
+                        node_id, previous_attempt
+                    )
+                except Exception as exc:
+                    return reservation, f"reconciliation_error:{type(exc).__name__}:{exc}"
+            return reservation, ""
 
     def prepare_ready_node(
         self, run_id: str, node_id: str, *, _lock_held: bool = False
@@ -485,7 +500,20 @@ class CellExecutor:
                 / node_id
                 / f"{latest_attempt}.handoff.json"
             )
-            if active_manifest.is_file() and active_handoff.is_file():
+            normal_request_dir = (
+                paths.requests_dir
+                / "cellular"
+                / run_id
+                / node_id
+                / str(latest_attempt)
+            )
+            normal_request = normal_request_dir / "request.json"
+            normal_request_md = normal_request_dir / "request.md"
+            if active_manifest.is_file() and (
+                active_handoff.is_file()
+                or normal_request.is_file()
+                or normal_request_md.is_file()
+            ):
                 manifest = read_json(active_manifest)
                 expected_active = {
                     "kind": "cell_attempt_manifest",
@@ -504,7 +532,11 @@ class CellExecutor:
                         "node_id": node_id,
                         "next_attempt": latest_attempt,
                         "handoff_manifest_path": str(active_manifest.resolve()),
-                        "handoff_path": str(active_handoff.resolve()),
+                        "handoff_path": str(
+                            active_handoff.resolve()
+                            if active_handoff.is_file()
+                            else normal_request.resolve()
+                        ),
                     }
             return {
                 "status": "blocked",
@@ -531,9 +563,23 @@ class CellExecutor:
             "draft_binding" in normalized_blocker
             or "draft binding" in normalized_blocker
         )
-        if node_status in {"reserved", "running"} and not stale_binding:
-            binding_path = paths.app_dir / "fit_map.draft.binding.json"
-            stale_binding = paths.fit_map_draft.is_file() or binding_path.is_file()
+        binding_path = paths.app_dir / "fit_map.draft.binding.json"
+        has_external_inputs = paths.fit_map_draft.is_file() or binding_path.is_file()
+        if not stale_binding and has_external_inputs:
+            try:
+                self._validate_fit_map_draft_binding(
+                    paths, run_id=run_id, attempt=latest_attempt
+                )
+            except ValueError as exc:
+                stale_binding = True
+                blocker_reason = str(exc)
+            else:
+                return {
+                    "status": "unchanged",
+                    "run_id": run_id,
+                    "node_id": node_id,
+                    "next_attempt": latest_attempt + 1,
+                }
         if not stale_binding:
             return {
                 "status": "unchanged",
