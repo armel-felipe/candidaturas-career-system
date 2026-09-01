@@ -3187,6 +3187,7 @@ def inspect_repair_progress(
     review_report: dict[str, Any],
     cv_content_sha256: str,
     previous_progress: dict[str, Any] | None = None,
+    polish_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Classify a cellular CV repair using artifact and blocker fingerprints."""
     blockers = review_report.get("blockers", []) if isinstance(review_report, dict) else []
@@ -3203,17 +3204,27 @@ def inspect_repair_progress(
         and item.get("coverage_class") == "missing_unexplained"
         and item.get("keyword")
     )
+    polish_blocker_ids = sorted(
+        str(item.get("id") or item.get("code"))
+        for item in (polish_report or {}).get("approval_blockers", [])
+        if isinstance(item, dict) and (item.get("id") or item.get("code"))
+    )
     blocker_fingerprint = _sha256_json(
-        {"blocker_ids": blocker_ids, "missing_top8": missing_top8}
+        {
+            "blocker_ids": blocker_ids,
+            "missing_top8": missing_top8,
+            "polish_blocker_ids": polish_blocker_ids,
+        }
     )
     evidence = {
         "cv_content_sha256": str(cv_content_sha256 or ""),
         "blocker_fingerprint": blocker_fingerprint,
         "blocker_ids": blocker_ids,
         "missing_top8": missing_top8,
+        "polish_blocker_ids": polish_blocker_ids,
     }
     if not isinstance(previous_progress, dict):
-        return {"status": "initial", **evidence}
+        return {"status": "changed", **evidence}
     if (
         evidence["cv_content_sha256"]
         and previous_progress.get("cv_content_sha256")
@@ -3256,7 +3267,9 @@ def _latest_cellular_cv_content_sha256(executor: Any, paths: Any, run_id: str) -
     return ""
 
 
-def _latest_cellular_repair_progress(paths: Any, run_id: str) -> dict[str, Any] | None:
+def _latest_cellular_repair_progress(
+    executor: Any, paths: Any, run_id: str
+) -> dict[str, Any] | None:
     repair_root = paths.requests_dir / "cellular" / run_id / "repair"
     candidates = sorted(
         (path for path in repair_root.glob("*/progress.json") if path.is_file()),
@@ -3266,6 +3279,54 @@ def _latest_cellular_repair_progress(paths: Any, run_id: str) -> dict[str, Any] 
         payload = read_json(path)
         if isinstance(payload, dict) and payload.get("run_id") == run_id:
             return payload
+    # Backfill a baseline from the preceding persisted review/compose pair.
+    # This makes old runs safe on their first resume even if progress.json did
+    # not exist before this hardening was deployed.
+    review_row = executor.database.fetch_one(
+        "SELECT latest_attempt FROM cell_nodes "
+        "WHERE run_id = ? AND node_id = 'review_cv'",
+        (run_id,),
+    )
+    latest_review = int(review_row["latest_attempt"] or 0) if review_row else 0
+    if latest_review <= 1:
+        return None
+    previous_review = (
+        paths.cells_dir
+        / run_id
+        / "review_cv"
+        / str(latest_review - 1)
+        / "staging"
+        / "cv_review.json"
+    )
+    previous_compose = (
+        paths.cells_dir
+        / run_id
+        / "compose_cv"
+        / str(latest_review - 1)
+        / "manifest.json"
+    )
+    if not previous_review.is_file() or not previous_compose.is_file():
+        return None
+    report = read_json(previous_review)
+    compose_manifest = read_json(previous_compose)
+    cv_hash = ""
+    for output in compose_manifest.get("outputs", []):
+        if isinstance(output, dict) and output.get("artifact_name") == "cv_content.json":
+            artifact = Path(str(output.get("path") or ""))
+            if artifact.is_file():
+                cv_hash = sha256_file(artifact)
+                break
+    if not cv_hash:
+        return None
+    return {
+        "kind": "cellular_cv_repair_progress",
+        "application_id": paths.application_id,
+        "run_id": run_id,
+        **inspect_repair_progress(
+            review_report=report,
+            cv_content_sha256=cv_hash,
+        ),
+    }
     return None
 
 
@@ -3956,6 +4017,10 @@ def _process_cellular_application(
                 break
             processed_review_attempts.add(review_key)
             review_report = read_json(review_report_path) if review_report_path.is_file() else {}
+            polish_report_path = review_report_path.parent / "polish_review.json"
+            polish_report = (
+                read_json(polish_report_path) if polish_report_path.is_file() else {}
+            )
             blockers = {
                 str(item.get("id"))
                 for item in review_report.get("blockers", [])
@@ -3974,11 +4039,19 @@ def _process_cellular_application(
             current_cv_hash = _latest_cellular_cv_content_sha256(
                 executor, paths, run_id
             )
+            previous_progress = _latest_cellular_repair_progress(
+                executor, paths, run_id
+            )
             progress_decision = inspect_repair_progress(
                 review_report=review_report,
                 cv_content_sha256=current_cv_hash,
-                previous_progress=_latest_cellular_repair_progress(paths, run_id),
+                previous_progress=previous_progress,
+                polish_report=polish_report,
             )
+            if progress_decision["status"] == "changed" and previous_progress is None:
+                _persist_cellular_repair_progress(
+                    paths, run_id, int(blocked_review.attempt), progress_decision
+                )
             if progress_decision["status"] == "no_progress":
                 _persist_cellular_repair_progress(
                     paths, run_id, int(blocked_review.attempt), progress_decision
@@ -4084,11 +4157,18 @@ def _process_cellular_application(
                 )
                 if latest_report_path.is_file():
                     latest_report = read_json(latest_report_path)
+                    latest_polish_path = latest_report_path.parent / "polish_review.json"
+                    latest_polish = (
+                        read_json(latest_polish_path)
+                        if latest_polish_path.is_file()
+                        else {}
+                    )
                     latest_evidence = inspect_repair_progress(
                         review_report=latest_report,
                         cv_content_sha256=_latest_cellular_cv_content_sha256(
                             executor, paths, run_id
                         ),
+                        polish_report=latest_polish,
                     )
                     _persist_cellular_repair_progress(
                         paths,
