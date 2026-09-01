@@ -421,6 +421,37 @@ class CellExecutor:
             and expiry > now
         )
         if active_lease:
+            active_manifest = (
+                paths.cells_dir / node_id / str(latest_attempt) / "manifest.json"
+            )
+            active_handoff = (
+                paths.requests_dir
+                / "cellular"
+                / run_id
+                / node_id
+                / f"{latest_attempt}.handoff.json"
+            )
+            if active_manifest.is_file() and active_handoff.is_file():
+                manifest = read_json(active_manifest)
+                expected_active = {
+                    "kind": "cell_attempt_manifest",
+                    "application_id": paths.application_id,
+                    "run_id": run_id,
+                    "node_id": node_id,
+                    "attempt": latest_attempt,
+                }
+                if all(
+                    manifest.get(key) == value
+                    for key, value in expected_active.items()
+                ):
+                    return {
+                        "status": "awaiting_agent",
+                        "run_id": run_id,
+                        "node_id": node_id,
+                        "next_attempt": latest_attempt,
+                        "handoff_manifest_path": str(active_manifest.resolve()),
+                        "handoff_path": str(active_handoff.resolve()),
+                    }
             return {
                 "status": "blocked",
                 "run_id": run_id,
@@ -467,8 +498,9 @@ class CellExecutor:
             blocker_reason = str(exc)
 
         # A stale reservation may have no usable owner after a process crash.
-        # Reconcile both tables under one immediate transaction, then leave
-        # the node planned. The next prepare_ready_node owns the new lease.
+        # Reconcile both tables under one immediate transaction, then create
+        # the next external handoff through the same canonical reservation and
+        # manifest path used by the normal analyze_fit flow.
         with self.database.transaction(immediate=True) as conn:
             current = conn.execute(
                 """SELECT status, latest_attempt, reservation_expires_at
@@ -508,6 +540,25 @@ class CellExecutor:
                 (now, run_id, node_id, latest_attempt),
             )
 
+        prepared = self.prepare_ready_node(run_id, node_id)
+        expected_manifest_path = (
+            paths.cells_dir / node_id / str(latest_attempt + 1) / "manifest.json"
+        ).resolve()
+        if prepared.attempt != latest_attempt + 1:
+            raise RuntimeError("stale analyze-fit recovery reserved an unexpected attempt")
+        if prepared.manifest_path.resolve() != expected_manifest_path:
+            raise RuntimeError("stale analyze-fit recovery produced an unexpected manifest")
+        manifest = read_json(prepared.manifest_path)
+        expected_manifest = {
+            "kind": "cell_attempt_manifest",
+            "application_id": paths.application_id,
+            "run_id": run_id,
+            "node_id": node_id,
+            "attempt": latest_attempt + 1,
+        }
+        if any(manifest.get(key) != value for key, value in expected_manifest.items()):
+            raise RuntimeError("stale analyze-fit recovery manifest identity mismatch")
+
         handoff_path = (
             paths.requests_dir
             / "cellular"
@@ -521,10 +572,9 @@ class CellExecutor:
             "run_id": run_id,
             "node_id": node_id,
             "attempt": latest_attempt + 1,
-            "status": "planned",
-            "expected_manifest_path": str(
-                paths.cells_dir / node_id / str(latest_attempt + 1) / "manifest.json"
-            ),
+            "status": "reserved",
+            "expected_manifest_path": str(expected_manifest_path),
+            "manifest_path": str(prepared.manifest_path.resolve()),
             "created_at": utc_now_iso(),
         }
         write_json(handoff_path, handoff)
@@ -533,12 +583,13 @@ class CellExecutor:
             raise RuntimeError("stale analyze-fit handoff manifest identity mismatch")
 
         return {
-            "status": "planned",
+            "status": "awaiting_agent",
             "run_id": run_id,
             "node_id": node_id,
             "next_attempt": latest_attempt + 1,
             "blocker_reason": blocker_reason or "stale_analyze_fit_binding",
-            "handoff_manifest_path": str(handoff_path),
+            "handoff_manifest_path": str(prepared.manifest_path.resolve()),
+            "handoff_path": str(handoff_path.resolve()),
         }
 
     def repair(self, run_id: str, node_id: str, reason: str) -> RepairResult:

@@ -3631,7 +3631,7 @@ def _process_cellular_application(
                     ),
                 }
             ]
-        if stale_analyze_recovery.get("status") == "planned":
+        if stale_analyze_recovery.get("status") in {"planned", "awaiting_agent"}:
             return [
                 {
                     "status": "awaiting_agent",
@@ -3639,9 +3639,8 @@ def _process_cellular_application(
                     "run_id": run_id,
                     "node_id": "analyze_fit",
                     "attempt": stale_analyze_recovery["next_attempt"],
-                    "manifest_path": stale_analyze_recovery.get(
-                        "handoff_manifest_path", ""
-                    ),
+                    "manifest_path": stale_analyze_recovery.get("handoff_manifest_path", ""),
+                    "handoff_path": stale_analyze_recovery.get("handoff_path", ""),
                     "artifact_paths": [],
                     "blocker": "stale_analyze_binding_recovered",
                 }

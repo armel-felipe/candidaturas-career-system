@@ -124,7 +124,7 @@ def test_stale_analyze_binding_is_quarantined_and_new_attempt_is_planned(
             plan.run_id, "analyze_fit"
         )
 
-        assert result["status"] == "planned"
+        assert result["status"] == "awaiting_agent"
         assert result["next_attempt"] == 6
         assert not paths.fit_map_draft.exists()
         assert paths.requests_dir.joinpath("quarantine").is_dir()
@@ -134,21 +134,38 @@ def test_stale_analyze_binding_is_quarantined_and_new_attempt_is_planned(
             "FROM cell_nodes WHERE run_id = ? AND node_id = ?",
             (plan.run_id, "analyze_fit"),
         )
-        assert row["status"] == "planned"
-        assert row["latest_attempt"] == 5
-        assert row["reserved_by"] is None
-        assert row["reservation_expires_at"] is None
-        handoff = json.loads(
-            Path(result["handoff_manifest_path"]).read_text(encoding="utf-8")
-        )
+        assert row["status"] == "reserved"
+        assert row["latest_attempt"] == 6
+        assert row["reserved_by"] == executor.worker_id
+        assert row["reservation_expires_at"]
+        handoff_path = Path(result["handoff_path"])
+        handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
         assert handoff["kind"] == "cellular_external_attempt_handoff"
         assert handoff["application_id"] == application_id
         assert handoff["run_id"] == plan.run_id
         assert handoff["node_id"] == "analyze_fit"
         assert handoff["attempt"] == 6
-        fresh = executor.prepare_ready_node(plan.run_id, "analyze_fit")
-        assert fresh.attempt == 6
-        executor.defer_prepared_attempt(fresh, reason="test cleanup")
+        manifest_path = Path(result["handoff_manifest_path"])
+        assert manifest_path.is_file()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest["kind"] == "cell_attempt_manifest"
+        assert manifest["application_id"] == application_id
+        assert manifest["run_id"] == plan.run_id
+        assert manifest["node_id"] == "analyze_fit"
+        assert manifest["attempt"] == 6
+        second = executor.recover_stale_external_attempt(
+            plan.run_id, "analyze_fit"
+        )
+        assert second["status"] == "awaiting_agent"
+        assert second["next_attempt"] == 6
+        assert second["handoff_manifest_path"] == str(manifest_path.resolve())
+        executor.store.defer_attempt(
+            plan.run_id,
+            "analyze_fit",
+            6,
+            executor.worker_id,
+            reason="test cleanup",
+        )
     finally:
         database.close()
 
