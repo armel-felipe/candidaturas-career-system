@@ -289,7 +289,9 @@ class TestRunConversationCodexPath:
         agent.valid_tool_names = set(getattr(agent, "valid_tool_names", set()))
         agent.valid_tool_names.add("skill_manage")
 
-        with patch.object(agent, "_spawn_background_review",
+        with patch("hermes_cli.config.load_config", return_value={
+            "curator": {"enabled": True, "review_skills": True}
+        }), patch.object(agent, "_spawn_background_review",
                           return_value=None) as spawn:
             agent.run_conversation("do tool work")
 
@@ -769,4 +771,3 @@ class TestCodexToolProgressBridge:
 
         assert "on_event" in captured_init and captured_init["on_event"] is not None
         assert ("tool.started", "exec_command", "pytest") in events
-

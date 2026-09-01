@@ -22,6 +22,7 @@ move-and-name refactor with no semantic change.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import uuid
@@ -36,6 +37,156 @@ from agent.model_metadata import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_SESSION_HISTORY_MAX_CHARS = 80_000
+
+
+def serialized_session_history_size(messages: List[Dict[str, Any]]) -> int:
+    """Return the deterministic character size used by the session bound."""
+    return len(json.dumps(messages, ensure_ascii=False, separators=(",", ":"), default=str))
+
+
+def _is_task_summary(message: Any) -> bool:
+    if not isinstance(message, dict) or message.get("role") != "user":
+        return False
+    content = message.get("content")
+    if not isinstance(content, str):
+        return False
+    return content.lstrip().startswith(("[CONTEXT COMPACTION", "[CONTEXT SUMMARY]:"))
+
+
+def _shorten_message_copy(message: Dict[str, Any], target_chars: int) -> Dict[str, Any]:
+    """Shorten a mandatory message only when its full form cannot fit."""
+    result = dict(message)
+    content = result.get("content")
+    if not isinstance(content, str):
+        return result
+    if target_chars <= 0:
+        result["content"] = ""
+        return result
+    if len(content) <= target_chars:
+        return result
+    marker = " … [context bound] … "
+    if target_chars <= len(marker):
+        result["content"] = content[:target_chars]
+    else:
+        left = (target_chars - len(marker) + 1) // 2
+        right = target_chars - len(marker) - left
+        result["content"] = content[:left] + marker + content[-right:]
+    return result
+
+
+def _fit_mandatory_messages(messages: List[Dict[str, Any]], max_chars: int) -> List[Dict[str, Any]]:
+    """Keep mandatory messages bounded as a last resort, without touching input."""
+    fitted = [dict(message) for message in messages]
+    while serialized_session_history_size(fitted) > max_chars:
+        candidates = [
+            (idx, len(message.get("content", "")))
+            for idx, message in enumerate(fitted)
+            if isinstance(message.get("content"), str) and message.get("content")
+        ]
+        if not candidates:
+            break
+        idx, content_len = max(candidates, key=lambda item: item[1])
+        over = serialized_session_history_size(fitted) - max_chars
+        fitted[idx] = _shorten_message_copy(fitted[idx], max(0, content_len - over - 1))
+    return fitted
+
+
+def bound_session_history(
+    history: Optional[List[Dict[str, Any]]], max_chars: int
+) -> List[Dict[str, Any]]:
+    """Bound a session transcript at message boundaries.
+
+    The newest message is the active turn and the newest context summary is a
+    task handoff. Both are retained, then whole recent messages are added from
+    newest to oldest while they fit. The caller's message dictionaries are not
+    mutated; persistent state and artifacts remain owned by their normal stores.
+    """
+    messages = list(history or [])
+    try:
+        limit = int(max_chars)
+    except (TypeError, ValueError):
+        limit = DEFAULT_SESSION_HISTORY_MAX_CHARS
+    if limit <= 0 or serialized_session_history_size(messages) <= limit:
+        return messages
+
+    current_idx = len(messages) - 1
+    summary_idx = next(
+        (idx for idx in range(current_idx - 1, -1, -1) if _is_task_summary(messages[idx])),
+        None,
+    )
+    mandatory = [idx for idx in (summary_idx, current_idx) if idx is not None]
+    selected = set(mandatory)
+
+    for idx in range(current_idx - 1, -1, -1):
+        if idx in selected:
+            continue
+        candidate = [messages[item] for item in sorted((*selected, idx))]
+        if serialized_session_history_size(candidate) <= limit:
+            selected.add(idx)
+
+    bounded = [messages[idx] for idx in sorted(selected)]
+    if serialized_session_history_size(bounded) > limit:
+        bounded = _fit_mandatory_messages(bounded, limit)
+    return bounded
+
+
+def _configured_history_limit(agent: Any, explicit: Optional[int]) -> int:
+    if explicit is not None:
+        try:
+            return max(1, int(explicit))
+        except (TypeError, ValueError):
+            pass
+    for attr in ("session_context_max_chars", "max_session_history_chars"):
+        value = getattr(agent, attr, None)
+        if value is not None:
+            try:
+                return max(1, int(value))
+            except (TypeError, ValueError):
+                pass
+    try:
+        from hermes_cli.config import load_config
+
+        config = load_config()
+    except Exception:
+        config = {}
+    candidates = [
+        config.get("session_context_max_chars"),
+        (config.get("session") or {}).get("max_history_chars")
+        if isinstance(config.get("session"), dict)
+        else None,
+        (config.get("compression") or {}).get("max_history_chars")
+        if isinstance(config.get("compression"), dict)
+        else None,
+    ]
+    for value in candidates:
+        try:
+            if value is not None:
+                return max(1, int(value))
+        except (TypeError, ValueError):
+            continue
+    return DEFAULT_SESSION_HISTORY_MAX_CHARS
+
+
+def _emit_session_context_compacted(
+    agent: Any, *, previous_chars: int, new_chars: int, max_chars: int, removed_messages: int
+) -> None:
+    callback = getattr(agent, "event_callback", None)
+    if not callable(callback):
+        return
+    payload = {
+        "session_id": getattr(agent, "session_id", None),
+        "task_id": getattr(agent, "_current_task_id", None),
+        "previous_chars": previous_chars,
+        "new_chars": new_chars,
+        "max_chars": max_chars,
+        "removed_messages": removed_messages,
+    }
+    try:
+        callback("session_context_compacted", payload)
+    except Exception:
+        logger.debug("session_context_compacted event callback failed", exc_info=True)
 
 
 class PreLlmHookBlocked(RuntimeError):
@@ -137,6 +288,7 @@ def build_turn_context(
     set_session_context,
     set_current_write_origin,
     ra,
+    max_history_chars: Optional[int] = None,
 ) -> TurnContext:
     """Run the once-per-turn setup and return the loop's input context.
 
@@ -322,6 +474,25 @@ def build_turn_context(
     messages.append(user_msg)
     current_turn_user_idx = len(messages) - 1
     agent._persist_user_message_idx = current_turn_user_idx
+
+    # Bound the live/persisted request context before either hook payloads or
+    # model payloads are assembled. This only selects whole message rows; the
+    # durable stores remain untouched and can still retain the full lineage.
+    _history_limit = _configured_history_limit(agent, max_history_chars)
+    _history_before_chars = serialized_session_history_size(messages)
+    _bounded_messages = bound_session_history(messages, _history_limit)
+    if len(_bounded_messages) != len(messages):
+        _removed_messages = len(messages) - len(_bounded_messages)
+        messages = _bounded_messages
+        current_turn_user_idx = len(messages) - 1
+        agent._persist_user_message_idx = current_turn_user_idx
+        _emit_session_context_compacted(
+            agent,
+            previous_chars=_history_before_chars,
+            new_chars=serialized_session_history_size(messages),
+            max_chars=_history_limit,
+            removed_messages=_removed_messages,
+        )
 
     # Cosmetic side-signal: detect an affection "reaction" (ily / <3 / good bot)
     # and notify the host so it can play hearts. Token-free, never touches the

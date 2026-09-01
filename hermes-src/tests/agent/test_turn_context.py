@@ -9,12 +9,18 @@ confirm the prologue produces the right ``TurnContext`` and applies the
 from __future__ import annotations
 
 import types
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from agent.context_compressor import ContextCompressor
-from agent.turn_context import PreLlmHookBlocked, TurnContext, build_turn_context
+from agent.turn_context import (
+    PreLlmHookBlocked,
+    TurnContext,
+    bound_session_history,
+    build_turn_context,
+)
 from hermes_state import SessionDB
 
 
@@ -162,6 +168,50 @@ def _build(agent, **overrides):
     )
     kwargs.update(overrides)
     return build_turn_context(**kwargs)
+
+
+def _serialized_size(messages):
+    return len(json.dumps(messages, ensure_ascii=False, separators=(",", ":")))
+
+
+def test_session_history_is_bounded_before_pre_llm_hook():
+    history = [
+        {"role": "user", "content": "[CONTEXT SUMMARY]: preserve task summary"},
+        *[
+            {"role": role, "content": f"{role}-{idx}-" + ("x" * 900)}
+            for idx in range(90)
+            for role in ("user", "assistant")
+        ],
+        {"role": "user", "content": "current message must remain"},
+    ]
+    bounded = bound_session_history(history, max_chars=8_000)
+
+    assert _serialized_size(bounded) <= 8_000
+    assert bounded[-1]["content"] == "current message must remain"
+    assert bounded[0]["content"] == "[CONTEXT SUMMARY]: preserve task summary"
+    assert all("x" * 900 in message["content"] for message in bounded[1:-1])
+
+
+def test_session_compaction_emits_metadata_without_transcript():
+    agent = _FakeAgent()
+    events = []
+    agent.event_callback = lambda name, payload: events.append((name, payload))
+    history = [
+        {"role": "user", "content": f"old-{idx}-" + ("x" * 900)}
+        for idx in range(20)
+    ]
+
+    with patch("hermes_cli.plugins.invoke_hook", return_value=[]):
+        ctx = _build(agent, conversation_history=history, max_history_chars=2_000)
+
+    assert _serialized_size(ctx.messages) <= 2_000
+    assert events and events[0][0] == "session_context_compacted"
+    payload = events[0][1]
+    assert payload["previous_chars"] > payload["new_chars"]
+    assert payload["max_chars"] == 2_000
+    assert "messages" not in payload
+    assert "transcript" not in payload
+
 
 
 def test_returns_turn_context_with_user_message_appended():

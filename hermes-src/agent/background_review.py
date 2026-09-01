@@ -28,6 +28,26 @@ from agent.thread_scoped_output import thread_scoped_silence
 logger = logging.getLogger(__name__)
 
 
+def should_review_skills(
+    *, config: Optional[Dict[str, Any]] = None, valid_tools: Optional[set] = None
+) -> bool:
+    """Return whether automatic skill review has been explicitly enabled."""
+    if valid_tools is not None and "skill_manage" not in valid_tools:
+        return False
+    if config is None:
+        try:
+            from hermes_cli.config import load_config
+            config = load_config()
+        except Exception:
+            config = {}
+    curator = config.get("curator") if isinstance(config, dict) else None
+    return (
+        isinstance(curator, dict)
+        and curator.get("enabled") is True
+        and curator.get("review_skills") is True
+    )
+
+
 # ---------------------------------------------------------------------------
 # Background-review aux-model selector + routed digest.
 #
@@ -975,4 +995,5 @@ __all__ = [
     "spawn_background_review_thread",
     "summarize_background_review_actions",
     "build_memory_write_metadata",
+    "should_review_skills",
 ]

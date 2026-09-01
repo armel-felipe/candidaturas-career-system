@@ -478,7 +478,9 @@ def finalize_turn(
 
     # Check skill trigger NOW — based on how many tool iterations THIS turn used.
     _should_review_skills = False
-    if (agent._skill_nudge_interval > 0
+    from agent.background_review import should_review_skills
+    if (should_review_skills(valid_tools=agent.valid_tool_names)
+            and agent._skill_nudge_interval > 0
             and agent._iters_since_skill >= agent._skill_nudge_interval
             and "skill_manage" in agent.valid_tool_names):
         _should_review_skills = True
