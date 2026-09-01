@@ -219,11 +219,8 @@ class CellExecutor:
                 continue
             if not self._dependencies_validated(run_id, node_id):
                 continue
-            reservation = self.store.reserve_node(
-                run_id,
-                node_id,
-                self.worker_id,
-                lease_seconds=self.lease_seconds,
+            reservation = self._reserve_node_for_execution(
+                paths, run_id, node_id
             )
             if reservation.get("status") != "reserved":
                 continue
@@ -307,8 +304,53 @@ class CellExecutor:
                 break
         return tuple(results)
 
-    def prepare_ready_node(self, run_id: str, node_id: str) -> PreparedCellAttempt:
+    @contextmanager
+    def _external_attempt_lock(
+        self, paths: ApplicationPaths, run_id: str
+    ):
+        """Serialize all analyze_fit reservation and recovery filesystem work."""
+        import fcntl
+
+        lock_path = (
+            paths.requests_dir
+            / "cellular"
+            / run_id
+            / ".analyze_fit.recovery.lock"
+        )
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def _reserve_node_for_execution(
+        self, paths: ApplicationPaths, run_id: str, node_id: str
+    ) -> dict[str, Any]:
+        if node_id != "analyze_fit":
+            return self.store.reserve_node(
+                run_id,
+                node_id,
+                self.worker_id,
+                lease_seconds=self.lease_seconds,
+            )
+        with self._external_attempt_lock(paths, run_id):
+            return self.store.reserve_node(
+                run_id,
+                node_id,
+                self.worker_id,
+                lease_seconds=self.lease_seconds,
+            )
+
+    def prepare_ready_node(
+        self, run_id: str, node_id: str, *, _lock_held: bool = False
+    ) -> PreparedCellAttempt:
         """Reserve one ready node so an external specialist can fill its inputs."""
+        if node_id == "analyze_fit" and not _lock_held:
+            _, paths = self._load_run(run_id)
+            with self._external_attempt_lock(paths, run_id):
+                return self.prepare_ready_node(run_id, node_id, _lock_held=True)
         self._renew_workspace_lease()
         plan, paths = self._load_run(run_id)
         node = self._node(plan, node_id)
@@ -372,6 +414,20 @@ class CellExecutor:
     def recover_stale_external_attempt(
         self, run_id: str, node_id: str
     ) -> dict[str, Any]:
+        self._renew_workspace_lease()
+        plan, paths = self._load_run(run_id)
+        with self._external_attempt_lock(paths, run_id):
+            return self._recover_stale_external_attempt_locked(
+                run_id, node_id, plan, paths
+            )
+
+    def _recover_stale_external_attempt_locked(
+        self,
+        run_id: str,
+        node_id: str,
+        plan: RunPlan,
+        paths: ApplicationPaths,
+    ) -> dict[str, Any]:
         """Requeue a blocked external attempt without consuming a fresh lease.
 
         ``analyze_fit`` is the only node whose inputs are authored outside the
@@ -382,8 +438,6 @@ class CellExecutor:
         """
         if node_id != "analyze_fit":
             raise ValueError("stale external attempt recovery is only supported for analyze_fit")
-        self._renew_workspace_lease()
-        plan, paths = self._load_run(run_id)
         if plan.application_id != paths.application_id:
             raise ValueError("cellular run application identity mismatch")
         row = self.database.fetch_one(
@@ -540,7 +594,7 @@ class CellExecutor:
                 (now, run_id, node_id, latest_attempt),
             )
 
-        prepared = self.prepare_ready_node(run_id, node_id)
+        prepared = self.prepare_ready_node(run_id, node_id, _lock_held=True)
         expected_manifest_path = (
             paths.cells_dir / node_id / str(latest_attempt + 1) / "manifest.json"
         ).resolve()
