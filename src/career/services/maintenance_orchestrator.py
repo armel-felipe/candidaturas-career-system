@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
-from career.services.maintenance import validate_maintenance_paths, validate_maintenance_request
+from career.services.maintenance import (
+    maintenance_request_fingerprint,
+    validate_maintenance_paths,
+    validate_maintenance_request,
+)
 
 
 _WORKTREE_METADATA_PREFIX = ".career-state/maintenance/"
@@ -197,8 +201,19 @@ class MaintenanceOrchestrator:
 
     def run_in_worktree(self, request_path: Path) -> dict[str, Any]:
         request_path = Path(request_path)
-        validate_maintenance_request(self.root, request_path)
+        request_validation = validate_maintenance_request(self.root, request_path)
+        path_policy = validate_maintenance_paths(self.root, request_validation["paths"])
+        if path_policy["status"] != "ok":
+            path = path_policy.get("path", "")
+            return {
+                "status": "rejected",
+                "changed_files": [],
+                "blocker_reason": f"{path}: {path_policy['blocker']}",
+            }
+        normalized_allowed_paths = list(path_policy["paths"])
         request = json.loads(request_path.read_text(encoding="utf-8"))
+        request["allowed_paths"] = normalized_allowed_paths
+        request["request_fingerprint"] = maintenance_request_fingerprint(request)
         base = subprocess.run(
             ["git", "-C", str(self.root), "rev-parse", "HEAD"],
             capture_output=True,
@@ -225,7 +240,7 @@ class MaintenanceOrchestrator:
             candidate = self._collect_candidate(
                 worktree,
                 base_commit,
-                list(request.get("allowed_paths", [])),
+                normalized_allowed_paths,
             )
             return {**candidate, "worktree": str(worktree), "agent": agent_result}
         finally:

@@ -40,6 +40,23 @@ class FakeMaintenanceRunner(MaintenanceOrchestrator):
         return {"status": "completed"}
 
 
+class PreflightProbe(MaintenanceOrchestrator):
+    def __init__(self, root: Path) -> None:
+        super().__init__(root)
+        self.worktree_calls = 0
+        self.agent_calls = 0
+
+    def _create_worktree(self, base_commit: str) -> Path:
+        self.worktree_calls += 1
+        return super()._create_worktree(base_commit)
+
+    def _run_maintenance_agent(
+        self, worktree: Path, request: dict[str, object]
+    ) -> dict[str, object]:
+        self.agent_calls += 1
+        return {"status": "completed"}
+
+
 def test_maintenance_agent_writes_only_inside_temporary_worktree(tmp_path: Path) -> None:
     root = make_git_fixture(
         tmp_path,
@@ -89,3 +106,16 @@ def test_candidate_diff_includes_allowlisted_new_file(tmp_path: Path) -> None:
     assert "diff --git a/src/career/services/new_clause.py b/src/career/services/new_clause.py" in str(
         result["diff"]
     )
+
+
+def test_blocked_allowlist_is_rejected_before_worktree_or_agent(tmp_path: Path) -> None:
+    root = make_git_fixture(tmp_path)
+    request = make_valid_request(root, allowed_paths=[".agents/skills/new-skill/SKILL.md"])
+    orchestrator = PreflightProbe(root)
+
+    result = orchestrator.run_in_worktree(Path(str(request["request_path"])))
+
+    assert result["status"] == "rejected"
+    assert "new_skill_forbidden" in str(result["blocker_reason"])
+    assert orchestrator.worktree_calls == 0
+    assert orchestrator.agent_calls == 0
