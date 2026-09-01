@@ -15,7 +15,7 @@ from career.services.maintenance import create_maintenance_request
 from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.maintenance_orchestrator import MaintenanceOrchestrator
 
-from test_canonical_maintenance import make_git_fixture
+from tests.test_canonical_maintenance import make_git_fixture
 
 
 def make_valid_request(
