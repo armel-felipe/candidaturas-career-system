@@ -1,9 +1,13 @@
+import hashlib
 import json
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from career.services.harness_supervisor import HarnessSupervisor
+from career.services.maintenance_orchestrator import MaintenanceOrchestrator
 
 from test_canonical_maintenance import make_git_fixture
 
@@ -24,6 +28,70 @@ def _maintenance_payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+class _ApprovedMaintenanceRunner:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def run_attempt(self, request: dict[str, object], attempt_number: int) -> dict[str, object]:
+        patch_path = self.root.parent / f"candidate-{attempt_number}.patch"
+        patch_text = (
+            "--- a/src/career/services/cv_content.py\n"
+            "+++ b/src/career/services/cv_content.py\n"
+            "@@ -1 +1 @@\n"
+            "-BASE\n"
+            "+CHANGED\n"
+        )
+        patch_path.write_text(patch_text, encoding="utf-8")
+        checks = {
+            "status": "passed",
+            "commands": [
+                {"name": name, "returncode": 0}
+                for name in [
+                    "git_diff_check",
+                    "base_commit",
+                    "changed_paths",
+                    "candidate_diff",
+                    "required_pytest",
+                ]
+            ],
+            "changed_files": ["src/career/services/cv_content.py"],
+        }
+        review = {
+            "status": "approved",
+            "score": 99.0,
+            "requirements": [
+                {"id": "REQ-1", "status": "met", "evidence": "offline canary"}
+            ],
+            "blockers": [],
+            "warnings": [],
+            "reviewer_model": "maintenance-reviewer",
+            "diff_sha256": hashlib.sha256(patch_text.encode("utf-8")).hexdigest(),
+            "spec_sha256": hashlib.sha256(
+                json.dumps(
+                    request["spec"],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest(),
+        }
+        return {
+            "status": "approved",
+            "candidate": {
+                "patch_path": str(patch_path),
+                "changed_files": ["src/career/services/cv_content.py"],
+            },
+            "checks": checks,
+            "review": review,
+        }
+
+    def post_apply_checks(
+        self, request: dict[str, object], patch_path: Path
+    ) -> dict[str, object]:
+        assert patch_path.is_file()
+        return self.run_attempt(request, 1)["checks"]
 
 
 def _maintenance_root(tmp_path):
@@ -134,6 +202,91 @@ def test_maintenance_request_execute_true_preserves_orchestrator_status(
     assert result["result"]["status"] == status
     assert result["result"]["application_id"] == "app_demo"
     assert captured["request"]["run_id"] == "run_demo"
+
+
+@pytest.mark.parametrize("profile", ["vagas_bot_01", "vagas_bot_02"])
+def test_structured_profile_request_commits_in_disposable_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+) -> None:
+    production_target = Path(__file__).resolve().parents[1] / "src/career/services/cv_content.py"
+    production_before = production_target.read_bytes()
+    root = _maintenance_root(tmp_path / "checkout")
+    base_commit = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    payload = _maintenance_payload(
+        requester_profile=profile,
+        application_id="app_disposable",
+        run_id="run_disposable",
+        base_commit=base_commit,
+    )
+    orchestrator = MaintenanceOrchestrator(root, runner=_ApprovedMaintenanceRunner(root))
+    monkeypatch.setattr(
+        orchestrator,
+        "reload_profiles_if_needed",
+        lambda changed_paths: {
+            "status": "not_required",
+            "policy": {"runtime_affecting": False, "changed_paths": changed_paths},
+            "command": None,
+            "docker_compose_ps": "",
+        },
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "resume_original_run",
+        lambda request: {
+            "status": "resumed",
+            "command": [
+                "npm",
+                "run",
+                "applications:run",
+                "--",
+                "--application-id",
+                request["application_id"],
+                "--run-id",
+                request["run_id"],
+                "--run-agent",
+            ],
+            "returncode": 0,
+            "stdout": "resumed\n",
+            "stderr": "",
+        },
+    )
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.MaintenanceOrchestrator",
+        lambda candidate_root: orchestrator,
+    )
+
+    result = HarnessSupervisor(root).handle_message(
+        json.dumps(payload),
+        execute=True,
+    )
+
+    assert result["status"] == "committed"
+    assert result["executed"] is True
+    assert result["result"]["request"]["requester_profile"] == profile
+    assert result["result"]["review"]["score"] >= 99.0
+    assert result["result"]["reload"]["status"] == "not_required"
+    assert result["result"]["resume"]["status"] == "resumed"
+    receipt_path = Path(str(result["result"]["receipt_path"]))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "committed"
+    assert receipt["requester_profile"] == profile
+    assert receipt["commit"] == result["result"]["commit"]
+    assert receipt["review"]["score"] >= 99.0
+    assert receipt["reload"]["status"] == "not_required"
+    assert receipt["resume"]["status"] == "resumed"
+    assert production_target.read_bytes() == production_before
+    committed_paths = subprocess.run(
+        ["git", "-C", str(root), "show", "--format=", "--name-only", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert committed_paths == ["src/career/services/cv_content.py"]
 
 
 def test_cv_onedrive_notion_is_one_scoped_pipeline():

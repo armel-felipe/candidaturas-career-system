@@ -18,15 +18,26 @@ from career.services.maintenance_orchestrator import MaintenanceOrchestrator
 from test_canonical_maintenance import make_git_fixture
 
 
-def make_valid_request(root: Path, *, allowed_paths: list[str]) -> dict[str, object]:
+def make_valid_request(
+    root: Path,
+    *,
+    allowed_paths: list[str],
+    requester_profile: str = "vagas_bot_01",
+) -> dict[str, object]:
+    base_commit = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
     return create_maintenance_request(
         root,
         objective="Corrigir cláusula canônica",
         allowed_paths=allowed_paths,
         spec={"requirements": [{"id": "REQ-1", "text": "Alterar apenas o arquivo permitido"}]},
         evidence={"error": "reprodução local"},
-        requester_profile="vagas_bot_01",
-        base_commit="fixture-base",
+        requester_profile=requester_profile,
+        base_commit=base_commit,
     )
 
 
@@ -961,6 +972,43 @@ def test_successful_commit_contains_request_roadmap_and_receipt(
     assert len(receipt["spec_sha256"]) == 64
     assert len(receipt["diff_sha256"]) == 64
     assert receipt["changed_files"] == ["src/career/services/cv_content.py"]
+
+
+@pytest.mark.parametrize("profile", ["vagas_bot_01", "vagas_bot_02"])
+def test_profile_canary_produces_same_canonical_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = make_valid_request(
+        root,
+        allowed_paths=["src/career/services/cv_content.py"],
+        requester_profile=profile,
+    )
+    orchestrator = MaintenanceOrchestrator(root, runner=SequencedRunner(root, ["approve"]))
+    _stub_successful_profile_reload(monkeypatch, orchestrator)
+
+    result = orchestrator.process(Path(str(request["request_path"])))
+
+    assert {
+        "status": result["status"],
+        "changed_files": result["changed_files"],
+        "review_score": result["review"]["score"],
+        "reload_status": result["reload"]["status"],
+        "resume_status": result["resume"]["status"],
+    } == {
+        "status": "committed",
+        "changed_files": ["src/career/services/cv_content.py"],
+        "review_score": 99.0,
+        "reload_status": "reloaded",
+        "resume_status": "not_requested",
+    }
+    receipt = json.loads(Path(str(result["receipt_path"])).read_text(encoding="utf-8"))
+    assert receipt["requester_profile"] == profile
+    assert receipt["status"] == "committed"
+    assert receipt["review"]["score"] >= 99.0
 
 
 def test_blocked_reload_prevents_resume_and_blocks_operational_result(
