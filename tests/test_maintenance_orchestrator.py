@@ -254,6 +254,10 @@ def test_reviewer_input_is_read_only_and_contains_required_evidence(
     monkeypatch.setattr(
         "career.services.maintenance_orchestrator.SubprocessAgentRunner", FakeReviewerRunner
     )
+    monkeypatch.setattr(
+        "career.services.maintenance_orchestrator.shutil.which",
+        lambda command: "/usr/bin/codex",
+    )
     checks = {
         "status": "passed",
         "commands": [
@@ -328,6 +332,50 @@ def test_reviewer_rejects_write_capable_runner_config(
 
     assert result["status"] == "rejected"
     assert result["blocker_reason"] == "reviewer_runner_must_be_read_only"
+
+
+def test_reviewer_rejects_non_codex_command_before_spawning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_git_fixture(tmp_path)
+    diff_path = tmp_path.parent / "candidate.patch"
+    diff_path.write_bytes(b"diff --git a/src/x.py b/src/x.py\n")
+    request = make_valid_request(root, allowed_paths=["src/x.py"])
+    request["reviewer_config"] = {
+        "kind": "codex",
+        "command": "fake-reviewer",
+        "sandbox": "read-only",
+    }
+    checks = {
+        "status": "passed",
+        "commands": [
+            {"name": name, "returncode": 0}
+            for name in [
+                "git_diff_check",
+                "base_commit",
+                "changed_paths",
+                "candidate_diff",
+                "required_pytest",
+            ]
+        ],
+        "changed_files": ["src/x.py"],
+    }
+
+    class UnexpectedReviewerRunner:
+        def __init__(self, runner_root: Path) -> None:
+            raise AssertionError("untrusted reviewer command must be rejected before spawning")
+
+    monkeypatch.setattr(
+        "career.services.maintenance_orchestrator.SubprocessAgentRunner",
+        UnexpectedReviewerRunner,
+    )
+
+    result = MaintenanceOrchestrator(root)._run_reviewer(
+        tmp_path / "review-input", request, diff_path, checks
+    )
+
+    assert result["status"] == "rejected"
+    assert result["blocker_reason"] == "reviewer_executable_not_trusted"
 
 
 def test_codex_reviewer_command_uses_read_only_sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

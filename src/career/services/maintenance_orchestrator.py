@@ -373,6 +373,18 @@ class MaintenanceOrchestrator:
         configured_sandbox = str(runner_config.get("sandbox") or "").casefold()
         if runner_kind != "codex" or (configured_sandbox and configured_sandbox != "read-only"):
             return {"status": "rejected", "blocker_reason": "reviewer_runner_must_be_read_only"}
+        configured_command = runner_config.get("command")
+        if configured_command is None:
+            configured_command = "codex"
+        if not isinstance(configured_command, str) or configured_command not in {"codex", "codex.exe"}:
+            return {"status": "rejected", "blocker_reason": "reviewer_executable_not_trusted"}
+        trusted_codex = shutil.which("codex")
+        resolved_command = shutil.which(configured_command)
+        if not trusted_codex or not resolved_command:
+            return {"status": "rejected", "blocker_reason": "reviewer_executable_not_trusted"}
+        if os.path.realpath(resolved_command) != os.path.realpath(trusted_codex):
+            return {"status": "rejected", "blocker_reason": "reviewer_executable_not_trusted"}
+        runner_config = {**runner_config, "command": configured_command}
 
         review_input_dir = Path(review_input_dir)
         review_input_dir.mkdir(parents=True, exist_ok=True)
