@@ -368,6 +368,7 @@ def build_turn_context(
     agent._persist_user_message_idx = None
     agent._persist_user_message_override = persist_user_message
     agent._persist_user_message_timestamp = persist_user_timestamp
+    agent._turn_persistence_base_messages = None
     # Generate unique task_id if not provided to isolate VMs between tasks.
     effective_task_id = task_id or str(uuid.uuid4())
     agent._current_task_id = effective_task_id
@@ -474,14 +475,21 @@ def build_turn_context(
     messages.append(user_msg)
     current_turn_user_idx = len(messages) - 1
     agent._persist_user_message_idx = current_turn_user_idx
+    # Keep the complete turn lineage for durable persistence. The bounded
+    # list below is only the live request context sent to hooks/models.
+    agent._turn_persistence_base_messages = list(messages)
 
-    # Bound the live/persisted request context before either hook payloads or
-    # model payloads are assembled. This only selects whole message rows; the
-    # durable stores remain untouched and can still retain the full lineage.
+    # Bound the live request context before either hook payloads or model
+    # payloads are assembled. This only selects/trims request rows; the
+    # durable stores retain the full lineage through the persistence base.
     _history_limit = _configured_history_limit(agent, max_history_chars)
     _history_before_chars = serialized_session_history_size(messages)
     _bounded_messages = bound_session_history(messages, _history_limit)
-    if len(_bounded_messages) != len(messages):
+    _history_after_chars = serialized_session_history_size(_bounded_messages)
+    if (
+        len(_bounded_messages) != len(messages)
+        or _history_after_chars != _history_before_chars
+    ):
         _removed_messages = len(messages) - len(_bounded_messages)
         messages = _bounded_messages
         current_turn_user_idx = len(messages) - 1
@@ -489,7 +497,7 @@ def build_turn_context(
         _emit_session_context_compacted(
             agent,
             previous_chars=_history_before_chars,
-            new_chars=serialized_session_history_size(messages),
+            new_chars=_history_after_chars,
             max_chars=_history_limit,
             removed_messages=_removed_messages,
         )
@@ -642,6 +650,10 @@ def build_turn_context(
                 conversation_history = conversation_history_after_compression(
                     agent, messages
                 )
+                # A real compressor boundary has its own persistence
+                # semantics. Continue preserving the compressed transcript,
+                # while the request bound itself remains non-destructive.
+                agent._turn_persistence_base_messages = list(messages)
                 agent._empty_content_retries = 0
                 agent._thinking_prefill_retries = 0
                 agent._last_content_with_tools = None

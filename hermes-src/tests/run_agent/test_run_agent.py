@@ -27,6 +27,26 @@ from agent.memory_manager import MemoryManager
 from agent.prompt_builder import DEFAULT_AGENT_IDENTITY
 
 
+def test_persist_session_keeps_full_lineage_when_context_is_bounded():
+    agent = object.__new__(AIAgent)
+    old_messages = [
+        {"role": "user", "content": "old-1"},
+        {"role": "assistant", "content": "old-2"},
+    ]
+    current = {"role": "user", "content": "current"}
+    assistant = {"role": "assistant", "content": "answer"}
+    agent._turn_persistence_base_messages = [*old_messages, current]
+    agent._drop_trailing_empty_response_scaffolding = MagicMock()
+    agent._save_session_log = MagicMock()
+    agent._flush_messages_to_session_db = MagicMock()
+
+    AIAgent._persist_session(agent, [current, assistant], old_messages)
+
+    persisted = agent._save_session_log.call_args.args[0]
+    assert persisted == [*old_messages, current, assistant]
+    assert agent._session_messages == persisted
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

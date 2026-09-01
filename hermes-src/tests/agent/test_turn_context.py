@@ -213,6 +213,22 @@ def test_session_compaction_emits_metadata_without_transcript():
     assert "transcript" not in payload
 
 
+def test_oversized_mandatory_message_is_bounded_and_emits_event():
+    agent = _FakeAgent()
+    events = []
+    agent.event_callback = lambda name, payload: events.append((name, payload))
+
+    with patch("hermes_cli.plugins.invoke_hook", return_value=[]):
+        ctx = _build(
+            agent,
+            user_message="current-" + ("x" * 5_000),
+            max_history_chars=100,
+        )
+
+    assert _serialized_size(ctx.messages) <= 100
+    assert events and events[0][0] == "session_context_compacted"
+
+
 
 def test_returns_turn_context_with_user_message_appended():
     agent = _FakeAgent()

@@ -1690,9 +1690,18 @@ class AIAgent:
         # Scaffolding removal mutates the live list (desired — ephemeral
         # retry/failure sentinels must not survive into the real transcript).
         self._drop_trailing_empty_response_scaffolding(messages)
-        self._session_messages = messages
-        self._save_session_log(messages)
-        self._flush_messages_to_session_db(messages, conversation_history)
+        persist_messages = messages
+        durable_base = getattr(self, "_turn_persistence_base_messages", None)
+        if isinstance(durable_base, list):
+            durable_ids = {id(item) for item in durable_base}
+            persist_messages = list(durable_base)
+            persist_messages.extend(
+                item for item in messages
+                if isinstance(item, dict) and id(item) not in durable_ids
+            )
+        self._session_messages = persist_messages
+        self._save_session_log(persist_messages)
+        self._flush_messages_to_session_db(persist_messages, conversation_history)
 
     def _drop_trailing_empty_response_scaffolding(self, messages: List[Dict]) -> None:
         """Remove private empty-response retry/failure scaffolding from transcript tails.
