@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from career import cli
 from career.services.maintenance import create_maintenance_request
 from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
 from career.services.maintenance_orchestrator import MaintenanceOrchestrator
@@ -92,6 +93,98 @@ def test_candidate_rejects_new_file_outside_allowlist(tmp_path: Path) -> None:
 
     assert result["status"] == "rejected"
     assert "outputs/forbidden.txt" in str(result["blocker_reason"])
+
+
+def test_cli_process_returns_blocked_receipt_for_invalid_request(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    request_path = tmp_path / "bad.json"
+    request_path.write_text("{}\n", encoding="utf-8")
+
+    exit_code = cli.main(["maintenance", "process", "--request", str(request_path)])
+
+    assert exit_code == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "blocked"
+
+
+def test_successful_skill_change_reloads_both_profiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "running\n", "")
+
+    monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", fake_run)
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=[".agents/skills/escrita-humana/SKILL.md"]
+    )
+
+    assert result["status"] == "reloaded"
+    assert result["command"][-2:] == ["vagas_bot_01", "vagas_bot_02"]
+    assert calls[0] == [
+        "docker",
+        "compose",
+        "-f",
+        "compose.yaml",
+        "up",
+        "-d",
+        "--force-recreate",
+        "vagas_bot_01",
+        "vagas_bot_02",
+    ]
+    assert calls[1][-2:] == ["vagas_bot_01", "vagas_bot_02"]
+    assert result["policy"]["runtime_affecting"] is True
+    assert result["docker_compose_ps"] == "running\n"
+
+
+def test_documentation_and_tests_do_not_reload_profiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_run(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Docker must not run for documentation/test changes")
+
+    monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", unexpected_run)
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=["docs/maintenance.md", "tests/test_maintenance_orchestrator.py"]
+    )
+
+    assert result["status"] == "not_required"
+    assert result["policy"]["runtime_affecting"] is False
+    assert result["command"] is None
+    assert result["docker_compose_ps"] == ""
+
+
+@pytest.mark.parametrize(
+    "changed_path",
+    [
+        "src/career/services/maintenance_orchestrator.py",
+        "hermes-src/agent.py",
+        "compose.yaml",
+        "hermes/vagas_bot_01/config.yaml",
+    ],
+)
+def test_runtime_and_config_changes_reload_both_profiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_path: str
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "running\n", "")
+
+    monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", fake_run)
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=[changed_path]
+    )
+
+    assert result["status"] == "reloaded"
+    assert result["policy"]["runtime_affecting"] is True
+    assert calls[0][-2:] == ["vagas_bot_01", "vagas_bot_02"]
 
 
 def test_candidate_diff_includes_allowlisted_new_file(tmp_path: Path) -> None:

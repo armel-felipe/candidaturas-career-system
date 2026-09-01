@@ -5,8 +5,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from career.services.database import Database
+from career.services.maintenance_orchestrator import MaintenanceOrchestrator
 from career.services.runtime_verifier import verify_runtime
 
 
@@ -14,6 +16,54 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RuntimeVerifierTests(unittest.TestCase):
+    def test_resume_requires_both_exact_application_and_run_ids(self) -> None:
+        for request in (
+            {"application_id": "app_exact", "run_id": ""},
+            {"application_id": "", "run_id": "run_exact"},
+        ):
+            with self.subTest(request=request), patch(
+                "career.services.maintenance_orchestrator.subprocess.run"
+            ) as run:
+                result = MaintenanceOrchestrator(ROOT).resume_original_run(request)
+
+            self.assertEqual(result["status"], "not_requested")
+            run.assert_not_called()
+
+    def test_resume_requires_exact_application_and_run_ids(self) -> None:
+        with patch("career.services.maintenance_orchestrator.subprocess.run") as run:
+            result = MaintenanceOrchestrator(ROOT).resume_original_run(
+                {"application_id": "", "run_id": ""}
+            )
+
+        self.assertEqual(result["status"], "not_requested")
+        run.assert_not_called()
+
+    def test_resume_uses_only_the_scoped_ids_from_the_request(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, "resumed\n", "")
+        with patch(
+            "career.services.maintenance_orchestrator.subprocess.run",
+            return_value=completed,
+        ) as run:
+            result = MaintenanceOrchestrator(ROOT).resume_original_run(
+                {"application_id": "app_exact", "run_id": "run_exact"}
+            )
+
+        self.assertEqual(result["status"], "resumed")
+        command = run.call_args.args[0]
+        self.assertEqual(
+            command,
+            [
+                "npm",
+                "run",
+                "applications:run",
+                "--",
+                "--application-id",
+                "app_exact",
+                "--run-id",
+                "run_exact",
+                "--run-agent",
+            ],
+        )
     def test_strict_verifier_blocks_unmigrated_database_without_mutating_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "missing.db"

@@ -45,7 +45,7 @@ from career.tasks.registry import (
     run_task,
 )
 from career.utils import ValidationFailure
-from career.utils import CareerError
+from career.utils import CareerError, read_json
 from career.workflow.state_store import WorkflowStateStore
 
 
@@ -444,6 +444,8 @@ def build_parser() -> argparse.ArgumentParser:
     maintenance_apply.add_argument("--patch", required=True)
     maintenance_apply.add_argument("--request", required=True)
     maintenance_apply.add_argument("--apply", action="store_true")
+    maintenance_process = maintenance_sub.add_parser("process")
+    maintenance_process.add_argument("--request", required=True)
 
     query = subparsers.add_parser("query")
     query.add_argument("--filter", default="")
@@ -1759,6 +1761,15 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
                 return 0
+            if args.action == "process":
+                payload = read_json(Path(args.request))
+                if not isinstance(payload, dict):
+                    raise ValueError("maintenance request must be a JSON object")
+                result = HarnessSupervisor(Path.cwd())._process_maintenance_request(
+                    payload, execute=True
+                )
+                _dump(result)
+                return 1 if result.get("status") in {"blocked", "rejected"} else 0
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             _dump_error(exc)
             return 1

@@ -39,6 +39,18 @@ _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _REQUIRED_CHECK_NAMES = frozenset(
     {"git_diff_check", "base_commit", "changed_paths", "candidate_diff", "required_pytest"}
 )
+_RUNTIME_AFFECTING_PREFIXES = ("src/", "hermes-src/", ".agents/skills/", "hermes/")
+_RUNTIME_AFFECTING_FILES = frozenset(
+    {
+        "compose.yaml",
+        "opencode.json",
+        "package.json",
+        "package-lock.json",
+        "requirements.txt",
+        "requirements-dev.txt",
+    }
+)
+_PROFILE_NAMES = ("vagas_bot_01", "vagas_bot_02")
 
 
 class MaintenanceOrchestrator:
@@ -854,13 +866,124 @@ class MaintenanceOrchestrator:
             )
             return {"status": "blocked", "blocker_reason": "canonical_commit_failed", "checks": post_apply_checks}
         commit_id = self._command_result(["git", "rev-parse", "HEAD"], cwd=self.root)
+        changed_files = sorted(committed_paths)
         return {
             "status": "committed",
             "commit": commit_id["stdout"].strip(),
-            "changed_files": sorted(committed_paths),
+            "changed_files": changed_files,
             "checks": post_apply_checks,
             "review": review,
             "dry_run": dry_run,
+            "reload": self.reload_profiles_if_needed(changed_files),
+            "resume": self.resume_original_run(request),
+        }
+
+    @staticmethod
+    def _path_requires_profile_reload(path: str) -> bool:
+        normalized = str(path).replace("\\", "/").strip()
+        return normalized in _RUNTIME_AFFECTING_FILES or normalized.startswith(
+            _RUNTIME_AFFECTING_PREFIXES
+        )
+
+    def reload_profiles_if_needed(self, changed_paths: list[str]) -> dict[str, Any]:
+        """Reload both bot profiles when committed paths affect runtime behavior."""
+        paths = sorted({str(path).replace("\\", "/").strip() for path in changed_paths if str(path).strip()})
+        policy = {
+            "runtime_affecting": any(self._path_requires_profile_reload(path) for path in paths),
+            "changed_paths": paths,
+        }
+        if not policy["runtime_affecting"]:
+            return {
+                "status": "not_required",
+                "policy": policy,
+                "command": None,
+                "docker_compose_ps": "",
+            }
+
+        command = [
+            "docker",
+            "compose",
+            "-f",
+            "compose.yaml",
+            "up",
+            "-d",
+            "--force-recreate",
+            *_PROFILE_NAMES,
+        ]
+        reload_result = subprocess.run(
+            command,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+        )
+        if reload_result.returncode != 0:
+            return {
+                "status": "blocked",
+                "policy": policy,
+                "command": command,
+                "docker_compose_ps": "",
+                "returncode": reload_result.returncode,
+                "stdout": reload_result.stdout,
+                "stderr": reload_result.stderr,
+            }
+
+        ps_command = [
+            "docker",
+            "compose",
+            "-f",
+            "compose.yaml",
+            "ps",
+            "--status",
+            "running",
+            *_PROFILE_NAMES,
+        ]
+        ps_result = subprocess.run(
+            ps_command,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+        )
+        return {
+            "status": "reloaded" if ps_result.returncode == 0 else "blocked",
+            "policy": policy,
+            "command": command,
+            "docker_compose_ps_command": ps_command,
+            "docker_compose_ps": ps_result.stdout,
+            "returncode": ps_result.returncode,
+            "stdout": reload_result.stdout,
+            "stderr": reload_result.stderr + ps_result.stderr,
+        }
+
+    def resume_original_run(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Resume only the exact scoped application/run pair from a request."""
+        application_id = str(request.get("application_id") or "").strip()
+        run_id = str(request.get("run_id") or "").strip()
+        if not application_id or not run_id:
+            return {"status": "not_requested", "command": None}
+
+        command = [
+            "npm",
+            "run",
+            "applications:run",
+            "--",
+            "--application-id",
+            application_id,
+            "--run-id",
+            run_id,
+            "--run-agent",
+        ]
+        result = subprocess.run(
+            command,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+        )
+        return {
+            "status": "resumed" if result.returncode == 0 else "blocked",
+            "command": command,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
         }
 
     def _completed_receipt(self, request: dict[str, Any]) -> dict[str, Any] | None:
@@ -936,6 +1059,8 @@ class MaintenanceOrchestrator:
             "changed_files": result.get("changed_files", attempt_manifest.get("changed_files", [])),
             "checks": result.get("checks", {}),
             "review": result.get("review", {}),
+            "reload": result.get("reload", {}),
+            "resume": result.get("resume", {}),
             "completed_at": self._now(),
         }
         self._write_json(receipt_path, receipt)
