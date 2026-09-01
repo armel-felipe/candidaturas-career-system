@@ -43,7 +43,7 @@ def _lease_alive(lease: dict[str, Any]) -> bool:
     except (TypeError, ValueError):
         return False
     if pid <= 0:
-        return True
+        return False
     try:
         os.kill(pid, 0)
     except OSError:

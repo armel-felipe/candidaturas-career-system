@@ -99,63 +99,21 @@ def should_intercept(message: str) -> bool:
     return decision.workflow != "generic_assistant" or decision.reason == "meta_question_about_previous_output"
 
 
-def main() -> int:
-    if os.environ.get("CAREER_HARNESS_SUBAGENT") == "1":
-        print("{}")
-        return 0
-    payload = json.load(sys.stdin)
-    extra = payload.get("extra") if isinstance(payload.get("extra"), dict) else {}
-    message = str(extra.get("user_message") or "").strip()
-    if not message:
-        print("{}")
-        return 0
-    if not should_intercept(message):
-        print("{}")
-        return 0
-    session_id = str(payload.get("session_id") or "telegram")
-    clear_transform_reply(session_id)
-    turn_id = str(extra.get("turn_id") or "").strip()
-    if turn_id:
-        identity = f"{session_id}\n{turn_id}"
-    else:
-        history = extra.get("conversation_history")
-        history_size = len(history) if isinstance(history, list) else 0
-        identity = f"{session_id}\n{history_size}\n{message}"
-    message_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
-    dispatch_payload = {
+def _hook_failure_result(exc: Exception, payload: dict) -> dict:
+    message_id = str(payload.get("message_id") or "unknown")
+    return {
+        "status": "blocked",
+        "kind": "harness_hook_failure",
+        "request_id": message_id,
         "message_id": message_id,
-        "message": message,
-        "session_id": session_id,
-        "turn_id": turn_id,
-        "runtime_context": {
-            "runtime": "hermes",
-            "profile_id": application_context_service.profile_id_from_env(),
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "application_id": None,
-            "run_id": None,
-        },
+        **_dispatch_metadata(payload, "blocked"),
+        "blocker_reason": "harness_execution_failed",
+        "error_type": type(exc).__name__,
+        "error": str(exc)[:500],
     }
-    try:
-        result = dispatch_harness_job(dispatch_payload)
-    except Exception as exc:  # pragma: no cover - exercised by live hook failures
-        # A pre-LLM hook failure must remain inside the HarnessSupervisor
-        # contract. Exit code 1 lets Hermes continue with an unconstrained
-        # model turn, which is precisely how manual FIT_MAP/provenance
-        # workarounds escaped the supervisor.
-        result = {
-            "status": "blocked",
-            "kind": "harness_hook_failure",
-            "request_id": message_id,
-            "message_id": message_id,
-            **_dispatch_metadata(dispatch_payload, "blocked"),
-            "blocker_reason": "harness_execution_failed",
-            "error_type": type(exc).__name__,
-            "error": str(exc)[:500],
-        }
-    reply_text = result.get("reply_text")
-    if isinstance(reply_text, str) and reply_text.strip():
-        write_transform_reply(session_id, turn_id, reply_text.strip())
+
+
+def _emit_block(result: dict) -> None:
     context = build_context(result)
     print(
         json.dumps(
@@ -167,8 +125,75 @@ def main() -> int:
                 "harness_result": result,
             },
             ensure_ascii=False,
+            default=str,
         )
     )
+
+
+def main() -> int:
+    if os.environ.get("CAREER_HARNESS_SUBAGENT") == "1":
+        print("{}")
+        return 0
+    dispatch_payload = {
+        "message_id": "unknown",
+        "message": "",
+        "session_id": "telegram",
+        "turn_id": "",
+        "runtime_context": {
+            "runtime": "hermes",
+            "profile_id": None,
+            "session_id": "telegram",
+            "turn_id": "",
+            "application_id": None,
+            "run_id": None,
+        },
+    }
+    try:
+        payload = json.load(sys.stdin)
+        extra = payload.get("extra") if isinstance(payload.get("extra"), dict) else {}
+        message = str(extra.get("user_message") or "").strip()
+        if not message:
+            print("{}")
+            return 0
+        if not should_intercept(message):
+            print("{}")
+            return 0
+        session_id = str(payload.get("session_id") or "telegram")
+        clear_transform_reply(session_id)
+        turn_id = str(extra.get("turn_id") or "").strip()
+        if turn_id:
+            identity = f"{session_id}\n{turn_id}"
+        else:
+            history = extra.get("conversation_history")
+            history_size = len(history) if isinstance(history, list) else 0
+            identity = f"{session_id}\n{history_size}\n{message}"
+        message_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+        dispatch_payload = {
+            "message_id": message_id,
+            "message": message,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "runtime_context": {
+                "runtime": "hermes",
+                "profile_id": application_context_service.profile_id_from_env(),
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "application_id": None,
+                "run_id": None,
+            },
+        }
+        result = dispatch_harness_job(dispatch_payload)
+        reply_text = result.get("reply_text")
+        if isinstance(reply_text, str) and reply_text.strip():
+            write_transform_reply(session_id, turn_id, reply_text.strip())
+    except Exception as exc:  # pragma: no cover - exercised by live hook failures
+        # Any failure in classification, scope resolution, persistence, or
+        # serialization remains fail-closed: Hermes must not call the model.
+        result = _hook_failure_result(exc, dispatch_payload)
+    try:
+        _emit_block(result)
+    except Exception as exc:  # pragma: no cover - defensive serialization path
+        _emit_block(_hook_failure_result(exc, dispatch_payload))
     return 0
 
 

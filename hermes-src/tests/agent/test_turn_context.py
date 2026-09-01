@@ -185,6 +185,18 @@ def test_pre_llm_supervisory_block_stops_turn_prologue():
             _build(agent)
 
 
+def test_run_conversation_does_not_reach_model_after_pre_llm_block():
+    from agent import conversation_loop
+
+    with patch.object(
+        conversation_loop,
+        "build_turn_context",
+        side_effect=PreLlmHookBlocked("supervisor pending"),
+    ):
+        with pytest.raises(PreLlmHookBlocked, match="supervisor pending"):
+            conversation_loop.run_conversation(object(), "hello")
+
+
 def test_applies_agent_side_effects():
     agent = _FakeAgent()
     _build(agent)

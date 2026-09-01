@@ -274,3 +274,33 @@ def test_context_hook_failure_still_emits_complete_block_envelope(monkeypatch, c
     assert output["action"] == "block"
     assert output["harness_result"]["scope"]["session_id"] == "session-1"
     assert output["harness_result"]["next_state"] == "blocked"
+
+
+def test_context_hook_malformed_input_fails_closed(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(hook, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("not-json"))
+
+    assert hook.main() == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["action"] == "block"
+    assert output["harness_result"]["next_state"] == "blocked"
+
+
+def test_dispatch_rejects_future_lease_without_pid(tmp_path, monkeypatch):
+    def fail_popen(*_args, **_kwargs):
+        raise AssertionError("invalid lease must not start another worker")
+
+    monkeypatch.setattr(adapter.subprocess, "Popen", fail_popen)
+    dispatch_dir = tmp_path / ".career-state" / "harness" / "dispatches" / "m1"
+    dispatch_dir.mkdir(parents=True)
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
+    write_json(
+        dispatch_dir / "lease.json",
+        {"owner": "invalid", "pid": 0, "expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+
+    result = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "dispatch_lease_expired"
