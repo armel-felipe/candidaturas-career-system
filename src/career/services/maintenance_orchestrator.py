@@ -769,6 +769,15 @@ class MaintenanceOrchestrator:
             "stderr": result.stderr + unstage.stderr,
         }
 
+    def _rollback_applied_patch(
+        self, patch_path: Path, paths: list[str], request_path: Path
+    ) -> dict[str, Any]:
+        restore = self._restore_inverse_patch(patch_path, paths)
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        request.pop("applied_at", None)
+        self._write_json(request_path, request)
+        return restore
+
     def _apply_and_commit(
         self,
         candidate: dict[str, Any],
@@ -805,7 +814,9 @@ class MaintenanceOrchestrator:
 
         post_apply_checks = self._run_post_apply_checks(request, patch_path)
         if not self._checks_passed(post_apply_checks):
-            restore = self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            restore = self._rollback_applied_patch(
+                patch_path, list(request["allowed_paths"]), request_path
+            )
             blocker = "post_apply_checks_failed"
             if restore["status"] != "restored":
                 blocker = "post_apply_checks_failed_restore_failed"
@@ -821,7 +832,9 @@ class MaintenanceOrchestrator:
             ["git", "add", "-A", "--", *list(request["allowed_paths"])], cwd=self.root
         )
         if staged["returncode"] != 0:
-            self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            self._rollback_applied_patch(
+                patch_path, list(request["allowed_paths"]), request_path
+            )
             return {"status": "blocked", "blocker_reason": "canonical_stage_failed", "checks": post_apply_checks}
         staged_paths = self._command_result(
             ["git", "diff", "--cached", "--name-only", "--"], cwd=self.root
@@ -829,12 +842,16 @@ class MaintenanceOrchestrator:
         allowed_paths = set(request["allowed_paths"])
         committed_paths = {path for path in staged_paths["stdout"].splitlines() if path}
         if staged_paths["returncode"] != 0 or not committed_paths or not committed_paths.issubset(allowed_paths):
-            self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            self._rollback_applied_patch(
+                patch_path, list(request["allowed_paths"]), request_path
+            )
             return {"status": "blocked", "blocker_reason": "canonical_stage_scope_invalid", "checks": post_apply_checks}
         message = f"maintenance({request['request_id']}): {request['objective']} [{request['roadmap_id']}]"
         commit = self._command_result(["git", "commit", "-m", message], cwd=self.root)
         if commit["returncode"] != 0:
-            self._restore_inverse_patch(patch_path, list(request["allowed_paths"]))
+            self._rollback_applied_patch(
+                patch_path, list(request["allowed_paths"]), request_path
+            )
             return {"status": "blocked", "blocker_reason": "canonical_commit_failed", "checks": post_apply_checks}
         commit_id = self._command_result(["git", "rev-parse", "HEAD"], cwd=self.root)
         return {

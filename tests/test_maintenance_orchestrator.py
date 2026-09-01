@@ -547,6 +547,15 @@ class SequencedRunner:
         return _passing_checks()
 
 
+class FailingPostApplyRunner(SequencedRunner):
+    def post_apply_checks(self, request: dict[str, object], patch_path: Path) -> dict[str, object]:
+        assert patch_path.is_file()
+        return {
+            "status": "failed",
+            "commands": [{"name": "post_apply", "returncode": 1}],
+        }
+
+
 def _git_log(root: Path) -> list[str]:
     return subprocess.run(
         ["git", "-C", str(root), "log", "--format=%s", "--reverse"],
@@ -696,3 +705,20 @@ def test_failed_commit_restores_worktree_and_index(tmp_path: Path) -> None:
         ["git", "-C", str(root), "diff", "--cached", "--quiet", "--"],
         check=False,
     ).returncode == 0
+
+
+def test_failed_post_apply_checks_remove_applied_at_after_rollback(tmp_path: Path) -> None:
+    root = make_git_fixture(
+        tmp_path,
+        files={"src/career/services/cv_content.py": "BASE\n"},
+    )
+    request = _transaction_request(root)
+
+    result = MaintenanceOrchestrator(
+        root, runner=FailingPostApplyRunner(root, ["approve"])
+    ).process(Path(str(request["request_path"])))
+
+    assert result["status"] == "blocked"
+    payload = json.loads(Path(str(request["request_path"])).read_text(encoding="utf-8"))
+    assert payload["status"] == "blocked"
+    assert "applied_at" not in payload
