@@ -3610,8 +3610,13 @@ def _process_cellular_application(
             application, paths=paths, executor=executor, config=config
         )
 
-        stale_analyze_recovery = executor.recover_stale_external_attempt(
-            run_id, "analyze_fit"
+        recover_stale_attempt = getattr(
+            executor, "recover_stale_external_attempt", None
+        )
+        stale_analyze_recovery = (
+            recover_stale_attempt(run_id, "analyze_fit")
+            if callable(recover_stale_attempt)
+            else {"status": "unchanged"}
         )
         if stale_analyze_recovery.get("status") == "blocked":
             return [

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
 from career.services.harness_supervisor import HarnessSupervisor
@@ -152,6 +154,110 @@ def test_plan_failure_adopts_newly_persisted_serial_run_without_duplicate_plan(
     assert result["status"] == "awaiting_agent"
     assert sum(command[2] == "applications:plan" for command in calls) == 1
     assert sum(command[2] == "applications:run" for command in calls) == 1
+
+
+def test_plan_failure_does_not_execute_stdout_run_id_without_validated_database_run(
+    tmp_path: Path, monkeypatch
+):
+    supervisor = HarnessSupervisor.__new__(HarnessSupervisor)
+    supervisor.root = tmp_path
+    supervisor.db = _FakeDatabase()
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return type("Completed", (), {
+            "returncode": 1,
+            "stdout": json.dumps({"run_id": "run_untrusted"}),
+            "stderr": "planner failed",
+        })()
+
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.subprocess.run", fake_run
+    )
+
+    result = supervisor._run_serial_package_base(
+        requested_steps=["cv", "notion"],
+        application_id="app-rappi",
+        model=None,
+        variant=None,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "serial_plan_creation_failed"
+    assert result["stdout"]
+    assert not any(command[2] == "applications:run" for command in calls)
+
+
+def test_concurrent_serial_continuations_create_one_plan_and_run(
+    tmp_path: Path, monkeypatch
+):
+    supervisor_db = _FakeDatabase()
+    supervisors = []
+    for _ in range(2):
+        supervisor = HarnessSupervisor.__new__(HarnessSupervisor)
+        supervisor.root = tmp_path
+        supervisor.db = supervisor_db
+        supervisors.append(supervisor)
+    calls = []
+    calls_lock = threading.Lock()
+
+    def fake_fetch_one(query, params=()):
+        if "application_runs" in query and supervisor_db.latest is None:
+            time.sleep(0.05)
+        return _FakeDatabase.fetch_one(supervisor_db, query, params)
+
+    supervisor_db.fetch_one = fake_fetch_one
+
+    def fake_run(command, **kwargs):
+        with calls_lock:
+            calls.append(command)
+            if command[2] == "applications:plan":
+                supervisor_db.latest = {
+                    "run_id": "run_concurrent",
+                    "application_id": "app-concurrent",
+                    "status": "planned",
+                    "graph_json": json.dumps({"execution_mode": "serial"}),
+                }
+        time.sleep(0.05)
+        if command[2] == "applications:plan":
+            return type("Completed", (), {
+                "returncode": 0,
+                "stdout": json.dumps({"run_id": "run_concurrent"}),
+                "stderr": "",
+            })()
+        return type("Completed", (), {
+            "returncode": 0,
+            "stdout": json.dumps({"status": "running", "run_id": "run_concurrent"}),
+            "stderr": "",
+        })()
+
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.subprocess.run", fake_run
+    )
+    results = []
+
+    def invoke(item):
+        results.append(
+            item._run_serial_package_base(
+                requested_steps=["cv", "notion"],
+                application_id="app-concurrent",
+                model=None,
+                variant=None,
+            )
+        )
+
+    threads = [threading.Thread(target=invoke, args=(item,)) for item in supervisors]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert {item["run_id"] for item in results} == {"run_concurrent"}
+    assert sum(command[2] == "applications:plan" for command in calls) == 1
+    assert sum(command[2] == "applications:run" for command in calls) == 2
 
 
 def test_pipeline_does_not_report_approval_as_completed(monkeypatch):

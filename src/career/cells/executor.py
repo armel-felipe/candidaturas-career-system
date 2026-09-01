@@ -404,6 +404,31 @@ class CellExecutor:
                 "next_attempt": 1,
             }
 
+        node_status = str(row["status"] or "")
+        if node_status == "validated":
+            return {
+                "status": "unchanged",
+                "run_id": run_id,
+                "node_id": node_id,
+                "next_attempt": latest_attempt + 1,
+            }
+
+        now = utc_now_iso()
+        expiry = str(row["reservation_expires_at"] or "")
+        active_lease = (
+            node_status in {"reserved", "running"}
+            and bool(expiry)
+            and expiry > now
+        )
+        if active_lease:
+            return {
+                "status": "blocked",
+                "run_id": run_id,
+                "node_id": node_id,
+                "next_attempt": latest_attempt + 1,
+                "blocker_reason": "active_analyze_fit_lease",
+            }
+
         manifest_path = (
             paths.cells_dir / node_id / str(latest_attempt) / "manifest.json"
         )
@@ -416,8 +441,12 @@ class CellExecutor:
                     blocker_reason = str(blocker.get("reason") or "")
             except (OSError, TypeError, ValueError):
                 blocker_reason = ""
-        stale_binding = "draft_binding" in blocker_reason.casefold()
-        if not stale_binding:
+        normalized_blocker = blocker_reason.casefold()
+        stale_binding = (
+            "draft_binding" in normalized_blocker
+            or "draft binding" in normalized_blocker
+        )
+        if node_status in {"reserved", "running"} and not stale_binding:
             binding_path = paths.app_dir / "fit_map.draft.binding.json"
             stale_binding = paths.fit_map_draft.is_file() or binding_path.is_file()
         if not stale_binding:
@@ -436,22 +465,6 @@ class CellExecutor:
             )
         except ValueError as exc:
             blocker_reason = str(exc)
-
-        now = utc_now_iso()
-        expiry = str(row["reservation_expires_at"] or "")
-        active_lease = (
-            str(row["status"] or "") in {"reserved", "running"}
-            and bool(expiry)
-            and expiry > now
-        )
-        if active_lease:
-            return {
-                "status": "blocked",
-                "run_id": run_id,
-                "node_id": node_id,
-                "next_attempt": latest_attempt + 1,
-                "blocker_reason": "active_analyze_fit_lease",
-            }
 
         # A stale reservation may have no usable owner after a process crash.
         # Reconcile both tables under one immediate transaction, then leave
@@ -495,15 +508,37 @@ class CellExecutor:
                 (now, run_id, node_id, latest_attempt),
             )
 
+        handoff_path = (
+            paths.requests_dir
+            / "cellular"
+            / run_id
+            / node_id
+            / f"{latest_attempt + 1}.handoff.json"
+        )
+        handoff = {
+            "kind": "cellular_external_attempt_handoff",
+            "application_id": paths.application_id,
+            "run_id": run_id,
+            "node_id": node_id,
+            "attempt": latest_attempt + 1,
+            "status": "planned",
+            "expected_manifest_path": str(
+                paths.cells_dir / node_id / str(latest_attempt + 1) / "manifest.json"
+            ),
+            "created_at": utc_now_iso(),
+        }
+        write_json(handoff_path, handoff)
+        persisted_handoff = read_json(handoff_path)
+        if any(persisted_handoff.get(key) != value for key, value in handoff.items()):
+            raise RuntimeError("stale analyze-fit handoff manifest identity mismatch")
+
         return {
             "status": "planned",
             "run_id": run_id,
             "node_id": node_id,
             "next_attempt": latest_attempt + 1,
             "blocker_reason": blocker_reason or "stale_analyze_fit_binding",
-            "handoff_manifest_path": str(
-                paths.cells_dir / node_id / str(latest_attempt + 1) / "manifest.json"
-            ),
+            "handoff_manifest_path": str(handoff_path),
         }
 
     def repair(self, run_id: str, node_id: str, reason: str) -> RepairResult:

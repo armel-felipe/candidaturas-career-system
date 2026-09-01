@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1740,6 +1741,34 @@ class HarnessSupervisor:
             return False
         return isinstance(graph, dict) and graph.get("execution_mode") == "serial"
 
+    @classmethod
+    def _is_valid_serial_run(
+        cls,
+        run: dict[str, Any] | None,
+        application_id: str,
+        expected_run_id: str | None = None,
+    ) -> bool:
+        if not run or str(run.get("application_id") or "") != application_id:
+            return False
+        if expected_run_id and str(run.get("run_id") or "") != expected_run_id:
+            return False
+        return cls._is_serial_cellular_run(run)
+
+    @contextmanager
+    def _serial_plan_lock(self, application_id: str):
+        """Serialize plan lookup/creation for the scoped application."""
+        import fcntl
+
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", application_id or "global")
+        lock_path = self.root / ".career-state" / "applications_v2" / f".{safe_id}.serial-plan.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     @staticmethod
     def _parse_cli_json(output: str) -> dict[str, Any]:
         text = str(output or "").strip()
@@ -1761,6 +1790,23 @@ class HarnessSupervisor:
         return {}
 
     def _run_serial_package_base(
+        self,
+        *,
+        requested_steps: list[str],
+        application_id: str | None,
+        model: str | None,
+        variant: str | None,
+    ) -> dict[str, Any]:
+        scoped_id = str(application_id or "").strip()
+        with self._serial_plan_lock(scoped_id):
+            return self._run_serial_package_base_unlocked(
+                requested_steps=requested_steps,
+                application_id=application_id,
+                model=model,
+                variant=variant,
+            )
+
+    def _run_serial_package_base_unlocked(
         self,
         *,
         requested_steps: list[str],
@@ -1816,14 +1862,14 @@ class HarnessSupervisor:
             )
             commands.append(plan_command)
             plan_payload = self._parse_cli_json(planned.stdout)
-            run_id = str(plan_payload.get("run_id") or "").strip()
-            if planned.returncode != 0 or not run_id:
+            planner_run_id = str(plan_payload.get("run_id") or "").strip()
+            recovered = self._latest_cellular_run(scoped_id)
+            if planned.returncode != 0 or not planner_run_id:
                 # The planner persists the run before the subprocess can
                 # report its final result. Re-read the authoritative index so
                 # a late planner failure cannot cause a duplicate plan on the
                 # next continuation.
-                recovered = self._latest_cellular_run(scoped_id)
-                if recovered and self._is_serial_cellular_run(recovered):
+                if self._is_valid_serial_run(recovered, scoped_id, planner_run_id or None):
                     recovered_status = str(recovered.get("status") or "")
                     if recovered_status in {
                         "planned",
@@ -1833,6 +1879,8 @@ class HarnessSupervisor:
                         "blocked",
                     }:
                         run_id = str(recovered.get("run_id") or "").strip()
+                else:
+                    run_id = ""
                 if not run_id:
                     return {
                         "status": "blocked",
@@ -1843,6 +1891,22 @@ class HarnessSupervisor:
                         "stdout": (planned.stdout or "")[-4000:],
                         "stderr": (planned.stderr or "")[-4000:],
                     }
+            else:
+                # stdout is advisory. Even a successful planner must have
+                # persisted the same scoped serial run before execution.
+                if not self._is_valid_serial_run(
+                    recovered, scoped_id, planner_run_id
+                ):
+                    return {
+                        "status": "blocked",
+                        "application_id": scoped_id,
+                        "requested_steps": requested_steps,
+                        "commands": commands,
+                        "blocker_reason": "serial_plan_creation_failed",
+                        "stdout": (planned.stdout or "")[-4000:],
+                        "stderr": (planned.stderr or "")[-4000:],
+                    }
+                run_id = planner_run_id
         run_command = [
             "npm",
             "run",

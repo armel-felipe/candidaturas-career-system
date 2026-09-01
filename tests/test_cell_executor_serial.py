@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -137,8 +138,84 @@ def test_stale_analyze_binding_is_quarantined_and_new_attempt_is_planned(
         assert row["latest_attempt"] == 5
         assert row["reserved_by"] is None
         assert row["reservation_expires_at"] is None
+        handoff = json.loads(
+            Path(result["handoff_manifest_path"]).read_text(encoding="utf-8")
+        )
+        assert handoff["kind"] == "cellular_external_attempt_handoff"
+        assert handoff["application_id"] == application_id
+        assert handoff["run_id"] == plan.run_id
+        assert handoff["node_id"] == "analyze_fit"
+        assert handoff["attempt"] == 6
         fresh = executor.prepare_ready_node(plan.run_id, "analyze_fit")
         assert fresh.attempt == 6
         executor.defer_prepared_attempt(fresh, reason="test cleanup")
+    finally:
+        database.close()
+
+
+def test_validated_analyze_fit_is_not_recovered_or_quarantined(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    executor = CellExecutor(database, applications_root=applications_root)
+    application_id = "validated-analyze-app"
+    paths = paths_for(application_id, root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("Operations leadership\n", encoding="utf-8")
+
+    try:
+        plan = executor.plan(application_id, {"cv"})
+        executor.mark_validated(plan.run_id, "normalize_job")
+        executor.mark_validated(plan.run_id, "analyze_fit")
+        paths.fit_map_draft.write_text('{"valid": true}', encoding="utf-8")
+        paths.fit_map.write_text('{"provenance": {}}', encoding="utf-8")
+        binding = paths.app_dir / "fit_map.draft.binding.json"
+        binding.write_text('{"run_id": "validated"}', encoding="utf-8")
+
+        result = executor.recover_stale_external_attempt(
+            plan.run_id, "analyze_fit"
+        )
+
+        assert result["status"] == "unchanged"
+        assert executor.node_status(plan.run_id, "analyze_fit") == "validated"
+        assert paths.fit_map_draft.is_file()
+        assert paths.fit_map.is_file()
+        assert binding.is_file()
+        assert not paths.requests_dir.joinpath("quarantine").exists()
+    finally:
+        database.close()
+
+
+def test_active_analyze_fit_lease_is_checked_before_quarantine(tmp_path):
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    applications_root = tmp_path / "applications"
+    executor = CellExecutor(database, applications_root=applications_root)
+    application_id = "active-analyze-app"
+    paths = paths_for(application_id, root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.job_description.write_text("Operations leadership\n", encoding="utf-8")
+
+    try:
+        plan = executor.plan(application_id, {"cv"})
+        executor.mark_validated(plan.run_id, "normalize_job")
+        prepared = executor.prepare_ready_node(plan.run_id, "analyze_fit")
+        paths.fit_map_draft.write_text('{"stale": true}', encoding="utf-8")
+        binding = paths.app_dir / "fit_map.draft.binding.json"
+        binding.write_text(
+            json.dumps({"manifest_path": "/old/manifest.json"}),
+            encoding="utf-8",
+        )
+
+        result = executor.recover_stale_external_attempt(
+            plan.run_id, "analyze_fit"
+        )
+
+        assert result["status"] == "blocked"
+        assert result["blocker_reason"] == "active_analyze_fit_lease"
+        assert paths.fit_map_draft.is_file()
+        assert binding.is_file()
+        assert not paths.requests_dir.joinpath("quarantine").exists()
+        executor.defer_prepared_attempt(prepared, reason="test cleanup")
     finally:
         database.close()
