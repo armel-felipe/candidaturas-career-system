@@ -216,6 +216,31 @@ def test_reload_blocks_when_ps_confirms_only_one_profile(
     assert result["blocker_reason"] == "docker_compose_ps_missing_profiles: vagas_bot_02"
 
 
+def test_reload_rejects_similar_but_non_exact_service_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ps_output = (
+        "NAME\tSERVICE\tSTATUS\n"
+        "container-01\tvagas_bot_01_shadow\trunning\n"
+        "container-02\tvagas_bot_02_extra\trunning\n"
+    )
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        stdout = "up\n" if command[4] == "up" else ps_output
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setattr("career.services.maintenance_orchestrator.subprocess.run", fake_run)
+
+    result = MaintenanceOrchestrator(tmp_path).reload_profiles_if_needed(
+        changed_paths=["src/career/services/maintenance_orchestrator.py"]
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == (
+        "docker_compose_ps_missing_profiles: vagas_bot_01, vagas_bot_02"
+    )
+
+
 def test_reload_blocks_when_docker_compose_up_is_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -284,6 +309,8 @@ def test_documentation_and_tests_do_not_reload_profiles(
         "hermes-src/docs/architecture.md",
         "hermes-src/tests/test_runtime.py",
         "hermes-src/scripts/tests/test_install.sh",
+        "hermes-src/lib/docs/guide.md",
+        "hermes-src/lib/tests/runtime.py",
         "hermes-src/README.md",
     ],
 )

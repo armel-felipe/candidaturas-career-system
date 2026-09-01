@@ -912,7 +912,7 @@ class MaintenanceOrchestrator:
             parts = relative.split("/")
             filename = parts[-1].casefold()
             if (
-                parts[0].casefold() in {"docs", "tests", "test"}
+                any(part.casefold() in {"docs", "tests", "test"} for part in parts)
                 or filename in {"readme.md", "changelog.md"}
                 or filename.startswith("test_")
             ):
@@ -920,6 +920,33 @@ class MaintenanceOrchestrator:
         return normalized in _RUNTIME_AFFECTING_FILES or normalized.startswith(
             _RUNTIME_AFFECTING_PREFIXES
         )
+
+    @staticmethod
+    def _compose_ps_services(ps_output: str) -> set[str]:
+        """Extract exact service-column values from Compose's table output."""
+        lines = [line for line in ps_output.splitlines() if line.strip()]
+        if not lines:
+            return set()
+
+        def split_columns(line: str) -> list[str]:
+            if "\t" in line:
+                return [column.strip() for column in line.split("\t")]
+            return [column.strip() for column in re.split(r"\s{2,}", line.strip())]
+
+        headers = split_columns(lines[0])
+        try:
+            service_index = next(
+                index for index, column in enumerate(headers) if column.casefold() == "service"
+            )
+        except StopIteration:
+            return set()
+
+        services: set[str] = set()
+        for line in lines[1:]:
+            columns = split_columns(line)
+            if service_index < len(columns):
+                services.add(columns[service_index].split(maxsplit=1)[0])
+        return services
 
     def reload_profiles_if_needed(self, changed_paths: list[str]) -> dict[str, Any]:
         """Reload both bot profiles when committed paths affect runtime behavior."""
@@ -1005,7 +1032,8 @@ class MaintenanceOrchestrator:
                 "stderr": reload_result.stderr + str(exc),
             }
         ps_output = ps_result.stdout or ""
-        missing_profiles = [profile for profile in _PROFILE_NAMES if profile not in ps_output]
+        ps_services = self._compose_ps_services(ps_output)
+        missing_profiles = [profile for profile in _PROFILE_NAMES if profile not in ps_services]
         profiles_running = not missing_profiles
         return {
             "status": "reloaded" if ps_result.returncode == 0 and profiles_running else "blocked",
