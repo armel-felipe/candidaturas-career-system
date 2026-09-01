@@ -14,7 +14,7 @@ ROOT = bootstrap()
 from career.services.harness_supervisor import HarnessSupervisor
 from career.services import application_context as application_context_service
 from career.utils import read_json
-from telegram_harness_adapter import process_message
+from telegram_harness_adapter import dispatch_harness_job
 
 
 def reply_state_path(session_id: str) -> str:
@@ -113,15 +113,20 @@ def main() -> int:
         identity = f"{session_id}\n{history_size}\n{message}"
     message_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
     try:
-        result = process_message(
-            message,
-            message_id=message_id,
-            execute=True,
-            runtime_context={
-                "runtime": "hermes",
-                "profile_id": application_context_service.profile_id_from_env(),
+        result = dispatch_harness_job(
+            {
+                "message_id": message_id,
+                "message": message,
                 "session_id": session_id,
                 "turn_id": turn_id,
+                "runtime_context": {
+                    "runtime": "hermes",
+                    "profile_id": application_context_service.profile_id_from_env(),
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "application_id": None,
+                    "run_id": None,
+                },
             },
         )
     except Exception as exc:  # pragma: no cover - exercised by live hook failures
