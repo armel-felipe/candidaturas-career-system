@@ -17,6 +17,7 @@ resolved through :func:`_ra` so those patches keep working.
 from __future__ import annotations
 
 import json
+from functools import wraps
 import logging
 import os
 import random
@@ -520,6 +521,24 @@ def _sync_failover_system_message(agent, api_messages, active_system_prompt):
     return sp
 
 
+def _clear_turn_persistence_after_exit(conversation_fn):
+    """Clear the transient full-lineage bridge on every turn exit path."""
+    @wraps(conversation_fn)
+    def wrapped(agent, *args, **kwargs):
+        try:
+            return conversation_fn(agent, *args, **kwargs)
+        finally:
+            try:
+                setattr(agent, "_turn_persistence_base_messages", None)
+            except Exception:
+                # Preserve the original turn result/error for lightweight
+                # test doubles and unusual host objects without attributes.
+                pass
+
+    return wrapped
+
+
+@_clear_turn_persistence_after_exit
 def run_conversation(
     agent,
     user_message: str,

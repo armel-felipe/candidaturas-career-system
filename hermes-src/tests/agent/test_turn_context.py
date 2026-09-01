@@ -263,6 +263,21 @@ def test_run_conversation_does_not_reach_model_after_pre_llm_block():
             conversation_loop.run_conversation(object(), "hello")
 
 
+def test_run_conversation_clears_persistence_bridge_on_pre_llm_block():
+    from agent import conversation_loop
+
+    agent = types.SimpleNamespace(_turn_persistence_base_messages=[{"role": "user"}])
+    with patch.object(
+        conversation_loop,
+        "build_turn_context",
+        side_effect=PreLlmHookBlocked("supervisor pending"),
+    ):
+        with pytest.raises(PreLlmHookBlocked):
+            conversation_loop.run_conversation(agent, "hello")
+
+    assert agent._turn_persistence_base_messages is None
+
+
 def test_applies_agent_side_effects():
     agent = _FakeAgent()
     _build(agent)
