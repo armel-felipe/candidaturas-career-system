@@ -357,7 +357,7 @@ Para cada perfil, enviar um request estruturado a um checkout descartável e ver
 
 Evidência bot01, executada isoladamente: os três testes oficiais de dispatch/
 worker e `test_structured_profile_request_commits_in_disposable_checkout`
-para `vagas_bot_01` passaram, totalizando `4 passed in 0.30s`. As asserções
+para `vagas_bot_01` passaram, totalizando `5 passed in 0.30s`. As asserções
 confirmaram `awaiting_agent`, envelope/lease, deduplicação de `message_id`,
 resultado terminal do worker, `application_id=app_disposable`,
 `run_id=run_disposable`, reviewer `99.0`, receipt `committed`,
@@ -365,14 +365,14 @@ resultado terminal do worker, `application_id=app_disposable`,
 produção `src/career/services/cv_content.py` preservado byte a byte.
 
 Evidência bot02, executada somente após o bot01: os testes oficiais de rota e
-de checkout descartável passaram, totalizando `2 passed in 0.25s`, com
+de checkout descartável passaram, totalizando `5 passed in 0.28s`, com
 `application_id=app_disposable`, `run_id=run_disposable`, reviewer `99.0`,
 receipt `committed`, `resume=resumed`, commit restrito ao checkout temporário
 e o arquivo canônico de produção `src/career/services/cv_content.py`
 preservado byte a byte (hash
 `d79e259dc473d2396f10ee0c769e9a39661a69d2ab124adc897574de53baf8d2`).
 A cobertura assíncrona foi parametrizada para os dois perfis em
-`tests/test_harness_async_dispatch.py`, cobrindo `awaiting_agent`, lease,
+`tests/test_harness_async_dispatch.py`, cobrindo `awaiting_agent`, lease stale,
 deduplicação e persistência do worker para cada bot.
 
 - [x] Step 3: Recuperar os incidentes existentes pelos comandos oficiais.

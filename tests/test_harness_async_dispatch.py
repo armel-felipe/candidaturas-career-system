@@ -124,14 +124,19 @@ def test_duplicate_message_id_keeps_original_scope(tmp_path, monkeypatch):
     assert result["scope"]["run_id"] == "run-1"
 
 
-def test_dispatch_stale_lease_is_structured_blocked_without_new_worker(tmp_path, monkeypatch):
+@pytest.mark.parametrize("profile_id", ["vagas_bot_01", "vagas_bot_02"])
+def test_dispatch_stale_lease_is_structured_blocked_without_new_worker(
+    tmp_path, monkeypatch, profile_id
+):
     def fail_popen(*_args, **_kwargs):
         raise AssertionError("stale dispatch must not start another worker")
 
     monkeypatch.setattr(adapter.subprocess, "Popen", fail_popen)
     dispatch_dir = adapter._dispatch_dir(tmp_path, "m1")
     dispatch_dir.mkdir(parents=True)
-    write_json(dispatch_dir / "request.json", _payload())
+    write_json(
+        dispatch_dir / "request.json", _payload(profile_id=profile_id)
+    )
     write_json(dispatch_dir / "status.json", {"status": "running", "request_id": "m1"})
     write_json(
         dispatch_dir / "lease.json",
@@ -143,7 +148,9 @@ def test_dispatch_stale_lease_is_structured_blocked_without_new_worker(tmp_path,
         },
     )
 
-    result = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+    result = adapter.dispatch_harness_job(
+        _payload(profile_id=profile_id), root=tmp_path
+    )
 
     assert result["status"] == "blocked"
     assert result["blocker_reason"] in {"dispatch_lease_expired", "dispatch_worker_dead"}
