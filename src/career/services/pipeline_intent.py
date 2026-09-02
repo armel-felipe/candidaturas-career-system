@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-import hashlib
-from pathlib import Path
+import json
 from typing import Any, Iterable
 
-from career.utils import ValidationFailure, read_json, utc_now_iso, write_json
+from pathlib import Path
+
+from career.services.application_context import canonical_database
+from career.services.session_memory import SessionMemoryService
+from career.utils import ValidationFailure, utc_now_iso
 
 
 class PipelineIntentStore:
@@ -14,12 +17,15 @@ class PipelineIntentStore:
     not inferred from an active/global application pointer.
     """
 
-    def __init__(self, root: Path):
-        self.directory = root / ".career-state" / "harness" / "pipeline_intents"
+    MEMORY_KEY = "harness_pipeline_intent_v2"
+    TTL_SECONDS = 30 * 24 * 60 * 60
 
-    def _path(self, session_key: str) -> Path:
-        digest = hashlib.sha256(session_key.encode("utf-8")).hexdigest()
-        return self.directory / f"{digest}.json"
+    def __init__(self, root: Path):
+        # The root parameter remains part of the public test/runtime API, but
+        # the record itself is now held in the authoritative control-plane.
+        database = canonical_database(root=root)
+        database.migrate()
+        self._memory = SessionMemoryService(database)
 
     def bind(
         self,
@@ -32,8 +38,7 @@ class PipelineIntentStore:
         session_key = str(session_key or "").strip()
         if not application_id or not session_key:
             raise ValidationFailure("application_id and session_key are required")
-        path = self._path(session_key)
-        current = read_json(path) if path.exists() else {}
+        current = self.resolve(session_key) or {}
         current_application_id = str(current.get("application_id") or "").strip()
         if current_application_id and current_application_id != application_id:
             raise ValidationFailure(
@@ -51,17 +56,25 @@ class PipelineIntentStore:
             "requested_steps": merged,
             "updated_at": utc_now_iso(),
         }
-        write_json(path, record)
+        self._memory.set(
+            session_key,
+            self.MEMORY_KEY,
+            json.dumps(record, ensure_ascii=False, sort_keys=True),
+            ttl_seconds=self.TTL_SECONDS,
+        )
         return record
 
     def resolve(self, session_key: str) -> dict[str, Any] | None:
         session_key = str(session_key or "").strip()
         if not session_key:
             return None
-        path = self._path(session_key)
-        if not path.exists():
+        raw = self._memory.get(session_key, self.MEMORY_KEY)
+        if not raw:
             return None
-        record = read_json(path)
+        try:
+            record = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
         if not isinstance(record, dict) or record.get("session_key") != session_key:
             return None
         if not str(record.get("application_id") or "").strip():

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -16,6 +17,8 @@ ROOT = bootstrap()
 
 from career.utils import read_json, utc_now_iso, write_json
 from telegram_harness_adapter import _dispatch_lock, _lease_alive, process_message
+from career.services.application_context import canonical_database
+from career.services.harness_command_store import HarnessCommandStore
 
 
 _TERMINAL_WORKER_STATUSES = frozenset({
@@ -45,6 +48,32 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
             request_path=str(request_path),
         )
     request = read_json(request_path)
+    command_id = str(request.get("command_id") or "").strip()
+    command_store = None
+    command = None
+    if command_id:
+        worker_root = dispatch_dir.parent
+        for parent in dispatch_dir.parents:
+            if parent.name == ".career-state":
+                worker_root = parent.parent
+                break
+        command_store = HarnessCommandStore(canonical_database(root=worker_root))
+        command = command_store.claim(
+            command_id, worker_id=f"hermes-harness-{os.getpid()}"
+        )
+        if command is None:
+            # Another live worker owns the command.  This is not a canonical
+            # block: it is an idempotent duplicate delivery.
+            return {
+                "status": "awaiting_agent",
+                "request_id": request.get("message_id"),
+                "message_id": request.get("message_id"),
+                "command_id": command_id,
+                "next_state": "awaiting_agent",
+            }
+        if str(command.get("status") or "") in _TERMINAL_WORKER_STATUSES:
+            persisted = _command_payload(command)
+            return {**persisted, "command_id": command_id}
     status = read_json(status_path)
     if str(status.get("status") or "") in _TERMINAL_WORKER_STATUSES:
         return read_json(result_path) if result_path.is_file() else status
@@ -136,9 +165,11 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
         if not isinstance(reply_text, str) or not reply_text.strip():
             nested_result = result.get("result") if isinstance(result, dict) else None
             if isinstance(nested_result, dict):
-                nested_reply = nested_result.get("reply_text")
-                if isinstance(nested_reply, str) and nested_reply.strip():
-                    reply_text = nested_reply
+                for key in ("reply_text", "display_text"):
+                    nested_reply = nested_result.get(key)
+                    if isinstance(nested_reply, str) and nested_reply.strip():
+                        reply_text = nested_reply
+                        break
         delivery = {"status": "not_required"}
         if isinstance(reply_text, str) and reply_text.strip():
             try:
@@ -160,7 +191,15 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
             "scope": request.get("scope") or {},
             "reply_text": reply_text.strip() if isinstance(reply_text, str) and reply_text.strip() else None,
             "delivery": delivery,
+            "command_id": command_id or None,
         }
+        if command_store is not None:
+            command_store.finish(
+                command_id,
+                status=final_status,
+                result=persisted,
+                reply_text=persisted.get("reply_text"),
+            )
         write_json(result_path, persisted)
         write_json(status_path, {key: value for key, value in persisted.items() if key != "result"})
         lease_path.unlink(missing_ok=True)
@@ -181,6 +220,22 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
             error_type=type(exc).__name__,
             error=f"{type(exc).__name__}: {exc}"[:500],
         )
+
+
+def _command_payload(command: dict) -> dict:
+    raw = command.get("result_json")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    return {
+        "status": command.get("status"),
+        "reply_text": command.get("reply_text"),
+        "blocker_reason": command.get("blocker_reason"),
+    }
 
 
 def _deliver_reply(reply_text: str) -> dict:

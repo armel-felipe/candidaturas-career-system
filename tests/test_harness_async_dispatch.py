@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import hermes_harness_context_hook as hook
 import hermes_harness_dispatch_worker as worker
 import telegram_harness_adapter as adapter
+from career.services.application_context import canonical_database
+from career.services.harness_command_store import HarnessCommandStore
 from career.utils import write_json
 
 
@@ -122,6 +124,40 @@ def test_duplicate_message_id_keeps_original_scope(tmp_path, monkeypatch):
 
     assert result["scope"]["application_id"] == "app-1"
     assert result["scope"]["run_id"] == "run-1"
+
+
+def test_dispatch_persists_idempotent_command_before_starting_worker(tmp_path, monkeypatch):
+    def fake_popen(command, **kwargs):
+        return _FakeWorkerProcess(command, **kwargs)
+
+    monkeypatch.setattr(adapter.subprocess, "Popen", fake_popen)
+    first = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+    replay = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+    store = HarnessCommandStore(canonical_database(root=tmp_path))
+    command = store.get(first["command_id"])
+
+    assert first["command_id"]
+    assert replay["command_id"] == first["command_id"]
+    assert command["application_id"] == "app-1"
+    assert command["profile_id"] == "vagas_bot_01"
+
+
+def test_response_cache_key_isolated_by_profile_and_session(tmp_path):
+    first = adapter._message_cache_path(
+        tmp_path, stable_id="same-telegram-id",
+        runtime_context={"runtime": "hermes", "profile_id": "vagas_bot_01", "session_id": "chat-1"},
+    )
+    second = adapter._message_cache_path(
+        tmp_path, stable_id="same-telegram-id",
+        runtime_context={"runtime": "hermes", "profile_id": "vagas_bot_02", "session_id": "chat-1"},
+    )
+    third = adapter._message_cache_path(
+        tmp_path, stable_id="same-telegram-id",
+        runtime_context={"runtime": "hermes", "profile_id": "vagas_bot_01", "session_id": "chat-2"},
+    )
+
+    assert first != second
+    assert first != third
 
 
 @pytest.mark.parametrize("profile_id", ["vagas_bot_01", "vagas_bot_02"])

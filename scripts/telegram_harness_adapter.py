@@ -17,6 +17,11 @@ from _bootstrap import bootstrap
 ROOT = bootstrap()
 
 from career.services.harness_supervisor import HarnessSupervisor
+from career.services.application_context import canonical_database
+from career.services.harness_command_store import (
+    FINAL_STATUSES as _COMMAND_FINAL_STATUSES,
+    HarnessCommandStore,
+)
 from career.utils import read_json, utc_now_iso, write_json
 
 
@@ -113,6 +118,47 @@ def dispatch_harness_job(
 ) -> dict[str, Any]:
     """Persist and start one bounded worker for a Hermes pre-LLM request."""
     message_id = str(payload.get("message_id") or "").strip()
+    # SQLite is the authority for the inbound turn.  The dispatch directory
+    # below remains a transport/debug mirror while the worker migration is
+    # rolled out; it may never choose a different scope or replay a command.
+    command_store = HarnessCommandStore(canonical_database(root=root))
+    command = command_store.enqueue(payload)
+    command_id = str(command["command_id"])
+    command_status = str(command["status"])
+    if command.get("deduplicated") and command_status in _COMMAND_FINAL_STATUSES:
+        stored_result = _command_result(command)
+        return {
+            **stored_result,
+            "request_id": message_id,
+            "message_id": message_id,
+            "command_id": command_id,
+            **_dispatch_metadata(payload, command_status),
+            "deduplicated": True,
+        }
+    if command.get("deduplicated"):
+        # A live command is already owned by a worker.  Never consult its
+        # filesystem mirror to decide whether that worker is alive: a process
+        # restart is recovered by the database claim lease, not by turning the
+        # user's replay into a canonical block.
+        return {
+            "status": "awaiting_agent",
+            "request_id": message_id,
+            "message_id": message_id,
+            "command_id": command_id,
+            **_dispatch_metadata(
+                {
+                    **payload,
+                    "runtime_context": {
+                        **(payload.get("runtime_context") if isinstance(payload.get("runtime_context"), dict) else {}),
+                        "application_id": command.get("application_id"),
+                        "run_id": command.get("run_id"),
+                    },
+                },
+                "awaiting_agent",
+            ),
+            "worker_started": False,
+            "deduplicated": True,
+        }
     dispatch_dir = _dispatch_dir(root, message_id)
     with _dispatch_lock(dispatch_dir):
         status_path = dispatch_dir / "status.json"
@@ -170,6 +216,7 @@ def dispatch_harness_job(
         request = {
             **payload,
             "message_id": message_id,
+            "command_id": command_id,
             "created_at": utc_now_iso(),
             **_dispatch_metadata(payload, "awaiting_agent"),
         }
@@ -262,7 +309,24 @@ def dispatch_harness_job(
             "worker_pid": worker_pid,
             "worker_started": True,
             "deduplicated": False,
+            "command_id": command_id,
         }
+
+
+def _command_result(command: dict[str, Any]) -> dict[str, Any]:
+    raw = command.get("result_json")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    return {
+        "status": command.get("status"),
+        "reply_text": command.get("reply_text"),
+        "blocker_reason": command.get("blocker_reason"),
+    }
 
 
 def process_message(
@@ -278,8 +342,9 @@ def process_message(
     if not normalized:
         raise ValueError("Telegram message cannot be empty.")
     stable_id = message_id or hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
-    safe_id = "".join(ch for ch in stable_id if ch.isalnum() or ch in {"-", "_"})[:80]
-    cache_path = root / ".career-state" / "telegram" / "messages" / f"{safe_id}.json"
+    cache_path = _message_cache_path(
+        root, stable_id=stable_id, runtime_context=runtime_context
+    )
     if cache_path.exists():
         cached = read_json(cache_path)
         if not _should_retry_cached_message(cached):
@@ -309,6 +374,21 @@ def process_message(
             envelope["reply_text"] = blocked_reply
     write_json(cache_path, envelope)
     return envelope
+
+
+def _message_cache_path(
+    root: Path, *, stable_id: str, runtime_context: dict[str, Any] | None
+) -> Path:
+    """Return a cache path that cannot collide across bot profiles/sessions."""
+    context = runtime_context if isinstance(runtime_context, dict) else {}
+    raw = "\x1f".join((
+        str(context.get("runtime") or "hermes").strip() or "hermes",
+        str(context.get("profile_id") or "default").strip() or "default",
+        str(context.get("session_id") or "").strip(),
+        str(stable_id).strip(),
+    ))
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return root / ".career-state" / "telegram" / "messages" / f"{digest}.json"
 
 
 def _dispatch_metadata(payload: dict[str, Any], next_state: str) -> dict[str, Any]:
