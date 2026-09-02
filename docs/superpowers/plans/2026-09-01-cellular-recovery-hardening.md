@@ -361,18 +361,19 @@ para `vagas_bot_01` passaram, totalizando `4 passed in 0.30s`. As asserções
 confirmaram `awaiting_agent`, envelope/lease, deduplicação de `message_id`,
 resultado terminal do worker, `application_id=app_disposable`,
 `run_id=run_disposable`, reviewer `99.0`, receipt `committed`,
-`resume=resumed`, commit no checkout descartável e hash do checkout de
-produção preservado.
+`resume=resumed`, commit no checkout descartável e o arquivo canônico de
+produção `src/career/services/cv_content.py` preservado byte a byte.
 
 Evidência bot02, executada somente após o bot01: os testes oficiais de rota e
 de checkout descartável passaram, totalizando `2 passed in 0.25s`, com
 `application_id=app_disposable`, `run_id=run_disposable`, reviewer `99.0`,
 receipt `committed`, `resume=resumed`, commit restrito ao checkout temporário
-e hash de produção preservado (`d79e259dc473d2396f10ee0c769e9a39661a69d2ab124adc897574de53baf8d2`).
-O repositório não possui um teste assíncrono parametrizado para bot02; por
-isso, a prova específica de `awaiting_agent`/lease/deduplicação permanece a
-evidência comum do dispatch do bot01, sem ser apresentada como prova fresca do
-bot02.
+e o arquivo canônico de produção `src/career/services/cv_content.py`
+preservado byte a byte (hash
+`d79e259dc473d2396f10ee0c769e9a39661a69d2ab124adc897574de53baf8d2`).
+A cobertura assíncrona foi parametrizada para os dois perfis em
+`tests/test_harness_async_dispatch.py`, cobrindo `awaiting_agent`, lease,
+deduplicação e persistência do worker para cada bot.
 
 - [x] Step 3: Recuperar os incidentes existentes pelos comandos oficiais.
 

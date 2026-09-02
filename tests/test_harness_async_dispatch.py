@@ -5,6 +5,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import hermes_harness_context_hook as hook
@@ -21,7 +23,7 @@ class _FakeWorkerProcess:
         self.start_new_session = start_new_session
 
 
-def _payload(message_id="m1", **overrides):
+def _payload(message_id="m1", profile_id="vagas_bot_01", **overrides):
     payload = {
         "message_id": message_id,
         "message": "analise a vaga",
@@ -29,7 +31,7 @@ def _payload(message_id="m1", **overrides):
         "turn_id": "turn-1",
         "runtime_context": {
             "runtime": "hermes",
-            "profile_id": "vagas_bot_01",
+            "profile_id": profile_id,
             "session_id": "session-1",
             "turn_id": "turn-1",
             "application_id": "app-1",
@@ -40,7 +42,10 @@ def _payload(message_id="m1", **overrides):
     return payload
 
 
-def test_pre_llm_dispatch_returns_without_waiting_for_pipeline(tmp_path, monkeypatch):
+@pytest.mark.parametrize("profile_id", ["vagas_bot_01", "vagas_bot_02"])
+def test_pre_llm_dispatch_returns_without_waiting_for_pipeline(
+    tmp_path, monkeypatch, profile_id
+):
     started = []
 
     def slow_worker(command, **kwargs):
@@ -49,7 +54,9 @@ def test_pre_llm_dispatch_returns_without_waiting_for_pipeline(tmp_path, monkeyp
 
     monkeypatch.setattr(adapter.subprocess, "Popen", slow_worker)
     began = time.monotonic()
-    result = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+    result = adapter.dispatch_harness_job(
+        _payload(profile_id=profile_id), root=tmp_path
+    )
     elapsed = time.monotonic() - began
 
     assert elapsed < 5
@@ -74,7 +81,8 @@ def test_pre_llm_dispatch_returns_without_waiting_for_pipeline(tmp_path, monkeyp
     assert request["scope"]["application_id"] == "app-1"
 
 
-def test_duplicate_message_id_reuses_one_worker(tmp_path, monkeypatch):
+@pytest.mark.parametrize("profile_id", ["vagas_bot_01", "vagas_bot_02"])
+def test_duplicate_message_id_reuses_one_worker(tmp_path, monkeypatch, profile_id):
     started = []
 
     def fake_popen(command, **kwargs):
@@ -82,8 +90,12 @@ def test_duplicate_message_id_reuses_one_worker(tmp_path, monkeypatch):
         return _FakeWorkerProcess(command, **kwargs)
 
     monkeypatch.setattr(adapter.subprocess, "Popen", fake_popen)
-    first = adapter.dispatch_harness_job(_payload(), root=tmp_path)
-    second = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+    first = adapter.dispatch_harness_job(
+        _payload(profile_id=profile_id), root=tmp_path
+    )
+    second = adapter.dispatch_harness_job(
+        _payload(profile_id=profile_id), root=tmp_path
+    )
 
     assert len(started) == 1
     assert first["request_id"] == second["request_id"] == "m1"
@@ -138,10 +150,13 @@ def test_dispatch_stale_lease_is_structured_blocked_without_new_worker(tmp_path,
     assert json.loads((dispatch_dir / "status.json").read_text())["status"] == "blocked"
 
 
-def test_worker_executes_outside_hook_and_persists_completed(tmp_path, monkeypatch):
+@pytest.mark.parametrize("profile_id", ["vagas_bot_01", "vagas_bot_02"])
+def test_worker_executes_outside_hook_and_persists_completed(
+    tmp_path, monkeypatch, profile_id
+):
     dispatch_dir = tmp_path / "dispatch"
     dispatch_dir.mkdir()
-    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "request.json", _payload(profile_id=profile_id))
     write_json(
         dispatch_dir / "status.json",
         {"status": "awaiting_agent", "request_id": "m1", "message_id": "m1"},
@@ -163,7 +178,7 @@ def test_worker_executes_outside_hook_and_persists_completed(tmp_path, monkeypat
     assert calls == [("analise a vaga", {
         "message_id": "m1",
         "execute": True,
-        "runtime_context": _payload()["runtime_context"],
+        "runtime_context": _payload(profile_id=profile_id)["runtime_context"],
         "root": Path(tmp_path),
     })]
     persisted = json.loads((dispatch_dir / "result.json").read_text(encoding="utf-8"))
