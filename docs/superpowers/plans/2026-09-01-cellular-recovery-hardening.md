@@ -403,7 +403,7 @@ HARNESS-015 e RUNTIME-021 como `DONE` e preserva o Step 5 pendente. Os
 comandos, erros e dependências exatas dos dois incidentes estão registrados
 acima e nas linhas correspondentes do roadmap.
 
-- [ ] Step 5: Integrar e fazer deploy controlado.
+- [x] Step 5: Integrar e fazer deploy controlado.
 
 Após revisão independente >=99/100 de cada tarefa e suíte completa verde:
 
@@ -414,3 +414,15 @@ Após revisão independente >=99/100 de cada tarefa e suíte completa verde:
     docker compose -f compose.yaml ps --status running vagas_bot_01 vagas_bot_02
 
 Registrar o commit, os dois serviços ativos, logs sem erro de inicialização e a janela de observação pós-deploy antes de encerrar o plano.
+
+Evidência: a branch foi integrada por fast-forward em `main` e publicada em
+`origin/main` no commit `751b33d`. O comando `docker compose -f compose.yaml up
+-d --force-recreate vagas_bot_01 vagas_bot_02` recriou os dois serviços; a
+verificação posterior confirmou ambos `Up` após janela de observação de 30 s,
+nas portas 6081/6082. Os logs de inicialização dos dois gateways e dashboards
+terminaram sem erro (`exit 0`); `git diff --check` permaneceu limpo.
+
+Estado final do plano: código, testes, canários, integração e deploy
+concluídos. `CELLULAR-016` e `CELLULAR-017` permanecem `BLOCKED` até que as
+duas runs live informadas sejam restauradas na projeção canônica com identidade
+confirmável; nenhum estado foi inventado ou alterado manualmente.
