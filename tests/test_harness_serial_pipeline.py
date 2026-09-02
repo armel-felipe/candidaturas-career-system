@@ -156,6 +156,45 @@ def test_plan_failure_adopts_newly_persisted_serial_run_without_duplicate_plan(
     assert sum(command[2] == "applications:run" for command in calls) == 1
 
 
+def test_serial_worker_drains_ready_stage_until_seal(tmp_path: Path, monkeypatch):
+    supervisor = HarnessSupervisor.__new__(HarnessSupervisor)
+    supervisor.root = tmp_path
+    supervisor.db = _FakeDatabase()
+    supervisor.db.latest = {
+        "run_id": "run_serial_drain",
+        "application_id": "app-drain",
+        "status": "planned",
+        "graph_json": json.dumps({"execution_mode": "serial"}),
+    }
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        stage_number = sum(item[2] == "applications:run" for item in calls)
+        if stage_number == 1:
+            payload = {
+                "status": "ready", "run_id": "run_serial_drain",
+                "execution_mode": "serial",
+                "serial_stage": {"stage": "notion", "status": "ready", "next_stage": "seal"},
+            }
+        else:
+            payload = {
+                "status": "completed", "run_id": "run_serial_drain",
+                "execution_mode": "serial",
+                "serial_stage": {"stage": "seal", "status": "completed", "next_stage": None},
+            }
+        return type("Completed", (), {"returncode": 0, "stdout": json.dumps(payload), "stderr": ""})()
+
+    monkeypatch.setattr("career.services.harness_supervisor.subprocess.run", fake_run)
+    result = supervisor._run_serial_package_base(
+        requested_steps=["cv", "notion"], application_id="app-drain", model=None, variant=None,
+    )
+
+    assert result["status"] == "completed"
+    assert result["serial_stage"]["stage"] == "seal"
+    assert sum(command[2] == "applications:run" for command in calls) == 2
+
+
 def test_plan_failure_does_not_execute_stdout_run_id_without_validated_database_run(
     tmp_path: Path, monkeypatch
 ):

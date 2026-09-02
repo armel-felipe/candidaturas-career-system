@@ -5,14 +5,12 @@ import hashlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
 
 from _bootstrap import bootstrap
 
 ROOT = bootstrap()
 
 from career.services import application_context as application_context_service
-from career.utils import read_json
 from telegram_harness_adapter import _dispatch_metadata, dispatch_harness_job
 
 
@@ -77,30 +75,10 @@ def build_block_message(result: dict) -> str:
 
 
 def should_intercept(message: str) -> bool:
-    pending_path = ROOT / ".career-state" / "harness" / "pending_input.json"
-    menu_state_path = ROOT / ".career-state" / "harness" / "menu_state.json"
     text = " ".join(str(message or "").strip().split())
-    if pending_path.exists():
-        try:
-            pending = read_json(pending_path)
-        except Exception:
-            pending = {}
-        # Legacy pending inputs without a session binding are stale state, not
-        # permission to intercept every future Telegram message.
-        if isinstance(pending, dict) and pending.get("session_id"):
-            expires_at = str(pending.get("expires_at") or "").strip()
-            if expires_at:
-                try:
-                    if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
-                        pending_path.unlink(missing_ok=True)
-                    else:
-                        return True
-                except ValueError:
-                    pending_path.unlink(missing_ok=True)
-    if menu_state_path.exists() and text.isdigit() and 1 <= len(text) <= 2:
-        return True
-    # Compatibility predicate for older diagnostics.  The live hook does not
-    # call this helper: all classification belongs to the asynchronous worker.
+    # The live hook dispatches all turns to the supervisor.  In particular,
+    # never consult legacy pending/menu files here: an old file must not grant
+    # itself authority to capture a new Telegram message.
     lowered = text.casefold()
     return any(
         marker in lowered

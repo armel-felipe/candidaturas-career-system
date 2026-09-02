@@ -28,6 +28,17 @@ def test_session_set_and_get():
         db.close()
 
 
+def test_session_set_replaces_previous_value_for_same_key():
+    svc, db, path = _make_service()
+    try:
+        svc.set("s1", "same", "old")
+        svc.set("s1", "same", "new")
+        assert svc.get("s1", "same") == "new"
+        assert svc.get_all("s1") == {"same": "new"}
+    finally:
+        db.close()
+
+
 def test_session_get_all():
     svc, db, path = _make_service()
     try:

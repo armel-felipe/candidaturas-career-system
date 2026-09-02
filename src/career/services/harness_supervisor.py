@@ -31,6 +31,7 @@ from career.services.router import Router
 from career.services.menu import MenuBuilder
 from career.services.executor import Executor
 from career.services.database import Database
+from career.services.session_memory import SessionMemoryService
 from career.services.persistence.analysis_repository import (
     AnalysisRepository,
     StaleAnalysisError,
@@ -272,6 +273,8 @@ class HarnessSupervisor:
         self.root = root
         self.runner = runner or (SubprocessAgentRunner(root) if root else None)
         self.db = application_context_service.canonical_database(root=root)
+        self.db.migrate()
+        self.session_memory = SessionMemoryService(self.db)
         self.classifier = Classifier()
         self.router = Router()
         self.menu = MenuBuilder()
@@ -1866,6 +1869,7 @@ class HarnessSupervisor:
             return {}
         decoder = json.JSONDecoder()
         parsed: dict[str, Any] | None = None
+        parsed_with_stage: dict[str, Any] | None = None
         for offset, character in enumerate(text):
             if character != "{":
                 continue
@@ -1875,6 +1879,10 @@ class HarnessSupervisor:
                 continue
             if isinstance(value, dict):
                 parsed = value
+                if isinstance(value.get("serial_stage"), dict):
+                    parsed_with_stage = value
+        if parsed_with_stage is not None:
+            return parsed_with_stage
         if parsed is not None:
             return parsed
         return {}
@@ -1997,60 +2005,64 @@ class HarnessSupervisor:
                         "stderr": (planned.stderr or "")[-4000:],
                     }
                 run_id = planner_run_id
-        run_command = [
-            "npm",
-            "run",
-            "applications:run",
-            "--",
-            "--application-id",
-            scoped_id,
-            "--run-id",
-            run_id,
-            "--run-agent",
-        ]
-        executed = subprocess.run(
-            run_command,
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=90 * 60,
-        )
-        commands.append(run_command)
-        payload = self._parse_cli_json(executed.stdout)
-        if executed.returncode != 0:
-            return {
-                "status": "blocked",
-                "application_id": scoped_id,
-                "run_id": run_id,
-                "requested_steps": requested_steps,
-                "commands": commands,
-                "blocker_reason": "serial_run_failed",
-                "stderr": (executed.stderr or "")[-4000:],
-            }
-        status = str(payload.get("status") or "running")
-        serial_stage = payload.get("serial_stage")
-        if not isinstance(serial_stage, dict):
-            serial_stage = {}
-        if str(serial_stage.get("status") or "") in {
-            "blocked",
-            "awaiting_agent",
-            "awaiting_approval",
-        }:
-            status = str(serial_stage["status"])
-        if status == "completed" and str(serial_stage.get("stage") or "") != "seal":
-            status = "running"
-        if status not in {
-            "blocked",
-            "awaiting_agent",
-            "awaiting_approval",
-            "running",
-            "ready",
-            "pending",
-            "completed",
-        }:
+        # One inbound request may legitimately finish several deterministic
+        # serial cells.  The old implementation ran one cell and returned
+        # ``ready`` to the chat, making the pipeline appear to stop.  Drain
+        # ready stages in this worker; pause only for an actual model,
+        # approval, or blocker.
+        payload: dict[str, Any] = {}
+        serial_stage: dict[str, Any] = {}
+        status = "running"
+        for _ in range(16):
+            run_command = [
+                "npm", "run", "applications:run", "--", "--application-id",
+                scoped_id, "--run-id", run_id, "--run-agent",
+            ]
+            executed = subprocess.run(
+                run_command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=90 * 60,
+            )
+            commands.append(run_command)
+            payload = self._parse_cli_json(executed.stdout)
+            if executed.returncode != 0:
+                return {
+                    "status": "blocked", "application_id": scoped_id,
+                    "run_id": run_id, "requested_steps": requested_steps,
+                    "commands": commands, "blocker_reason": "serial_run_failed",
+                    "stderr": (executed.stderr or "")[-4000:],
+                }
+            status = str(payload.get("status") or "running")
+            serial_stage = payload.get("serial_stage")
+            if not isinstance(serial_stage, dict):
+                serial_stage = {}
+            stage_status = str(serial_stage.get("status") or "")
+            if stage_status in {"blocked", "awaiting_agent", "awaiting_approval"}:
+                status = stage_status
+                break
+            # `_parse_cli_json` also accepts CLI logs containing nested JSON;
+            # older command output can therefore expose the stage object as
+            # the parsed payload itself. Preserve its terminal wait state.
+            if status in {"blocked", "awaiting_agent", "awaiting_approval"}:
+                break
+            if status == "completed" and str(serial_stage.get("stage") or "") == "seal":
+                break
+            if status not in {"ready", "pending", "running", "completed"}:
+                status = "blocked"
+                break
+            if status in {"running", "pending"} and stage_status != "ready":
+                break
+            # status=ready means the next serial stage is safe to consume.
+        else:
             status = "blocked"
+            serial_stage = {
+                **serial_stage,
+                "blocker_reason": "serial_stage_drain_limit_exceeded",
+            }
         return {
             "status": status,
             "application_id": scoped_id,
@@ -3014,30 +3026,59 @@ class HarnessSupervisor:
             return self.root / ".career-state" / "harness" / "unscoped" / filename
         return None
 
+    def _transient_session_id(
+        self, runtime_context: dict[str, Any] | None, *, channel: str
+    ) -> str:
+        """Stable SQLite key for transient conversation state.
+
+        A missing context is deliberately isolated to an explicit CLI/test
+        namespace; it can never be mistaken for a live Telegram session.
+        """
+        context = runtime_context if isinstance(runtime_context, dict) else {}
+        runtime = str(context.get("runtime") or channel or "cli").strip() or "cli"
+        profile = str(context.get("profile_id") or "").strip()
+        if not profile:
+            profile = (
+                application_context_service.profile_id_from_env()
+                if runtime == "hermes" else "default"
+            )
+        session = str(context.get("session_id") or "").strip() or "unscoped"
+        return application_context_service.session_key(
+            runtime=runtime,
+            profile_id=profile,
+            session_id=session,
+        )
+
     def _write_menu_state(
         self, payload: dict[str, Any], *, runtime_context: dict[str, Any] | None = None,
         channel: str = "cli",
     ) -> None:
-        state_path = self._harness_state_path(
-            "menu_state.json", runtime_context, channel=channel
-        )
-        if not state_path:
-            return
-        write_json(state_path, {
+        value = {
             "kind": "session_menu_state", "updated_at": utc_now_iso(),
             "menu_context": payload.get("menu_context"),
             "headline": payload.get("headline"),
             "numbered_items": payload.get("numbered_items") or [],
-        })
+        }
+        self.session_memory.set(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_menu_state_v2",
+            json.dumps(value, ensure_ascii=False, sort_keys=True),
+            ttl_seconds=24 * 60 * 60,
+        )
 
     def _clear_menu_state(
         self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
     ) -> None:
-        state_path = self._harness_state_path(
-            "menu_state.json", runtime_context, channel=channel
+        self.session_memory.set(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_menu_state_v2",
+            "",
+            ttl_seconds=1,
         )
-        if state_path:
-            state_path.unlink(missing_ok=True)
+        self.db.execute(
+            "DELETE FROM session_memory WHERE session_id = ? AND key = ?",
+            (self._transient_session_id(runtime_context, channel=channel), "harness_menu_state_v2"),
+        )
 
     def _decorate_result_payload(
         self, result: Any, *, runtime_context: dict[str, Any] | None = None,
@@ -3278,17 +3319,17 @@ class HarnessSupervisor:
     def _menu_state_payload(
         self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
     ) -> dict[str, Any] | None:
-        state_path = self._harness_state_path(
-            "menu_state.json", runtime_context, channel=channel
+        raw = self.session_memory.get(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_menu_state_v2",
         )
-        if not state_path:
-            return None
-        if not state_path.exists():
+        if not raw:
             return None
         try:
-            return read_json(state_path)
-        except Exception:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
             return None
+        return payload if isinstance(payload, dict) else None
 
     @staticmethod
     def _menu_input_request(selection: dict[str, Any]) -> dict[str, Any] | None:
@@ -3339,63 +3380,60 @@ class HarnessSupervisor:
         self, request: dict[str, Any], *, runtime_context: dict[str, Any] | None = None,
         channel: str = "cli",
     ) -> None:
-        state_path = self._harness_state_path(
-            "pending_input.json", runtime_context, channel=channel
-        )
-        if not state_path:
-            return
         created_at = str(request.get("created_at") or utc_now_iso())
         expires_at = str(
             request.get("expires_at")
             or (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
         )
-        write_json(
-            state_path,
-            {**request, "created_at": created_at, "expires_at": expires_at, "updated_at": utc_now_iso()},
+        self.session_memory.set(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_pending_input_v2",
+            json.dumps(
+                {**request, "created_at": created_at, "expires_at": expires_at, "updated_at": utc_now_iso()},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            ttl_seconds=24 * 60 * 60,
         )
 
     def _clear_pending_input(
         self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
     ) -> None:
-        state_path = self._harness_state_path(
-            "pending_input.json", runtime_context, channel=channel
+        self.db.execute(
+            "DELETE FROM session_memory WHERE session_id = ? AND key = ?",
+            (self._transient_session_id(runtime_context, channel=channel), "harness_pending_input_v2"),
         )
-        if state_path:
-            state_path.unlink(missing_ok=True)
 
     def _read_pending_input(
         self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
     ) -> dict[str, Any] | None:
-        path = self._harness_state_path(
-            "pending_input.json", runtime_context, channel=channel
+        raw = self.session_memory.get(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_pending_input_v2",
         )
-        if not path:
+        if not raw:
             return None
-        if not path.exists():
+        try:
+            pending = json.loads(raw)
+        except (TypeError, ValueError):
             return None
-        pending = read_json(path)
         return pending if isinstance(pending, dict) else None
 
     def _resolve_pending_input(
         self, message: str, *, runtime_context: dict[str, Any] | None = None,
         channel: str = "cli",
     ) -> dict[str, Any] | None:
-        path = self._harness_state_path(
-            "pending_input.json", runtime_context, channel=channel
-        )
-        if not path:
+        pending = self._read_pending_input(runtime_context, channel=channel)
+        if not pending:
             return None
-        if not path.exists():
-            return None
-        pending = read_json(path)
         expires_at = str(pending.get("expires_at") or "").strip()
         if expires_at:
             try:
                 if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
-                    path.unlink(missing_ok=True)
+                    self._clear_pending_input(runtime_context, channel=channel)
                     return None
             except ValueError:
-                path.unlink(missing_ok=True)
+                self._clear_pending_input(runtime_context, channel=channel)
                 return None
         runtime_context = runtime_context or {}
         pending_session = str(pending.get("session_id") or "").strip()
@@ -3411,10 +3449,10 @@ class HarnessSupervisor:
         resolved: str | None = None
         normalized = text.casefold()
         if input_kind == "confirmation" and normalized in {"sim", "s", "yes", "y", "confirmo", "pode"}:
-            path.unlink(missing_ok=True)
+            self._clear_pending_input(runtime_context, channel=channel)
             return {"input_kind": input_kind, "answer": True, "application_id": pending.get("application_id"), "turn_id": pending.get("turn_id")}
         if input_kind == "confirmation" and normalized in {"não", "nao", "n", "no", "cancele", "cancelar"}:
-            path.unlink(missing_ok=True)
+            self._clear_pending_input(runtime_context, channel=channel)
             return {"input_kind": input_kind, "answer": False, "application_id": pending.get("application_id"), "turn_id": pending.get("turn_id")}
         if input_kind == "notion_id" and re.fullmatch(r"\d+", text):
             resolved = f"avalie vaga Notion {text}"
@@ -3430,7 +3468,7 @@ class HarnessSupervisor:
             resolved = "Analise esta vaga\n" + text
         if not resolved:
             return None
-        path.unlink(missing_ok=True)
+        self._clear_pending_input(runtime_context, channel=channel)
         return {"input_kind": input_kind, "message": resolved}
 
     def _invalid_pending_record_selection(
@@ -3439,14 +3477,9 @@ class HarnessSupervisor:
     ) -> str | None:
         if not re.fullmatch(r"\d+", str(message or "").strip()):
             return None
-        path = self._harness_state_path(
-            "pending_input.json", runtime_context, channel=channel
-        )
-        if not path:
+        pending = self._read_pending_input(runtime_context, channel=channel)
+        if not pending:
             return None
-        if not path.exists():
-            return None
-        pending = read_json(path)
         if str(pending.get("input_kind") or "") != "notion_record_selection":
             return None
         record_ids = {int(item) for item in pending.get("record_ids") or []}
