@@ -20,6 +20,9 @@ from career.services.harness_supervisor import HarnessSupervisor
 from career.utils import read_json, utc_now_iso, write_json
 
 
+_TERMINAL_DISPATCH_STATUSES = frozenset({"completed", "blocked", "awaiting_input"})
+
+
 def _dispatch_dir(root: Path, message_id: str) -> Path:
     raw_id = str(message_id or "").strip()
     if not raw_id:
@@ -90,7 +93,7 @@ def dispatch_harness_job(
                         original_payload = stored_request
                 except Exception:
                     original_payload = payload
-            if current_status in {"completed", "blocked"}:
+            if current_status in _TERMINAL_DISPATCH_STATUSES:
                 result = read_json(result_path) if result_path.is_file() else status
                 return {
                     **result,

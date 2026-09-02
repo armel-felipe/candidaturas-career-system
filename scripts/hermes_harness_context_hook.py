@@ -64,6 +64,12 @@ def build_block_message(result: dict) -> str:
     request_id = str(result.get("request_id") or result.get("message_id") or "unknown")
     status = str(result.get("status") or "blocked")
     reason = str(result.get("blocker_reason") or "supervisor_dispatch")
+    if status == "awaiting_agent":
+        return (
+            "Solicitação recebida pelo HarnessSupervisor e em processamento. "
+            f"O resultado será enviado neste Telegram quando estiver pronto "
+            f"(request_id={request_id})."
+        )
     return (
         "HarnessSupervisor bloqueou o turno para impedir execução fora do fluxo "
         f"canônico (status={status}, reason={reason}, request_id={request_id})."
@@ -138,23 +144,9 @@ def _emit_block(result: dict) -> None:
 
 def main() -> int:
     if os.environ.get("CAREER_HARNESS_SUBAGENT") == "1":
-        result = _hook_failure_result(
-            RuntimeError("harness subagent hook invocation is forbidden"),
-            {
-                "message_id": "subagent",
-                "session_id": "subagent",
-                "turn_id": "",
-                "runtime_context": {
-                    "runtime": "hermes",
-                    "profile_id": None,
-                    "session_id": "subagent",
-                    "turn_id": "",
-                    "application_id": None,
-                    "run_id": None,
-                },
-            },
-        )
-        _emit_block(result)
+        # Subagents are already inside a supervisor-owned worker.  The
+        # parent worker remains the sole dispatcher; the nested pre-LLM hook
+        # must therefore be a silent no-op rather than a second block.
         return 0
     dispatch_payload = {
         "message_id": "unknown",

@@ -126,6 +126,7 @@
     "gmail:draft": "./scripts/python.sh scripts/create_gmail_draft.py",
     "deliver:artifact": "./scripts/python.sh scripts/deliver_artifact.py --report outputs/_tmp/delivery_report.json",
     "runtime:check": "sh scripts/runtime_check.sh",
+    "bot:runtime": "./scripts/python.sh scripts/bot_runtime_switch.py",
     "runtime:diagnose": "./scripts/python.sh scripts/career_cli.py project diagnose-runtime",
     "runtime:verify": "./scripts/python.sh scripts/verify_runtime_unification.py",
     "runtime:canary": "./scripts/python.sh scripts/run_runtime_canary.py",

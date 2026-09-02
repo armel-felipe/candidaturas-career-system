@@ -1,0 +1,23 @@
+{
+  "skill_name": "bot-runtime-switch",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Quero testar OpenCode somente no vagas_bot_02, mantendo Hermes no Telegram e usando /opt/agent-projects/candidaturas.",
+      "expected_output": "Seleciona apenas vagas_bot_02, usa bot:runtime com --mode opencode, mantém Hermes como gateway e informa o caminho host/container.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "O bot está em awaiting_agent. Troque para Hermes agora e não crie outra candidatura.",
+      "expected_output": "Mantém application_id/run_id, usa a troca explícita com --unlock e orienta inspect/resume; não cria nova run.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Passe os dois bots para OpenCode de uma vez para acelerar.",
+      "expected_output": "Recusa o escopo múltiplo e exige selecionar exatamente um bot por comando.",
+      "files": []
+    }
+  ]
+}

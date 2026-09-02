@@ -382,3 +382,170 @@ def test_worker_converts_missing_status_result_to_blocked(tmp_path, monkeypatch)
     assert result["status"] == "blocked"
     assert result["blocker_reason"] == "dispatch_worker_invalid_status"
     assert result["observed_status"] is None
+
+
+def test_worker_persists_awaiting_input_and_delivers_reply(tmp_path, monkeypatch):
+    dispatch_dir = tmp_path / "dispatch"
+    dispatch_dir.mkdir()
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
+    write_json(
+        dispatch_dir / "lease.json",
+        {"owner": "worker", "pid": os.getpid(), "expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+    monkeypatch.setattr(
+        worker,
+        "process_message",
+        lambda *_args, **_kwargs: {
+            "message_id": "m1",
+            "reply_text": "Escolha uma opção.",
+            "result": {"status": "awaiting_input", "display_text": "Escolha uma opção."},
+        },
+    )
+    delivered = []
+    monkeypatch.setattr(
+        worker,
+        "_deliver_reply",
+        lambda reply_text: delivered.append(reply_text) or {"status": "sent"},
+        raising=False,
+    )
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "awaiting_input"
+    assert result["next_state"] == "awaiting_input"
+    assert delivered == ["Escolha uma opção."]
+    assert not (dispatch_dir / "lease.json").exists()
+    persisted = json.loads((dispatch_dir / "result.json").read_text(encoding="utf-8"))
+    assert persisted["status"] == "awaiting_input"
+
+
+def test_dispatch_reuses_awaiting_input_result_without_new_worker(tmp_path, monkeypatch):
+    dispatch_dir = adapter._dispatch_dir(tmp_path, "m1")
+    dispatch_dir.mkdir(parents=True)
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(
+        dispatch_dir / "status.json",
+        {"status": "awaiting_input", "request_id": "m1", "message_id": "m1"},
+    )
+    write_json(
+        dispatch_dir / "result.json",
+        {
+            "status": "awaiting_input",
+            "request_id": "m1",
+            "message_id": "m1",
+            "reply_text": "Escolha uma opção.",
+            "next_state": "awaiting_input",
+        },
+    )
+    monkeypatch.setattr(
+        adapter.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("terminal result must not start a worker"),
+    )
+
+    result = adapter.dispatch_harness_job(_payload(), root=tmp_path)
+
+    assert result["status"] == "awaiting_input"
+    assert result["reply_text"] == "Escolha uma opção."
+    assert result["deduplicated"] is True
+
+
+def test_deliver_reply_uses_current_hermes_profile(tmp_path, monkeypatch):
+    calls = []
+
+    class _Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return _Completed()
+
+    monkeypatch.setattr(worker.subprocess, "run", fake_run)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("CAREER_HERMES_PROFILE_NAME", "vagas_bot_02")
+
+    result = worker._deliver_reply("Resposta pronta.")
+
+    assert result == {"status": "sent"}
+    command, kwargs = calls[0]
+    assert command[-5:] == ["--to", "telegram", "--file", "-", "--quiet"]
+    assert kwargs["input"] == "Resposta pronta."
+    assert kwargs["env"]["HERMES_HOME"] == str(tmp_path / "hermes" / "profiles" / "vagas_bot_02")
+
+
+def test_worker_persists_system_exit_as_terminal_blocked_result(tmp_path, monkeypatch):
+    dispatch_dir = tmp_path / "dispatch"
+    dispatch_dir.mkdir()
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
+    write_json(
+        dispatch_dir / "lease.json",
+        {"owner": "worker", "pid": os.getpid(), "expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+    monkeypatch.setattr(
+        worker,
+        "process_message",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(SystemExit("missing token")),
+    )
+    delivered = []
+    monkeypatch.setattr(
+        worker,
+        "_deliver_reply",
+        lambda reply_text: delivered.append(reply_text) or {"status": "sent"},
+    )
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "dispatch_worker_failed"
+    assert result["error_type"] == "SystemExit"
+    assert "missing token" in result["error"]
+    assert delivered and "missing token" in delivered[0]
+    assert not (dispatch_dir / "lease.json").exists()
+
+
+def test_hook_describes_async_dispatch_as_processing_not_blocked():
+    message = hook.build_block_message({"status": "awaiting_agent", "request_id": "m1"})
+
+    assert "em processamento" in message
+    assert "bloqueou" not in message
+
+
+def test_worker_loads_project_dotenv_before_supervisor(tmp_path, monkeypatch):
+    dispatch_dir = tmp_path / ".career-state" / "harness" / "dispatches" / "job"
+    dispatch_dir.mkdir(parents=True)
+    (tmp_path / ".env").write_text(
+        "NOTION_TOKEN=project-token\nNOTION_APPLICATIONS_DATABASE_ID=database-id\n",
+        encoding="utf-8",
+    )
+    write_json(dispatch_dir / "request.json", _payload())
+    write_json(dispatch_dir / "status.json", {"status": "awaiting_agent", "request_id": "m1"})
+    write_json(
+        dispatch_dir / "lease.json",
+        {"owner": "worker", "pid": os.getpid(), "expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
+    monkeypatch.delenv("NOTION_APPLICATIONS_DATABASE_ID", raising=False)
+    observed = {}
+
+    def fake_process(*_args, **_kwargs):
+        observed["token"] = os.environ.get("NOTION_TOKEN")
+        observed["database_id"] = os.environ.get("NOTION_APPLICATIONS_DATABASE_ID")
+        return {"result": {"status": "blocked"}}
+
+    monkeypatch.setattr(worker, "process_message", fake_process)
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "blocked"
+    assert observed == {"token": "project-token", "database_id": "database-id"}
+
+
+def test_subagent_hook_is_silent_and_does_not_block_agent(monkeypatch, capsys):
+    monkeypatch.setenv("CAREER_HARNESS_SUBAGENT", "1")
+
+    assert hook.main() == 0
+    assert capsys.readouterr().out == ""
