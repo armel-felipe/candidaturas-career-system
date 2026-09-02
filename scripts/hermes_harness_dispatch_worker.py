@@ -318,6 +318,25 @@ def _blocked(dispatch_dir: Path, reason: str, *, deliver_reply: bool = False, **
                 "status": "failed",
                 "error": f"{type(exc).__name__}: {exc}"[:500],
             }
+    command_id = str(request.get("command_id") or "").strip()
+    if command_id:
+        worker_root = dispatch_dir.parent
+        for parent in dispatch_dir.parents:
+            if parent.name == ".career-state":
+                worker_root = parent.parent
+                break
+        try:
+            HarnessCommandStore(canonical_database(root=worker_root)).finish(
+                command_id,
+                status="blocked",
+                result=payload,
+                reply_text=payload.get("reply_text"),
+            )
+        except Exception as exc:
+            # Preserve the original operational error.  A database failure is
+            # reported in the file mirror for diagnostics, but is never
+            # allowed to replace the worker's concrete blocker reason.
+            payload["command_persistence_error"] = f"{type(exc).__name__}: {exc}"[:500]
     write_json(dispatch_dir / "result.json", payload)
     write_json(dispatch_dir / "status.json", payload)
     (dispatch_dir / "lease.json").unlink(missing_ok=True)
