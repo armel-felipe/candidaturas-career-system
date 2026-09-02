@@ -20,7 +20,9 @@ from career.services.harness_supervisor import HarnessSupervisor
 from career.utils import read_json, utc_now_iso, write_json
 
 
-_TERMINAL_DISPATCH_STATUSES = frozenset({"completed", "blocked", "awaiting_input", "ready"})
+_TERMINAL_DISPATCH_STATUSES = frozenset({
+    "completed", "blocked", "awaiting_input", "awaiting_approval", "ready"
+})
 
 
 def _nested_blocked_reply(result: dict[str, Any]) -> str | None:
