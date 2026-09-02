@@ -243,7 +243,7 @@ def test_explicit_cellular_runner_can_load_persisted_plan_after_processing(
     monkeypatch.setattr(
         applications_v2,
         "_load_explicit_cellular_application",
-        lambda application_id: {"application_id": application_id},
+        lambda application_id, **_kwargs: {"application_id": application_id},
     )
     monkeypatch.setattr(
         applications_v2, "_process_cellular_application", lambda *args, **kwargs: []
