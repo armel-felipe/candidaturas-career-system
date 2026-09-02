@@ -1609,7 +1609,28 @@ class HarnessSupervisor:
             }
             else "completed"
         )
-        return {"status": status, "intake": intake, "specialist": specialist}
+        result: dict[str, Any] = {
+            "status": status,
+            "intake": intake,
+            "specialist": specialist,
+        }
+        if status == "blocked":
+            application_id = str(
+                intake.get("application_id") or specialist.get("application_id") or ""
+            ).strip()
+            next_step = str(intake.get("next_required_step") or "").strip()
+            if "fit_map" in next_step or "draft" in next_step:
+                result["display_text"] = (
+                    "A candidatura foi preparada, mas a análise está aguardando "
+                    f"o preenchimento do fit_map.draft.json ({application_id or 'candidatura sem ID'})."
+                )
+            else:
+                blocker = str(specialist.get("blocker_reason") or "bloqueio do fluxo canônico").strip()
+                result["display_text"] = (
+                    "A solicitação foi bloqueada pelo fluxo canônico "
+                    f"({blocker})."
+                )
+        return result
 
     def _execute_pipeline_request(
         self,

@@ -514,6 +514,28 @@ def test_hook_describes_async_dispatch_as_processing_not_blocked():
     assert "bloqueou" not in message
 
 
+def test_process_message_exposes_nested_block_as_deterministic_reply(tmp_path):
+    class _BlockedSupervisor:
+        def handle_message(self, *_args, **_kwargs):
+            return {
+                "status": "blocked",
+                "result": {
+                    "status": "blocked",
+                    "blocker_reason": "explicit_application_scope_required",
+                },
+            }
+
+    result = adapter.process_message(
+        "continue o cv",
+        message_id="blocked-reply",
+        supervisor=_BlockedSupervisor(),
+        root=tmp_path,
+    )
+
+    assert "não consegui continuar" in result["reply_text"].lower()
+    assert "candidatura" in result["reply_text"].lower()
+
+
 def test_worker_loads_project_dotenv_before_supervisor(tmp_path, monkeypatch):
     dispatch_dir = tmp_path / ".career-state" / "harness" / "dispatches" / "job"
     dispatch_dir.mkdir(parents=True)

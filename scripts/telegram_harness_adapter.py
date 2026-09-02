@@ -23,6 +23,41 @@ from career.utils import read_json, utc_now_iso, write_json
 _TERMINAL_DISPATCH_STATUSES = frozenset({"completed", "blocked", "awaiting_input"})
 
 
+def _nested_blocked_reply(result: dict[str, Any]) -> str | None:
+    """Return a safe user-facing reply for a blocked supervisor result."""
+    payload = result.get("result") if isinstance(result, dict) else None
+    if not isinstance(payload, dict):
+        return None
+    display_text = payload.get("display_text")
+    if isinstance(display_text, str) and display_text.strip():
+        return display_text.strip()
+    if str(payload.get("status") or "") != "blocked":
+        return None
+
+    blocker_reason = ""
+    current: Any = payload
+    for _ in range(5):
+        if not isinstance(current, dict):
+            break
+        candidate = str(current.get("blocker_reason") or "").strip()
+        if candidate:
+            blocker_reason = candidate
+            break
+        current = current.get("result")
+
+    if blocker_reason == "explicit_application_scope_required":
+        return (
+            "Não consegui continuar porque a candidatura não está vinculada "
+            "a esta sessão. Nenhuma etapa foi executada."
+        )
+    if blocker_reason:
+        return (
+            "A solicitação foi bloqueada pelo fluxo canônico "
+            f"({blocker_reason}). Nenhuma etapa foi executada."
+        )
+    return "A solicitação foi bloqueada pelo fluxo canônico. Nenhuma etapa foi executada."
+
+
 def _dispatch_dir(root: Path, message_id: str) -> Path:
     raw_id = str(message_id or "").strip()
     if not raw_id:
@@ -266,6 +301,10 @@ def process_message(
     display_text = payload.get("display_text") if isinstance(payload, dict) else None
     if isinstance(display_text, str) and display_text.strip():
         envelope["reply_text"] = display_text
+    else:
+        blocked_reply = _nested_blocked_reply(result)
+        if blocked_reply:
+            envelope["reply_text"] = blocked_reply
     write_json(cache_path, envelope)
     return envelope
 

@@ -116,6 +116,12 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
                 observed_status=final_status,
             )
         reply_text = result.get("reply_text") if isinstance(result, dict) else None
+        if not isinstance(reply_text, str) or not reply_text.strip():
+            nested_result = result.get("result") if isinstance(result, dict) else None
+            if isinstance(nested_result, dict):
+                nested_reply = nested_result.get("reply_text")
+                if isinstance(nested_reply, str) and nested_reply.strip():
+                    reply_text = nested_reply
         delivery = {"status": "not_required"}
         if isinstance(reply_text, str) and reply_text.strip():
             try:

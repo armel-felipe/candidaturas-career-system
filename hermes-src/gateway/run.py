@@ -58,6 +58,7 @@ from agent.conversation_loop import INTERRUPT_WAITING_FOR_MODEL_PREFIX
 from agent.i18n import t
 from hermes_cli.config import cfg_get
 from hermes_cli.fallback_config import get_fallback_chain
+from agent.turn_context import PreLlmHookBlocked
 
 # --- Agent cache tuning ---------------------------------------------------
 # Bounds the per-session AIAgent cache to prevent unbounded growth in
@@ -100,6 +101,16 @@ _TELEGRAM_NOISY_STATUS_RE = re.compile(
 _GATEWAY_RAW_TEXT_PLATFORMS = frozenset(
     {"local", "api_server", "webhook", "msgraph_webhook"}
 )
+
+
+def _should_suppress_gateway_error(exc: Exception) -> bool:
+    """Return whether an exception is an expected supervisory stop.
+
+    ``pre_llm_call`` uses an exception to prevent the model from running after
+    an asynchronous supervisor dispatch.  That is control flow, not an agent
+    failure, so it must not be rendered as the generic gateway error.
+    """
+    return isinstance(exc, PreLlmHookBlocked)
 
 
 def _gateway_surface_passes_raw_text(platform: Any) -> bool:
@@ -12448,6 +12459,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     await _err_adapter.stop_typing(source.chat_id)
             except Exception:
                 pass
+            if _should_suppress_gateway_error(e):
+                logger.info(
+                    "Pre-LLM supervisory hook stopped the turn intentionally "
+                    "in session %s; awaiting the supervisor worker result",
+                    session_key,
+                )
+                return None
             logger.exception("Agent error in session %s", session_key)
             # Crash-resilience for failures that happen before AIAgent enters
             # run_conversation() (for example: provider/httpx client init

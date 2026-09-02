@@ -30,6 +30,24 @@ def _maintenance_payload(**overrides):
     return payload
 
 
+def test_blocked_pipeline_result_exposes_next_step_to_async_worker():
+    result = HarnessSupervisor._pipeline_result(
+        intake={
+            "application_id": "app-demo",
+            "next_required_step": "fill_fit_map_draft",
+        },
+        specialist={
+            "status": "blocked",
+            "step": "fit-map",
+            "blocker_reason": "fit_map_draft_required",
+        },
+    )
+
+    assert result["status"] == "blocked"
+    assert "app-demo" in result["display_text"]
+    assert "fit_map.draft.json" in result["display_text"]
+
+
 class _ApprovedMaintenanceRunner:
     def __init__(self, root: Path) -> None:
         self.root = root
