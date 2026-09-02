@@ -1113,6 +1113,21 @@ class HarnessSupervisor:
                 "blocker_reason": "explicit_application_scope_required",
                 "stage": step,
             }
+        if step == "fit-map":
+            try:
+                summary = self._materialized_fit_map_summary(application_id)
+            except (ApplicationNotFoundError, ValueError):
+                # No canonical analysis yet: prepare and execute the draft
+                # stage below.
+                pass
+            else:
+                return {
+                    "status": "completed",
+                    "step": "fit-map",
+                    "application_id": application_id,
+                    "summary": summary,
+                    "reused_completed_fit_map": True,
+                }
         prepared = self.prepare_specialist(step, objective=objective, extras=extras)
         if prepared.get("validation", {}).get("status") != "ok":
             return prepared
