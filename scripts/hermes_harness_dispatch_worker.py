@@ -22,8 +22,13 @@ _TERMINAL_WORKER_STATUSES = frozenset({"completed", "blocked", "awaiting_input"}
 
 
 def run_worker(dispatch_dir: Path) -> dict:
-    with _dispatch_lock(dispatch_dir):
-        return _run_worker_locked(dispatch_dir)
+    """Run the already-owned worker without holding the dispatch lock.
+
+    The dispatcher serializes worker creation.  Once the worker marks durable
+    state as ``running``, duplicate hooks must be able to read that state
+    immediately rather than wait for a long specialist execution.
+    """
+    return _run_worker_locked(dispatch_dir)
 
 
 def _run_worker_locked(dispatch_dir: Path) -> dict:

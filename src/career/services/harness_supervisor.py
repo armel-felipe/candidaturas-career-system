@@ -1130,7 +1130,12 @@ class HarnessSupervisor:
         runner_config = config.get(runner_key, {"command": "hermes", "agent": "build", "timeout_minutes": 90})
         active_model = model or str(config.get("active_model") or "")
         active_variant = variant or str(config.get("active_variant") or "")
-        instruction = "Leia o request anexado, execute somente esta etapa, grave os outputs permitidos e rode os comandos de validacao definidos no request."
+        instruction = (
+            "Leia o request anexado, execute somente esta etapa, grave os outputs "
+            "permitidos e rode apenas os comandos de validacao definidos no request. "
+            "Nao rode npm run test, pytest ou manutencao de runtime; eles nao fazem "
+            "parte desta etapa e alteram estado fora da candidatura."
+        )
         run_request = AgentRunRequest(
             stage=step, record_key=str(request["request_id"]), request_path=request_md,
             instruction=instruction, runner_config=runner_config,
@@ -1165,8 +1170,12 @@ class HarnessSupervisor:
         if persisted_outputs:
             payload["persisted_outputs"] = persisted_outputs
         status = "completed"
-        if result.returncode != 0 or isolation.get("status") != "ok":
+        if result.returncode != 0:
             status = "blocked"
+            payload["blocker_reason"] = "specialist_runner_failed"
+        elif isolation.get("status") != "ok":
+            status = "blocked"
+            payload["blocker_reason"] = "specialist_isolation_failed"
         elif SPECIALIST_OUTPUT_PATTERNS.get(step) and not isolation.get("allowed_changed_files"):
             status = "blocked"
             payload["blocker_reason"] = "specialist_produced_no_allowed_output"
@@ -1205,7 +1214,12 @@ class HarnessSupervisor:
                 payload["blocker_reason"] = str(
                     contract_result.blocker_reason or "specialist_contract_failed"
                 )
-        return {**prepared, "status": status, "execution": payload}
+        return {
+            **prepared,
+            "status": status,
+            "blocker_reason": payload.get("blocker_reason"),
+            "execution": payload,
+        }
 
     @staticmethod
     def should_auto_finalize_fit_map(
