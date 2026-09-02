@@ -134,6 +134,27 @@ def _fit_map_state_fingerprint_match(fit_map_path: Path, job_path: Path | None) 
     )
 
 
+def _job_identity_literals_match(fit_map: dict, job_text: str) -> bool:
+    """Compatibility identity check when SQLite-only omits JSON run receipts.
+
+    The canonical revision is SQLite in this runtime.  The scoped FIT_MAP
+    projection can therefore lack the legacy workflow fingerprint receipt.
+    Accept only an unambiguous company plus all meaningful role tokens; this
+    covers harmless title reordering without treating another vacancy as a
+    match.
+    """
+    company = str(fit_map.get("empresa") or "").casefold().strip()
+    role = str(fit_map.get("cargo") or "").casefold().strip()
+    normalized_job = job_text.casefold()
+    role_tokens = {
+        token for token in re.findall(r"[a-zà-ÿ0-9]{3,}", role)
+        if token not in {"and", "the", "for", "with", "rappi"}
+    }
+    return bool(company and company in normalized_job and role_tokens and all(
+        token in normalized_job for token in role_tokens
+    ))
+
+
 def _normalize_key(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")
 
@@ -348,10 +369,8 @@ def status(
     effective_registry_path = Path(registry_path) if registry_path else _registry_path_for_fit_map(fit_map_path)
     keyword_registration = {"registered": False, "reason": "fit_map_missing", "path": str(effective_registry_path)}
     if job_path and isinstance(fit_map, dict) and not fit_map_job_match:
-        job_text = job_path.read_text(encoding="utf-8", errors="replace").casefold()
-        cargo = str(fit_map.get("cargo", "")).casefold()
-        empresa = str(fit_map.get("empresa", "")).casefold()
-        fit_map_job_match = bool(cargo and empresa and cargo in job_text and empresa in job_text)
+        job_text = job_path.read_text(encoding="utf-8", errors="replace")
+        fit_map_job_match = _job_identity_literals_match(fit_map, job_text)
     if fit_map_job_match and isinstance(fit_map, dict):
         keyword_registration = _keywords_registered(fit_map, effective_registry_path)
     final_fit_map_ready = (

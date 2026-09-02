@@ -18,7 +18,7 @@ from career.utils import read_json, utc_now_iso, write_json
 from telegram_harness_adapter import _dispatch_lock, _lease_alive, process_message
 
 
-_TERMINAL_WORKER_STATUSES = frozenset({"completed", "blocked", "awaiting_input"})
+_TERMINAL_WORKER_STATUSES = frozenset({"completed", "blocked", "awaiting_input", "ready"})
 
 
 def run_worker(dispatch_dir: Path) -> dict:
@@ -121,6 +121,11 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
                 observed_status=final_status,
             )
         reply_text = result.get("reply_text") if isinstance(result, dict) else None
+        if final_status == "ready" and not reply_text:
+            nested = result.get("result") if isinstance(result, dict) else {}
+            serial = nested.get("serial_stage") if isinstance(nested, dict) else {}
+            next_stage = str(serial.get("next_stage") or "próxima etapa") if isinstance(serial, dict) else "próxima etapa"
+            reply_text = f"A etapa atual foi concluída. O fluxo está pronto para {next_stage}."
         if not isinstance(reply_text, str) or not reply_text.strip():
             nested_result = result.get("result") if isinstance(result, dict) else None
             if isinstance(nested_result, dict):

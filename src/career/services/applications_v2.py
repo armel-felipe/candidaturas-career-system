@@ -1930,6 +1930,7 @@ def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
         "roi",
         "implemented",
         "configured",
+        "program",
         "organized",
         "modeled",
         "built",

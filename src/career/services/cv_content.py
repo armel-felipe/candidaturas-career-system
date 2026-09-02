@@ -467,7 +467,9 @@ def active_artifact_status(
         cv_status["matches_active_job"] = metadata.get("job_fingerprint") == active.fingerprint
         cv_status["output_name"] = payload.get("output_name")
     return {
-        "status": "ok" if fit_map_status.get("fit_map", {}).get("matches_active_job") and cv_status["matches_active_job"] else "blocked",
+        # This gate runs *before* cv_content exists.  Requiring the future
+        # artifact here made every fresh CV impossible to start.
+        "status": "ok" if fit_map_status.get("fit_map", {}).get("matches_active_job") else "blocked",
         "active_job": {
             "path": derived_context_service._relative(active.job_description_path),
             "fingerprint": active.fingerprint,
