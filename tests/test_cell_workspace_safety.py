@@ -13,7 +13,7 @@ import pytest
 from career.cells.executor import CellExecutor
 from career.cells.handlers import CellOutput, ValidatorResult
 from career import cli
-from career.services import applications_v2, derived_context, multiagent
+from career.services import applications_v2, derived_context, harness_runs, multiagent
 from career.services.application_context import WorkspaceLease, workspace_owner_from_env
 from career.services.database import Database
 from career.services.harness_runs import HarnessRunStore, _file_hash, allowed_outputs_from_request
@@ -2062,6 +2062,51 @@ def test_cellular_harness_detects_global_and_cross_application_writes(tmp_path):
         ".career-state/applications_v2/app-b/fit_map.draft.json",
         "outputs/rogue.docx",
     }
+
+
+def test_protected_snapshot_skips_archival_and_transport_roots(tmp_path, monkeypatch):
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-a"
+    transport_file = (
+        tmp_path
+        / ".career-state"
+        / "harness"
+        / "dispatches"
+        / "old-job"
+        / "result.json"
+    )
+    backup_file = (
+        tmp_path
+        / ".career-state"
+        / "reset_backups"
+        / "old-reset"
+        / "result.json"
+    )
+    sentinel = (
+        tmp_path
+        / ".career-state"
+        / "applications_v2"
+        / "app-b"
+        / "identity.json"
+    )
+    for path in (transport_file, backup_file, sentinel):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+        path.chmod(0o600)
+
+    original_hash = harness_runs._file_hash
+
+    def fail_if_excluded(path):
+        if path in {transport_file, backup_file}:
+            raise AssertionError(f"excluded file was hashed: {path}")
+        return original_hash(path)
+
+    monkeypatch.setattr(harness_runs, "_file_hash", fail_if_excluded)
+
+    snapshot = harness_runs._protected_workspace_snapshot(tmp_path, application_dir)
+
+    assert str(transport_file.relative_to(tmp_path)) not in snapshot
+    assert str(backup_file.relative_to(tmp_path)) not in snapshot
+    assert str(sentinel.relative_to(tmp_path)) in snapshot
 
 
 def test_harness_hash_reports_actionable_permission_preflight(tmp_path, monkeypatch):

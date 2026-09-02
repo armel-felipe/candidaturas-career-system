@@ -181,6 +181,8 @@ def _protected_workspace_snapshot(root: Path, application_dir: Path) -> dict[str
     ignored_names = {"career.db", "career.db-wal", "career.db-shm"}
     ignored_roots = {
         root / ".career-state" / "telegram" / "messages",
+        root / ".career-state" / "harness" / "dispatches",
+        root / ".career-state" / "reset_backups",
     }
     for relative_root in (".career-state", "outputs"):
         base = root / relative_root
