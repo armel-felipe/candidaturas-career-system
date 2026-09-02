@@ -41,7 +41,7 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
     status_path = dispatch_dir / "status.json"
     result_path = dispatch_dir / "result.json"
     lease_path = dispatch_dir / "lease.json"
-    if not request_path.is_file() or not status_path.is_file():
+    if not request_path.is_file():
         return _blocked(
             dispatch_dir,
             "dispatch_request_missing",
@@ -74,27 +74,36 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
         if str(command.get("status") or "") in _TERMINAL_WORKER_STATUSES:
             persisted = _command_payload(command)
             return {**persisted, "command_id": command_id}
-    status = read_json(status_path)
-    if str(status.get("status") or "") in _TERMINAL_WORKER_STATUSES:
-        return read_json(result_path) if result_path.is_file() else status
-    if str(status.get("status") or "") == "running":
-        return _blocked(dispatch_dir, "dispatch_reentrancy")
-    if not lease_path.is_file():
-        return _blocked(dispatch_dir, "dispatch_lease_missing")
-    lease = read_json(lease_path)
-    try:
-        lease_pid = int(lease.get("pid") or 0)
-    except (TypeError, ValueError):
-        lease_pid = 0
-    if lease_pid != os.getpid():
-        return _blocked(
-            dispatch_dir,
-            "dispatch_lease_owner_mismatch",
-            lease_pid=lease_pid,
-            worker_pid=os.getpid(),
-        )
-    if not _lease_alive(lease):
-        return _blocked(dispatch_dir, "dispatch_lease_expired")
+    if command_id:
+        # The command claim above is the concurrency/lease boundary.  The
+        # legacy status and PID files are deliberately not consulted: stale
+        # mirrors must not be able to block a valid SQLite command.
+        status = {"status": "queued"}
+        lease = {}
+    else:
+        if not status_path.is_file():
+            return _blocked(dispatch_dir, "dispatch_request_missing")
+        status = read_json(status_path)
+        if str(status.get("status") or "") in _TERMINAL_WORKER_STATUSES:
+            return read_json(result_path) if result_path.is_file() else status
+        if str(status.get("status") or "") == "running":
+            return _blocked(dispatch_dir, "dispatch_reentrancy")
+        if not lease_path.is_file():
+            return _blocked(dispatch_dir, "dispatch_lease_missing")
+        lease = read_json(lease_path)
+        try:
+            lease_pid = int(lease.get("pid") or 0)
+        except (TypeError, ValueError):
+            lease_pid = 0
+        if lease_pid != os.getpid():
+            return _blocked(
+                dispatch_dir,
+                "dispatch_lease_owner_mismatch",
+                lease_pid=lease_pid,
+                worker_pid=os.getpid(),
+            )
+        if not _lease_alive(lease):
+            return _blocked(dispatch_dir, "dispatch_lease_expired")
     lease = {
         **lease,
         "owner": f"harness-worker-{os.getpid()}",

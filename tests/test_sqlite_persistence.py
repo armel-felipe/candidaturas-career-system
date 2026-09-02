@@ -22,6 +22,7 @@ class SQLitePersistenceTests(unittest.TestCase):
         "009_historical_reconciliation.sql",
         "010_quarantine_orphan_receipts.py",
         "011_delivery_profiles.py",
+        "012_harness_commands.sql",
     ]
 
     def setUp(self) -> None:
@@ -34,7 +35,7 @@ class SQLitePersistenceTests(unittest.TestCase):
     def test_migrate_registers_schema_and_runtime_pragmas(self) -> None:
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 11)
+        self.assertEqual(applied, 12)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(self._pragma("foreign_keys"), 1)
         self.assertEqual(self._pragma("busy_timeout"), 10000)
@@ -70,6 +71,7 @@ class SQLitePersistenceTests(unittest.TestCase):
             "notion_records",
             "notion_syncs",
             "deliveries",
+            "harness_commands",
             "schema_migrations",
         ):
             self.assertIn(table_name, tables)
@@ -139,7 +141,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 11)
+        self.assertEqual(applied, 12)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertEqual(
             self._columns("resource_locks"),
@@ -193,7 +195,7 @@ class SQLitePersistenceTests(unittest.TestCase):
 
         applied = self.database.migrate()
 
-        self.assertEqual(applied, 7)
+        self.assertEqual(applied, 8)
         self.assertEqual(self._migration_versions(), self.EXPECTED_VERSIONS)
         self.assertTrue(
             {"logical_key", "content_hash"}.issubset(self._columns("reference_documents"))
