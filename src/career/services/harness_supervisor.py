@@ -354,15 +354,16 @@ class HarnessSupervisor:
         if self._is_menu_request(lowered):
             return self._decision("menu", "menu", "high", "session_menu_request")
 
-        selection = self._resolve_menu_selection(text)
-        if selection:
-            return self.classify(selection["prompt"])
-        invalid_selection = self._invalid_menu_selection(text)
-        if invalid_selection:
-            return self._decision("invalid_menu_selection", "conversation", "high", invalid_selection)
-
         if self._is_runtime_introspection(lowered):
             return self._decision("runtime_introspection", "status", "high", "runtime_introspection_request")
+
+        # A request to identify the current analysis must never be routed back
+        # through a specialist (or a model).  It is a read of the application
+        # bound to this exact Telegram/Hermes session.
+        if self._is_fit_map_summary_question(lowered):
+            return self._decision(
+                "fit_map_summary", "status", "high", "session_bound_fit_map_summary"
+            )
 
         analysis_requested = any(
             token in lowered for token in ("avali", "analis", "aderencia", "aderência", "fit_map", "fit map")
@@ -506,6 +507,19 @@ class HarnessSupervisor:
             return self._decision("fit_map", "fit-map", "medium", "job_analysis_request")
 
         return self._decision("generic_assistant", "chat", "low", "no_deterministic_route")
+
+    @staticmethod
+    def _is_fit_map_summary_question(message: str) -> bool:
+        normalized = " ".join(str(message or "").split())
+        asks_for_map = "fit map" in normalized or "fit_map" in normalized
+        asks_for_current_job = any(
+            phrase in normalized
+            for phrase in (
+                "qual vaga", "vaga analisada", "vaga ativa", "esta analisando",
+                "está analisando", "analise feita", "análise feita",
+            )
+        )
+        return asks_for_map or asks_for_current_job
 
     @classmethod
     def _is_maintenance_request(cls, message: str) -> bool:
@@ -1244,14 +1258,14 @@ class HarnessSupervisor:
 
     def handle_message(self, message: str, *, channel: str = "cli", execute: bool = False, max_per_run: int | None = None, model: str | None = None, variant: str | None = None, runtime_context: dict[str, Any] | None = None) -> dict[str, Any]:
         user_message = message
-        pending_record = self._read_pending_input()
+        pending_record = self._read_pending_input(runtime_context, channel=channel)
         # Pending requests created before session binding are legacy state. They
         # must never capture a new Telegram/Hermes turn and redirect it to an
         # unrelated question (for example, asking for a Notion ID while the
         # user is listing LinkedIn saved jobs). Session-bound requests remain
         # authoritative and keep the strict unresolved-input behavior below.
         if pending_record and not str(pending_record.get("session_id") or "").strip():
-            self._clear_pending_input()
+            self._clear_pending_input(runtime_context, channel=channel)
             pending_record = None
         if pending_record:
             pending_session = str(pending_record.get("session_id") or "").strip()
@@ -1270,11 +1284,15 @@ class HarnessSupervisor:
                 # let it hijack a different Telegram/Hermes session.
                 pending_record = None
         pending = (
-            self._resolve_pending_input(message, runtime_context=runtime_context)
+            self._resolve_pending_input(
+                message, runtime_context=runtime_context, channel=channel
+            )
             if pending_record
             else None
         )
-        invalid_pending_selection = self._invalid_pending_record_selection(message)
+        invalid_pending_selection = self._invalid_pending_record_selection(
+            message, runtime_context=runtime_context, channel=channel
+        )
         if invalid_pending_selection:
             return {
                 "status": "awaiting_input",
@@ -1305,7 +1323,7 @@ class HarnessSupervisor:
             }
         if pending:
             if pending.get("input_kind") == "confirmation":
-                self._clear_pending_input()
+                self._clear_pending_input(runtime_context, channel=channel)
                 return {
                     "status": "completed",
                     "channel": channel,
@@ -1323,7 +1341,9 @@ class HarnessSupervisor:
                     },
                 }
             message = str(pending["message"])
-        selection = self._resolve_menu_selection(message)
+        selection = self._resolve_menu_selection(
+            message, runtime_context=runtime_context, channel=channel
+        )
         original_message = user_message
         if selection:
             input_request = self._menu_input_request(selection)
@@ -1331,7 +1351,9 @@ class HarnessSupervisor:
                 input_request = self._pending_request_for_context(
                     input_request, runtime_context, channel=channel
                 )
-                self._write_pending_input(input_request)
+                self._write_pending_input(
+                    input_request, runtime_context=runtime_context, channel=channel
+                )
                 return {
                     "status": "awaiting_input", "channel": channel, "message": original_message,
                     "decision": self._decision("collect_input", "conversation", "high", "menu_selection_requires_input").to_dict(),
@@ -1361,8 +1383,10 @@ class HarnessSupervisor:
         workflow = decision.workflow
         try:
             if workflow == "menu":
-                self._clear_pending_input()
-                envelope["result"] = self._build_session_menu()
+                self._clear_pending_input(runtime_context, channel=channel)
+                envelope["result"] = self._build_session_menu(
+                    runtime_context=runtime_context, channel=channel
+                )
             elif workflow in {"collect_notion_id", "collect_linkedin_url", "collect_pasted_job"}:
                 input_kind = {"collect_notion_id": "notion_id", "collect_linkedin_url": "linkedin_job_url", "collect_pasted_job": "pasted_job"}[workflow]
                 display_text = {
@@ -1374,7 +1398,9 @@ class HarnessSupervisor:
                 request = self._pending_request_for_context(
                     request, runtime_context, channel=channel
                 )
-                self._write_pending_input(request)
+                self._write_pending_input(
+                    request, runtime_context=runtime_context, channel=channel
+                )
                 envelope["result"] = request
             elif workflow == "resume":
                 resume_parameters = decision.parameters or {}
@@ -1440,7 +1466,9 @@ class HarnessSupervisor:
                 request = self._pending_request_for_context(
                     request, runtime_context, channel=channel
                 )
-                self._write_pending_input(request)
+                self._write_pending_input(
+                    request, runtime_context=runtime_context, channel=channel
+                )
                 envelope["result"] = request
             elif workflow == "notion_application_list":
                 from career.services import notion as notion_service
@@ -1456,7 +1484,9 @@ class HarnessSupervisor:
                         {"input_kind": "notion_record_selection", "record_ids": record_ids},
                         runtime_context,
                         channel=channel,
-                    )
+                    ),
+                    runtime_context=runtime_context,
+                    channel=channel,
                 )
                 envelope["result"] = {
                     "status": "completed",
@@ -1534,7 +1564,13 @@ class HarnessSupervisor:
                 envelope["blocker_reason"] = "pasted_job_requires_empresa_and_cargo_headers"
                 return envelope
             elif workflow == "linkedin_saved_jobs":
-                envelope["result"] = self._extract_linkedin_saved_jobs()
+                envelope["result"] = self._extract_linkedin_saved_jobs(
+                    runtime_context=runtime_context, channel=channel
+                )
+            elif workflow == "fit_map_summary":
+                envelope["result"] = self._session_fit_map_summary(
+                    runtime_context=runtime_context, channel=channel
+                )
             elif workflow == "runtime_introspection":
                 from career.services import project as project_service
                 envelope["result"] = project_service.hermes_runtime_snapshot()
@@ -1600,10 +1636,14 @@ class HarnessSupervisor:
                 max_per_run=max_per_run,
             )
         except ValidationFailure as exc:
-            self._clear_menu_state()
+            self._clear_menu_state(runtime_context, channel=channel)
             envelope["result"] = {"status": "blocked", "kind": "validation_failure", "blocker_reason": "workflow_validation_failed", "display_text": str(exc)}
-        envelope["result"] = self._decorate_result_payload(envelope.get("result"))
-        self._sync_menu_state_for_result(envelope.get("result"))
+        envelope["result"] = self._decorate_result_payload(
+            envelope.get("result"), runtime_context=runtime_context, channel=channel
+        )
+        self._sync_menu_state_for_result(
+            envelope.get("result"), runtime_context=runtime_context, channel=channel
+        )
         result_status = envelope.get("result", {}).get("status") if isinstance(envelope.get("result"), dict) else None
         envelope["executed"] = result_status != "awaiting_input"
         envelope["status"] = (
@@ -2591,7 +2631,9 @@ class HarnessSupervisor:
                     extras["record_id"] = int(record_id)
         return extras or None
 
-    def _extract_linkedin_saved_jobs(self) -> dict[str, Any]:
+    def _extract_linkedin_saved_jobs(
+        self, *, runtime_context: dict[str, Any] | None, channel: str
+    ) -> dict[str, Any]:
         if not self.root:
             return {"status": "blocked", "blocker_reason": "harness_root_missing"}
         completed = subprocess.run(["npm", "run", "linkedin:saved-jobs:extract"], cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10 * 60)
@@ -2604,7 +2646,9 @@ class HarnessSupervisor:
             return {"status": "blocked", "blocker_reason": "saved_jobs_output_missing"}
         payload = read_json(output_path)
         jobs = payload.get("jobs") or []
-        self._write_saved_jobs_menu_state(jobs)
+        self._write_saved_jobs_menu_state(
+            jobs, runtime_context=runtime_context, channel=channel
+        )
         lines = ["Vagas salvas no LinkedIn:"]
         for index, job in enumerate(jobs, start=1):
             lines.append(f"{index}. {job.get('title') or '-'} | {job.get('company') or '-'} | {job.get('location') or '-'}")
@@ -2716,16 +2760,31 @@ class HarnessSupervisor:
             merged["approvals"].update(harness["approvals"])
         return merged
 
-    def _write_saved_jobs_menu_state(self, jobs: list[dict[str, Any]]) -> None:
+    def _write_saved_jobs_menu_state(
+        self, jobs: list[dict[str, Any]], *, runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> None:
         if not self.root:
             return
         from career.utils import write_json
         numbered_items = []
         for index, job in enumerate(jobs, start=1):
             numbered_items.append({"number": index, "section_id": "linkedin_saved_jobs", "section_title": "Vagas salvas no LinkedIn", "id": f"linkedin_saved_job_{job.get('jobId') or index}", "title": job.get("title"), "description": f"{job.get('company') or '-'} | {job.get('location') or '-'}", "prompt": job.get("url"), "recommended": False})
-        write_json(self.root / ".career-state" / "harness" / "menu_state.json", {"kind": "session_menu_state", "updated_at": utc_now_iso(), "menu_context": "linkedin_saved_jobs", "headline": "Vagas salvas no LinkedIn", "numbered_items": numbered_items})
+        self._write_menu_state(
+            {
+                "kind": "session_menu_state",
+                "updated_at": utc_now_iso(),
+                "menu_context": "linkedin_saved_jobs",
+                "headline": "Vagas salvas no LinkedIn",
+                "numbered_items": numbered_items,
+            },
+            runtime_context=runtime_context,
+            channel=channel,
+        )
 
-    def _build_session_menu(self) -> dict[str, Any]:
+    def _build_session_menu(
+        self, *, runtime_context: dict[str, Any] | None, channel: str
+    ) -> dict[str, Any]:
         active = self._active_intake_summary()
         stale = self._stale_active_intake_summary()
         if active:
@@ -2754,7 +2813,9 @@ class HarnessSupervisor:
                     ]},
                 ],
             }
-            return self._finalize_menu_payload(payload)
+            return self._finalize_menu_payload(
+                payload, runtime_context=runtime_context, channel=channel
+            )
         payload = {
             "status": "completed", "kind": "session_menu", "menu_context": "no_active_job",
             "headline": "Nao ha vaga ativa recente. Estas sao as entradas mais uteis para comecar." if not stale else "Nao ha vaga ativa. Estas sao as entradas mais uteis para comecar.",
@@ -2770,7 +2831,9 @@ class HarnessSupervisor:
         if stale:
             payload["stale_active_intake"] = stale
             payload["sections"].append({"id": "resume_previous_job", "title": "Retomar Trabalho Antigo", "items": [self._menu_item("resume", f"Retomar {stale.get('role') or 'vaga anterior'}", "Continuar manualmente o trabalho salvo anteriormente, mesmo ele parecendo antigo.", "continue o trabalho em andamento")]})
-        return self._finalize_menu_payload(payload)
+        return self._finalize_menu_payload(
+            payload, runtime_context=runtime_context, channel=channel
+        )
 
     def run_application_stage(self, *, stage: str, record_key: str, application_dir: Path, request_json: Path, request_md: Path, runner_config: dict[str, Any], model: str = "", variant: str = "", on_start: Callable | None = None, workspace_owner: str = "", control_db_id: str = "") -> dict[str, Any]:
         if not self.root or not self.runner:
@@ -2886,12 +2949,17 @@ class HarnessSupervisor:
     def _menu_item(item_id: str, title: str, description: str, prompt: str, *, recommended: bool = False) -> dict[str, Any]:
         return {"id": item_id, "title": title, "description": description, "prompt": prompt, "recommended": recommended}
 
-    def _finalize_menu_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _finalize_menu_payload(
+        self, payload: dict[str, Any], *, runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> dict[str, Any]:
         numbered_items = self._numbered_menu_items(payload.get("sections") or [])
         payload["numbered_items"] = numbered_items
         payload["display_text"] = self._render_menu_text(payload)
         if self.root:
-            self._write_menu_state(payload)
+            self._write_menu_state(
+                payload, runtime_context=runtime_context, channel=channel
+            )
         return payload
 
     @staticmethod
@@ -2906,26 +2974,90 @@ class HarnessSupervisor:
                 index += 1
         return numbered
 
-    def _write_menu_state(self, payload: dict[str, Any]) -> None:
-        from career.utils import write_json
-        write_json(self.root / ".career-state" / "harness" / "menu_state.json", {"kind": "session_menu_state", "updated_at": utc_now_iso(), "menu_context": payload.get("menu_context"), "headline": payload.get("headline"), "numbered_items": payload.get("numbered_items") or []})
+    def _session_state_dir(
+        self, runtime_context: dict[str, Any] | None, *, channel: str
+    ) -> Path | None:
+        """Return a private harness state directory for one runtime session.
 
-    def _clear_menu_state(self) -> None:
-        if not self.root:
+        Menu selections and pending input are control data, not compatibility
+        state.  They therefore cannot be shared by two bots that happen to
+        use the same project checkout or Telegram chat.
+        """
+        if not self.root or not runtime_context:
+            return None
+        session_id = str(runtime_context.get("session_id") or "").strip()
+        if not session_id:
+            return None
+        runtime = str(runtime_context.get("runtime") or channel or "cli")
+        profile_id = str(runtime_context.get("profile_id") or "").strip()
+        if not profile_id:
+            profile_id = (
+                application_context_service.profile_id_from_env()
+                if runtime == "hermes" else "default"
+            )
+        state_key = application_context_service.session_key(
+            runtime=runtime, profile_id=profile_id, session_id=session_id
+        )
+        return self.root / ".career-state" / "harness" / "sessions" / sha256_text(state_key)[:32]
+
+    def _harness_state_path(
+        self, filename: str, runtime_context: dict[str, Any] | None, *, channel: str
+    ) -> Path | None:
+        state_dir = self._session_state_dir(runtime_context, channel=channel)
+        if state_dir:
+            return state_dir / filename
+        # Non-interactive maintenance/tests may not have a session identity.
+        # Keep that compatibility state explicitly outside the live session
+        # namespace; Telegram/Hermes always supplies runtime_context and can
+        # never read it.
+        if self.root:
+            return self.root / ".career-state" / "harness" / "unscoped" / filename
+        return None
+
+    def _write_menu_state(
+        self, payload: dict[str, Any], *, runtime_context: dict[str, Any] | None = None,
+        channel: str = "cli",
+    ) -> None:
+        state_path = self._harness_state_path(
+            "menu_state.json", runtime_context, channel=channel
+        )
+        if not state_path:
             return
-        (self.root / ".career-state" / "harness" / "menu_state.json").unlink(missing_ok=True)
+        write_json(state_path, {
+            "kind": "session_menu_state", "updated_at": utc_now_iso(),
+            "menu_context": payload.get("menu_context"),
+            "headline": payload.get("headline"),
+            "numbered_items": payload.get("numbered_items") or [],
+        })
 
-    def _decorate_result_payload(self, result: Any) -> Any:
+    def _clear_menu_state(
+        self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
+    ) -> None:
+        state_path = self._harness_state_path(
+            "menu_state.json", runtime_context, channel=channel
+        )
+        if state_path:
+            state_path.unlink(missing_ok=True)
+
+    def _decorate_result_payload(
+        self, result: Any, *, runtime_context: dict[str, Any] | None = None,
+        channel: str = "cli",
+    ) -> Any:
         if not isinstance(result, dict):
             return result
         if str(result.get("kind") or "") in {"session_menu", "linkedin_saved_jobs", "agent_menu"}:
             return result
-        agent_menu = self._build_agent_menu_for_result(result)
+        agent_menu = self._build_agent_menu_for_result(
+            result, runtime_context=runtime_context, channel=channel
+        )
         if not agent_menu:
             return result
         return {**result, **agent_menu}
 
-    def _build_agent_menu_for_result(self, result: dict[str, Any]) -> dict[str, Any] | None:
+    def _build_agent_menu_for_result(
+        self, result: dict[str, Any], *, runtime_context: dict[str, Any] | None,
+        channel: str = "cli",
+    ) -> dict[str, Any] | None:
         if not self._result_has_completed_fit_map(result):
             return None
         application_id = self._result_application_id(result)
@@ -2961,7 +3093,9 @@ class HarnessSupervisor:
                 self._menu_item("notion_update", "Criar no Notion", "Criar ou atualizar o registro da vaga no Notion a partir do estado atual.", "crie registro no Notion para a vaga ativa"),
             ]}],
         }
-        return self._finalize_menu_payload(payload)
+        return self._finalize_menu_payload(
+            payload, runtime_context=runtime_context, channel=channel
+        )
 
     @staticmethod
     def _result_application_id(result: dict[str, Any]) -> str | None:
@@ -3020,6 +3154,47 @@ class HarnessSupervisor:
             },
         }
 
+    def _session_fit_map_summary(
+        self, *, runtime_context: dict[str, Any] | None, channel: str
+    ) -> dict[str, Any]:
+        """Return only the canonical FIT_MAP belonging to this session."""
+        application_id = self._session_application_id(runtime_context, channel=channel)
+        if not application_id:
+            return {
+                "status": "blocked",
+                "kind": "fit_map_summary",
+                "blocker_reason": "application_session_not_bound",
+                "display_text": "Não encontrei uma candidatura vinculada a esta sessão.",
+            }
+        try:
+            summary = self._materialized_fit_map_summary(application_id)
+        except (ApplicationNotFoundError, ValueError):
+            return {
+                "status": "blocked",
+                "kind": "fit_map_summary",
+                "application_id": application_id,
+                "blocker_reason": "fit_map_not_finalized_for_session_application",
+                "display_text": (
+                    "A vaga desta sessão ainda não tem FIT_MAP final. "
+                    "Nenhuma outra candidatura foi consultada."
+                ),
+            }
+        score = summary.get("nota_final")
+        score_text = f"{float(score):.1f}/10" if isinstance(score, (int, float)) else "n/d"
+        return {
+            "status": "completed",
+            "kind": "fit_map_summary",
+            "application_id": application_id,
+            "summary": summary,
+            "display_text": (
+                f"FIT_MAP da vaga vinculada a esta sessão:\n"
+                f"{summary.get('cargo') or '-'} | {summary.get('empresa') or '-'}\n"
+                f"Aderência: {score_text}\n"
+                f"Gaps mapeados: {summary.get('gaps_count') or 0}; "
+                f"objeções mapeadas: {summary.get('objecoes_count') or 0}."
+            ),
+        }
+
     @staticmethod
     def _blocked_summary_result(
         result: dict[str, Any], reason: str, application_id: str | None = None
@@ -3041,16 +3216,21 @@ class HarnessSupervisor:
         specialist = result.get("specialist")
         return isinstance(specialist, dict) and str(specialist.get("status") or "") == "completed" and str(specialist.get("step") or "") == "fit-map"
 
-    def _sync_menu_state_for_result(self, result: Any) -> None:
+    def _sync_menu_state_for_result(
+        self, result: Any, *, runtime_context: dict[str, Any] | None, channel: str
+    ) -> None:
         if not self.root or not isinstance(result, dict):
             return
         if str(result.get("kind") or "") in {"session_menu", "linkedin_saved_jobs", "agent_menu"}:
             return
-        self._clear_menu_state()
+        self._clear_menu_state(runtime_context, channel=channel)
 
-    def _resolve_menu_selection(self, message: str) -> dict[str, Any] | None:
+    def _resolve_menu_selection(
+        self, message: str, *, runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> dict[str, Any] | None:
         text = " ".join(str(message or "").strip().split())
-        payload = self._menu_state_payload()
+        payload = self._menu_state_payload(runtime_context, channel=channel)
         if not payload:
             return None
         if re.fullmatch(r"\d{1,2}", text):
@@ -3080,11 +3260,14 @@ class HarnessSupervisor:
             return None
         return {"number": selection_number, "id": selected.get("id"), "title": selected.get("title"), "description": selected.get("description"), "prompt": selected.get("prompt"), "menu_context": payload.get("menu_context")}
 
-    def _invalid_menu_selection(self, message: str) -> str | None:
+    def _invalid_menu_selection(
+        self, message: str, *, runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> str | None:
         text = " ".join(str(message or "").strip().split())
         if not re.fullmatch(r"\d{1,2}", text):
             return None
-        payload = self._menu_state_payload()
+        payload = self._menu_state_payload(runtime_context, channel=channel)
         if not payload:
             return None
         items = payload.get("numbered_items") or []
@@ -3092,10 +3275,14 @@ class HarnessSupervisor:
             return None
         return "numeric_menu_selection_not_found"
 
-    def _menu_state_payload(self) -> dict[str, Any] | None:
-        if not self.root:
+    def _menu_state_payload(
+        self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
+    ) -> dict[str, Any] | None:
+        state_path = self._harness_state_path(
+            "menu_state.json", runtime_context, channel=channel
+        )
+        if not state_path:
             return None
-        state_path = self.root / ".career-state" / "harness" / "menu_state.json"
         if not state_path.exists():
             return None
         try:
@@ -3148,8 +3335,14 @@ class HarnessSupervisor:
             return application.application_id
         return None
 
-    def _write_pending_input(self, request: dict[str, Any]) -> None:
-        if not self.root:
+    def _write_pending_input(
+        self, request: dict[str, Any], *, runtime_context: dict[str, Any] | None = None,
+        channel: str = "cli",
+    ) -> None:
+        state_path = self._harness_state_path(
+            "pending_input.json", runtime_context, channel=channel
+        )
+        if not state_path:
             return
         created_at = str(request.get("created_at") or utc_now_iso())
         expires_at = str(
@@ -3157,30 +3350,41 @@ class HarnessSupervisor:
             or (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
         )
         write_json(
-            self.root / ".career-state" / "harness" / "pending_input.json",
+            state_path,
             {**request, "created_at": created_at, "expires_at": expires_at, "updated_at": utc_now_iso()},
         )
 
-    def _clear_pending_input(self) -> None:
-        if not self.root:
-            return
-        (self.root / ".career-state" / "harness" / "pending_input.json").unlink(missing_ok=True)
+    def _clear_pending_input(
+        self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
+    ) -> None:
+        state_path = self._harness_state_path(
+            "pending_input.json", runtime_context, channel=channel
+        )
+        if state_path:
+            state_path.unlink(missing_ok=True)
 
-    def _read_pending_input(self) -> dict[str, Any] | None:
-        if not self.root:
+    def _read_pending_input(
+        self, runtime_context: dict[str, Any] | None = None, *, channel: str = "cli"
+    ) -> dict[str, Any] | None:
+        path = self._harness_state_path(
+            "pending_input.json", runtime_context, channel=channel
+        )
+        if not path:
             return None
-        path = self.root / ".career-state" / "harness" / "pending_input.json"
         if not path.exists():
             return None
         pending = read_json(path)
         return pending if isinstance(pending, dict) else None
 
     def _resolve_pending_input(
-        self, message: str, *, runtime_context: dict[str, Any] | None = None
+        self, message: str, *, runtime_context: dict[str, Any] | None = None,
+        channel: str = "cli",
     ) -> dict[str, Any] | None:
-        if not self.root:
+        path = self._harness_state_path(
+            "pending_input.json", runtime_context, channel=channel
+        )
+        if not path:
             return None
-        path = self.root / ".career-state" / "harness" / "pending_input.json"
         if not path.exists():
             return None
         pending = read_json(path)
@@ -3229,10 +3433,17 @@ class HarnessSupervisor:
         path.unlink(missing_ok=True)
         return {"input_kind": input_kind, "message": resolved}
 
-    def _invalid_pending_record_selection(self, message: str) -> str | None:
-        if not self.root or not re.fullmatch(r"\d+", str(message or "").strip()):
+    def _invalid_pending_record_selection(
+        self, message: str, *, runtime_context: dict[str, Any] | None = None,
+        channel: str = "cli",
+    ) -> str | None:
+        if not re.fullmatch(r"\d+", str(message or "").strip()):
             return None
-        path = self.root / ".career-state" / "harness" / "pending_input.json"
+        path = self._harness_state_path(
+            "pending_input.json", runtime_context, channel=channel
+        )
+        if not path:
+            return None
         if not path.exists():
             return None
         pending = read_json(path)

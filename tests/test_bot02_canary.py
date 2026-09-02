@@ -46,7 +46,9 @@ def test_bot02_canary_keeps_composite_and_confirmation_scoped(tmp_path):
             "application_id": "app_ca",
             "turn_id": "canary-turn",
             "display_text": "Gerar o CV?",
-        }
+        },
+        runtime_context=session,
+        channel="telegram",
     )
     confirmation = supervisor.handle_message(
         "sim",

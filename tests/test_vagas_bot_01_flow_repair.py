@@ -47,6 +47,7 @@ def test_saved_job_route_passes_existing_application_id_to_intake(tmp_path, monk
         )
     )
     supervisor = HarnessSupervisor(tmp_path)
+    context = {"runtime": "hermes", "profile_id": "profile", "session_id": "s1"}
     supervisor._write_menu_state(
         {
             "menu_context": "linkedin_saved_jobs",
@@ -59,7 +60,7 @@ def test_saved_job_route_passes_existing_application_id_to_intake(tmp_path, monk
                     "prompt": url,
                 }
             ],
-        }
+        }, runtime_context=context, channel="telegram"
     )
     captured = {}
 
@@ -70,10 +71,10 @@ def test_saved_job_route_passes_existing_application_id_to_intake(tmp_path, monk
     monkeypatch.setattr(intake_service, "from_linkedin_job", fake_from_linkedin_job)
     monkeypatch.setattr(supervisor, "_bind_session_to_intake", lambda *args, **kwargs: None)
     monkeypatch.setattr(supervisor, "execute_specialist", lambda *args, **kwargs: {"status": "completed", "step": "fit-map"})
-    monkeypatch.setattr(supervisor, "_decorate_result_payload", lambda result: result)
-    monkeypatch.setattr(supervisor, "_sync_menu_state_for_result", lambda result: None)
+    monkeypatch.setattr(supervisor, "_decorate_result_payload", lambda result, **_kwargs: result)
+    monkeypatch.setattr(supervisor, "_sync_menu_state_for_result", lambda result, **_kwargs: None)
 
-    supervisor.handle_message("analise a vaga 2", execute=True)
+    supervisor.handle_message("analise a vaga 2", execute=True, channel="telegram", runtime_context=context)
 
     assert captured["application_id"] == "jobgether-existing"
     assert captured["database"] is supervisor.db

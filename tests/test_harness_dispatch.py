@@ -48,6 +48,53 @@ def test_blocked_pipeline_result_exposes_next_step_to_async_worker():
     assert "fit_map.draft.json" in result["display_text"]
 
 
+def test_menu_state_is_isolated_by_hermes_profile_and_session(tmp_path):
+    supervisor = HarnessSupervisor(tmp_path)
+    bot_01 = {
+        "runtime": "hermes", "profile_id": "vagas_bot_01", "session_id": "chat-1"
+    }
+    bot_02 = {
+        "runtime": "hermes", "profile_id": "vagas_bot_02", "session_id": "chat-1"
+    }
+
+    supervisor._write_menu_state(
+        {"menu_context": "linkedin_saved_jobs", "headline": "Bot 01", "numbered_items": [{"number": 1}]},
+        runtime_context=bot_01,
+        channel="telegram",
+    )
+    supervisor._write_menu_state(
+        {"menu_context": "active_job", "headline": "Bot 02", "numbered_items": [{"number": 2}]},
+        runtime_context=bot_02,
+        channel="telegram",
+    )
+
+    assert supervisor._menu_state_payload(bot_01, channel="telegram")["headline"] == "Bot 01"
+    assert supervisor._menu_state_payload(bot_02, channel="telegram")["headline"] == "Bot 02"
+    assert supervisor._resolve_menu_selection("1", runtime_context=bot_02, channel="telegram") is None
+
+
+def test_fit_map_summary_question_is_a_session_bound_read(monkeypatch):
+    supervisor = HarnessSupervisor()
+    context = {"runtime": "hermes", "profile_id": "vagas_bot_01", "session_id": "chat-1"}
+    monkeypatch.setattr(
+        supervisor, "_session_application_id", lambda *_args, **_kwargs: "app-bot-01"
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_materialized_fit_map_summary",
+        lambda application_id: {
+            "cargo": "Cargo correto", "empresa": "Empresa correta", "nota_final": 8.5,
+            "gaps_count": 1, "objecoes_count": 2, "keyword_registration": {},
+        },
+    )
+
+    assert supervisor.classify("qual o fit-map da vaga analisada?").workflow == "fit_map_summary"
+    result = supervisor._session_fit_map_summary(runtime_context=context, channel="telegram")
+
+    assert result["application_id"] == "app-bot-01"
+    assert "Cargo correto | Empresa correta" in result["display_text"]
+
+
 class _ApprovedMaintenanceRunner:
     def __init__(self, root: Path) -> None:
         self.root = root
