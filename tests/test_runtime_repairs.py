@@ -76,6 +76,28 @@ class RuntimeRepairTests(unittest.TestCase):
             sqlite_only.close()
         self.assertIsNone(resolved)
 
+    def test_sqlite_only_does_not_write_legacy_json_session_registry(self) -> None:
+        registry = self.registry_path
+        sqlite_only = Database(
+            self.root / "control-plane" / "career-sqlite-only.db",
+            persistence_mode=RuntimePersistenceMode.SQLITE_ONLY,
+        )
+        try:
+            sqlite_only.init_schema()
+            with mock.patch.object(application_context, "SESSION_REGISTRY", registry):
+                application_context.register_session(
+                    runtime="hermes",
+                    profile_id="profile",
+                    session_id="session-no-json",
+                    application_id="app_runtime",
+                    channel="telegram",
+                    database=sqlite_only,
+                )
+        finally:
+            sqlite_only.close()
+
+        self.assertFalse(registry.exists())
+
     def test_generic_continuation_uses_bound_application_and_pipeline_intent(self) -> None:
         runtime_context = {
             "runtime": "hermes",

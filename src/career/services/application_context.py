@@ -929,6 +929,15 @@ def register_session(
         application_id,
         ttl_seconds=SESSION_APPLICATION_TTL_SECONDS,
     )
+    if session_database.persistence_mode == RuntimePersistenceMode.SQLITE_ONLY:
+        return {
+            "runtime": runtime,
+            "profile_id": profile_id,
+            "session_id": session_id,
+            "application_id": application_id,
+            "channel": channel or "",
+            "last_seen_at": utc_now_iso(),
+        }
     registry = read_json(SESSION_REGISTRY) if SESSION_REGISTRY.exists() else {"sessions": {}}
     sessions = registry.setdefault("sessions", {})
     sessions[key] = {
