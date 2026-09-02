@@ -6,9 +6,11 @@ from typing import Callable, Any
 from uuid import uuid4
 
 from career.paths import CAREER_STATE, INBOX, OUTPUTS, ROOT
+from career.services import application_context as application_context_service
 from career.services import fit_map as fit_map_service
 from career.services import memory as memory_service
 from career.services import notion as notion_service
+from career.services import provenance as provenance_service
 from career.services import project as project_service
 from career.services import review as review_service
 from career.services.persistence.analysis_repository import AnalysisRepository
@@ -19,7 +21,7 @@ from career.services.persistence.gate_repository import (
     GateRepository,
 )
 from career.services.persistence.reference_repository import ReferenceRepository
-from career.utils import json_fingerprint, read_json, sha256_file
+from career.utils import json_fingerprint, read_json, sha256_file, write_json
 from career.workflow.state_machine import TASK_TO_STATE, WorkflowStateMachine
 from career.workflow.state_store import WorkflowStateStore
 
@@ -473,11 +475,29 @@ def finalize_fit_map(
         _fit_map_lineage(state_store)
     )
     draft_hash = sha256_file(draft_path)
+    application_paths = application_context_service.paths_for(application_id)
+    candidate_revision = provenance_service.candidate_facts_revision()
     fit_map_service.build_fit_map(draft_path, output_path)
+    fit_map_payload = read_json(output_path)
+    fit_map_payload["provenance"] = provenance_service.fit_map_provenance(
+        application_paths,
+        candidate_revision=candidate_revision,
+        draft_path=draft_path,
+        contract_version="1",
+        produced_by_attempt=1,
+    )
+    write_json(output_path, fit_map_payload)
     built_hash = sha256_file(output_path)
     fit_map_service.score_fit_map(output_path)
     scored_hash = sha256_file(output_path)
-    validated_payload = fit_map_service.validate_fit_map(output_path)
+    validated_payload = fit_map_service.validate_application_fit_map(
+        read_json(output_path),
+        application_paths=application_paths,
+        expected_candidate_facts_revision=candidate_revision,
+        expected_draft_sha256=draft_hash,
+        expected_contract_version="1",
+        expected_produced_by_attempt=1,
+    )
     validation_hash = json_fingerprint(validated_payload)
 
     snapshot = _fit_map_snapshot(validated_payload, current_references)

@@ -8,6 +8,48 @@
     "reviewer_behavior_en": "Equivalentes em inglês (en_cv_preferred) contam como cobertura defensável para CV em inglês."
   },
   "entries": {
+    "activation": {
+      "canonical_keyword": "Activation",
+      "pt_br_preferred": "ativação",
+      "pt_br_alternatives": [
+        "ativação de clientes",
+        "onboarding"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'ativação' cobre o trabalho de ativação de clientes, leads ou oferta quando sustentado pela evidência."
+    },
+    "analytics": {
+      "canonical_keyword": "Analytics",
+      "pt_br_preferred": "análise de dados",
+      "pt_br_alternatives": [
+        "analytics",
+        "modelagem de dados",
+        "BI"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'análise de dados', 'modelagem de dados' ou 'BI' cobrem Analytics."
+    },
+    "engagement": {
+      "canonical_keyword": "Engagement",
+      "pt_br_preferred": "engajamento",
+      "pt_br_alternatives": [
+        "uso recorrente",
+        "adoção"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'engajamento' cobre Engagement quando a evidência demonstra adoção ou disponibilidade da oferta."
+    },
+    "retention": {
+      "canonical_keyword": "Retention",
+      "pt_br_preferred": "retenção",
+      "pt_br_alternatives": [
+        "retenção de clientes",
+        "fidelização",
+        "churn"
+      ],
+      "accepted_variants": [],
+      "usage_notes": "Em CV PT-BR, 'retenção' ou 'fidelização' cobrem Retention quando sustentadas por jornada, onboarding ou churn."
+    },
     "ab_testing": {
       "canonical_keyword": "A/B Testing",
       "pt_br_preferred": "testes A/B",

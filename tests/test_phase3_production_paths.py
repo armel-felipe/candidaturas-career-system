@@ -109,6 +109,12 @@ class Phase3ProductionPathTests(unittest.TestCase):
                 self._run_cli("fit-map", "finalize", "--application-id", self.application_id),
                 0,
             )
+            finalized_fit_map = json.loads(paths.fit_map.read_text(encoding="utf-8"))
+            self.assertIn("provenance", finalized_fit_map)
+            self.assertEqual(
+                finalized_fit_map["provenance"]["job_fingerprint"],
+                json.loads(paths.source_metadata.read_text(encoding="utf-8"))["job_fingerprint"],
+            )
             v1 = AnalysisRepository(self.database).get_current(self.application_id)
 
             self._intake("DESCRICAO V2 CONEXA NOVA " * 80)
@@ -149,10 +155,10 @@ class Phase3ProductionPathTests(unittest.TestCase):
         self.assertEqual(set(by_revision[v1.revision_id]), expected_gates)
         self.assertEqual(set(by_revision[v2.revision_id]), expected_gates)
         for gate in expected_gates:
-            self.assertEqual(
+            self.assertNotEqual(
                 by_revision[v1.revision_id][gate],
                 by_revision[v2.revision_id][gate],
-                f"fixture must exercise equal {gate} hashes across revisions",
+                f"{gate} hashes must bind the finalized FIT_MAP to its source revision",
             )
 
         materializer = ContextMaterializer(self.database)
