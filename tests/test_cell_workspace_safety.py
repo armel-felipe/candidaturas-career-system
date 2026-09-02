@@ -18,7 +18,11 @@ from career.services.application_context import WorkspaceLease, workspace_owner_
 from career.services.database import Database
 from career.services.harness_runs import HarnessRunStore, _file_hash, allowed_outputs_from_request
 from career.services.harness_supervisor import HarnessSupervisor
-from career.utils import ValidationFailure, read_json, utc_now_iso, write_json
+from career.services.persistence.application_repository import (
+    ApplicationIdentity,
+    ApplicationRepository,
+)
+from career.utils import ValidationFailure, read_json, sha256_text, utc_now_iso, write_json
 
 
 @pytest.fixture
@@ -1162,6 +1166,33 @@ def test_local_cellular_heartbeat_discovers_ready_run_outside_notion_queue(
         "# Operations Lead\n\nLead operations and planning. " * 10,
         encoding="utf-8",
     )
+    canonical_description = paths.job_description.read_text(encoding="utf-8")
+    ApplicationRepository(database).create_application(
+        ApplicationIdentity(
+            application_id=application_id,
+            company="Acme",
+            role="Operations Lead",
+            fingerprint=sha256_text(canonical_description),
+            source_type="linkedin_job",
+            source_url="https://www.linkedin.com/jobs/view/123/",
+        )
+    )
+    with database.transaction(immediate=True) as connection:
+        connection.execute(
+            """INSERT INTO job_descriptions
+               (description_id, application_id, source_id, language, content,
+                content_hash, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "desc_local_linkedin_application",
+                application_id,
+                None,
+                "pt",
+                canonical_description,
+                sha256_text(canonical_description),
+                "2026-09-02T00:00:00+00:00",
+            ),
+        )
     write_json(
         paths.identity,
         {

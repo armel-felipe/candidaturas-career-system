@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,11 +14,79 @@ from career.cells import handlers as cell_handlers
 from career.cells.capabilities import CapabilitySet
 from career.cells.handlers import CellOutput, ValidatorResult
 from career.services.application_context import paths_for
+from career.services.persistence.application_repository import (
+    ApplicationIdentity,
+    ApplicationRepository,
+)
 from career.services import multiagent
 from career.cells.executor import CellExecutionResult
 from career.cells.handlers import CellExecutionContext
 from career.services.database import Database
 from career.utils import ValidationFailure, write_json
+
+
+def test_explicit_cellular_application_syncs_job_description_from_control_plane(
+    monkeypatch, tmp_path
+):
+    application_id = "local_canonical_source"
+    applications_root = tmp_path / "applications"
+    paths = paths_for(application_id, root=applications_root)
+    paths.app_dir.mkdir(parents=True)
+    paths.identity.write_text(
+        json.dumps(
+            {
+                "application_id": application_id,
+                "company": "Rappi",
+                "role": "Operations Manager",
+                "source_type": "linkedin_job",
+                "source_id": "https://www.linkedin.com/jobs/view/1/",
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths.job_description.write_text(
+        "# Stale title\n\nCanonical body", encoding="utf-8"
+    )
+
+    canonical_text = "# Canonical title\n\nCanonical body\n"
+    database = Database(tmp_path / "career.db")
+    database.init_schema()
+    ApplicationRepository(database).create_application(
+        ApplicationIdentity(
+            application_id=application_id,
+            company="Rappi",
+            role="Operations Manager",
+            fingerprint="canonical-fingerprint",
+            source_type="linkedin_job",
+        )
+    )
+    with database.transaction(immediate=True) as connection:
+        connection.execute(
+            """INSERT INTO job_descriptions
+               (description_id, application_id, source_id, language, content,
+                content_hash, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "desc_canonical",
+                application_id,
+                None,
+                "pt",
+                canonical_text,
+                hashlib.sha256(canonical_text.encode()).hexdigest(),
+                "2026-09-02T00:00:00+00:00",
+            ),
+        )
+
+    monkeypatch.setattr(applications_v2, "V2_DIR", applications_root)
+    try:
+        application = applications_v2._load_explicit_cellular_application(
+            application_id, database=database
+        )
+    finally:
+        database.close()
+
+    assert application["description"] == canonical_text
+    assert paths.job_description.read_text(encoding="utf-8") == canonical_text
 
 
 def test_explicit_cellular_application_uses_application_id_not_notion_record_id():
@@ -289,6 +359,7 @@ def test_blocked_review_dispatches_scoped_repair_and_reenters_same_run(monkeypat
             self.database = database
             self.calls = []
             self.round = 0
+            self.keepalive_calls = 0
 
         def ready_nodes(self, _run_id):
             return ()
@@ -337,6 +408,11 @@ def test_blocked_review_dispatches_scoped_repair_and_reenters_same_run(monkeypat
         def is_terminal(self, _run_id):
             return False
 
+        @contextmanager
+        def keep_prepared_attempt_alive(self, _prepared):
+            self.keepalive_calls += 1
+            yield {"failure": None}
+
     fake_executor = FakeExecutor(database)
     monkeypatch.setattr(applications_v2, "V2_DIR", root)
     monkeypatch.setattr("career.cells.executor.CellExecutor", lambda *args, **kwargs: fake_executor)
@@ -384,6 +460,7 @@ def test_blocked_review_dispatches_scoped_repair_and_reenters_same_run(monkeypat
         database.close()
 
     assert fake_executor.calls == [(run_id, "compose_cv", "ats_top8_no_missing_unexplained")]
+    assert fake_executor.keepalive_calls == 1
     assert any(item["node_id"] == "compose_cv" for item in result)
     assert any(item["node_id"] == "review_cv" and item["status"] == "validated" for item in result)
 

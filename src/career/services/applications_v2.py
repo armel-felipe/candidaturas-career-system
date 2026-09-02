@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import unicodedata
+from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -837,6 +838,7 @@ def _local_cellular_candidates(
     """
     database = Database(database_path)
     try:
+        applications = ApplicationRepository(database)
         rows = database.fetch_all(
             """SELECT ar.application_id, ar.run_id
                FROM application_runs ar
@@ -865,6 +867,14 @@ def _local_cellular_candidates(
                 continue
             if not ready_nodes:
                 continue
+            try:
+                description = applications.get_latest_job_description(
+                    application_id
+                ).content
+            except (ApplicationNotFoundError, ValueError):
+                # The control plane is authoritative for cellular source text;
+                # never enqueue a local-only/stale description.
+                continue
             identity = read_json(paths.identity) if paths.identity.is_file() else {}
             aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
             record_id = str(aliases.get("notion_record_id") or "").strip()
@@ -878,7 +888,7 @@ def _local_cellular_candidates(
                     "role": str(identity.get("role") or ""),
                     "title": str(identity.get("role") or ""),
                     "status": "Fila Agente",
-                    "description": paths.job_description.read_text(encoding="utf-8"),
+                    "description": description,
                     "source_type": str(identity.get("source_type") or "local"),
                     "source_id": str(identity.get("source_id") or application_id),
                     "source_url": str(identity.get("source_url") or ""),
@@ -4108,13 +4118,22 @@ def _process_cellular_application(
                 manifest_path=repair_result.manifest_path,
             )
             try:
-                agent_result, candidate_path = _cellular_cv_repair_agent(
-                    paths=paths,
-                    repair_result=repair_result,
-                    review_report_path=review_report_path,
-                    options=options,
-                    config=config,
+                keepalive_factory = getattr(
+                    executor, "keep_prepared_attempt_alive", None
                 )
+                keepalive = (
+                    keepalive_factory(prepared)
+                    if callable(keepalive_factory)
+                    else nullcontext()
+                )
+                with keepalive:
+                    agent_result, candidate_path = _cellular_cv_repair_agent(
+                        paths=paths,
+                        repair_result=repair_result,
+                        review_report_path=review_report_path,
+                        options=options,
+                        config=config,
+                    )
                 if candidate_path.is_file():
                     _bind_cellular_cv_repair_candidate(
                         candidate_path,
@@ -4236,12 +4255,31 @@ def _process_cellular_application(
         database.close()
 
 
-def _load_explicit_cellular_application(application_id: str) -> dict[str, Any]:
+def _load_explicit_cellular_application(
+    application_id: str, *, database: Database | None = None
+) -> dict[str, Any]:
     paths = paths_for(application_id, root=V2_DIR)
-    if not paths.job_description.is_file():
+    owned_database = database is None
+    source_database = database or canonical_database()
+    try:
+        try:
+            description = ApplicationRepository(source_database).get_latest_job_description(
+                application_id
+            ).content
+        except (ApplicationNotFoundError, ValueError) as exc:
+            raise ValidationFailure(
+                f"cellular application has no canonical job description: {application_id}"
+            ) from exc
+    finally:
+        if owned_database:
+            source_database.close()
+    if not description.strip():
         raise ValidationFailure(
-            f"cellular application has no persisted job description: {application_id}"
+            f"cellular application has an empty canonical job description: {application_id}"
         )
+    # The control plane is authoritative. Repair the per-bot projection before
+    # any fingerprint-sensitive cell handler runs.
+    write_text(paths.job_description, description)
     identity = read_json(paths.identity) if paths.identity.is_file() else {}
     aliases = identity.get("aliases") if isinstance(identity.get("aliases"), dict) else {}
     record_id = str(aliases.get("notion_record_id") or "").strip()
@@ -4254,7 +4292,7 @@ def _load_explicit_cellular_application(application_id: str) -> dict[str, Any]:
         "role": str(identity.get("role") or ""),
         "title": str(identity.get("role") or ""),
         "status": "Fila Agente",
-        "description": paths.job_description.read_text(encoding="utf-8"),
+        "description": description,
         "source_type": str(identity.get("source_type") or "local"),
         "source_id": str(identity.get("source_id") or application_id),
         "source_url": str(identity.get("source_url") or ""),
@@ -4293,10 +4331,12 @@ def run_explicit_cellular(
                 "configured authoritative control database identity does not match "
                 f"this database: expected={control_db_id} actual={actual_control_db_id}"
             )
+        application = _load_explicit_cellular_application(
+            application_id, database=database
+        )
     finally:
         database.close()
 
-    application = _load_explicit_cellular_application(application_id)
     application["_cellular_run_id"] = run_id
     effective_options = replace(
         options,
