@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shlex
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,14 +27,46 @@ class ApprovedActionExecutor:
         raise ValidationFailure(f"Unsupported approved action kind: {kind!r}")
 
     def _execute_notion(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if (
+            str(payload.get("status") or "").strip().casefold() == "written"
+            and (
+                payload.get("real_write_executed") is True
+                or str(payload.get("resolved_page_id") or "").strip()
+            )
+        ):
+            return {
+                "status": "completed",
+                "action": "notion",
+                "already_executed": True,
+                "resolved_page_id": payload.get("resolved_page_id"),
+            }
         command = payload.get("command")
         if not isinstance(command, list) or not all(isinstance(item, str) for item in command):
-            raise ValidationFailure("Notion pending action must contain a string command list.")
+            command_list = payload.get("command_list")
+            if not isinstance(command_list, list) or not all(
+                isinstance(item, str) and item.strip() for item in command_list
+            ):
+                raise ValidationFailure(
+                    "Notion pending action must contain command or command_list."
+                )
+            try:
+                command = shlex.split(command_list[-1])
+            except ValueError as exc:
+                raise ValidationFailure(
+                    f"Notion command_list contains invalid shell quoting: {exc}"
+                ) from exc
+        if "--dry-run" in command:
+            raise ValidationFailure(
+                "Notion pending action command must be the approved write command, not dry-run."
+            )
         allowed_prefixes = [
             ["npm", "run", "notion:create-current"],
             ["npm", "run", "notion:update-record-current"],
             ["npm", "run", "notion:update-page-current"],
             ["npm", "run", "notion:update-description-record"],
+            ["./scripts/python.sh", "scripts/notion_sync.py"],
+            ["scripts/python.sh", "scripts/notion_sync.py"],
+            [str(self.root / "scripts" / "python.sh"), "scripts/notion_sync.py"],
         ]
         if not any(command[: len(prefix)] == prefix for prefix in allowed_prefixes):
             raise ValidationFailure(f"Notion command is not allowed: {command}")
