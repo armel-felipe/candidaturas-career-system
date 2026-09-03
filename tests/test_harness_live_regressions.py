@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 
 import pytest
 
@@ -265,6 +266,130 @@ def test_notion_update_scoped_pending_action_is_awaiting_approval(monkeypatch, t
     assert result["status"] == "awaiting_approval"
     assert result.get("blocker_reason") is None
     assert result["execution"]["isolation"]["status"] == "ok"
+
+
+def test_specialist_reported_blocker_is_not_collapsed_into_no_output(tmp_path):
+    from subprocess import CompletedProcess
+
+    application_dir = tmp_path / ".career-state" / "applications_v2" / "app-live"
+    request_dir = application_dir / "requests" / "manual_agent_requests" / "runs" / "req-1"
+    request_dir.mkdir(parents=True)
+    request_json = request_dir / "request.json"
+    request_md = request_dir / "request.md"
+    request_json.write_text(
+        '{"application_id":"app-live","expected_outputs":["cv_content.json"]}',
+        encoding="utf-8",
+    )
+    request_md.write_text("request", encoding="utf-8")
+
+    supervisor = HarnessSupervisor(tmp_path)
+    supervisor.prepare_specialist = lambda *args, **kwargs: {
+        "status": "prepared",
+        "request": {
+            "request_id": "req-1",
+            "versioned_request_json": str(request_json.relative_to(tmp_path)),
+            "versioned_request_md": str(request_md.relative_to(tmp_path)),
+        },
+        "validation": {"status": "ok"},
+    }
+
+    class FakeRunner:
+        def build_command(self, _request):
+            return ["fake-hermes"]
+
+        def run(self, _request):
+            return CompletedProcess(
+                ["fake-hermes"],
+                0,
+                "A solicitação foi bloqueada pelo fluxo canônico (serial_run_failed).",
+                "",
+            )
+
+    supervisor.runner = FakeRunner()
+    result = supervisor._execute_pipeline_specialist(
+        "cv", objective="criar CV", extras={"application_id": "app-live"}
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "specialist_reported_blocked"
+    assert result["execution"]["reported_blocker_reason"] == "serial_run_failed"
+    persisted = json.loads(
+        (
+            tmp_path
+            / result["execution"]["run_dir"]
+            / "result.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert persisted["blocker_reason"] == "specialist_reported_blocked"
+
+
+def test_manual_cv_reconciles_only_current_approved_artifact(monkeypatch, tmp_path):
+    import hashlib
+    import json
+    from types import SimpleNamespace
+
+    from career.services.persistence.analysis_repository import AnalysisRepository
+    from career.services.persistence.application_repository import (
+        ApplicationIdentity,
+        ApplicationRepository,
+    )
+
+    supervisor = HarnessSupervisor(tmp_path)
+    ApplicationRepository(supervisor.db).create_application(
+        ApplicationIdentity(
+            application_id="app-live",
+            company="Example",
+            role="Operations Director",
+            fingerprint="fp-live",
+        )
+    )
+    revision_id = AnalysisRepository(supervisor.db).create_revision(
+        "app-live",
+        {"fingerprint": "fp-live", "dimensions": [], "keywords": []},
+        source_hash="source-live",
+    )
+    app_dir = tmp_path / ".career-state" / "applications_v2" / "app-live"
+    app_dir.mkdir(parents=True)
+    fit_map = app_dir / "fit_map.json"
+    fit_map.write_text("current-fit-map", encoding="utf-8")
+    artifact = tmp_path / "outputs" / "cv.docx"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"approved-cv")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    fit_digest = hashlib.sha256(fit_map.read_bytes()).hexdigest()
+    report = app_dir / "cv_review_report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "kind": "cv",
+                "artifact": str(artifact),
+                "artifact_sha256": digest,
+                "approved_for_delivery": True,
+                "_approval_meta": {
+                    "artifact_sha256": digest,
+                    "fit_map_sha256": fit_digest,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "career.services.review.record_approved_cv_provenance",
+        lambda **kwargs: SimpleNamespace(
+            artifact_id="artv-reconciled", path=str(kwargs["artifact"])
+        ),
+    )
+
+    result = supervisor._reconcile_manual_cv_provenance(
+        "app-live", run_id="req-live"
+    )
+
+    assert result == {
+        "status": "registered",
+        "artifact_id": "artv-reconciled",
+        "artifact_path": str(artifact),
+        "source_revision_id": revision_id,
+    }
 
 
 def test_control_action_rejects_pending_path_from_another_application():

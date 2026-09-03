@@ -1946,6 +1946,7 @@ def _validate_concise_bullet2(experience: dict[str, Any], index: int) -> None:
         "demand",
         "process",
         "workflow",
+        "estrutur",
         "using",
         "rf",
         "wms",

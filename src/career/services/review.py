@@ -180,7 +180,10 @@ def record_approved_cv_provenance(
         raise ValueError("review provenance only supports cv reports")
     if report.get("approved_for_delivery") is not True:
         raise ValueError("approved review report is required before publishing artifact")
-    if Path(str(report["artifact"])).resolve() != artifact:
+    reported_artifact = Path(str(report["artifact"]))
+    if not reported_artifact.is_absolute():
+        reported_artifact = ROOT / reported_artifact
+    if reported_artifact.resolve() != artifact:
         raise ValueError("approved review report points to a different artifact path")
     reviewed_artifact_hash = _required_reviewed_artifact_hash(report)
     if reviewed_artifact_hash != sha256_file(artifact):

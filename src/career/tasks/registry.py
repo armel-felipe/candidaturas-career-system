@@ -229,16 +229,42 @@ def _cv_review(context: TaskContext) -> Any:
 
 
 def _cv_approve(context: TaskContext) -> Any:
-    return review_service.approve_cv(
-        artifact=Path(context.arguments["artifact"]),
-        fit_map_path=Path(context.arguments.get("fit_map", CAREER_STATE / "fit_map.json")),
+    artifact = Path(context.arguments["artifact"])
+    fit_map_path = Path(context.arguments.get("fit_map", CAREER_STATE / "fit_map.json"))
+    report_path = Path(context.arguments["report"])
+    result = review_service.approve_cv(
+        artifact=artifact,
+        fit_map_path=fit_map_path,
         registry_path=Path(context.arguments["registry"]),
-        report_path=Path(context.arguments["report"]),
+        report_path=report_path,
         polish_report_path=Path(context.arguments["polish_report"]) if context.arguments.get("polish_report") else None,
         translation_registry_path=Path(
             context.arguments.get("translation_registry", TRANSLATION_REGISTRY)
         ),
     )
+    if result.get("approved_for_delivery") is True:
+        application_id = str(context.state_store.application_id or "").strip()
+        if not application_id or context.state_store.database is None:
+            raise ValueError("approved CV requires an application-scoped database")
+        source_revision_id = _revision_id_for_gate(
+            context.state_store,
+            "cv_review_passed",
+            context.arguments,
+        )
+        if not source_revision_id:
+            raise ValueError("approved CV requires the current FIT_MAP revision")
+        run_id = str(context.arguments.get("run_id") or "").strip()
+        if not run_id:
+            run_id = f"cv-approval-{sha256_file(artifact)[:24]}"
+        review_service.record_approved_cv_provenance(
+            artifact=artifact,
+            report_path=report_path,
+            application_id=application_id,
+            source_revision_id=source_revision_id,
+            run_id=run_id,
+            database=context.state_store.database,
+        )
+    return result
 
 
 def _project_diagnose_runtime(context: TaskContext) -> Any:

@@ -83,6 +83,18 @@ def test_selection_fills_a_gap_longer_than_three_years_before_stopping_at_eight(
     ]
 
 
+def test_every_canonical_experience_has_a_source_locator() -> None:
+    facts = cv_content.load_canonical_cv_facts()
+
+    experience_ids = [item["id"] for item in facts["experiences"]]
+    locators = facts["experience_locators"]
+
+    for experience_id in experience_ids:
+        assert cv_content._experience_source_locator(experience_id)
+    assert "sanofi_operador_producao" not in locators
+    assert "essencis_analista_negocios" not in locators
+
+
 def test_vivo_targeted_fit_map_does_not_fill_minimum_with_unrelated_customer_success() -> None:
     fit_map = {
         "historias_selecionadas": {
@@ -420,6 +432,18 @@ def test_concise_validator_accepts_english_mechanism_signals() -> None:
     }
 
     applications_v2._validate_concise_bullet2(experience, 1)
+
+
+def test_concise_validator_accepts_structured_operational_mechanism() -> None:
+    experience = {
+        "bullets": [
+            {"text": "Atuei em produção farmacêutica e controles operacionais."},
+            {"text": "Estruturei controles operacionais e documentação para dar previsibilidade à rotina produtiva."},
+            {"text": "Escrevi mais de 180 POPs e fui efetivado em cinco meses por desempenho."},
+        ]
+    }
+
+    applications_v2._validate_concise_bullet2(experience, 8)
 
 
 def test_portuguese_cv_materializes_supported_customer_experience_and_zendesk() -> None:

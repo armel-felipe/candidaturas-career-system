@@ -1797,7 +1797,22 @@ def _english_period(period: str) -> str:
 
 
 def _experience_source_locator(experience_id: str) -> str:
-    return str(load_canonical_cv_facts()["experience_locators"][experience_id])
+    facts = load_canonical_cv_facts()
+    locators = facts.get("experience_locators") or {}
+    if experience_id in locators:
+        return str(locators[experience_id])
+    # Older revisions intentionally omit a locator for two historical
+    # experiences.  Derive a stable locator from the same immutable record so
+    # adding compatibility metadata does not invalidate every existing FIT_MAP
+    # revision.  The company is present in candidate_cv_facts and is also the
+    # token used by the canonical source excerpt resolver.
+    for experience in facts.get("experiences", []):
+        if isinstance(experience, dict) and experience.get("id") == experience_id:
+            company = str(experience.get("company") or "").strip()
+            if company:
+                return company
+            break
+    raise ValidationFailure(f"canonical experience locator is missing: {experience_id}")
 
 
 def _education_source_locator(index: int) -> tuple[str, str]:

@@ -334,6 +334,50 @@ class WorkflowGateTests(unittest.TestCase):
                 arguments={"path": str(draft)},
             )
 
+    def test_cv_approve_publishes_provenance_for_manual_specialist_contract(self) -> None:
+        revision_id = self._create_fit_map_revision(
+            self.primary.application_id,
+            self.primary.fingerprint or "",
+        )
+        artifact = self.root / "cv.docx"
+        artifact.write_bytes(b"manual-cv")
+        fit_map = self.root / "fit_map.json"
+        fit_map.write_text("{}", encoding="utf-8")
+        registry_path = self.root / "keyword_ats_registry.json"
+        registry_path.write_text("{}", encoding="utf-8")
+        state_store = WorkflowStateStore(
+            application_id=self.primary.application_id,
+            database=self.db,
+            path=self.root / "workflow_state.json",
+        )
+        context = registry.TaskContext(
+            arguments={
+                "artifact": str(artifact),
+                "fit_map": str(fit_map),
+                "registry": str(registry_path),
+                "report": str(self.root / "cv_review_report.json"),
+                "polish_report": str(self.root / "polish_review.json"),
+            },
+            state_store=state_store,
+        )
+
+        with mock.patch.object(
+            registry.review_service,
+            "approve_cv",
+            return_value={"approved_for_delivery": True},
+        ), mock.patch.object(
+            registry.review_service,
+            "record_approved_cv_provenance",
+        ) as publish:
+            registry._cv_approve(context)
+
+        publish.assert_called_once()
+        call = publish.call_args.kwargs
+        self.assertEqual(call["application_id"], self.primary.application_id)
+        self.assertEqual(call["source_revision_id"], revision_id)
+        self.assertEqual(call["artifact"], artifact)
+        self.assertTrue(str(call["run_id"]).startswith("cv-approval-"))
+
     def test_run_task_records_receipt_without_writing_workflow_json(self) -> None:
         draft = self.root / "fit_map.draft.json"
         draft.write_text("{}", encoding="utf-8")

@@ -47,7 +47,7 @@ from career.services.persistence.gate_repository import (
 )
 from career.services.workflow import WorkflowService
 from career.workflow.state_store import WorkflowStateStore
-from career.utils import sha256_text
+from career.utils import sha256_file, sha256_text
 
 
 LINKEDIN_JOB_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/(?:jobs(?:/view)?|job)/[^\s]+", re.IGNORECASE)
@@ -71,6 +71,26 @@ CELL_REPAIR_NODE_RE = re.compile(
     r"(compose_cv|render_cv|review_cv|deliver_cv|normalize_job|analyze_fit)\b",
     re.IGNORECASE,
 )
+
+SPECIALIST_REPORTED_BLOCK_RE = re.compile(
+    r"(?:fluxo\s+can[oô]nico|worker\s+foi\s+bloqueado)\s*"
+    r"\(\s*([A-Za-z0-9][A-Za-z0-9_-]*)\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _specialist_reported_blocker_reason(
+    stdout: str | None,
+    stderr: str | None,
+) -> str | None:
+    """Extract a canonical blocker reported by a zero-exit specialist."""
+    output = "\n".join(value for value in (stdout, stderr) if value)
+    match = SPECIALIST_REPORTED_BLOCK_RE.search(output)
+    if match:
+        return match.group(1)
+    if "solicitação foi bloqueada pelo fluxo canônico" in output.casefold():
+        return "canonical_flow_blocked"
+    return None
 
 SPECIALIST_OUTPUT_PATTERNS = {
     "fit-map": [
@@ -1248,12 +1268,25 @@ class HarnessSupervisor:
             "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
             "finished_at": utc_now_iso(), "run_dir": str(run_dir.relative_to(self.root)), "isolation": isolation,
         }
-        specialist_run.finish(payload, isolation)
         persisted_outputs = _mirror_application_outputs(
             self.root, step, request_payload
         )
         if persisted_outputs:
             payload["persisted_outputs"] = persisted_outputs
+        reported_blocker_reason = _specialist_reported_blocker_reason(
+            result.stdout,
+            result.stderr,
+        )
+        if reported_blocker_reason:
+            payload["reported_blocker_reason"] = reported_blocker_reason
+        reconciled_cv = None
+        if step == "cv" and not cellular_context and not reported_blocker_reason:
+            reconciled_cv = self._reconcile_manual_cv_provenance(
+                application_id,
+                run_id=str(request.get("request_id") or ""),
+            )
+            if reconciled_cv is not None:
+                payload["reconciled_existing_cv"] = reconciled_cv
         status = "completed"
         if result.returncode != 0:
             status = "blocked"
@@ -1261,7 +1294,14 @@ class HarnessSupervisor:
         elif isolation.get("status") != "ok":
             status = "blocked"
             payload["blocker_reason"] = "specialist_isolation_failed"
-        elif SPECIALIST_OUTPUT_PATTERNS.get(step) and not isolation.get("allowed_changed_files"):
+        elif reported_blocker_reason:
+            status = "blocked"
+            payload["blocker_reason"] = "specialist_reported_blocked"
+        elif (
+            SPECIALIST_OUTPUT_PATTERNS.get(step)
+            and not isolation.get("allowed_changed_files")
+            and reconciled_cv is None
+        ):
             status = "blocked"
             payload["blocker_reason"] = "specialist_produced_no_allowed_output"
         elif step in {"notion-update", "email-draft"}:
@@ -1299,12 +1339,83 @@ class HarnessSupervisor:
                 payload["blocker_reason"] = str(
                     contract_result.blocker_reason or "specialist_contract_failed"
                 )
+        specialist_run.finish(payload, isolation)
         return {
             **prepared,
             "status": status,
             "blocker_reason": payload.get("blocker_reason"),
             "execution": payload,
         }
+
+    def _reconcile_manual_cv_provenance(
+        self,
+        application_id: str,
+        *,
+        run_id: str,
+    ) -> dict[str, Any] | None:
+        """Bind a valid legacy manual CV to the current SQLite revision.
+
+        Older manual runs wrote a complete review report and DOCX but never
+        published the immutable artifact row required by the supervisor.  A
+        reconciliation is deliberately narrow: it requires the current
+        scoped FIT_MAP hash, an approved report with a digest, and the exact
+        DOCX bytes.  Invalid or stale files remain blocked by the normal
+        contract.
+        """
+        if not self.root:
+            return None
+        from career.services import review as review_service
+
+        paths = application_context_service.paths_for(
+            application_id,
+            root=self.root / ".career-state" / "applications_v2",
+        )
+        report_path = paths.cv_review_report
+        if not report_path.is_file() or not paths.fit_map.is_file():
+            return None
+        try:
+            report = read_json(report_path)
+            if (
+                not isinstance(report, dict)
+                or report.get("kind") != "cv"
+                or report.get("approved_for_delivery") is not True
+            ):
+                return None
+            metadata = report.get("_approval_meta")
+            if not isinstance(metadata, dict):
+                return None
+            if metadata.get("fit_map_sha256") != sha256_file(paths.fit_map):
+                return None
+            artifact_ref = str(report.get("artifact") or "").strip()
+            if not artifact_ref:
+                return None
+            artifact = Path(artifact_ref)
+            if not artifact.is_absolute():
+                artifact = self.root / artifact
+            if not artifact.is_file():
+                return None
+            if metadata.get("artifact_sha256") != sha256_file(artifact):
+                return None
+            if report.get("artifact_sha256") != sha256_file(artifact):
+                return None
+            current_analysis = AnalysisRepository(self.db).get_current(application_id)
+            reconciled_run_id = str(run_id or "").strip() or f"cv-reconcile-{sha256_file(artifact)[:24]}"
+            record = review_service.record_approved_cv_provenance(
+                artifact=artifact,
+                report_path=report_path,
+                application_id=application_id,
+                source_revision_id=current_analysis.revision_id,
+                run_id=reconciled_run_id,
+                database=self.db,
+            )
+            return {
+                "status": "registered",
+                "artifact_id": record.artifact_id,
+                "artifact_path": record.path,
+                "source_revision_id": current_analysis.revision_id,
+            }
+        except (OSError, TypeError, ValueError, KeyError, StaleAnalysisError):
+            return None
 
     def _can_reuse_completed_fit_map(self, application_id: str) -> bool:
         """Allow FIT_MAP reuse only when the scoped canonical files are final."""
