@@ -193,12 +193,27 @@ class AnalysisRepository:
         )
         if existing is not None:
             return str(existing["revision_id"])
-        dimensions = _normalize_dimensions(payload.get("dimensions"))
-        keywords = _normalize_keywords(payload.get("keywords"))
+        dimensions_raw = payload.get("dimensions")
+        if not dimensions_raw:
+            dimensions_raw = _legacy_dimensions(payload)
+        dimensions = _normalize_dimensions(dimensions_raw)
+        keywords_raw = payload.get("keywords")
+        if not keywords_raw:
+            keywords_raw = payload.get("keywords_habilidade_ats")
+        keywords = _normalize_keywords(keywords_raw)
         evidence_items = _normalize_evidence(payload.get("evidence"))
-        objections = _normalize_objections(payload.get("objections"))
-        stories = _normalize_stories(payload.get("stories"))
-        scores = _normalize_scores(payload.get("scores"))
+        objections_raw = payload.get("objections")
+        if not objections_raw:
+            objections_raw = payload.get("objecoes")
+        objections = _normalize_objections(objections_raw)
+        stories_raw = payload.get("stories")
+        if not stories_raw:
+            stories_raw = _legacy_stories(payload)
+        stories = _normalize_stories(stories_raw)
+        scores_raw = payload.get("scores")
+        if not scores_raw:
+            scores_raw = _legacy_scores(payload)
+        scores = _normalize_scores(scores_raw)
 
         transaction = (
             self.database.transaction(immediate=True)
@@ -734,6 +749,68 @@ def _extract_final_score(payload: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _legacy_dimensions(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Translate the public FIT_MAP score shape to relational dimensions."""
+    score = payload.get("nota_aderencia")
+    dimensions = score.get("dimensoes") if isinstance(score, Mapping) else None
+    if not isinstance(dimensions, Mapping):
+        return {}
+    normalized: dict[str, Any] = {}
+    for key, value in dimensions.items():
+        if not isinstance(value, Mapping):
+            continue
+        item = dict(value)
+        if "score" not in item and isinstance(item.get("pontos"), (int, float)):
+            item["score"] = item["pontos"]
+        if "gap_summary" not in item:
+            gaps = item.get("gaps")
+            if isinstance(gaps, list):
+                texts = []
+                for gap in gaps:
+                    if isinstance(gap, Mapping):
+                        text = gap.get("gap") or gap.get("text") or gap.get("summary")
+                    else:
+                        text = gap
+                    if text:
+                        texts.append(str(text))
+                item["gap_summary"] = "; ".join(texts)
+        normalized[str(key)] = item
+    return normalized
+
+
+def _legacy_scores(payload: Mapping[str, Any]) -> dict[str, Any]:
+    score = payload.get("nota_aderencia")
+    if not isinstance(score, Mapping):
+        return {}
+    result: dict[str, Any] = {}
+    if isinstance(score.get("final"), (int, float)):
+        result["final"] = {"score": score["final"]}
+    dimensions = score.get("dimensoes")
+    if isinstance(dimensions, Mapping):
+        for key, value in dimensions.items():
+            if isinstance(value, Mapping) and isinstance(value.get("pontos"), (int, float)):
+                result[str(key)] = {"score": value["pontos"]}
+    return result
+
+
+def _legacy_stories(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Translate the candidature draft's named story map to story records."""
+    raw = payload.get("historias_selecionadas")
+    if not isinstance(raw, Mapping):
+        return {}
+    normalized: dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(value, Mapping):
+            continue
+        item = dict(value)
+        if not any(item.get(field) for field in ("narrative", "story", "content", "text", "summary")):
+            resultado = item.get("resultado")
+            if isinstance(resultado, str) and resultado.strip():
+                item["narrative"] = resultado.strip()
+        normalized[str(key)] = item
+    return normalized
+
+
 def _normalize_dimensions(raw: Any) -> list[dict[str, Any]]:
     if not raw:
         return []
@@ -752,6 +829,8 @@ def _normalize_dimensions(raw: Any) -> list[dict[str, Any]]:
     for dimension_key, item in items:
         payload = item if isinstance(item, Mapping) else {"value": item}
         score = payload.get("score")
+        if score is None:
+            score = payload.get("pontos")
         normalized.append(
             {
                 "dimension_key": dimension_key,
@@ -785,6 +864,8 @@ def _normalize_keywords(raw: Any) -> list[dict[str, Any]]:
             continue
         keyword = str(item.get("keyword") or item.get("term") or item.get("name") or f"keyword_{index}")
         importance = item.get("importance")
+        if importance is None:
+            importance = item.get("prioridade")
         normalized.append(
             {
                 "keyword": keyword,
@@ -826,9 +907,11 @@ def _normalize_objections(raw: Any) -> list[dict[str, Any]]:
             {
                 "objection_key": objection_key,
                 "objection_text": _required_text(
-                    item, context, "objection_text", "text", "content", "summary"
+                    item, context, "objection_text", "objecao", "text", "content", "summary"
                 ),
-                "response_text": _first_text(item, "response_text", "response", "answer"),
+                "response_text": _first_text(
+                    item, "response_text", "response", "answer", "mitigacao"
+                ),
                 "payload": dict(item),
             }
         )

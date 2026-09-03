@@ -257,6 +257,10 @@ def _prepare_scoped_compact_inputs(
         "cv": ("cv_input", "cv_input_pack.json"),
         "feras": ("feras_input", "feras_input_pack.json"),
         "habilidades": ("habilidades_input", "habilidades_input_pack.json"),
+        # Notion writes are gated by the current analysis just like CV
+        # generation.  Keeping this in the materialized path prevents a
+        # valid SQLite FIT_MAP from being reported as unavailable.
+        "notion-update": ("fit_map_seed", "fit_map_seed.json"),
     }
     if step in materialized_kinds:
         kind, filename = materialized_kinds[step]
@@ -272,7 +276,7 @@ def _prepare_scoped_compact_inputs(
             database=database,
         )
         return payload
-    if step in {"notion-update", "cover-letter"}:
+    if step == "cover-letter":
         derived_context_service.build_all_for_fit_map(app_paths)
     return None
 

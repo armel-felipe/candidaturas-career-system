@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import hermes_harness_context_hook as hook
 import hermes_harness_dispatch_worker as worker
 import telegram_harness_adapter as adapter
+from reconcile_harness_dispatches import reconcile_dispatches
 from career.services.application_context import canonical_database
 from career.services.harness_command_store import HarnessCommandStore
 from career.utils import write_json
@@ -193,6 +194,89 @@ def test_dispatch_stale_lease_is_structured_blocked_without_new_worker(
     assert json.loads((dispatch_dir / "status.json").read_text())["status"] == "blocked"
 
 
+def test_reconcile_marks_old_running_dispatch_without_live_lease(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    dispatch_root = tmp_path / "dispatches"
+    dispatch_dir = dispatch_root / "orphan"
+    dispatch_dir.mkdir(parents=True)
+    now = datetime.now(UTC)
+    write_json(
+        dispatch_dir / "status.json",
+        {
+            "status": "running",
+            "started_at": (now - timedelta(seconds=600)).isoformat(),
+            "scope": {"profile_id": "bot01", "application_id": "app-1"},
+        },
+    )
+    write_json(dispatch_dir / "request.json", {"message_id": "m1"})
+
+    report = reconcile_dispatches(
+        dispatch_root, older_than_seconds=300, dry_run=False, now=now
+    )
+
+    status = json.loads((dispatch_dir / "status.json").read_text())
+    assert report["reconciled"] == 1
+    assert status["status"] == "blocked"
+    assert status["blocker_reason"] == "dispatch_orphaned"
+    assert (dispatch_dir / "request.json").is_file()
+
+
+def test_reconcile_does_not_touch_live_dispatch(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    dispatch_root = tmp_path / "dispatches"
+    dispatch_dir = dispatch_root / "live"
+    dispatch_dir.mkdir(parents=True)
+    now = datetime.now(UTC)
+    write_json(
+        dispatch_dir / "status.json",
+        {"status": "running", "started_at": (now - timedelta(seconds=600)).isoformat()},
+    )
+    write_json(
+        dispatch_dir / "lease.json",
+        {"expires_at": (now + timedelta(seconds=600)).isoformat()},
+    )
+
+    report = reconcile_dispatches(
+        dispatch_root, older_than_seconds=300, dry_run=False, now=now
+    )
+
+    assert report["skipped_live"] == 1
+    assert json.loads((dispatch_dir / "status.json").read_text())["status"] == "running"
+
+
+def test_reconcile_does_not_touch_active_sqlite_command(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    dispatch_root = tmp_path / "dispatches"
+    dispatch_dir = dispatch_root / "active-command"
+    dispatch_dir.mkdir(parents=True)
+    now = datetime.now(UTC)
+    write_json(
+        dispatch_dir / "status.json",
+        {
+            "status": "running",
+            "started_at": (now - timedelta(seconds=600)).isoformat(),
+        },
+    )
+    write_json(
+        dispatch_dir / "request.json",
+        {"command_id": "hcmd-live", "message_id": "m1"},
+    )
+
+    report = reconcile_dispatches(
+        dispatch_root,
+        older_than_seconds=300,
+        dry_run=False,
+        now=now,
+        command_status=lambda command_id: "running" if command_id == "hcmd-live" else None,
+    )
+
+    assert report["skipped_active"] == 1
+    assert json.loads((dispatch_dir / "status.json").read_text())["status"] == "running"
+
+
 @pytest.mark.parametrize("profile_id", ["vagas_bot_01", "vagas_bot_02"])
 def test_worker_executes_outside_hook_and_persists_completed(
     tmp_path, monkeypatch, profile_id
@@ -217,7 +301,9 @@ def test_worker_executes_outside_hook_and_persists_completed(
     monkeypatch.setattr(worker, "process_message", fake_process)
     result = worker.run_worker(dispatch_dir)
 
-    assert result["status"] == "completed"
+    assert result["status"] == "blocked"
+    assert result["blocker_reason"] == "dispatch_worker_missing_reply"
+    assert result["reply_text"]
     assert calls == [("analise a vaga", {
         "message_id": "m1",
         "execute": True,
@@ -225,8 +311,8 @@ def test_worker_executes_outside_hook_and_persists_completed(
         "root": Path(tmp_path),
     })]
     persisted = json.loads((dispatch_dir / "result.json").read_text(encoding="utf-8"))
-    assert persisted["status"] == "completed"
-    assert json.loads((dispatch_dir / "status.json").read_text())["status"] == "completed"
+    assert persisted["status"] == "blocked"
+    assert json.loads((dispatch_dir / "status.json").read_text())["status"] == "blocked"
     assert not (dispatch_dir / "lease.json").exists()
 
 

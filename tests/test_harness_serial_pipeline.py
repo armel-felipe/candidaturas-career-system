@@ -228,6 +228,110 @@ def test_plan_failure_does_not_execute_stdout_run_id_without_validated_database_
     assert not any(command[2] == "applications:run" for command in calls)
 
 
+def test_shared_latest_run_without_local_plan_is_not_reused(tmp_path: Path, monkeypatch):
+    """A bot must not resume a serial graph persisted in the other bot's tree."""
+    supervisor = HarnessSupervisor.__new__(HarnessSupervisor)
+    supervisor.root = tmp_path
+    supervisor.db = _FakeDatabase()
+    supervisor.db.latest = {
+        "run_id": "run_from_bot02",
+        "application_id": "app-shared",
+        "status": "running",
+        "graph_json": json.dumps({"execution_mode": "serial"}),
+    }
+    applications_root = tmp_path / ".career-state" / "applications_v2"
+    (applications_root / "app-shared" / "plans").mkdir(parents=True)
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if command[2] == "applications:plan":
+            plan_path = applications_root / "app-shared" / "plans" / "run_from_bot01.json"
+            plan_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "run_from_bot01",
+                        "application_id": "app-shared",
+                        "execution_mode": "serial",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            supervisor.db.latest = {
+                "run_id": "run_from_bot01",
+                "application_id": "app-shared",
+                "status": "planned",
+                "graph_json": json.dumps({"execution_mode": "serial"}),
+            }
+            return type("Completed", (), {
+                "returncode": 0,
+                "stdout": json.dumps({"status": "planned", "run_id": "run_from_bot01"}),
+                "stderr": "",
+            })()
+        return type("Completed", (), {
+            "returncode": 0,
+            "stdout": json.dumps(
+                {
+                    "status": "running",
+                    "run_id": "run_from_bot01",
+                    "execution_mode": "serial",
+                    "serial_stage": {"stage": "analyze", "status": "awaiting_agent"},
+                }
+            ),
+            "stderr": "",
+        })()
+
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.subprocess.run", fake_run
+    )
+
+    result = supervisor._run_serial_package_base(
+        requested_steps=["cv", "notion"],
+        application_id="app-shared",
+        model=None,
+        variant=None,
+    )
+
+    assert result["status"] == "awaiting_agent"
+    assert result["run_id"] == "run_from_bot01"
+    assert calls[0][2] == "applications:plan"
+    assert calls[1][2] == "applications:run"
+
+
+def test_serial_run_failure_preserves_cli_stdout_for_diagnosis(tmp_path: Path, monkeypatch):
+    supervisor = HarnessSupervisor.__new__(HarnessSupervisor)
+    supervisor.root = tmp_path
+    supervisor.db = _FakeDatabase()
+    supervisor.db.latest = {
+        "run_id": "run-failure-details",
+        "application_id": "app-failure-details",
+        "status": "running",
+        "graph_json": json.dumps({"execution_mode": "serial"}),
+    }
+    monkeypatch.setattr(
+        "career.services.harness_supervisor.subprocess.run",
+        lambda command, **kwargs: type(
+            "Completed",
+            (),
+            {
+                "returncode": 1,
+                "stdout": json.dumps({"error": "local plan mismatch"}),
+                "stderr": "",
+            },
+        )(),
+    )
+
+    result = supervisor._run_serial_package_base(
+        requested_steps=["cv", "notion"],
+        application_id="app-failure-details",
+        model=None,
+        variant=None,
+    )
+
+    assert result["blocker_reason"] == "serial_run_failed"
+    assert "local plan mismatch" in result["stdout"]
+
+
 def test_concurrent_serial_continuations_create_one_plan_and_run(
     tmp_path: Path, monkeypatch
 ):

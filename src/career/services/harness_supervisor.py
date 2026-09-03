@@ -82,18 +82,27 @@ SPECIALIST_OUTPUT_PATTERNS = {
     "cv": [
         ".career-state/cv_content.json",
         ".career-state/applications_v2/*/cv_content.json",
+        # The canonical CV gate reads/writes the scoped FIT_MAP and keyword
+        # registries while binding the final document to the active revision.
+        ".career-state/applications_v2/*/fit_map.json",
+        ".career-state/applications_v2/*/derived/keyword_ats_registry.json",
+        ".career-state/applications_v2/*/derived/keyword_translation_candidates.json",
         ".career-state/applications_v2/*/cv_review_report.json",
         ".career-state/applications_v2/*/polish_review.json",
+        ".career-state/derived/keyword_ats_registry.json",
+        ".career-state/derived/keyword_translation_candidates.json",
         "outputs/*.docx",
         "outputs/_tmp/output_review_report.json",
         "outputs/_tmp/polish_review.json",
         "outputs/_tmp/delivery_report.json",
+        "outputs/_tmp/cv_deliver_report.json",
     ],
     "cover-letter": ["outputs/*.md", "outputs/*.pdf", "outputs/_tmp/delivery_report.json"],
     "feras": ["outputs/*.md"],
     "habilidades": ["outputs/*.md"],
     "notion-update": [
         ".career-state/pending_actions/*.json",
+        ".career-state/applications_v2/*/pending_actions/*.json",
         ".career-state/applications_v2/*/notion_update_payload.json",
         ".career-state/derived/active_context.json",
         ".career-state/derived/job_extract.json",
@@ -102,7 +111,10 @@ SPECIALIST_OUTPUT_PATTERNS = {
         ".career-state/derived/keyword_translation_candidates.json",
         "inbox/job_descriptions/*.md",
     ],
-    "email-draft": [".career-state/pending_actions/*.json"],
+    "email-draft": [
+        ".career-state/pending_actions/*.json",
+        ".career-state/applications_v2/*/pending_actions/*.json",
+    ],
     "linkedin": [
         ".career-state/linkedin_job_extract.json",
         ".career-state/linkedin_post_extract.json",
@@ -345,13 +357,15 @@ class HarnessSupervisor:
         # A continuation can deliberately omit the internal application ID.
         # The session binding and the persisted pipeline intent are the source
         # of truth for that ID and for the remaining requested stages.
-        if "processe-a-vaga" in lowered or "processe a vaga" in lowered:
+        if self._is_process_application_request(lowered):
             return self._decision(
                 "pipeline",
                 "pipeline",
                 "high",
                 "bound_application_pipeline_continuation",
-                parameters={"requested_steps": pipeline_steps},
+                parameters={
+                    "requested_steps": pipeline_steps or ["cv", "onedrive", "notion"]
+                },
             )
 
         if self._is_menu_request(lowered):
@@ -493,6 +507,9 @@ class HarnessSupervisor:
 
         if self._is_meta_question_about_generated_outputs(lowered):
             return self._decision("generic_assistant", "chat", "high", "meta_question_about_previous_output")
+
+        if self._is_why_question(lowered):
+            return self._decision("generic_assistant", "chat", "high", "explain_last_result")
 
         if any(token in lowered for token in ("curriculo", "currículo", "gerar cv", "adaptar cv")) or re.search(r"\bcv\b", lowered):
             return self._decision("cv", "cv", "high", "cv_request")
@@ -656,6 +673,18 @@ class HarnessSupervisor:
         requests_action = any(term in lowered for term in explicit_action_terms)
         return mentions_outputs and is_diagnostic and not requests_action
 
+    @staticmethod
+    def _is_why_question(lowered: str) -> bool:
+        normalized = " ".join(str(lowered or "").split()).strip(" ?!.,")
+        return normalized in {
+            "por que",
+            "porque",
+            "por quê",
+            "porquê",
+            "como assim",
+            "o que aconteceu",
+        }
+
     def prepare_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None) -> dict[str, Any]:
         from career.services import multiagent as multiagent_service
         request_extras = dict(extras or {})
@@ -678,7 +707,11 @@ class HarnessSupervisor:
             "status": "prepared" if validation.get("status") == "ok" else "blocked",
             "step": step, "request": request, "validation": validation,
         }
-        if step in {"notion-update", "email-draft"} and self.root:
+        if (
+            step in {"notion-update", "email-draft"}
+            and self.root
+            and validation.get("status") == "ok"
+        ):
             request_payload = read_json(self.root / request["versioned_request_json"])
             pending_action_path = (request_payload.get("extras") or {}).get("pending_action_path")
             approval = ApprovalStore(self.root).create(
@@ -1152,6 +1185,20 @@ class HarnessSupervisor:
         request_json = self.root / request["versioned_request_json"]
         request_md = self.root / request["versioned_request_md"]
         request_payload = read_json(request_json)
+        control_scope_error = self._control_artifact_scope_error(
+            step, request_payload
+        )
+        if control_scope_error:
+            return {
+                **prepared,
+                "status": "blocked",
+                "blocker_reason": "control_artifact_scope_mismatch",
+                "execution": {
+                    "stage": step,
+                    "blocker_reason": "control_artifact_scope_mismatch",
+                    "error": control_scope_error,
+                },
+            }
         cellular_context = self._cellular_request_context(request_payload)
         if cellular_context:
             self._acquire_cellular_workspace()
@@ -1254,6 +1301,40 @@ class HarnessSupervisor:
         }
 
     @staticmethod
+    def _control_artifact_scope_error(
+        step: str, request_payload: dict[str, Any]
+    ) -> str | None:
+        if step not in {"notion-update", "email-draft"}:
+            return None
+        application_id = str(request_payload.get("application_id") or "").strip()
+        extras = request_payload.get("extras")
+        pending_path = (
+            str(extras.get("pending_action_path") or "").strip()
+            if isinstance(extras, dict)
+            else ""
+        )
+        if not pending_path:
+            return None
+        expected_prefix = (
+            f".career-state/applications_v2/{application_id}/pending_actions/"
+        )
+        normalized = pending_path.replace("\\", "/")
+        filename = normalized[len(expected_prefix) :]
+        if (
+            not application_id
+            or not normalized.startswith(expected_prefix)
+            or not filename
+            or "/" in filename
+            or filename in {".", ".."}
+            or not filename.endswith(".json")
+        ):
+            return (
+                "pending_action_path must be a single JSON file inside the "
+                f"application scope {expected_prefix}"
+            )
+        return None
+
+    @staticmethod
     def should_auto_finalize_fit_map(
         *, step: str, status: str, enabled: bool, cellular: bool
     ) -> bool:
@@ -1327,6 +1408,43 @@ class HarnessSupervisor:
         if pending:
             if pending.get("input_kind") == "confirmation":
                 self._clear_pending_input(runtime_context, channel=channel)
+                approval_id = str(pending.get("approval_id") or "").strip()
+                if approval_id and bool(pending.get("answer")) and self.root:
+                    try:
+                        approvals = ApprovalStore(self.root)
+                        approvals.approve(approval_id)
+                        executed = self.execute_approved_action(approval_id)
+                    except (ValidationFailure, OSError, ValueError) as exc:
+                        executed = {
+                            "status": "blocked",
+                            "approval_id": approval_id,
+                            "blocker_reason": "approved_action_execution_failed",
+                            "error": str(exc)[:500],
+                        }
+                    execution_status = str(executed.get("status") or "blocked")
+                    display_text = (
+                        "A ação foi confirmada e executada."
+                        if execution_status == "completed"
+                        else "A ação foi confirmada, mas a execução foi bloqueada "
+                        f"({executed.get('blocker_reason') or 'erro operacional'})."
+                    )
+                    return {
+                        "status": execution_status,
+                        "channel": channel,
+                        "message": user_message,
+                        "executed": True,
+                        "decision": self._decision(
+                            "confirmation", "conversation", "high", "pending_confirmation"
+                        ).to_dict(),
+                        "result": {
+                            **executed,
+                            "kind": "confirmation",
+                            "answer": True,
+                            "application_id": pending.get("application_id"),
+                            "turn_id": pending.get("turn_id"),
+                            "display_text": display_text,
+                        },
+                    }
                 return {
                     "status": "completed",
                     "channel": channel,
@@ -1591,7 +1709,11 @@ class HarnessSupervisor:
                 step = {"fit_map": "fit-map", "cover_letter": "cover-letter", "notion_update": "notion-update", "email_draft": "email-draft"}.get(workflow, workflow)
                 envelope["result"] = self.execute_specialist(step, objective=message, extras=self._specialist_extras(workflow, decision.parameters, runtime_context, channel=channel), model=model, variant=variant)
             elif workflow == "generic_assistant":
-                if self._is_operational_message(message):
+                if decision.reason == "explain_last_result":
+                    envelope["result"] = self._explain_last_result(
+                        runtime_context=runtime_context, channel=channel
+                    )
+                elif self._is_operational_message(message):
                     application_id = self._session_application_id(runtime_context, channel=channel)
                     if application_id:
                         intent = self._session_pipeline_intent(runtime_context, channel=channel)
@@ -1629,7 +1751,11 @@ class HarnessSupervisor:
             else:
                 envelope["status"] = "blocked"
                 envelope["blocker_reason"] = "no_deterministic_route"
-                return envelope
+                envelope["result"] = {
+                    "status": "blocked",
+                    "blocker_reason": "no_deterministic_route",
+                    "display_text": "Não consegui identificar uma ação operacional nesta mensagem. Diga o que devo analisar, gerar, atualizar ou processar.",
+                }
         except ValueError as exc:
             if not self._is_storage_handoff_required(exc):
                 raise
@@ -1644,6 +1770,39 @@ class HarnessSupervisor:
         envelope["result"] = self._decorate_result_payload(
             envelope.get("result"), runtime_context=runtime_context, channel=channel
         )
+        if isinstance(envelope.get("result"), dict):
+            result = envelope["result"]
+            result_status = str(result.get("status") or "")
+            if result_status == "awaiting_approval":
+                approval = result.get("approval")
+                approval_id = (
+                    str(approval.get("approval_id") or "").strip()
+                    if isinstance(approval, dict)
+                    else ""
+                )
+                if approval_id:
+                    pending_request = self._pending_request_for_context(
+                        {
+                            "status": "awaiting_approval",
+                            "kind": "approval_request",
+                            "input_kind": "confirmation",
+                            "approval_id": approval_id,
+                            "application_id": result.get("application_id")
+                            or self._session_application_id(runtime_context, channel=channel),
+                            "display_text": result.get("display_text")
+                            or "A ação foi preparada. Responda sim para confirmar ou não para cancelar.",
+                        },
+                        runtime_context,
+                        channel=channel,
+                    )
+                    self._write_pending_input(
+                        pending_request,
+                        runtime_context=runtime_context,
+                        channel=channel,
+                    )
+            elif result_status == "blocked" and not str(result.get("display_text") or "").strip():
+                blocker = str(result.get("blocker_reason") or "bloqueio do fluxo canônico").strip()
+                result["display_text"] = f"A solicitação foi bloqueada pelo fluxo canônico ({blocker})."
         self._sync_menu_state_for_result(
             envelope.get("result"), runtime_context=runtime_context, channel=channel
         )
@@ -1662,6 +1821,9 @@ class HarnessSupervisor:
                 "pending",
             }
             else "completed"
+        )
+        self._remember_last_result(
+            envelope.get("result"), runtime_context=runtime_context, channel=channel
         )
         return envelope
 
@@ -1847,6 +2009,46 @@ class HarnessSupervisor:
             return False
         return cls._is_serial_cellular_run(run)
 
+    def _has_local_serial_plan(self, application_id: str, run_id: str) -> bool:
+        """Ensure a shared run index entry belongs to this bot workspace.
+
+        ``application_runs`` is the canonical control-plane index and is
+        intentionally shared by the bot containers.  The graph itself,
+        however, is persisted below each bot's mounted ``applications_v2``
+        tree.  Selecting the newest SQLite row without checking that local
+        graph caused bot01 to execute a run planned by bot02 (and fail with
+        ``persisted run plan not found``).  A run is resumable here only when
+        its local plan exists and has the expected identity.
+
+        The missing applications tree is kept permissive for lightweight
+        adapters/tests that inject a fake database and do not materialize a
+        filesystem workspace.  Real runtimes always create this tree during
+        intake, planning, or resume.
+        """
+        scoped_id = str(application_id or "").strip()
+        scoped_run_id = str(run_id or "").strip()
+        if not scoped_id or not scoped_run_id or Path(scoped_run_id).name != scoped_run_id:
+            return False
+        applications_root = self.root / ".career-state" / "applications_v2"
+        # The plan lock creates ``applications_v2`` even for an injected test
+        # adapter before this check runs.  A real intake always creates the
+        # scoped application directory as well, so use that as the boundary.
+        if not (applications_root / scoped_id).exists():
+            return True
+        try:
+            plan_path = application_context_service.paths_for(
+                scoped_id, root=applications_root
+            ).plans_dir / f"{scoped_run_id}.json"
+            payload = read_json(plan_path)
+        except (OSError, ValueError, TypeError):
+            return False
+        return (
+            isinstance(payload, dict)
+            and str(payload.get("application_id") or "") == scoped_id
+            and str(payload.get("run_id") or "") == scoped_run_id
+            and str(payload.get("execution_mode") or "") == "serial"
+        )
+
     @contextmanager
     def _serial_plan_lock(self, application_id: str):
         """Serialize plan lookup/creation for the scoped application."""
@@ -1924,6 +2126,13 @@ class HarnessSupervisor:
         latest = self._latest_cellular_run(scoped_id)
         if latest and not self._is_serial_cellular_run(latest):
             latest = None
+        if latest and not self._has_local_serial_plan(
+            scoped_id, str(latest.get("run_id") or "")
+        ):
+            # The shared index can contain a run planned by the other bot.
+            # It is not safe to resume it from this workspace; create a new
+            # local plan instead of surfacing a misleading serial_run_failed.
+            latest = None
         if latest and str(latest.get("status") or "") == "completed":
             return {
                 "status": "completed",
@@ -1962,12 +2171,21 @@ class HarnessSupervisor:
             plan_payload = self._parse_cli_json(planned.stdout)
             planner_run_id = str(plan_payload.get("run_id") or "").strip()
             recovered = self._latest_cellular_run(scoped_id)
+            if planner_run_id and not self._has_local_serial_plan(
+                scoped_id, planner_run_id
+            ):
+                planner_run_id = ""
             if planned.returncode != 0 or not planner_run_id:
                 # The planner persists the run before the subprocess can
                 # report its final result. Re-read the authoritative index so
                 # a late planner failure cannot cause a duplicate plan on the
                 # next continuation.
-                if self._is_valid_serial_run(recovered, scoped_id, planner_run_id or None):
+                if (
+                    self._is_valid_serial_run(recovered, scoped_id, planner_run_id or None)
+                    and self._has_local_serial_plan(
+                        scoped_id, str(recovered.get("run_id") or "")
+                    )
+                ):
                     recovered_status = str(recovered.get("status") or "")
                     if recovered_status in {
                         "planned",
@@ -1994,7 +2212,7 @@ class HarnessSupervisor:
                 # persisted the same scoped serial run before execution.
                 if not self._is_valid_serial_run(
                     recovered, scoped_id, planner_run_id
-                ):
+                ) or not self._has_local_serial_plan(scoped_id, planner_run_id):
                     return {
                         "status": "blocked",
                         "application_id": scoped_id,
@@ -2034,6 +2252,7 @@ class HarnessSupervisor:
                     "status": "blocked", "application_id": scoped_id,
                     "run_id": run_id, "requested_steps": requested_steps,
                     "commands": commands, "blocker_reason": "serial_run_failed",
+                    "stdout": (executed.stdout or "")[-4000:],
                     "stderr": (executed.stderr or "")[-4000:],
                 }
             status = str(payload.get("status") or "running")
@@ -2278,6 +2497,15 @@ class HarnessSupervisor:
             "prossiga", "continue", "retome", "retomar", "faça", "faca",
         )
         return any(term in lowered for term in action_terms) and "?" not in lowered
+
+    @staticmethod
+    def _is_process_application_request(message: str) -> bool:
+        lowered = str(message or "").casefold()
+        return bool(
+            re.search(r"\bprocess(?:e|ar|a|amento|ando)\b", lowered)
+            and "vaga" in lowered
+            and "fila" not in lowered
+        )
 
     @staticmethod
     def _is_explicit_resume_request(message: str) -> bool:
@@ -3174,6 +3402,17 @@ class HarnessSupervisor:
             raise ValueError("materialized fit_map context is incomplete")
         dimensions = analysis.get("dimensions")
         objections = analysis.get("objections")
+        analysis_payload = analysis.get("payload")
+        payload_gaps = (
+            analysis_payload.get("gaps_sem_cobertura")
+            if isinstance(analysis_payload, dict)
+            else None
+        )
+        payload_objections = (
+            analysis_payload.get("objecoes")
+            if isinstance(analysis_payload, dict)
+            else None
+        )
         keyword_count = self.db.fetch_one(
             "SELECT COUNT(*) AS count FROM keyword_registry WHERE application_id = ?",
             (application_id,),
@@ -3183,12 +3422,21 @@ class HarnessSupervisor:
             "cargo": application.get("role"),
             "empresa": application.get("company"),
             "nota_final": analysis.get("score_final"),
-            "gaps_count": sum(
-                1
-                for item in dimensions or ()
-                if isinstance(item, dict) and str(item.get("gap_summary") or "").strip()
+            "gaps_count": (
+                len(payload_gaps)
+                if isinstance(payload_gaps, list)
+                else sum(
+                    1
+                    for item in dimensions or ()
+                    if isinstance(item, dict)
+                    and str(item.get("gap_summary") or "").strip()
+                )
             ),
-            "objecoes_count": len(objections) if isinstance(objections, list) else 0,
+            "objecoes_count": (
+                len(payload_objections)
+                if isinstance(payload_objections, list)
+                else len(objections) if isinstance(objections, list) else 0
+            ),
             "keyword_registration": {
                 "registered": registered_count > 0,
                 "count": registered_count,
@@ -3419,6 +3667,85 @@ class HarnessSupervisor:
             return None
         return pending if isinstance(pending, dict) else None
 
+    def _remember_last_result(
+        self,
+        result: Any,
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> None:
+        if not self.root or not isinstance(result, dict):
+            return
+        compact = {
+            "status": str(result.get("status") or "completed"),
+            "blocker_reason": self._result_blocker_reason(result),
+            "display_text": str(result.get("display_text") or "").strip(),
+            "application_id": str(result.get("application_id") or "").strip(),
+            "step": str(result.get("step") or "").strip(),
+            "updated_at": utc_now_iso(),
+        }
+        self.session_memory.set(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_last_result_v2",
+            json.dumps(compact, ensure_ascii=False, sort_keys=True),
+            ttl_seconds=24 * 60 * 60,
+        )
+
+    def _explain_last_result(
+        self,
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> dict[str, Any]:
+        raw = self.session_memory.get(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_last_result_v2",
+        )
+        try:
+            previous = json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            previous = {}
+        if not isinstance(previous, dict) or not previous:
+            return {
+                "status": "blocked",
+                "blocker_reason": "last_result_context_missing",
+                "display_text": "Não encontrei o resultado anterior nesta sessão para explicar o bloqueio.",
+            }
+        blocker = str(previous.get("blocker_reason") or "").strip()
+        if blocker:
+            return {
+                "status": "completed",
+                "kind": "last_result_explanation",
+                "application_id": previous.get("application_id") or None,
+                "display_text": (
+                    "A tentativa anterior parou porque o fluxo canônico retornou "
+                    f"{blocker}. Nenhuma etapa posterior foi executada."
+                ),
+                "previous_status": previous.get("status"),
+            }
+        display_text = str(previous.get("display_text") or "").strip()
+        return {
+            "status": "completed",
+            "kind": "last_result_explanation",
+            "application_id": previous.get("application_id") or None,
+            "display_text": display_text
+            or "A tentativa anterior terminou sem um detalhe adicional de bloqueio.",
+            "previous_status": previous.get("status"),
+        }
+
+    @classmethod
+    def _result_blocker_reason(cls, result: dict[str, Any]) -> str:
+        direct = str(result.get("blocker_reason") or "").strip()
+        if direct:
+            return direct
+        for key in ("specialist", "validation", "payload", "result"):
+            nested = result.get(key)
+            if isinstance(nested, dict):
+                reason = cls._result_blocker_reason(nested)
+                if reason:
+                    return reason
+        return ""
+
     def _resolve_pending_input(
         self, message: str, *, runtime_context: dict[str, Any] | None = None,
         channel: str = "cli",
@@ -3450,10 +3777,26 @@ class HarnessSupervisor:
         normalized = text.casefold()
         if input_kind == "confirmation" and normalized in {"sim", "s", "yes", "y", "confirmo", "pode"}:
             self._clear_pending_input(runtime_context, channel=channel)
-            return {"input_kind": input_kind, "answer": True, "application_id": pending.get("application_id"), "turn_id": pending.get("turn_id")}
+            resolved = {
+                "input_kind": input_kind,
+                "answer": True,
+                "application_id": pending.get("application_id"),
+                "turn_id": pending.get("turn_id"),
+            }
+            if pending.get("approval_id"):
+                resolved["approval_id"] = pending.get("approval_id")
+            return resolved
         if input_kind == "confirmation" and normalized in {"não", "nao", "n", "no", "cancele", "cancelar"}:
             self._clear_pending_input(runtime_context, channel=channel)
-            return {"input_kind": input_kind, "answer": False, "application_id": pending.get("application_id"), "turn_id": pending.get("turn_id")}
+            resolved = {
+                "input_kind": input_kind,
+                "answer": False,
+                "application_id": pending.get("application_id"),
+                "turn_id": pending.get("turn_id"),
+            }
+            if pending.get("approval_id"):
+                resolved["approval_id"] = pending.get("approval_id")
+            return resolved
         if input_kind == "notion_id" and re.fullmatch(r"\d+", text):
             resolved = f"avalie vaga Notion {text}"
         elif input_kind == "notion_record_selection" and re.fullmatch(r"\d+", text):

@@ -236,6 +236,50 @@ class AnalysisRevisionRepositoryTests(unittest.TestCase):
         self.assertEqual(row["source_hash"], "fit-source-v1")
         self.assertEqual(row["payload_hash"], sha256_text(str(row["payload_json"])))
 
+    def test_create_revision_projects_legacy_fit_map_shape(self) -> None:
+        payload = {
+            "metadata": {"job_fingerprint": "fp-conexa", "source": "notion_578"},
+            "nota_aderencia": {
+                "final": 4.0,
+                "dimensoes": {
+                    "escopo": {
+                        "pontos": 4.0,
+                        "evidencias": ["Liderou operacoes complexas."],
+                        "gaps": [{"gap": "Experiencia setorial nao comprovada."}],
+                    }
+                },
+            },
+            "keywords_habilidade_ats": [
+                {"keyword": "capacity planning", "prioridade": 1}
+            ],
+            "objecoes": [
+                {
+                    "objecao": "Nao ha evidencia setorial suficiente.",
+                    "mitigacao": "Usar os casos de transformacao operacional.",
+                }
+            ],
+        }
+
+        revision_id = self.analysis.create_revision(
+            "app-conexa", payload, source_hash="fit-source-legacy"
+        )
+        current = self.analysis.get_current("app-conexa")
+
+        self.assertEqual(current.revision_id, revision_id)
+        self.assertEqual(current.score_final, 4.0)
+        self.assertEqual(len(current.dimensions), 1)
+        self.assertEqual(current.dimensions[0].score, 4.0)
+        self.assertIn("Experiencia setorial nao comprovada.", current.dimensions[0].gap_summary)
+        self.assertEqual(len(current.keywords), 1)
+        self.assertEqual(current.keywords[0].keyword, "capacity planning")
+        self.assertEqual(current.keywords[0].importance, 1.0)
+        self.assertEqual(len(current.objections), 1)
+        self.assertEqual(current.objections[0].objection_text, "Nao ha evidencia setorial suficiente.")
+        self.assertEqual(
+            current.objections[0].response_text,
+            "Usar os casos de transformacao operacional.",
+        )
+
     def test_create_positioning_revision_attaches_snapshot_to_current_analysis(self) -> None:
         analysis_revision_id = self.analysis.create_revision(
             "app-conexa",

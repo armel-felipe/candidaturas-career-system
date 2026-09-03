@@ -179,6 +179,14 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
                     if isinstance(nested_reply, str) and nested_reply.strip():
                         reply_text = nested_reply
                         break
+        if not isinstance(reply_text, str) or not reply_text.strip():
+            return _blocked(
+                dispatch_dir,
+                "dispatch_worker_missing_reply",
+                deliver_reply=True,
+                error="a execução terminou sem texto de resposta ao usuário",
+                observed_status=final_status,
+            )
         delivery = {"status": "not_required"}
         if isinstance(reply_text, str) and reply_text.strip():
             try:
