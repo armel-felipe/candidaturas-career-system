@@ -31,4 +31,11 @@ novos blocos duplicados quando a mesma análise fosse reenviada.
 - [x] Implementar fallback de resposta e propagação de escopo.
 - [x] Implementar detecção de sequência de análise já presente.
 - [x] Executar testes focados e suíte completa.
-- [ ] Publicar e validar nos dois containers.
+- [x] Publicar e validar nos dois containers.
+
+## Publicação
+
+- Commit: `2c573ce fix: finalize Notion events without duplicate analysis`.
+- `vagas_bot_01` e `vagas_bot_02`: `running`, `restarts=0`, Telegram `connected`.
+- Probes nos dois containers: confirmação de Notion e escopo `notion_624/run-624/notion-update`.
+- `npm run runtime:verify -- --strict`: `blockers=[]`.
