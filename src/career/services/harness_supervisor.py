@@ -483,7 +483,10 @@ class HarnessSupervisor:
         if any(token in lowered for token in ("email", "gmail")):
             return self._decision("email_draft", "email-draft", "high", "email_request", requires_approval=True)
 
-        if "notion" in lowered and any(token in lowered for token in ("atualiz", "registre", "salve", "crie")):
+        if "notion" in lowered and any(
+            token in lowered
+            for token in ("atualiz", "registr", "salv", "cri", "adicion")
+        ):
             parameters: dict[str, Any] = {}
             if notion_match:
                 parameters["record_id"] = int(notion_match.group(1))
@@ -1164,20 +1167,23 @@ class HarnessSupervisor:
                 "stage": step,
             }
         if step == "fit-map":
-            try:
-                summary = self._materialized_fit_map_summary(application_id)
-            except (ApplicationNotFoundError, ValueError):
-                # No canonical analysis yet: prepare and execute the draft
-                # stage below.
-                pass
-            else:
-                return {
-                    "status": "completed",
-                    "step": "fit-map",
-                    "application_id": application_id,
-                    "summary": summary,
-                    "reused_completed_fit_map": True,
-                }
+            if self._can_reuse_completed_fit_map(application_id):
+                try:
+                    summary = self._materialized_fit_map_summary(application_id)
+                except (ApplicationNotFoundError, ValueError):
+                    # The scoped artifact check is authoritative for deciding
+                    # whether a run is complete; if its SQLite projection is
+                    # unavailable, execute the specialist instead of claiming
+                    # a completed analysis.
+                    pass
+                else:
+                    return {
+                        "status": "completed",
+                        "step": "fit-map",
+                        "application_id": application_id,
+                        "summary": summary,
+                        "reused_completed_fit_map": True,
+                    }
         prepared = self.prepare_specialist(step, objective=objective, extras=extras)
         if prepared.get("validation", {}).get("status") != "ok":
             return prepared
@@ -1299,6 +1305,33 @@ class HarnessSupervisor:
             "blocker_reason": payload.get("blocker_reason"),
             "execution": payload,
         }
+
+    def _can_reuse_completed_fit_map(self, application_id: str) -> bool:
+        """Allow FIT_MAP reuse only when the scoped canonical files are final."""
+        if not self.root:
+            return False
+        from career.services import fit_map as fit_map_service
+
+        paths = application_context_service.paths_for(
+            application_id,
+            root=self.root / ".career-state" / "applications_v2",
+        )
+        if not paths.job_description.is_file() or not paths.fit_map.is_file():
+            return False
+        try:
+            current = fit_map_service.status(
+                paths.fit_map_draft,
+                paths.fit_map,
+                paths.job_description,
+                registry_path=paths.derived_dir / "keyword_ats_registry.json",
+            )
+        except (OSError, ValueError, TypeError):
+            return False
+        return bool(
+            current.get("next_required_step") == "análise concluída"
+            and (current.get("fit_map") or {}).get("matches_active_job") is True
+            and (current.get("keyword_registration") or {}).get("registered") is True
+        )
 
     @staticmethod
     def _control_artifact_scope_error(

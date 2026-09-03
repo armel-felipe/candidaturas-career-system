@@ -18,6 +18,35 @@ def test_processar_vaga_is_a_scoped_pipeline_request():
     assert decision.parameters["requested_steps"] == ["cv", "onedrive", "notion"]
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Pode criar o registro no notion?",
+        "Quero registrar a vaga no Notion",
+        "Pode salvar a análise no Notion?",
+    ],
+)
+def test_notion_write_variants_route_to_notion_update(message):
+    decision = HarnessSupervisor().classify(message)
+
+    assert decision.workflow == "notion_update"
+    assert decision.reason == "notion_write_request"
+
+
+def test_fit_map_reuse_requires_scoped_final_artifact(tmp_path):
+    application_dir = (
+        tmp_path / ".career-state" / "applications_v2" / "app-live"
+    )
+    application_dir.mkdir(parents=True)
+    (application_dir / "job_description.md").write_text(
+        "Empresa: Example\nCargo: Operations Manager\nDescrição da vaga.",
+        encoding="utf-8",
+    )
+    supervisor = HarnessSupervisor(tmp_path)
+
+    assert supervisor._can_reuse_completed_fit_map("app-live") is False
+
+
 def test_processar_vaga_uses_bound_session_and_returns_pipeline_result(tmp_path):
     supervisor = HarnessSupervisor(tmp_path)
     captured: dict[str, object] = {}
