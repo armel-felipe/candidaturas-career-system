@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,42 @@ from career.services.harness_command_store import HarnessCommandStore
 _TERMINAL_WORKER_STATUSES = frozenset({
     "completed", "blocked", "awaiting_input", "awaiting_approval", "ready"
 })
+
+
+def _completed_reply(result: dict, final_status: str, original_message: str) -> str | None:
+    """Provide a deterministic user reply when a specialist omitted text."""
+    if final_status != "completed" or not isinstance(result, dict):
+        return None
+    nested = result.get("result")
+    if not isinstance(nested, dict) or str(nested.get("step") or "") != "notion-update":
+        return None
+    match = re.search(r"\bregistro\s+(\d+)\b", original_message or "", re.IGNORECASE)
+    record = f" {match.group(1)}" if match else ""
+    return f"A atualização do registro{record} no Notion foi concluída."
+
+
+def _execution_scope(worker_root: Path, request: dict, result: dict) -> dict:
+    """Merge the durable specialist scope into the pre-LLM dispatch scope."""
+    scope = dict(request.get("scope") or {})
+    nested = result.get("result") if isinstance(result, dict) else None
+    specialist_request = nested.get("request") if isinstance(nested, dict) else None
+    request_json = (
+        specialist_request.get("request_json")
+        if isinstance(specialist_request, dict)
+        else None
+    )
+    if isinstance(request_json, str) and request_json.strip():
+        path = Path(request_json)
+        if not path.is_absolute():
+            path = worker_root / path
+        try:
+            specialist_payload = read_json(path)
+        except (OSError, ValueError):
+            specialist_payload = {}
+        for key in ("application_id", "run_id", "node_id"):
+            if not str(scope.get(key) or "").strip() and specialist_payload.get(key):
+                scope[key] = specialist_payload[key]
+    return scope
 
 
 def run_worker(dispatch_dir: Path) -> dict:
@@ -180,6 +217,12 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
                         reply_text = nested_reply
                         break
         if not isinstance(reply_text, str) or not reply_text.strip():
+            reply_text = _completed_reply(
+                result,
+                final_status,
+                str(request.get("message") or ""),
+            )
+        if not isinstance(reply_text, str) or not reply_text.strip():
             return _blocked(
                 dispatch_dir,
                 "dispatch_worker_missing_reply",
@@ -205,7 +248,7 @@ def _run_worker_locked(dispatch_dir: Path) -> dict:
             "decision": request.get("decision") or "block",
             "dispatch_action": request.get("dispatch_action") or "awaiting_agent",
             "next_state": final_status,
-            "scope": request.get("scope") or {},
+            "scope": _execution_scope(worker_root, request, result),
             "reply_text": reply_text.strip() if isinstance(reply_text, str) and reply_text.strip() else None,
             "delivery": delivery,
             "command_id": command_id or None,

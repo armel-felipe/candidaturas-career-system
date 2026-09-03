@@ -81,6 +81,66 @@ def test_worker_finishes_the_sqlite_command_not_just_the_file_mirror(tmp_path, m
     assert persisted["reply_text"] == "Notion atualizado."
 
 
+def test_worker_keeps_completed_notion_update_completed_when_reply_is_missing(
+    tmp_path, monkeypatch
+):
+    dispatch_dir = tmp_path / "dispatch"
+    dispatch_dir.mkdir()
+    write_json(
+        dispatch_dir / "request.json",
+        {
+            "message_id": "m-notion-completed",
+            "message": "Pode atualizar o registro 624 no Notion.",
+            "runtime_context": {},
+            "decision": "block",
+            "dispatch_action": "awaiting_agent",
+            "scope": {},
+        },
+    )
+    write_json(
+        dispatch_dir / "status.json",
+        {"status": "awaiting_agent", "request_id": "m-notion-completed"},
+    )
+    write_json(
+        dispatch_dir / "lease.json",
+        {"owner": "worker", "pid": os.getpid(), "expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+    specialist_request = tmp_path / ".career-state" / "applications_v2" / "notion_624" / "request.json"
+    write_json(
+        specialist_request,
+        {"application_id": "notion_624", "run_id": "run-624", "node_id": "notion-update"},
+    )
+    monkeypatch.setattr(
+        worker,
+        "process_message",
+        lambda *_args, **_kwargs: {
+            "status": "completed",
+            "result": {
+                "status": "completed",
+                "step": "notion-update",
+                "request": {
+                    "status": "ok",
+                    "request_id": "notion-run-624",
+                    "request_json": ".career-state/applications_v2/notion_624/request.json",
+                },
+            },
+        },
+    )
+    delivered = []
+    monkeypatch.setattr(
+        worker,
+        "_deliver_reply",
+        lambda reply_text: delivered.append(reply_text) or {"status": "sent"},
+    )
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "completed"
+    assert "Notion" in result["reply_text"]
+    assert result["scope"]["application_id"] == "notion_624"
+    assert delivered == [result["reply_text"]]
+
+
 def test_worker_exception_closes_claimed_sqlite_command(tmp_path, monkeypatch):
     dispatch_dir = tmp_path / ".career-state" / "harness" / "dispatches" / "failed"
     dispatch_dir.mkdir(parents=True)

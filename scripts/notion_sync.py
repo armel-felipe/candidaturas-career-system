@@ -631,6 +631,16 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).lower()
 
 
+def analysis_blocks_already_present(current_blocks: list[dict], analysis_blocks: list[dict]) -> bool:
+    """Return whether the exact analysis block sequence already exists on a page."""
+    expected = [normalize_text(block_text(block)) for block in analysis_blocks if block_text(block)]
+    current = [normalize_text(block_text(block)) for block in current_blocks if block_text(block)]
+    if not expected or len(expected) > len(current):
+        return False
+    width = len(expected)
+    return any(current[index:index + width] == expected for index in range(len(current) - width + 1))
+
+
 def _active_intake_source_url(job_description_path: Optional[Path] = None) -> str:
     state_path = Path(".career-state/workflow_state.json")
     if not state_path.exists():
@@ -2570,10 +2580,13 @@ def update_from_fit_map(
     validate_notion_payload_text(page_payload)
     validate_notion_payload_text(blocks)
     anchor_block_id = find_anchor_block_id(current_blocks, "Pesquisa Inicial")
+    analysis_already_present = analysis_blocks_already_present(current_blocks, blocks)
     if dry_run:
         return {
             "page_update": page_payload,
             "append_blocks": blocks,
+            "analysis_already_present": analysis_already_present,
+            "append_action": "skipped" if analysis_already_present else "append",
             "insert_after_block_id": anchor_block_id,
             "insert_after_block_text": "Pesquisa Inicial" if anchor_block_id else None,
             "job_description_source": job_description_source,
@@ -2583,14 +2596,23 @@ def update_from_fit_map(
         }
 
     updated_page = update_page(token, page_id, page_payload)
-    appended = append_blocks(token, page_id, blocks, after_block_id=anchor_block_id) if blocks else None
+    if blocks and analysis_already_present:
+        appended = {
+            "status": "skipped",
+            "reason": "analysis_already_present",
+            "block_count": len(blocks),
+        }
+    else:
+        appended = append_blocks(token, page_id, blocks, after_block_id=anchor_block_id) if blocks else None
     return {
         "page": updated_page,
         "blocks": appended,
+        "analysis_already_present": analysis_already_present,
         "job_description_source": job_description_source,
         "job_description_path": str(resolved_job_description_path) if resolved_job_description_path else None,
         "extra_artifacts": [str(path) for path in (extra_artifacts or [])],
         "extra_notes_count": len(extra_notes or []),
+        "append_action": "skipped" if analysis_already_present else "appended",
     }
 
 
@@ -2940,6 +2962,8 @@ def compact_notion_write_result(result: dict, *, dry_run: bool, operation: str) 
         "extra_notes_count": result.get("extra_notes_count"),
         "property_count": len(properties or {}),
         "append_block_count": len(append_blocks) if isinstance(append_blocks, list) else None,
+        "analysis_already_present": bool(result.get("analysis_already_present")),
+        "append_action": result.get("append_action"),
         "insert_after_block_text": result.get("insert_after_block_text"),
         "has_anchor": bool(result.get("insert_after_block_id") or result.get("insert_after_block_text")),
     }

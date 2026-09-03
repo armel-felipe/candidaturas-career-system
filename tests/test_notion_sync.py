@@ -46,3 +46,18 @@ def test_notion_projection_keeps_existing_governance_fields_and_adds_compact_pos
     assert "evidence-v2" in serialized_blocks
     assert "story_a" in serialized_blocks
     assert "Narrativa longa não deve ser enviada" not in serialized_blocks
+
+
+def test_notion_analysis_block_sequence_is_detected_as_already_present() -> None:
+    fit_map = {
+        "cargo": "Head de Operações",
+        "empresa": "Dreamers.gr",
+        "nota_aderencia": {"final": 4.75, "dimensoes": {}},
+        "dor_central": "Conectar estratégia e execução.",
+        "gaps_sem_cobertura": ["Sem experiência em agência"],
+        "keywords_habilidade_ats": [],
+    }
+    blocks = notion_sync.notion_analysis_blocks(fit_map)
+
+    assert notion_sync.analysis_blocks_already_present(blocks, blocks) is True
+    assert notion_sync.analysis_blocks_already_present(blocks[:-1], blocks) is False
