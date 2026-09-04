@@ -1228,7 +1228,12 @@ def main(argv: list[str] | None = None) -> int:
             print(result)
             return 0
         if args.action == "diagnose-runtime":
-            result = run_task("project.diagnose_runtime", {"output": args.output})
+            # Runtime diagnosis inspects the project host and compatibility
+            # pointers; it is intentionally global and has no application
+            # scope. Do not send it through the task registry, whose contract
+            # correctly requires a scoped WorkflowStateStore for application
+            # tasks.
+            result = project_service.write_runtime_diagnosis(Path(args.output))
             print(result)
             return 0
         if args.action == "local-strict-status":

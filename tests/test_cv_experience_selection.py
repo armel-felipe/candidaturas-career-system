@@ -272,6 +272,34 @@ def test_english_cv_materializes_targeted_ats_keywords_in_defensible_bullets() -
     assert "Expanded coverage from 400 to 800 cities." in text
 
 
+def test_english_cv_materializes_sales_operations_keyword_clauses() -> None:
+    experience = {
+        "id": "vivareal_planejamento_operacoes",
+        "company": "VivaReal",
+        "role": "Commercial Planning and Operations Manager",
+        "bullets": [
+            "Led commercial planning and SDR operations.",
+            "Used daily conversion dashboards to manage the pipeline.",
+            "Increased inbound conversion from 18% to 50%.",
+        ],
+    }
+    keywords = [
+        {"keyword": "Sales Operations", "experiencia_alvo": "VivaReal | Gerente de Planejamento Comercial e Operações", "prioridade": 1},
+        {"keyword": "Inside Sales", "experiencia_alvo": "VivaReal | Gerente de Planejamento Comercial e Operações", "prioridade": 2},
+        {"keyword": "lead management", "experiencia_alvo": "VivaReal | Gerente de Planejamento Comercial e Operações", "prioridade": 3},
+        {"keyword": "lead segmentation", "experiencia_alvo": "VivaReal | Gerente de Planejamento Comercial e Operações", "prioridade": 4},
+    ]
+
+    result = cv_content._apply_defensible_english_ats_keywords(experience, keywords)
+    text = " ".join(result["bullets"]).lower()
+
+    assert "sales operations" in text
+    assert "inside sales" in text
+    assert "lead management" in text
+    assert "lead segmentation" in text
+    assert "18% to 50%" in result["bullets"][2]
+
+
 def test_materialize_experience_accepts_targeted_ats_keywords_for_provenance() -> None:
     experience = {
         "id": "ifood_diretor_operacoes",

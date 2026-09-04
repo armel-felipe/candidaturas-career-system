@@ -76,6 +76,150 @@ def test_processar_vaga_uses_bound_session_and_returns_pipeline_result(tmp_path)
     assert result["result"]["display_text"] == "Pipeline iniciado."
 
 
+@pytest.mark.parametrize("profile_id", ["vagas_bot_01", "vagas_bot_02"])
+def test_notion_id_cv_request_is_canonicalized_before_specialist(
+    monkeypatch, tmp_path, profile_id
+):
+    supervisor = HarnessSupervisor(tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_from_notion_record(record_id, **kwargs):
+        captured["record_id"] = record_id
+        captured["database"] = kwargs["database"]
+        return {
+            "status": "ready_for_model_analysis",
+            "application_id": "notion_625",
+            "next_required_step": "build_cv",
+        }
+
+    def fake_execute_pipeline(message, **kwargs):
+        captured["application_id"] = kwargs["application_id"]
+        captured["requested_steps"] = kwargs["requested_steps"]
+        return {"status": "completed", "application_id": kwargs["application_id"]}
+
+    monkeypatch.setattr(
+        "career.services.intake.from_notion_record", fake_from_notion_record
+    )
+    supervisor._bind_session_to_intake = lambda *args, **kwargs: None
+    supervisor._execute_pipeline_request = fake_execute_pipeline
+
+    result = supervisor.handle_message(
+        "a vaga id 625 do notion: gostaria que fosse gerado o cv",
+        channel="telegram",
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": profile_id,
+            "session_id": f"session-{profile_id}",
+        },
+    )
+
+    assert result["decision"]["workflow"] == "cv"
+    assert result["decision"]["parameters"] == {"record_id": 625}
+    assert captured["record_id"] == 625
+    assert captured["application_id"] == "notion_625"
+    assert captured["requested_steps"] == ["cv"]
+    assert result["result"]["status"] == "completed"
+
+
+def test_generic_positioning_question_uses_project_hermes_and_profile(
+    monkeypatch, tmp_path
+):
+    local_hermes = tmp_path / "hermes-src" / "hermes"
+    local_python = local_hermes.parent / "venv" / "bin" / "python"
+    local_python.parent.mkdir(parents=True)
+    local_hermes.write_text("#!/bin/sh\n", encoding="utf-8")
+    local_python.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return type("Completed", (), {"returncode": 0, "stdout": "Resposta de posicionamento", "stderr": ""})()
+
+    monkeypatch.setattr("career.services.harness_supervisor.shutil.which", lambda _name: None)
+    monkeypatch.setattr("career.services.harness_supervisor.subprocess.run", fake_run)
+
+    result = HarnessSupervisor(tmp_path)._run_generic_message(
+        "Como me posiciono para esta candidatura?",
+        profile_name="vagas_bot_02",
+        application_id="notion_625",
+    )
+
+    assert result["status"] == "completed"
+    assert captured["command"][:4] == [
+        str(local_python),
+        str(local_hermes),
+        "--profile",
+        "vagas_bot_02",
+    ]
+    assert captured["command"][-2] == "-z"
+    assert "Como me posiciono para esta candidatura?" in captured["command"][-1]
+    assert "applications_v2/notion_625/fit_map.json" in captured["command"][-1]
+    assert "não crie artefatos" in captured["command"][-1]
+
+
+def test_positioning_question_is_conversational_and_does_not_start_artifact_stage(
+    monkeypatch, tmp_path
+):
+    supervisor = HarnessSupervisor(tmp_path)
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("CAREER_HERMES_PROFILE_NAME", "vagas_bot_01")
+
+    def fake_generic(message, **kwargs):
+        captured["message"] = message
+        captured.update(kwargs)
+        return {"status": "completed", "display_text": "Orientação de posicionamento."}
+
+    supervisor._run_generic_message = fake_generic
+    result = supervisor.handle_message(
+        "Como me posiciono para esta candidatura?",
+        channel="telegram",
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": "profile-hash-01",
+            "session_id": "positioning-question",
+            "application_id": "notion_625",
+        },
+    )
+
+    assert result["decision"]["workflow"] == "generic_assistant"
+    assert result["result"]["display_text"] == "Orientação de posicionamento."
+    assert captured["profile_name"] == "vagas_bot_01"
+    assert captured["application_id"] == "notion_625"
+
+
+def test_why_question_explains_last_blocker_without_starting_new_stage(tmp_path):
+    supervisor = HarnessSupervisor(tmp_path)
+    context = {
+        "runtime": "hermes",
+        "profile_id": "vagas_bot_02",
+        "session_id": "why-question",
+    }
+    supervisor._remember_last_result(
+        {
+            "status": "blocked",
+            "blocker_reason": "application_resume_failed",
+            "application_id": "notion_625",
+        },
+        runtime_context=context,
+        channel="telegram",
+    )
+
+    result = supervisor.handle_message(
+        "por que parou?",
+        channel="telegram",
+        execute=True,
+        runtime_context=context,
+    )
+
+    assert result["decision"]["workflow"] == "generic_assistant"
+    assert result["result"]["kind"] == "last_result_explanation"
+    assert "application_resume_failed" in result["result"]["display_text"]
+
+
 def test_valid_notion_update_materializes_current_fit_map(monkeypatch, tmp_path):
     import career.services.multiagent as multiagent
 

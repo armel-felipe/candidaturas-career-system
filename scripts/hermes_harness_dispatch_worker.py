@@ -32,8 +32,27 @@ def _completed_reply(result: dict, final_status: str, original_message: str) -> 
     if final_status != "completed" or not isinstance(result, dict):
         return None
     nested = result.get("result")
-    if not isinstance(nested, dict) or str(nested.get("step") or "") != "notion-update":
+    if not isinstance(nested, dict):
         return None
+
+    step = str(nested.get("step") or "").strip()
+    if not step:
+        stages = nested.get("stages")
+        if isinstance(stages, list):
+            completed_stages = [
+                item
+                for item in stages
+                if isinstance(item, dict)
+                and str(item.get("status") or "") == "completed"
+            ]
+            if completed_stages:
+                step = str(completed_stages[-1].get("step") or "").strip()
+
+    if step == "cv":
+        return "O CV foi gerado, validado e entregue."
+    if step != "notion-update":
+        return None
+
     match = re.search(r"\bregistro\s+(\d+)\b", original_message or "", re.IGNORECASE)
     record = f" {match.group(1)}" if match else ""
     return f"A atualização do registro{record} no Notion foi concluída."

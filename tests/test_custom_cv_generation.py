@@ -155,6 +155,32 @@ def test_renderer_applies_arial_theme(tmp_path):
     assert 'typeface="Arial"' in theme
 
 
+def test_keyword_registry_defaults_to_application_scope(tmp_path):
+    application_dir = tmp_path / "applications_v2" / "application-fixture"
+    application_dir.mkdir(parents=True)
+    fit_map_path = application_dir / "fit_map.json"
+    fit_map_path.write_text(json.dumps({"empresa": "Example Co.", "cargo": "Example Role"}), encoding="utf-8")
+    cv_path = tmp_path / "fixture_en.docx"
+    render_cv(english_payload(), tmp_path)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/register_keywords.py",
+            "--fit-map",
+            str(fit_map_path),
+            "--cv",
+            str(cv_path),
+            "--translation-registry",
+            str(ROOT / ".agents/skills/career-system/references/keyword_translation_registry.json"),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert str(application_dir / "derived" / "keyword_ats_registry.json") in result.stdout
+
+
 def test_renderer_separates_period_and_bolds_key_result_metrics(tmp_path):
     payload = portuguese_payload()
     payload["experiencias"][0]["bullets"] = [

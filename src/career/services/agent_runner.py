@@ -12,6 +12,21 @@ from typing import Any
 CONTAINER_HERMES_BINARY = Path("/opt/hermes/bin/hermes")
 
 
+def resolve_hermes_command(root: Path) -> tuple[list[str], Path | None]:
+    """Resolve the Hermes launcher and identify a workspace-local binary."""
+    if CONTAINER_HERMES_BINARY.is_file():
+        return [str(CONTAINER_HERMES_BINARY)], None
+    found = shutil.which("hermes")
+    if found:
+        return [found], None
+    local_binary = root / "hermes-src" / "hermes"
+    if not local_binary.is_file():
+        return ["hermes"], None
+    local_python = local_binary.parent / "venv" / "bin" / "python"
+    interpreter = local_python if local_python.is_file() else Path(sys.executable)
+    return [str(interpreter), str(local_binary)], local_binary
+
+
 @dataclass(frozen=True)
 class AgentRunRequest:
     stage: str
@@ -42,28 +57,20 @@ class SubprocessAgentRunner:
     def build_command(self, request: AgentRunRequest) -> list[str]:
         command_name = str(request.runner_config.get("command") or "opencode")
         local_hermes_binary: Path | None = None
-        if command_name == "hermes" and CONTAINER_HERMES_BINARY.is_file():
-            resolved = str(CONTAINER_HERMES_BINARY)
+        if command_name == "hermes":
+            hermes_command, local_hermes_binary = resolve_hermes_command(self.root)
+            resolved = hermes_command[-1]
         else:
             resolved = shutil.which(command_name) or shutil.which("opencode.cmd") or command_name
-            if command_name == "hermes" and resolved == command_name:
-                local_hermes_binary = self.root / "hermes-src" / "hermes"
-                if local_hermes_binary.is_file():
-                    resolved = str(local_hermes_binary)
         runner_kind = str(request.runner_config.get("kind") or Path(resolved).name).casefold()
 
         if runner_kind == "hermes":
             request_rel = request.request_path.relative_to(self.root)
             prompt = f"Leia o arquivo {request_rel}. {request.instruction}"
             if local_hermes_binary is not None:
-                local_hermes_python = local_hermes_binary.parent / "venv" / "bin" / "python"
-                command = [
-                    str(local_hermes_python if local_hermes_python.is_file() else sys.executable),
-                    resolved,
-                ]
+                command = list(hermes_command)
             else:
                 command = [resolved]
-            command.append("--accept-hooks")
             profile_name = str(
                 request.profile_name
                 or request.runner_config.get("profile_name")
@@ -71,7 +78,8 @@ class SubprocessAgentRunner:
                 or ""
             ).strip()
             if profile_name:
-                command[1:1] = ["--profile", profile_name]
+                command.extend(["--profile", profile_name])
+            command.append("--accept-hooks")
             if request.model:
                 command.extend(["--model", request.model])
             command.extend(["-z", prompt])

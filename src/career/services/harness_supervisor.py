@@ -14,7 +14,11 @@ from uuid import uuid4
 
 from career.paths import CAREER_STATE, OUTPUTS
 from career.services import application_context as application_context_service
-from career.services.agent_runner import AgentRunRequest, SubprocessAgentRunner
+from career.services.agent_runner import (
+    AgentRunRequest,
+    SubprocessAgentRunner,
+    resolve_hermes_command,
+)
 from career.services.approvals import ApprovalStore
 from career.services.approved_actions import ApprovedActionExecutor
 from career.services.harness_runs import HarnessRunStore, begin_specialist_run
@@ -535,7 +539,13 @@ class HarnessSupervisor:
             return self._decision("generic_assistant", "chat", "high", "explain_last_result")
 
         if any(token in lowered for token in ("curriculo", "currículo", "gerar cv", "adaptar cv")) or re.search(r"\bcv\b", lowered):
-            return self._decision("cv", "cv", "high", "cv_request")
+            parameters: dict[str, Any] = {}
+            # A numeric Notion/vaga ID is an external identity, not the
+            # application scope accepted by specialists. Keep it in the
+            # decision so execution can canonicalize it through intake first.
+            if notion_match:
+                parameters["record_id"] = int(notion_match.group(1))
+            return self._decision("cv", "cv", "high", "cv_request", parameters=parameters)
 
         if any(token in lowered for token in ("carta de apresentacao", "carta de apresentação", "cover letter")):
             return self._decision("cover_letter", "cover-letter", "high", "cover_letter_request")
@@ -699,14 +709,12 @@ class HarnessSupervisor:
     @staticmethod
     def _is_why_question(lowered: str) -> bool:
         normalized = " ".join(str(lowered or "").split()).strip(" ?!.,")
-        return normalized in {
-            "por que",
-            "porque",
-            "por quê",
-            "porquê",
-            "como assim",
-            "o que aconteceu",
-        }
+        return bool(
+            re.match(
+                r"^(?:por que|porque|por quê|porquê|como assim|o que aconteceu)\b",
+                normalized,
+            )
+        )
 
     def prepare_specialist(self, step: str, *, objective: str | None = None, extras: dict[str, Any] | None = None) -> dict[str, Any]:
         from career.services import multiagent as multiagent_service
@@ -1849,6 +1857,29 @@ class HarnessSupervisor:
                 if stale:
                     display_text += f"\n\nHá um trabalho anterior salvo ({stale.get('role') or '-'} | {stale.get('company') or '-'}) mas ele parece antigo; se quiser retomá-lo, diga `continue o trabalho em andamento`."
                 envelope["result"] = {"status": "blocked", "kind": "invalid_menu_selection", "blocker_reason": "menu_selection_not_found", "display_text": display_text}
+            elif workflow == "cv" and (decision.parameters or {}).get("record_id") is not None:
+                from career.services import intake as intake_service
+
+                record_id = int((decision.parameters or {})["record_id"])
+                intake_result = intake_service.from_notion_record(
+                    record_id,
+                    database=self.db,
+                )
+                scoped_application_id = str(
+                    intake_result.get("application_id") or ""
+                ).strip()
+                self._bind_session_to_intake(
+                    runtime_context, intake_result, channel=channel
+                )
+                envelope["result"] = self._execute_pipeline_request(
+                    message,
+                    requested_steps=["cv"],
+                    application_id=scoped_application_id,
+                    model=model,
+                    variant=variant,
+                    runtime_context=runtime_context,
+                    channel=channel,
+                )
             elif workflow in {"fit_map", "cv", "cover_letter", "feras", "habilidades", "notion_update", "email_draft"}:
                 step = {"fit_map": "fit-map", "cover_letter": "cover-letter", "notion_update": "notion-update", "email_draft": "email-draft"}.get(workflow, workflow)
                 envelope["result"] = self.execute_specialist(step, objective=message, extras=self._specialist_extras(workflow, decision.parameters, runtime_context, channel=channel), model=model, variant=variant)
@@ -1891,7 +1922,32 @@ class HarnessSupervisor:
                             "display_text": "Não encontrei uma candidatura vinculada a esta sessão.",
                         }
                 else:
-                    envelope["result"] = self._run_generic_message(message, model=model)
+                    envelope["result"] = self._run_generic_message(
+                        message,
+                        model=model,
+                        profile_name=(
+                            str(os.environ.get("CAREER_HERMES_PROFILE_NAME") or "").strip()
+                            or str(
+                                (runtime_context or {}).get("profile_name") or ""
+                            ).strip()
+                            or (
+                                str((runtime_context or {}).get("profile_id") or "").strip()
+                                if str(
+                                    (runtime_context or {}).get("profile_id") or ""
+                                ).strip()
+                                in {"vagas_bot_01", "vagas_bot_02"}
+                                else ""
+                            )
+                            or None
+                        ),
+                        application_id=self._session_application_id(
+                            runtime_context, channel=channel
+                        )
+                        or str(
+                            (runtime_context or {}).get("application_id") or ""
+                        ).strip()
+                        or None,
+                    )
             else:
                 envelope["status"] = "blocked"
                 envelope["blocker_reason"] = "no_deterministic_route"
@@ -3308,16 +3364,39 @@ class HarnessSupervisor:
             return "Leia o request anexado e grave somente os artefatos textuais pedidos."
         raise ValueError(f"Unsupported application stage: {stage}")
 
-    def _run_generic_message(self, message: str, *, model: str | None = None) -> dict[str, Any]:
+    def _run_generic_message(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        profile_name: str | None = None,
+        application_id: str | None = None,
+    ) -> dict[str, Any]:
         if not self.root:
             return {"status": "blocked", "blocker_reason": "generic_runner_root_missing"}
-        hermes = shutil.which("hermes")
-        if not hermes:
+        command, _local_binary = resolve_hermes_command(self.root)
+        if command == ["hermes"]:
             return {"status": "blocked", "blocker_reason": "generic_runner_unavailable"}
-        command = [hermes, "--accept-hooks"]
+        if profile_name:
+            command.extend(["--profile", profile_name])
+        command.extend(["--accept-hooks"])
         if model:
             command.extend(["--model", model])
-        command.extend(["-z", message])
+        prompt = str(message or "").strip()
+        scoped_id = str(application_id or "").strip()
+        if scoped_id and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", scoped_id):
+            prompt = (
+                "Responda à pergunta abaixo em português, usando a candidatura "
+                f"{scoped_id} como contexto. Leia, se necessário, somente os arquivos "
+                f".career-state/applications_v2/{scoped_id}/fit_map.json, "
+                f".career-state/applications_v2/{scoped_id}/job_description.md e "
+                f".career-state/applications_v2/{scoped_id}/derived/candidate_evidence_pack.json. "
+                "Diferencie fatos comprovados, reposicionamento e gaps; quando for uma "
+                "pergunta de candidatura, proponha uma resposta objetiva e defensável. "
+                "Esta é uma conversa de orientação: não crie artefatos nem altere arquivos.\n\n"
+                f"Pergunta do usuário: {prompt}"
+            )
+        command.extend(["-z", prompt])
         env = os.environ.copy()
         env["CAREER_HARNESS_SUBAGENT"] = "1"
         completed = subprocess.run(command, cwd=self.root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15 * 60)

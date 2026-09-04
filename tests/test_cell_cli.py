@@ -117,6 +117,21 @@ def test_cellular_run_rejects_missing_application_id(capsys):
     assert "--application-id" in capsys.readouterr().err
 
 
+def test_project_runtime_diagnosis_is_global_and_persists_report(tmp_path, capsys):
+    output = tmp_path / "runtime-diagnosis.json"
+
+    code = cli.main(
+        ["project", "diagnose-runtime", "--output", str(output)]
+    )
+
+    assert code == 0
+    assert output.is_file()
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert "platform" in payload
+    assert "workflow_state" in payload
+    assert str(output) in capsys.readouterr().out
+
+
 def test_fresh_cli_run_executes_registered_production_handler_and_validator(
     tmp_path, monkeypatch, capsys
 ):

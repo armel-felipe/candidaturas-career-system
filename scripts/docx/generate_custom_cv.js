@@ -23,9 +23,12 @@ function cliOption(name) {
 
 const workspace = process.env.CAREER_WORKSPACE || process.cwd();
 const outputDir = cliOption("--output-dir") || process.env.CAREER_OUTPUTS || path.join(workspace, "outputs");
-const cvContentPath = cliOption("--content") || process.env.CAREER_CV_CONTENT || path.join(workspace, ".career-state", "cv_content.json");
 const outputNameOverride = cliOption("--output-name") || process.env.CAREER_OUTPUT_NAME;
 const applicationId = cliOption("--application-id") || process.env.CAREER_APPLICATION_ID || "";
+const defaultCvContentPath = applicationId
+  ? path.join(workspace, ".career-state", "applications_v2", applicationId, "cv_content.json")
+  : path.join(workspace, ".career-state", "cv_content.json");
+const cvContentPath = cliOption("--content") || process.env.CAREER_CV_CONTENT || defaultCvContentPath;
 
 function secao(text) {
   return new Paragraph({

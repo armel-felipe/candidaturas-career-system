@@ -20,6 +20,14 @@ from keyword_translation_utils import (
 DEFAULT_REGISTRY = Path(".career-state/derived/keyword_ats_registry.json")
 
 
+def default_registry_for_fit_map(fit_map_path: Path) -> Path:
+    """Keep ATS provenance beside an explicitly scoped application when possible."""
+    application_dir = fit_map_path.parent
+    if application_dir.parent.name == "applications_v2":
+        return application_dir / "derived" / "keyword_ats_registry.json"
+    return DEFAULT_REGISTRY
+
+
 def normalize_key(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
@@ -266,13 +274,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fit-map", default=".career-state/fit_map.json")
     parser.add_argument("--cv")
-    parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
+    parser.add_argument("--registry")
     parser.add_argument("--translation-registry", required=True)
     parser.add_argument("--translation-candidates", default=str(DEFAULT_TRANSLATION_CANDIDATES))
     args = parser.parse_args()
 
     fit_map_path = Path(args.fit_map)
-    registry_path = Path(args.registry)
+    registry_path = Path(args.registry) if args.registry else default_registry_for_fit_map(fit_map_path)
     cv_path = Path(args.cv) if args.cv else None
     if cv_path and not cv_path.exists():
         print(f"CV file not found: {cv_path}", flush=True)

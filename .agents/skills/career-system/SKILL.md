@@ -285,9 +285,9 @@ npm run multiagent:request -- fit-map --application-id "<application_id>"
 npm run multiagent:request -- cv --application-id "<application_id>"
 npm run multiagent:request -- cover-letter --application-id "<application_id>"
 npm run multiagent:request -- feras --application-id "<application_id>"
-npm run context:assert-active
-npm run cv:build-content
-npm run cv:validate-content
+npm run context:assert-active -- --application-id "<application_id>"
+npm run cv:build-content -- --application-id "<application_id>"
+npm run cv:validate-content -- --application-id "<application_id>"
 npm run validate:workspace-clean
 ```
 
@@ -460,10 +460,10 @@ Essa validação deve falhar se houver caminhos legados, pastas paralelas de ski
 Comandos para gerenciar o contexto ativo e evitar reaproveitamento silencioso de artefatos de outra vaga:
 
 ```bash
-npm run context:assert-active        # bloqueia reuse de FIT_MAP/cv_content stale
-npm run context:validate             # valida contexto ativo
-npm run context:doctor               # diagnostica oversized outputs e estado inchado
-npm run context:invalidate-stale     # invalida contexto se fingerprint não bater
+npm run context:assert-active -- --application-id "<application_id>"        # bloqueia reuse de FIT_MAP/cv_content stale
+npm run context:validate -- --application-id "<application_id>"             # valida contexto da candidatura
+npm run context:doctor -- --application-id "<application_id>"               # diagnostica oversized outputs e estado inchado
+npm run context:invalidate-stale -- --application-id "<application_id>"     # invalida contexto se fingerprint não bater
 ```
 
 ## Artefatos Compactos Derivados

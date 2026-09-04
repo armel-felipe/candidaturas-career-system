@@ -256,10 +256,10 @@ Convenção obrigatória de pontuação do CV:
 - o DOCX final não pode manter travessões residuais.
 
 ```bash
-npm run context:assert-active                                # bloqueia reuse de FIT_MAP/cv_content stale
-npm run cv:build-content                                     # gera .career-state/cv_content.json da vaga ativa
-npm run cv:validate-content                                  # valida contrato e fingerprint do cv_content
-npm run cv:docx                                              # gera via Node.js (generate_custom_cv.js)
+npm run context:assert-active -- --application-id "<id>"      # bloqueia reuse de FIT_MAP/cv_content stale
+npm run cv:build-content -- --application-id "<id>"          # gera o conteúdo scoped da candidatura
+npm run cv:validate-content -- --application-id "<id>"       # valida contrato e fingerprint do cv_content
+npm run cv:docx -- --application-id "<id>"                   # gera via Node.js (generate_custom_cv.js)
 npm run validate:docx                                        # valida o DOCX gerado
 python3 scripts/review_output.py --kind cv --artifact outputs/<cv>.docx --fit-map .career-state/applications_v2/<id>/fit_map.json --registry .career-state/applications_v2/<id>/derived/keyword_ats_registry.json --report outputs/_tmp/output_review_report.json
 npm run docx:tmp:clean                                       # limpa resíduos em outputs/_tmp/
@@ -274,14 +274,14 @@ npm run cv:deliver -- --application-id "<id>" --artifact outputs/<cv>.docx # apr
 ## Artefatos compactos derivados — comandos exatos
 
 ```bash
-npm run derive:cv-input-pack
-npm run derive:cv-content-seed
-npm run derive:feras-input-pack
-npm run derive:cover-letter-input-pack
-npm run derive:all-for-fit-map
-npm run context:validate
-npm run context:doctor
-npm run context:invalidate-stale
+npm run derive:cv-input-pack -- --application-id "<id>"
+npm run derive:cv-content-seed -- --application-id "<id>"
+npm run derive:feras-input-pack -- --application-id "<id>"
+npm run derive:cover-letter-input-pack -- --application-id "<id>"
+npm run derive:all-for-fit-map -- --application-id "<id>"
+npm run context:validate -- --application-id "<id>"
+npm run context:doctor -- --application-id "<id>"
+npm run context:invalidate-stale -- --application-id "<id>"
 ```
 
 Regra global para artefatos compactos:

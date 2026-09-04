@@ -141,6 +141,61 @@ def test_worker_keeps_completed_notion_update_completed_when_reply_is_missing(
     assert delivered == [result["reply_text"]]
 
 
+def test_worker_delivers_completed_cv_reply_when_specialist_has_no_display_text(
+    tmp_path, monkeypatch
+):
+    dispatch_dir = tmp_path / "dispatch"
+    dispatch_dir.mkdir()
+    write_json(
+        dispatch_dir / "request.json",
+        {
+            "message_id": "m-cv-completed",
+            "message": "gere o CV",
+            "runtime_context": {},
+            "decision": "block",
+            "dispatch_action": "awaiting_agent",
+            "scope": {},
+        },
+    )
+    write_json(
+        dispatch_dir / "status.json",
+        {"status": "awaiting_agent", "request_id": "m-cv-completed"},
+    )
+    write_json(
+        dispatch_dir / "lease.json",
+        {
+            "owner": "worker",
+            "pid": os.getpid(),
+            "expires_at": "2099-01-01T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        worker,
+        "process_message",
+        lambda *_args, **_kwargs: {
+            "status": "completed",
+            "result": {
+                "status": "completed",
+                "application_id": "app-cv",
+                "requested_steps": ["cv"],
+                "stages": [{"status": "completed", "step": "cv"}],
+            },
+        },
+    )
+    delivered = []
+    monkeypatch.setattr(
+        worker,
+        "_deliver_reply",
+        lambda reply_text: delivered.append(reply_text) or {"status": "sent"},
+    )
+
+    result = worker.run_worker(dispatch_dir)
+
+    assert result["status"] == "completed"
+    assert "CV" in result["reply_text"]
+    assert delivered == [result["reply_text"]]
+
+
 def test_worker_exception_closes_claimed_sqlite_command(tmp_path, monkeypatch):
     dispatch_dir = tmp_path / ".career-state" / "harness" / "dispatches" / "failed"
     dispatch_dir.mkdir(parents=True)

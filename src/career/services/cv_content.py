@@ -1012,6 +1012,14 @@ def _best_bullet_index(bullets: list[str], keyword: str) -> int:
 
 
 _ENGLISH_ATS_CLAUSES = {
+    "sales operations": "Led Sales Operations across commercial planning, SDR, sales channels, and performance management.",
+    "inside sales": "Scaled Inside Sales through SDR pipeline management and daily conversion performance routines.",
+    "commercial strategy": "Supported Commercial Strategy through pricing, sales-channel planning, and performance analysis.",
+    "business analytics": "Built Business Analytics routines that translated commercial data into executive decisions.",
+    "commercial funnels": "Optimized commercial funnels through lead qualification, real-time monitoring, and disciplined follow-up.",
+    "lead management": "Led lead management from intake and enrichment through distribution to sales teams.",
+    "lead segmentation": "Applied lead segmentation to prioritize and distribute opportunities across sales teams.",
+    "lead qualification": "Applied lead qualification based on data, funnel monitoring, and performance criteria.",
     "business transformation": "The work connected operating changes to business transformation.",
     "operational excellence": "The cadence reinforced operational excellence through measurable trade-offs.",
     "operations management": "Led operations management across FieldOps, Payments, and New Business.",
