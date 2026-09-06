@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from career.services.harness_supervisor import HarnessSupervisor
+from career.services.harness_conversation import ContextualPlanner
 from career.services.maintenance_orchestrator import MaintenanceOrchestrator
 from career.services.persistence.application_repository import (
     ApplicationIdentity,
@@ -208,6 +209,252 @@ def test_affirmative_reply_to_explicit_execution_offer_uses_pipeline(tmp_path, m
     assert result["decision"]["reason"] == "contextual_pipeline_confirmation"
     assert captured["application_id"] == "app-live"
     assert captured["requested_steps"] == []
+
+
+def test_contextual_plan_advances_bound_internal_next_step(tmp_path, monkeypatch):
+    supervisor = HarnessSupervisor(tmp_path)
+    ApplicationRepository(supervisor.db).create_application(
+        ApplicationIdentity(
+            application_id="app-live",
+            notion_id="626",
+            company="Keeta",
+            role="Operations Director",
+            fingerprint="fp-live",
+        )
+    )
+    context = {
+        "runtime": "hermes",
+        "profile_id": "vagas_bot_01",
+        "session_id": "contextual-next-step",
+    }
+    supervisor.conversation_planner = ContextualPlanner(
+        output_provider=lambda _prompt: (
+            '{"intent":"resume","target_hints":{},"requested_steps":[],'
+            '"authorization":"user_request","confidence":"high"}'
+        )
+    )
+    monkeypatch.setattr(
+        supervisor, "_session_application_id", lambda *_args, **_kwargs: "app-live"
+    )
+    captured = {}
+
+    def fake_pipeline(message, **kwargs):
+        captured.update(kwargs)
+        return {"status": "completed", "application_id": "app-live"}
+
+    monkeypatch.setattr(supervisor, "_execute_pipeline_request", fake_pipeline)
+    monkeypatch.setattr(
+        supervisor,
+        "_run_generic_message",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("contextual continuation must not use generic chat")
+        ),
+    )
+
+    result = supervisor.handle_message(
+        "faz o próximo passo desta candidatura",
+        channel="telegram",
+        execute=True,
+        runtime_context=context,
+    )
+
+    assert result["decision"]["workflow"] == "pipeline"
+    assert result["decision"]["reason"] == "contextual_plan"
+    assert result["result"]["application_id"] == "app-live"
+    assert captured["requested_steps"] == []
+
+
+def test_contextual_plan_resolves_unique_canonical_target(tmp_path, monkeypatch):
+    supervisor = HarnessSupervisor(tmp_path)
+    ApplicationRepository(supervisor.db).create_application(
+        ApplicationIdentity(
+            application_id="app-keeta-sales",
+            notion_id="625",
+            company="Keeta",
+            role="Sales Operations Manager",
+            fingerprint="fp-keeta-sales",
+        )
+    )
+    supervisor.conversation_planner = ContextualPlanner(
+        output_provider=lambda _prompt: (
+            '{"intent":"analyze","target_hints":{"company":"Keeta",'
+            '"role":"Sales Operations Manager"},"requested_steps":[],'
+            '"authorization":"user_request","confidence":"high"}'
+        )
+    )
+    captured = {}
+    monkeypatch.setattr(
+        supervisor,
+        "_execute_natural_application",
+        lambda message, resolution, **kwargs: captured.update(resolution)
+        or {"status": "completed", "application_id": resolution["application_id"]},
+    )
+
+    result = supervisor.handle_message(
+        "olhe essa oportunidade e veja o fit",
+        channel="telegram",
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": "vagas_bot_01",
+            "session_id": "contextual-unique",
+        },
+    )
+
+    assert result["decision"]["workflow"] == "natural_application_route"
+    assert captured["application_id"] == "app-keeta-sales"
+    assert captured["source"] == "canonical_company_role"
+
+
+def test_contextual_plan_shows_ambiguous_canonical_targets(tmp_path, monkeypatch):
+    supervisor = HarnessSupervisor(tmp_path)
+    repository = ApplicationRepository(supervisor.db)
+    for index, (suffix, role) in enumerate(
+        (("one", "Sales Operations Manager"), ("two", "Sales Operations Lead")),
+        start=1,
+    ):
+        repository.create_application(
+            ApplicationIdentity(
+                application_id=f"app-keeta-{suffix}",
+                notion_id=str(620 + index),
+                company="Keeta",
+                role=role,
+                fingerprint=f"fp-keeta-{suffix}",
+            )
+        )
+    supervisor.conversation_planner = ContextualPlanner(
+        output_provider=lambda _prompt: (
+            '{"intent":"analyze","target_hints":{"company":"Keeta"},'
+            '"requested_steps":[],"authorization":"user_request",'
+            '"confidence":"high"}'
+        )
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_execute_natural_application",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("ambiguous target must not execute")
+        ),
+    )
+
+    result = supervisor.handle_message(
+        "analisa uma oportunidade da Keeta",
+        channel="telegram",
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": "vagas_bot_01",
+            "session_id": "contextual-ambiguous",
+        },
+    )
+
+    assert result["decision"]["workflow"] == "natural_application_route"
+    assert result["result"]["status"] == "awaiting_input"
+    assert len(result["result"]["candidates"]) == 2
+    assert "Keeta" in result["result"]["display_text"]
+
+
+def test_contextual_plan_keeps_external_action_approval_gated(tmp_path, monkeypatch):
+    supervisor = HarnessSupervisor(tmp_path)
+    ApplicationRepository(supervisor.db).create_application(
+        ApplicationIdentity(
+            application_id="app-live",
+            notion_id="626",
+            company="Keeta",
+            role="Operations Director",
+            fingerprint="fp-live",
+        )
+    )
+    supervisor.conversation_planner = ContextualPlanner(
+        output_provider=lambda _prompt: (
+            '{"intent":"update_notion","target_hints":{},"requested_steps":[],'
+            '"authorization":"user_request","confidence":"high"}'
+        )
+    )
+    monkeypatch.setattr(
+        supervisor, "_session_application_id", lambda *_args, **_kwargs: "app-live"
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "execute_specialist",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("approval preparation must not execute a specialist")
+        ),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "prepare_specialist",
+        lambda *args, **kwargs: {
+            "status": "prepared",
+            "request": {"request_id": "request-test"},
+            "approval": {"approval_id": "approval-test", "status": "pending"},
+        },
+    )
+    decision = supervisor.classify("atualiza o registro dessa vaga")
+    assert decision.workflow == "generic_assistant"
+
+    result = supervisor.handle_message(
+        "atualiza o registro dessa vaga",
+        channel="telegram",
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": "vagas_bot_01",
+            "session_id": "contextual-external",
+        },
+    )
+
+    assert result["decision"]["workflow"] == "notion_update"
+    assert result["decision"]["requires_approval"] is True
+
+
+def test_contextual_plan_records_understood_application_event(tmp_path, monkeypatch):
+    supervisor = HarnessSupervisor(tmp_path)
+    ApplicationRepository(supervisor.db).create_application(
+        ApplicationIdentity(
+            application_id="app-keeta-sales",
+            notion_id="625",
+            company="Keeta",
+            role="Sales Operations Manager",
+            fingerprint="fp-keeta-sales",
+        )
+    )
+    supervisor.conversation_planner = ContextualPlanner(
+        output_provider=lambda _prompt: (
+            '{"intent":"analyze","target_hints":{"company":"Keeta",'
+            '"role":"Sales Operations Manager"},"requested_steps":[],'
+            '"authorization":"user_request","confidence":"high"}'
+        )
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_execute_natural_application",
+        lambda message, resolution, **kwargs: {
+            "status": "completed",
+            "application_id": resolution["application_id"],
+        },
+    )
+
+    supervisor.handle_message(
+        "analisa essa oportunidade",
+        channel="telegram",
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": "vagas_bot_01",
+            "session_id": "contextual-audit",
+            "turn_id": "turn-1",
+        },
+    )
+
+    event = supervisor.db.fetch_one(
+        "SELECT event, fingerprint, metadata FROM workflow_events "
+        "WHERE application_id = ? AND event = ?",
+        ("app-keeta-sales", "harness_conversational_plan"),
+    )
+    assert event is not None
+    assert event["fingerprint"] == "fp-keeta-sales"
+    assert "entendi" in event["metadata"].casefold()
 
 
 def test_short_pipeline_control_executes_bound_pipeline_intent(tmp_path, monkeypatch):

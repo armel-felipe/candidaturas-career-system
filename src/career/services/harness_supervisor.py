@@ -29,7 +29,12 @@ from career.services.maintenance import (
     validate_maintenance_request,
 )
 from career.services.maintenance_orchestrator import MaintenanceOrchestrator
-from career.services.harness_conversation import ContextualPlanner
+from career.services.harness_conversation import (
+    ContextualPlan,
+    ContextualPlanner,
+    PolicyDecision,
+    evaluate_action_policy,
+)
 from career.services.pipeline_intent import PipelineIntentStore
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json
 
@@ -320,6 +325,7 @@ class HarnessSupervisor:
         root: Path | None = None,
         runner: SubprocessAgentRunner | None = None,
         application_interpreter: Callable[[str], dict[str, Any] | None] | None = None,
+        conversation_planner: ContextualPlanner | None = None,
     ):
         self.root = root
         self.runner = runner or (SubprocessAgentRunner(root) if root else None)
@@ -328,6 +334,7 @@ class HarnessSupervisor:
         # that in _resolve_natural_application().  Tests and alternate runtimes
         # can inject a parser without invoking a model subprocess.
         self.application_interpreter = application_interpreter
+        self.conversation_planner = conversation_planner or ContextualPlanner(root)
         self.db = application_context_service.canonical_database(root=root)
         self.db.migrate()
         self.session_memory = SessionMemoryService(self.db)
@@ -1583,6 +1590,308 @@ class HarnessSupervisor:
     ) -> bool:
         return step == "fit-map" and status == "completed" and enabled and not cellular
 
+    def _read_last_result(
+        self,
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> dict[str, Any]:
+        raw = self.session_memory.get(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_last_result_v2",
+        )
+        try:
+            payload = json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            payload = {}
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _contextual_profile_name(
+        runtime_context: dict[str, Any] | None,
+    ) -> str | None:
+        context = runtime_context or {}
+        profile_id = str(context.get("profile_name") or "").strip()
+        if profile_id:
+            return profile_id
+        profile_id = str(context.get("profile_id") or "").strip()
+        if profile_id in {"vagas_bot_01", "vagas_bot_02"}:
+            return profile_id
+        return str(os.environ.get("CAREER_HERMES_PROFILE_NAME") or "").strip() or None
+
+    def _contextual_plan_for_message(
+        self,
+        message: str,
+        *,
+        history: list[dict[str, str]],
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+        model: str | None,
+    ) -> ContextualPlan | None:
+        try:
+            return self.conversation_planner.plan(
+                message,
+                history=history,
+                last_result=self._read_last_result(
+                    runtime_context=runtime_context, channel=channel
+                ),
+                menu_context=self._menu_state_payload(
+                    runtime_context, channel=channel
+                ),
+                profile_name=self._contextual_profile_name(runtime_context),
+                model=model,
+            )
+        except (OSError, ValueError, TypeError, KeyError):
+            # Conversational planning is an optional interpretation layer. A
+            # planner failure must leave the deterministic router available.
+            return None
+
+    def _contextual_plan_decision(
+        self,
+        plan: ContextualPlan,
+        message: str,
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> DispatchDecision:
+        """Turn language hints into a guarded route, never into scope authority."""
+        hints = dict(plan.target_hints)
+        parameters: dict[str, Any] = {"contextual_plan": plan.to_dict()}
+        if str(hints.get("notion_id") or "").strip().isdigit():
+            parameters["record_id"] = int(str(hints["notion_id"]).strip())
+        for key in ("company", "role", "url", "menu_index"):
+            if key in hints:
+                parameters[key] = hints[key]
+
+        bound_id = self._session_application_id(runtime_context, channel=channel)
+        target_record = None
+        target_unique = False
+        if hints:
+            resolution = self._resolve_natural_application(
+                message,
+                runtime_context=runtime_context,
+                intent=plan.intent,
+                interpreted_parameters=parameters,
+            )
+            if resolution.get("status") == "resolved":
+                target_unique = True
+                canonical_id = str(resolution.get("application_id") or "").strip()
+                if canonical_id:
+                    parameters["application_id"] = canonical_id
+                    bound_id = canonical_id
+                notion_id = str(resolution.get("notion_id") or "").strip()
+                if notion_id.isdigit() and plan.intent not in {
+                    "intake",
+                    "analyze",
+                    "resume",
+                    "generate_cv",
+                }:
+                    parameters["record_id"] = int(notion_id)
+                try:
+                    target_record = ApplicationRepository(self.db).resolve(
+                        application_id=canonical_id
+                    )
+                except ApplicationNotFoundError:
+                    target_record = None
+            elif resolution.get("candidates"):
+                target_unique = False
+        elif bound_id:
+            try:
+                target_record = ApplicationRepository(self.db).resolve(
+                    application_id=bound_id
+                )
+                target_unique = True
+                parameters["application_id"] = bound_id
+            except ApplicationNotFoundError:
+                target_unique = False
+
+        last_result = self._read_last_result(
+            runtime_context=runtime_context, channel=channel
+        )
+        next_step = str(last_result.get("step") or "").strip()
+        intent_steps = {
+            "intake": "intake",
+            "analyze": "analyze",
+            "resume": "resume",
+            "generate_cv": "cv",
+            "generate_cover_letter": "cover-letter",
+            "update_notion": "notion-update",
+            "deliver_onedrive": "onedrive",
+            "email_draft": "email-draft",
+        }
+        if not next_step:
+            next_step = intent_steps.get(plan.intent, "")
+        if plan.requested_steps:
+            parameters["requested_steps"] = list(plan.requested_steps)
+
+        target_status = str(getattr(target_record, "stage", "") or "").strip()
+        policy = evaluate_action_policy(
+            plan,
+            target_status=target_status,
+            next_step=next_step,
+            target_unique=target_unique,
+        )
+        parameters["policy"] = asdict(policy)
+        parameters["contextual_target_application_id"] = bound_id or None
+
+        if policy.mode == "blocked":
+            return self._decision(
+                "contextual_guard",
+                "conversation",
+                plan.confidence,
+                "contextual_plan",
+                parameters=parameters,
+            )
+        if policy.mode == "clarify":
+            if policy.reason == "target_not_unique" and hints:
+                parameters["intent"] = "cv" if plan.intent == "generate_cv" else (
+                    "resume" if plan.intent == "resume" else "analysis"
+                )
+                return self._decision(
+                    "natural_application_route",
+                    "application-resolution",
+                    plan.confidence,
+                    "contextual_plan",
+                    parameters=parameters,
+                )
+            return self._decision(
+                "contextual_clarification",
+                "conversation",
+                plan.confidence,
+                "contextual_plan",
+                parameters=parameters,
+            )
+
+        if plan.intent in {"chat", "inspect"}:
+            workflow = "generic_assistant"
+            stage = "chat"
+        elif plan.intent in {"analyze", "resume", "generate_cv", "intake"} and hints:
+            workflow = "natural_application_route"
+            stage = "application-resolution"
+            parameters["intent"] = "cv" if plan.intent == "generate_cv" else (
+                "resume" if plan.intent == "resume" else "analysis"
+            )
+        elif plan.intent == "generate_cover_letter" and target_unique:
+            workflow = "cover_letter"
+            stage = "cover-letter"
+        elif plan.intent == "update_notion":
+            workflow = "notion_update"
+            stage = "notion-update"
+        elif plan.intent == "email_draft":
+            workflow = "email_draft"
+            stage = "email-draft"
+        elif plan.intent == "deliver_onedrive":
+            workflow = "pipeline"
+            stage = "pipeline"
+            parameters.setdefault("requested_steps", ["onedrive"])
+        else:
+            workflow = "pipeline"
+            stage = "pipeline"
+            parameters.setdefault("requested_steps", list(plan.requested_steps))
+
+        return self._decision(
+            workflow,
+            stage,
+            plan.confidence,
+            "contextual_plan",
+            requires_approval=policy.requires_approval,
+            parameters=parameters,
+        )
+
+    def _record_contextual_plan_audit(
+        self,
+        plan: ContextualPlan | None,
+        decision: DispatchDecision,
+        result: Any,
+        *,
+        message: str,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> None:
+        if plan is None or not isinstance(result, dict):
+            return
+        application_id = self._result_application_id(result)
+        if not application_id:
+            application_id = str(
+                (decision.parameters or {}).get("application_id") or ""
+            ).strip()
+        if not application_id:
+            application_id = self._session_application_id(
+                runtime_context, channel=channel
+            )
+        if not application_id:
+            return
+        try:
+            application = ApplicationRepository(self.db).resolve(
+                application_id=application_id
+            )
+        except ApplicationNotFoundError:
+            return
+        context = runtime_context or {}
+        understood = (
+            f"Entendi a mensagem como a candidatura {application.application_id} "
+            f"({application.company} | {application.role})."
+        )
+        WorkflowService(self.db).record_event(
+            application.application_id,
+            "harness_conversational_plan",
+            fingerprint=application.fingerprint,
+            metadata={
+                "understood_as": understood,
+                "intent": plan.intent,
+                "target_hints": dict(plan.target_hints),
+                "requested_steps": list(plan.requested_steps),
+                "authorization": plan.authorization,
+                "confidence": plan.confidence,
+                "decision": decision.to_dict(),
+                "result_status": str(result.get("status") or ""),
+                "message": str(message or "")[:500],
+                "runtime": str(context.get("runtime") or "").strip(),
+                "profile_id": str(context.get("profile_id") or "").strip(),
+                "session_id": str(context.get("session_id") or "").strip(),
+                "turn_id": str(context.get("turn_id") or "").strip(),
+            },
+        )
+
+    def _prepare_contextual_approval(
+        self,
+        workflow: str,
+        *,
+        message: str,
+        parameters: dict[str, Any] | None,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> dict[str, Any]:
+        """Create the existing approval record without running a specialist."""
+        step = {"notion_update": "notion-update", "email_draft": "email-draft"}.get(
+            workflow, workflow
+        )
+        extras = self._specialist_extras(
+            workflow, parameters, runtime_context, channel=channel
+        )
+        application_id = str((extras or {}).get("application_id") or "").strip()
+        if not application_id:
+            return {
+                "status": "blocked",
+                "blocker_reason": "explicit_application_scope_required",
+                "display_text": "Preciso confirmar a candidatura antes de preparar essa ação externa.",
+            }
+        prepared = self.prepare_specialist(step, objective=message, extras=extras)
+        if prepared.get("status") != "prepared":
+            return prepared
+        approval = prepared.get("approval") or {}
+        return {
+            "status": "awaiting_approval",
+            "step": step,
+            "application_id": application_id,
+            "request": prepared.get("request"),
+            "approval": approval,
+            "display_text": (
+                "Preparei a ação externa para a candidatura "
+                f"{application_id}. Confirme explicitamente para eu executá-la."
+            ),
+        }
+
     def handle_message(
         self,
         message: str,
@@ -1747,6 +2056,7 @@ class HarnessSupervisor:
         if execute:
             self._record_session_intent(runtime_context, message, channel=channel)
         decision = self.classify(message)
+        contextual_plan = None
         if decision.workflow == "generic_assistant" and self._is_contextual_pipeline_confirmation(
             message, runtime_context=runtime_context, channel=channel
         ):
@@ -1757,11 +2067,36 @@ class HarnessSupervisor:
                 "contextual_pipeline_confirmation",
                 parameters={"requested_steps": []},
             )
+        elif execute and decision.workflow in {"generic_assistant", "fit_map"} and not (
+            decision.workflow == "fit_map"
+            and (decision.parameters or {}).get("record_id") is not None
+        ):
+            contextual_plan = self._contextual_plan_for_message(
+                message,
+                history=history,
+                runtime_context=runtime_context,
+                channel=channel,
+                model=model,
+            )
+            if contextual_plan is not None:
+                decision = self._contextual_plan_decision(
+                    contextual_plan,
+                    message,
+                    runtime_context=runtime_context,
+                    channel=channel,
+                )
         envelope: dict[str, Any] = {"status": "routed", "channel": channel, "message": original_message, "decision": decision.to_dict(), "executed": False}
         if selection:
             envelope["menu_selection"] = selection
         if pending:
             envelope["pending_input"] = pending
+        contextual_application_id = str(
+            (decision.parameters or {}).get("application_id") or ""
+        ).strip()
+        if contextual_plan is not None and contextual_application_id:
+            self._bind_session_to_application(
+                runtime_context, contextual_application_id, channel=channel
+            )
         if decision.workflow == "maintenance":
             payload = (decision.parameters or {}).get("payload")
             result = self._process_maintenance_request(
@@ -1776,7 +2111,36 @@ class HarnessSupervisor:
             return envelope
         workflow = decision.workflow
         try:
-            if workflow == "menu":
+            if workflow == "contextual_guard":
+                policy = (decision.parameters or {}).get("policy") or {}
+                envelope["result"] = {
+                    "status": "blocked",
+                    "kind": "contextual_plan_guard",
+                    "blocker_reason": str(policy.get("reason") or "contextual_plan_blocked"),
+                    "display_text": (
+                        "Não executei a ação porque a candidatura está desatualizada, "
+                        "conflitante ou sem próximo passo canônico seguro."
+                    ),
+                }
+            elif workflow == "contextual_clarification":
+                policy = (decision.parameters or {}).get("policy") or {}
+                if str(policy.get("reason") or "") == "target_not_unique":
+                    display_text = (
+                        "Encontrei mais de uma possibilidade ou não consegui confirmar "
+                        "a vaga com segurança. Informe o ID do Notion, a empresa e o cargo."
+                    )
+                else:
+                    display_text = (
+                        "Entendi a intenção, mas preciso confirmar a candidatura antes "
+                        "de continuar. Informe o ID do Notion, a empresa e o cargo."
+                    )
+                envelope["result"] = {
+                    "status": "awaiting_input",
+                    "kind": "contextual_plan_clarification",
+                    "blocker_reason": str(policy.get("reason") or "contextual_target_unclear"),
+                    "display_text": display_text,
+                }
+            elif workflow == "menu":
                 self._clear_pending_input(runtime_context, channel=channel)
                 envelope["result"] = self._build_session_menu(
                     runtime_context=runtime_context, channel=channel
@@ -2093,7 +2457,19 @@ class HarnessSupervisor:
                 )
             elif workflow in {"fit_map", "cv", "cover_letter", "feras", "habilidades", "notion_update", "email_draft"}:
                 step = {"fit_map": "fit-map", "cover_letter": "cover-letter", "notion_update": "notion-update", "email_draft": "email-draft"}.get(workflow, workflow)
-                envelope["result"] = self.execute_specialist(step, objective=message, extras=self._specialist_extras(workflow, decision.parameters, runtime_context, channel=channel), model=model, variant=variant)
+                if contextual_plan is not None and decision.requires_approval and workflow in {
+                    "notion_update",
+                    "email_draft",
+                }:
+                    envelope["result"] = self._prepare_contextual_approval(
+                        workflow,
+                        message=message,
+                        parameters=decision.parameters,
+                        runtime_context=runtime_context,
+                        channel=channel,
+                    )
+                else:
+                    envelope["result"] = self.execute_specialist(step, objective=message, extras=self._specialist_extras(workflow, decision.parameters, runtime_context, channel=channel), model=model, variant=variant)
             elif workflow == "generic_assistant":
                 if decision.reason == "explain_last_result":
                     envelope["result"] = self._explain_last_result(
@@ -2181,6 +2557,14 @@ class HarnessSupervisor:
             envelope["result"] = {"status": "blocked", "kind": "validation_failure", "blocker_reason": "workflow_validation_failed", "display_text": str(exc)}
         envelope["result"] = self._decorate_result_payload(
             envelope.get("result"), runtime_context=runtime_context, channel=channel
+        )
+        self._record_contextual_plan_audit(
+            contextual_plan,
+            decision,
+            envelope.get("result"),
+            message=message,
+            runtime_context=runtime_context,
+            channel=channel,
         )
         if isinstance(envelope.get("result"), dict):
             result = envelope["result"]

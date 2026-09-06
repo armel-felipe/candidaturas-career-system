@@ -8,6 +8,7 @@ from career.services.approvals import ApprovalStore
 from career.cells.executor import CellExecutor
 from career.services.database import Database
 from career.services.harness_supervisor import HarnessSupervisor
+from career.services.harness_conversation import ContextualPlanner
 from career.services.pipeline_intent import PipelineIntentStore
 
 
@@ -40,6 +41,53 @@ def test_pipeline_intent_is_idempotent_and_scoped_to_session(tmp_path: Path):
     assert HarnessSupervisor._requested_pipeline_steps(
         "crie o CV personalizado e envie para o OneDrive"
     ) == ["cv", "onedrive"]
+
+
+def test_contextual_continuation_does_not_cross_bot_profile_session_scope(tmp_path, monkeypatch):
+    supervisor = HarnessSupervisor(tmp_path)
+    old_context = {
+        "runtime": "hermes",
+        "profile_id": "vagas_bot_01",
+        "session_id": "same-chat-old-session",
+    }
+    new_context = {
+        "runtime": "hermes",
+        "profile_id": "vagas_bot_02",
+        "session_id": "same-chat-new-session",
+    }
+    supervisor._bind_session_to_application(
+        old_context, "app-bot-01", channel="telegram"
+    )
+    supervisor._remember_last_result(
+        {"status": "blocked", "application_id": "app-bot-01", "step": "cv"},
+        runtime_context=old_context,
+        channel="telegram",
+    )
+    supervisor.conversation_planner = ContextualPlanner(
+        output_provider=lambda _prompt: (
+            '{"intent":"resume","target_hints":{},"requested_steps":[],'
+            '"authorization":"user_request","confidence":"high"}'
+        )
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_execute_pipeline_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("new bot session must not reuse old application")
+        ),
+    )
+
+    result = supervisor.handle_message(
+        "faz o próximo passo desta candidatura",
+        channel="telegram",
+        execute=True,
+        runtime_context=new_context,
+    )
+
+    assert result["decision"]["workflow"] == "contextual_clarification"
+    assert result["result"]["status"] == "awaiting_input"
+    assert supervisor._session_application_id(old_context, channel="telegram") == "app-bot-01"
+    assert supervisor._session_application_id(new_context, channel="telegram") is None
 
 
 def test_supervisor_uses_persisted_session_intent_when_registry_is_missing(

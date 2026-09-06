@@ -62,6 +62,15 @@ class ContextualPlan:
     authorization: str
     confidence: str
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "intent": self.intent,
+            "target_hints": dict(self.target_hints),
+            "requested_steps": list(self.requested_steps),
+            "authorization": self.authorization,
+            "confidence": self.confidence,
+        }
+
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ContextualPlan":
         if not isinstance(payload, Mapping):
@@ -163,9 +172,11 @@ class ContextualPlanner:
 
     _CANDIDATE_TERMS = (
         "vaga",
+        "oportunidade",
         "candidatura",
         "fit map",
         "fit_map",
+        "fit",
         "próximo passo",
         "proximo passo",
         "continue",

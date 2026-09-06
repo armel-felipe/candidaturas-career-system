@@ -7,6 +7,10 @@ from career.services.harness_supervisor import HarnessSupervisor
 import hermes_harness_context_hook as hook
 
 
+def test_new_command_stays_with_native_session_reset():
+    assert hook.should_intercept("/new") is False
+
+
 def test_yes_resolves_the_pending_question_for_same_session(tmp_path):
     supervisor = HarnessSupervisor(tmp_path)
     context = {"runtime": "hermes", "profile_id": "profile", "session_id": "s1", "application_id": "app1"}
