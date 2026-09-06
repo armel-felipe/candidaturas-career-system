@@ -408,6 +408,58 @@ def test_contextual_plan_keeps_external_action_approval_gated(tmp_path, monkeypa
     assert result["decision"]["requires_approval"] is True
 
 
+def test_contextual_onedrive_delivery_creates_persisted_approval(tmp_path, monkeypatch):
+    supervisor = HarnessSupervisor(tmp_path)
+    ApplicationRepository(supervisor.db).create_application(
+        ApplicationIdentity(
+            application_id="app-live",
+            notion_id="627",
+            company="Keeta",
+            role="Operations Director",
+            fingerprint="fp-live",
+        )
+    )
+    artifact = tmp_path / "outputs" / "cv.docx"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"approved cv")
+    supervisor.conversation_planner = ContextualPlanner(
+        output_provider=lambda _prompt: (
+            '{"intent":"deliver_onedrive","target_hints":{},'
+            '"requested_steps":[],"authorization":"user_request",'
+            '"confidence":"high"}'
+        )
+    )
+    monkeypatch.setattr(
+        supervisor, "_session_application_id", lambda *_args, **_kwargs: "app-live"
+    )
+    monkeypatch.setattr(supervisor, "_scoped_cv_artifact", lambda _app: artifact)
+    monkeypatch.setattr(
+        supervisor,
+        "_execute_pipeline_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("OneDrive must wait for approval before delivery")
+        ),
+    )
+
+    result = supervisor.handle_message(
+        "mande o documento para o onedrive",
+        channel="telegram",
+        execute=True,
+        runtime_context={
+            "runtime": "hermes",
+            "profile_id": "vagas_bot_01",
+            "session_id": "contextual-onedrive",
+        },
+    )
+
+    assert result["result"]["status"] == "awaiting_approval"
+    assert result["result"]["approval"]["action"] == "onedrive-delivery"
+    pending = list(
+        (tmp_path / ".career-state" / "applications_v2" / "app-live" / "pending_actions").glob("*.json")
+    )
+    assert len(pending) == 1
+
+
 def test_contextual_plan_records_understood_application_event(tmp_path, monkeypatch):
     supervisor = HarnessSupervisor(tmp_path)
     ApplicationRepository(supervisor.db).create_application(

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import subprocess
 import shlex
+import re
 from pathlib import Path
 from typing import Any, Callable
 
-from career.utils import ValidationFailure, read_json
+from career.utils import ValidationFailure, read_json, sha256_file
 
 
 class ApprovedActionExecutor:
@@ -24,24 +25,81 @@ class ApprovedActionExecutor:
             return self._execute_notion(payload)
         if kind == "gmail_draft":
             return self._execute_gmail_draft(payload)
+        if kind == "onedrive_delivery":
+            return self._execute_onedrive_delivery(payload)
         raise ValidationFailure(f"Unsupported approved action kind: {kind!r}")
 
+    def _execute_onedrive_delivery(self, payload: dict[str, Any]) -> dict[str, Any]:
+        application_id = str(payload.get("application_id") or "").strip()
+        artifact_value = str(payload.get("artifact") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", application_id):
+            raise ValidationFailure("OneDrive delivery requires a scoped application_id.")
+        if not artifact_value:
+            raise ValidationFailure("OneDrive delivery requires an artifact.")
+        artifact = (self.root / artifact_value).resolve()
+        try:
+            artifact.relative_to((self.root / "outputs").resolve())
+        except ValueError as exc:
+            raise ValidationFailure("OneDrive artifact must remain inside outputs/.") from exc
+        if not artifact.is_file():
+            raise ValidationFailure("OneDrive artifact is missing.")
+        expected_hash = str(payload.get("artifact_sha256") or "").strip()
+        if expected_hash and sha256_file(artifact) != expected_hash:
+            raise ValidationFailure("OneDrive artifact changed after approval.")
+        command = [
+            "npm",
+            "run",
+            "cv:deliver",
+            "--",
+            "--application-id",
+            application_id,
+            "--artifact",
+            str(artifact.relative_to(self.root)),
+        ]
+        return self._run(command, "onedrive_delivery")
+
     def _execute_notion(self, payload: dict[str, Any]) -> dict[str, Any]:
+        executed_result = payload.get("executed_result")
+        executed_result = executed_result if isinstance(executed_result, dict) else {}
+        resolved_page_id = (
+            payload.get("resolved_page_id")
+            or payload.get("page_id")
+            or executed_result.get("page_id")
+        )
+        resolved_record_id = (
+            payload.get("resolved_record_id")
+            or payload.get("record_id")
+            or executed_result.get("record_id")
+        )
+        action_status = str(payload.get("status") or "").strip().casefold()
         if (
-            str(payload.get("status") or "").strip().casefold() == "written"
+            (
+                action_status in {"written", "executed", "completed"}
+                or payload.get("executed") is True
+            )
             and (
                 payload.get("real_write_executed") is True
-                or str(payload.get("resolved_page_id") or "").strip()
+                or str(resolved_page_id or "").strip()
             )
         ):
-            return {
+            result = {
                 "status": "completed",
                 "action": "notion",
                 "already_executed": True,
-                "resolved_page_id": payload.get("resolved_page_id"),
+                "resolved_page_id": resolved_page_id,
             }
+            if resolved_record_id is not None:
+                result["resolved_record_id"] = resolved_record_id
+            return result
         command = payload.get("command")
-        if not isinstance(command, list) or not all(isinstance(item, str) for item in command):
+        if isinstance(command, str):
+            try:
+                command = shlex.split(command)
+            except ValueError as exc:
+                raise ValidationFailure(
+                    f"Notion command contains invalid shell quoting: {exc}"
+                ) from exc
+        elif not isinstance(command, list) or not all(isinstance(item, str) for item in command):
             command_list = payload.get("command_list")
             if not isinstance(command_list, list) or not all(
                 isinstance(item, str) and item.strip() for item in command_list

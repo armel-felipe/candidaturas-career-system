@@ -1863,6 +1863,69 @@ class HarnessSupervisor:
         channel: str,
     ) -> dict[str, Any]:
         """Create the existing approval record without running a specialist."""
+        if workflow == "deliver_onedrive":
+            application_id = str((parameters or {}).get("application_id") or "").strip()
+            if not application_id:
+                return {
+                    "status": "blocked",
+                    "blocker_reason": "explicit_application_scope_required",
+                    "display_text": "Preciso confirmar a candidatura antes de preparar a entrega.",
+                }
+            try:
+                application = ApplicationRepository(self.db).resolve(
+                    application_id=application_id
+                )
+            except ApplicationNotFoundError:
+                return {
+                    "status": "blocked",
+                    "application_id": application_id,
+                    "blocker_reason": "unknown_application",
+                }
+            artifact = self._scoped_cv_artifact(application)
+            if artifact is None or not self.root:
+                return {
+                    "status": "blocked",
+                    "application_id": application_id,
+                    "blocker_reason": "cv_artifact_missing_or_not_approved",
+                    "display_text": "Não encontrei um CV aprovado e vinculado a essa candidatura para entregar.",
+                }
+            pending_dir = (
+                self.root
+                / ".career-state"
+                / "applications_v2"
+                / application_id
+                / "pending_actions"
+            )
+            pending_dir.mkdir(parents=True, exist_ok=True)
+            pending_path = pending_dir / f"contextual-onedrive-{uuid4().hex}.json"
+            pending_payload = {
+                "kind": "onedrive_delivery",
+                "application_id": application_id,
+                "artifact": str(artifact.relative_to(self.root)),
+                "artifact_sha256": sha256_file(artifact),
+            }
+            write_json(pending_path, pending_payload)
+            approval = ApprovalStore(self.root).create(
+                action="onedrive-delivery",
+                payload={
+                    "pending_action_path": str(pending_path.relative_to(self.root)),
+                    "application_id": application_id,
+                },
+            )
+            return {
+                "status": "awaiting_approval",
+                "step": "onedrive",
+                "application_id": application_id,
+                "approval": {
+                    "approval_id": approval["approval_id"],
+                    "status": approval["status"],
+                    "action": approval["action"],
+                },
+                "display_text": (
+                    f"Preparei a entrega do CV da candidatura {application_id} "
+                    "para o OneDrive. Confirme explicitamente para executar."
+                ),
+            }
         step = {"notion_update": "notion-update", "email_draft": "email-draft"}.get(
             workflow, workflow
         )
@@ -2252,33 +2315,46 @@ class HarnessSupervisor:
                 envelope["result"] = resume_result
             elif workflow == "pipeline":
                 parameters = decision.parameters or {}
-                pipeline_application_id = str(parameters.get("application_id") or "").strip()
-                if pipeline_application_id:
-                    self._bind_session_to_application(
-                        runtime_context, pipeline_application_id, channel=channel
+                if (
+                    contextual_plan is not None
+                    and decision.requires_approval
+                    and contextual_plan.intent == "deliver_onedrive"
+                ):
+                    envelope["result"] = self._prepare_contextual_approval(
+                        "deliver_onedrive",
+                        message=message,
+                        parameters=parameters,
+                        runtime_context=runtime_context,
+                        channel=channel,
                     )
-                requested_steps = list(parameters.get("requested_steps") or [])
-                if not requested_steps:
-                    requested_steps = [
-                        str(step)
-                        for step in (
-                            self._session_pipeline_intent(
-                                runtime_context, channel=channel
-                            ).get("requested_steps")
-                            or []
+                else:
+                    pipeline_application_id = str(parameters.get("application_id") or "").strip()
+                    if pipeline_application_id:
+                        self._bind_session_to_application(
+                            runtime_context, pipeline_application_id, channel=channel
                         )
-                        if str(step).strip()
-                    ]
-                envelope["result"] = self._execute_pipeline_request(
-                    message,
-                    requested_steps=requested_steps,
-                    application_id=pipeline_application_id
-                    or self._session_application_id(runtime_context, channel=channel),
-                    model=model,
-                    variant=variant,
-                    runtime_context=runtime_context,
-                    channel=channel,
-                )
+                    requested_steps = list(parameters.get("requested_steps") or [])
+                    if not requested_steps:
+                        requested_steps = [
+                            str(step)
+                            for step in (
+                                self._session_pipeline_intent(
+                                    runtime_context, channel=channel
+                                ).get("requested_steps")
+                                or []
+                            )
+                            if str(step).strip()
+                        ]
+                    envelope["result"] = self._execute_pipeline_request(
+                        message,
+                        requested_steps=requested_steps,
+                        application_id=pipeline_application_id
+                        or self._session_application_id(runtime_context, channel=channel),
+                        model=model,
+                        variant=variant,
+                        runtime_context=runtime_context,
+                        channel=channel,
+                    )
             elif workflow == "applications_status":
                 from career.services import applications_v2 as applications_service
                 envelope["result"] = applications_service.heartbeat_status()
