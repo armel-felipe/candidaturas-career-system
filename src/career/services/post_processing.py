@@ -14,6 +14,10 @@ from career.services.persistence.artifact_repository import (
     ArtifactRepository,
 )
 from career.services.positioning_pack import build_positioning_pack
+from career.services.notion import (
+    ensure_funnel_stage_allows_automation,
+    ensure_notion_record_stage_allows_automation,
+)
 
 
 POST_ARTIFACT_KINDS = frozenset({"feras", "gupy_skills", "cover_letter"})
@@ -38,6 +42,16 @@ def create_post_artifact(
     db = database or Database()
     applications = ApplicationRepository(db)
     application = applications.resolve(application_id=application_id)
+    if application.notion_id:
+        ensure_notion_record_stage_allows_automation(
+            application.notion_id,
+            action="criar artefato adicional",
+        )
+    else:
+        ensure_funnel_stage_allows_automation(
+            application.funil_stage,
+            action="criar artefato adicional",
+        )
     analysis = AnalysisRepository(db)
     revision = analysis.get_current(application.application_id)
     positioning_revision_id = _resolve_positioning_revision(

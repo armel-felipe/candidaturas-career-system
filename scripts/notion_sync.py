@@ -28,11 +28,11 @@ AUTOMATION_STATUS_DOWNGRADES = {
     "aplicacao feita": AUTOMATION_STATUS_CEILING,
 }
 ALLOW_DUPLICATE_CREATE_ENV = "NOTION_ALLOW_DUPLICATE_CREATE"
-PROTECTED_UPDATE_STATUSES = {
-    "aplicacao feita",
-    "desisti da vaga",
-    "deletada",
-}
+ALLOWED_AUTOMATION_FUNNEL_STAGES = (
+    "Aplicação andamento",
+    "Fila Agente",
+    "Aplicação em Análise",
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -989,20 +989,32 @@ def load_sweep_records(sweep_dir: Path) -> tuple[dict[str, dict], list[str]]:
 def extract_saved_property(payload: dict, logical_name: str) -> str:
     properties = payload.get("properties", {})
     for alias in PROPERTY_ALIASES.get(logical_name, []):
-        value = properties.get(alias, {}).get("text", "")
+        prop = properties.get(alias, {})
+        value = prop.get("text", "")
+        if not value and isinstance(prop, dict):
+            value = prop_text(prop)
         if value:
             return value
     return ""
 
 
 def ensure_page_status_allows_update(current_page: dict, *, allow_terminal_status_update: bool = False) -> None:
-    if allow_terminal_status_update:
-        return
+    """Block every automation action outside the active funnel stages.
+
+    ``allow_terminal_status_update`` is retained only for API compatibility
+    with older callers.  No caller may bypass this safety boundary.
+    """
     current_status = extract_saved_property(current_page, "status").strip()
-    if normalize_text(current_status) in PROTECTED_UPDATE_STATUSES:
+    if normalize_text(current_status) not in {
+        normalize_text(stage) for stage in ALLOWED_AUTOMATION_FUNNEL_STAGES
+    }:
+        display_status = current_status or "ausente"
         raise SystemExit(
-            "Refusing to update a Notion record that is already in a protected terminal status "
-            f"('{current_status}'). Resolve the target record first or use an explicit maintenance override."
+            "Ação automática bloqueada: o campo 'Etapa Funil' do registro está "
+            f"'{display_status}', fora das etapas permitidas "
+            f"({', '.join(ALLOWED_AUTOMATION_FUNNEL_STAGES)}). "
+            "Altere explicitamente esse valor no Notion para uma etapa permitida "
+            "ou confirme o ID correto do registro antes de tentar novamente."
         )
 
 
@@ -1800,6 +1812,21 @@ def backfill_governance_fields(
                 "title": title,
                 "status": status,
                 "result": "skipped_status",
+            })
+            continue
+
+        try:
+            current_page = retrieve_page(token, page_id)
+            ensure_page_status_allows_update(current_page)
+        except SystemExit as exc:
+            skipped += 1
+            processed.append({
+                "record_id": record_id,
+                "page_id": page_id,
+                "title": title,
+                "status": status,
+                "result": "skipped_funnel_stage",
+                "error": str(exc),
             })
             continue
 
@@ -2774,6 +2801,7 @@ def update_description_record(
     validate_standalone_job_description(job_description, job_description_path)
     metadata = job_description_metadata(job_description, job_description_path, source_url=source_url)
     page = resolve_page_by_record_id(token, database_id, record_id)
+    ensure_page_status_allows_update(page)
     data_source_id = discover_data_source_id(token, database_id)
     schema = retrieve_data_source(token, data_source_id)
     properties = build_description_properties(
@@ -3050,7 +3078,6 @@ def main() -> int:
     update_parser.add_argument("--dry-run", action="store_true")
     update_parser.add_argument("--no-append-summary", action="store_true")
     update_parser.add_argument("--allow-mismatch", action="store_true")
-    update_parser.add_argument("--allow-terminal-status-update", action="store_true")
     update_parser.add_argument("--compact", action="store_true")
     update_parser.add_argument("--status", default="Aplicação andamento")
     update_parser.add_argument("--extra-artifact", action="append", default=[])
@@ -3063,7 +3090,6 @@ def main() -> int:
     update_record_parser.add_argument("--dry-run", action="store_true")
     update_record_parser.add_argument("--no-append-summary", action="store_true")
     update_record_parser.add_argument("--allow-mismatch", action="store_true")
-    update_record_parser.add_argument("--allow-terminal-status-update", action="store_true")
     update_record_parser.add_argument("--compact", action="store_true")
     update_record_parser.add_argument("--status", default="Aplicação andamento")
     update_record_parser.add_argument("--extra-artifact", action="append", default=[])
@@ -3274,7 +3300,6 @@ def main() -> int:
             dry_run=args.dry_run,
             append_summary=not args.no_append_summary,
             allow_mismatch=args.allow_mismatch,
-            allow_terminal_status_update=args.allow_terminal_status_update,
             status=args.status,
             extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
             extra_notes=list(args.extra_note or []),
@@ -3292,7 +3317,6 @@ def main() -> int:
             dry_run=args.dry_run,
             append_summary=not args.no_append_summary,
             allow_mismatch=args.allow_mismatch,
-            allow_terminal_status_update=args.allow_terminal_status_update,
             status=args.status,
             extra_artifacts=[Path(item) for item in (args.extra_artifact or [])],
             extra_notes=list(args.extra_note or []),

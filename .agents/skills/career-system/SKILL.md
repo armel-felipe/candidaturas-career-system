@@ -151,6 +151,8 @@ Política de contexto compacto:
 - para link ou página Notion por ID único, usar `npm run notion:link-record -- <id_unico>` ou comandos canônicos por ID; não varrer cache/sweep com `grep -r`
 - para diagnóstico de prontidão local strict, usar `npm run local:strict:doctor`
 - para dry-run de atualização Notion por modelo local, preferir `npm run notion:update-record-current:compact -- <id_unico> --dry-run`
+- antes de qualquer atualização Notion ou criação de artefato de pós-processamento, validar o `Etapa Funil` atual; só são permitidos `Aplicação andamento`/`Aplicação Andamento`, `Fila Agente` e `Aplicação em Análise`
+- se o `Etapa Funil` estiver ausente, fora da allowlist ou o ID remoto não puder ser confirmado, bloquear sem efeito e pedir explicitamente alteração no Notion ou confirmação do ID correto; nenhum override automático pode atravessar essa barreira
 - para benchmark rápido do estado local strict, usar `npm run benchmark:local-agent`
 - se um comando gerar output grande ou truncado, descartar como evidência conversacional e repetir com projeção compacta
 

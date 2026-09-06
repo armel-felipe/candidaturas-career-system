@@ -40,6 +40,50 @@ _CONVERSATIONAL_FIELD_ALIASES = {
     "etapa funil": "status",
 }
 
+ALLOWED_AUTOMATION_FUNNEL_STAGES = frozenset(
+    legacy_notion.normalize_text(stage)
+    for stage in legacy_notion.ALLOWED_AUTOMATION_FUNNEL_STAGES
+)
+
+
+def ensure_funnel_stage_allows_automation(
+    stage: str,
+    *,
+    action: str = "ação automática",
+) -> None:
+    """Reject scoped automation when the persisted Notion stage is unsafe."""
+    current_stage = str(stage or "").strip()
+    if legacy_notion.normalize_text(current_stage) in ALLOWED_AUTOMATION_FUNNEL_STAGES:
+        return
+    display_stage = current_stage or "ausente"
+    allowed = ", ".join(legacy_notion.ALLOWED_AUTOMATION_FUNNEL_STAGES)
+    raise ValueError(
+        f"{action.capitalize()} bloqueado: o campo 'Etapa Funil' está "
+        f"'{display_stage}', fora das etapas permitidas ({allowed}). "
+        "Altere explicitamente esse valor no Notion para uma etapa permitida "
+        "ou confirme o ID correto do registro antes de tentar novamente."
+    )
+
+
+def ensure_notion_record_stage_allows_automation(
+    record_id: str,
+    *,
+    action: str = "ação automática",
+) -> str:
+    """Read the current remote funnel stage before a scoped automation action."""
+    normalized_id = str(record_id or "").strip()
+    try:
+        numeric_id = int(normalized_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Não foi possível confirmar o ID do registro Notion; confirme o ID correto antes de tentar novamente."
+        ) from exc
+    token, database_id = notion_config()
+    page = legacy_notion.resolve_page_by_record_id(token, database_id, numeric_id)
+    stage = legacy_notion.extract_saved_property(page, "status")
+    ensure_funnel_stage_allows_automation(stage, action=action)
+    return stage
+
 
 def _normalize_filter_text(value: str) -> str:
     return "".join(
@@ -423,6 +467,8 @@ def prepare_analysis_from_record(
 
 
 def update_status(token: str, database_id: str, page_id: str, status: str, *, dry_run: bool = False) -> dict:
+    current_page = legacy_notion.extract_page_payload(token, page_id)
+    legacy_notion.ensure_page_status_allows_update(current_page)
     data_source_id = legacy_notion.discover_data_source_id(token, database_id)
     schema = legacy_notion.retrieve_data_source(token, data_source_id)
     prop_name, prop = legacy_notion.find_prop(schema, "status")

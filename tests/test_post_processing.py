@@ -40,7 +40,6 @@ class PostProcessingTests(unittest.TestCase):
                 application_id="app-post-processing",
                 company="Conexa",
                 role="Diretor de Growth",
-                notion_id="578",
                 fingerprint="fp-post-processing",
             )
         )
@@ -181,6 +180,44 @@ class PostProcessingTests(unittest.TestCase):
         self.assertEqual(revised.positioning_revision_id, positioning_revision_id)
         records = list_post_artifacts(self.application.application_id, database=self.db)
         self.assertEqual([item.artifact_id for item in records], [revised.artifact_id, original.artifact_id])
+
+    def test_post_artifacts_are_blocked_outside_allowed_funnel_stages(self) -> None:
+        self.db.get_connection().execute(
+            "UPDATE applications SET funil_stage = ? WHERE id = ?",
+            ("Aplicação Feita", self.application.application_id),
+        )
+        self.db.get_connection().commit()
+
+        with self.assertRaisesRegex(ValueError, "Etapa Funil"):
+            create_post_artifact(
+                self.application.application_id,
+                "feras",
+                database=self.db,
+            )
+
+    def test_post_artifacts_refresh_remote_notion_stage_when_record_is_linked(self) -> None:
+        self.db.get_connection().execute(
+            "UPDATE applications SET notion_id = ? WHERE id = ?",
+            ("578", self.application.application_id),
+        )
+        self.db.get_connection().commit()
+
+        from unittest.mock import patch
+
+        with patch(
+            "career.services.post_processing.ensure_notion_record_stage_allows_automation",
+            return_value="Fila Agente",
+        ) as refresh_stage:
+            create_post_artifact(
+                self.application.application_id,
+                "feras",
+                database=self.db,
+            )
+
+        refresh_stage.assert_called_once_with(
+            "578",
+            action="criar artefato adicional",
+        )
 
     def test_foreign_positioning_revision_is_rejected(self) -> None:
         other = self.applications.create_application(

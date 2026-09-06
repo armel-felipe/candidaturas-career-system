@@ -25,6 +25,8 @@ Não mover scripts para dentro da skill: eles são compartilhados pelo heartbeat
 - Nunca ler `.env`, copiar `NOTION_TOKEN`, montar `curl` manual ou chamar a API pública diretamente.
 - Os scripts locais carregam `.env` e resolvem token, database/data source, propriedades, paginação, templates e validação de payload.
 - Escrita real no Notion exige pedido explícito do usuário, exceto no maintenance path de governança (`notion:memory:sync`, heartbeat e backfill automático), que pode atualizar somente os campos de governança autorizados para manter o Notion como memória operacional do projeto.
+- Antes de qualquer atualização de registro, inclusive atualização somente da descrição, o script deve ler o valor atual de `Etapa Funil` no registro remoto. Só são elegíveis `Aplicação andamento`/`Aplicação Andamento`, `Fila Agente` e `Aplicação em Análise`.
+- Se `Etapa Funil` estiver ausente, diferente dessas três etapas ou o ID não puder ser confirmado, bloquear sem escrever e pedir explicitamente que o usuário altere o valor no Notion para uma etapa permitida ou confirme o ID correto. Não existe override automático para essa barreira.
 - Mesmo quando a escrita real for autorizada, automações deste projeto nunca devem promover `Etapa Funil` acima de `Aplicação andamento`; `Aplicação Feita` é reservado para decisão/manual humano fora do pipeline.
 - Para criação/atualização de registro, executar `--dry-run` antes da escrita real e mostrar o resumo do payload sem segredos.
 - Quando o usuário disser `Notion <número>`, tratar o número como o campo único `ID`, não como `page_id`.
@@ -125,6 +127,12 @@ npm run notion:update-record-current:compact -- <id_unico> --dry-run
 npm run notion:update-record-current -- <id_unico>
 npm run notion:update-record-current -- <id_unico> --dry-run --extra-artifact outputs/<arquivo>.md --extra-note "Memória complementar"
 ```
+
+O mesmo gate de `Etapa Funil` vale para a criação de FERAS, carta ou
+habilidades pós-processamento: antes de criar o artefato, validar a etapa
+remota quando a candidatura estiver vinculada a um registro Notion. Em caso de
+bloqueio, não criar o artefato e solicitar alteração explícita da etapa ou
+confirmação do ID.
 
 Memória complementar opcional:
 - quando o usuário pedir para registrar outputs fora do pacote padrão, anexar `--extra-artifact <arquivo>` e/ou `--extra-note "<texto>"`
