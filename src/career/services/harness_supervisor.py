@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import shutil
 import subprocess
+import unicodedata
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from career.paths import CAREER_STATE, OUTPUTS
@@ -27,6 +29,7 @@ from career.services.maintenance import (
     validate_maintenance_request,
 )
 from career.services.maintenance_orchestrator import MaintenanceOrchestrator
+from career.services.harness_conversation import ContextualPlanner
 from career.services.pipeline_intent import PipelineIntentStore
 from career.utils import ValidationFailure, read_json, utc_now_iso, write_json
 
@@ -60,7 +63,10 @@ LINKEDIN_POST_RE = re.compile(
     re.IGNORECASE,
 )
 GENERIC_URL_RE = re.compile(r"https?://[^\s]+", re.IGNORECASE)
-NOTION_ID_RE = re.compile(r"\b(?:notion|vaga|id)\s*#?\s*(\d+)\b", re.IGNORECASE)
+NOTION_ID_RE = re.compile(
+    r"\b(?:(?:notion|vaga|candidatura)(?:\s+id)?|id)\s*#?\s*(\d+)\b",
+    re.IGNORECASE,
+)
 APPLICATION_ID_RE = re.compile(
     r"\bapplication_id\s*[:=]?\s*([A-Za-z0-9][A-Za-z0-9_-]*)\b",
     re.IGNORECASE,
@@ -109,6 +115,9 @@ SPECIALIST_OUTPUT_PATTERNS = {
         # The canonical CV gate reads/writes the scoped FIT_MAP and keyword
         # registries while binding the final document to the active revision.
         ".career-state/applications_v2/*/fit_map.json",
+        # A CV run may quarantine a stale draft after confirming the final
+        # FIT_MAP.  Keep this mutation scoped to the same application.
+        ".career-state/applications_v2/*/fit_map.draft.json",
         ".career-state/applications_v2/*/derived/keyword_ats_registry.json",
         ".career-state/applications_v2/*/derived/keyword_translation_candidates.json",
         ".career-state/applications_v2/*/cv_review_report.json",
@@ -120,6 +129,7 @@ SPECIALIST_OUTPUT_PATTERNS = {
         "outputs/_tmp/polish_review.json",
         "outputs/_tmp/delivery_report.json",
         "outputs/_tmp/cv_deliver_report.json",
+        "outputs/_tmp/*_fit_map.draft.stale_template.json",
     ],
     "cover-letter": ["outputs/*.md", "outputs/*.pdf", "outputs/_tmp/delivery_report.json"],
     "feras": ["outputs/*.md"],
@@ -305,9 +315,19 @@ DEFAULT_SPECIALIST_CONTRACTS: dict[str, SpecialistContract] = {
 
 
 class HarnessSupervisor:
-    def __init__(self, root: Path | None = None, runner: SubprocessAgentRunner | None = None):
+    def __init__(
+        self,
+        root: Path | None = None,
+        runner: SubprocessAgentRunner | None = None,
+        application_interpreter: Callable[[str], dict[str, Any] | None] | None = None,
+    ):
         self.root = root
         self.runner = runner or (SubprocessAgentRunner(root) if root else None)
+        # This hook is deliberately limited to extracting language-level hints.
+        # It may never return or select the internal application_id; SQLite does
+        # that in _resolve_natural_application().  Tests and alternate runtimes
+        # can inject a parser without invoking a model subprocess.
+        self.application_interpreter = application_interpreter
         self.db = application_context_service.canonical_database(root=root)
         self.db.migrate()
         self.session_memory = SessionMemoryService(self.db)
@@ -362,6 +382,17 @@ class HarnessSupervisor:
                 "explicit_application_run_resume_request",
                 parameters=parameters,
             )
+        if self._is_cv_delivery_only_request(text):
+            parameters = {"requested_steps": ["onedrive"]}
+            if application_match:
+                parameters["application_id"] = application_match.group(1)
+            return self._decision(
+                "pipeline",
+                "pipeline",
+                "high",
+                "cv_delivery_request",
+                parameters=parameters,
+            )
         if (
             len(pipeline_steps) >= 2
             and self._is_pipeline_request(text)
@@ -376,6 +407,23 @@ class HarnessSupervisor:
                 "high",
                 "composite_application_request",
                 parameters=parameters,
+            )
+        if application_match and self._is_explicit_resume_request(text):
+            return self._decision(
+                "resume",
+                "resume",
+                "high",
+                "explicit_application_resume_request",
+                parameters={"application_id": application_match.group(1)},
+            )
+
+        if self._is_short_pipeline_control(text):
+            return self._decision(
+                "pipeline",
+                "pipeline",
+                "high",
+                "short_pipeline_control",
+                parameters={"requested_steps": []},
             )
 
         # A continuation can deliberately omit the internal application ID.
@@ -465,7 +513,48 @@ class HarnessSupervisor:
         if self._is_generic_application_list_request(lowered):
             return self._decision("notion_application_filter_guidance", "query", "high", "notion_filter_required")
 
+        if self._is_delivery_status_question(lowered):
+            return self._decision(
+                "application_status",
+                "status",
+                "high",
+                "scoped_delivery_status_request",
+                parameters={
+                    "application_id": application_match.group(1)
+                    if application_match
+                    else ""
+                },
+            )
+
         notion_match = NOTION_ID_RE.search(text)
+        # Keep the established deterministic routes for explicit commands;
+        # natural routing is for conversational references and omitted verbs.
+        if notion_match and any(
+            token in lowered for token in ("avali", "analis", "fit", "aderencia", "aderência")
+        ):
+            return self._decision(
+                "notion_job_analysis", "intake", "high", "notion_record_analysis",
+                parameters={"record_id": int(notion_match.group(1))},
+            )
+        if notion_match and any(
+            self._has_positive_term(lowered, token)
+            for token in ("ger", "cri", "adapt", "curriculo", "currículo")
+        ) and self._has_positive_term(lowered, "cv"):
+            return self._decision(
+                "cv", "cv", "high", "cv_request",
+                parameters={"record_id": int(notion_match.group(1))},
+            )
+
+        natural_parameters = self._natural_application_parameters(text)
+        if natural_parameters:
+            return self._decision(
+                "natural_application_route",
+                "application-resolution",
+                "high",
+                "natural_application_reference",
+                parameters=natural_parameters,
+            )
+
         if notion_match and any(token in lowered for token in ("avali", "analis", "fit", "aderencia", "aderência")):
             return self._decision(
                 "notion_job_analysis", "intake", "high", "notion_record_analysis",
@@ -1443,6 +1532,8 @@ class HarnessSupervisor:
                 paths.fit_map,
                 paths.job_description,
                 registry_path=paths.derived_dir / "keyword_ats_registry.json",
+                application_id=application_id,
+                database=self.db,
             )
         except (OSError, ValueError, TypeError):
             return False
@@ -1492,8 +1583,28 @@ class HarnessSupervisor:
     ) -> bool:
         return step == "fit-map" and status == "completed" and enabled and not cellular
 
-    def handle_message(self, message: str, *, channel: str = "cli", execute: bool = False, max_per_run: int | None = None, model: str | None = None, variant: str | None = None, runtime_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    def handle_message(
+        self,
+        message: str,
+        *,
+        channel: str = "cli",
+        execute: bool = False,
+        max_per_run: int | None = None,
+        model: str | None = None,
+        variant: str | None = None,
+        runtime_context: dict[str, Any] | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         user_message = message
+        history = self._normalise_conversation_history(conversation_history)
+        if history:
+            self._remember_conversation_history(
+                history, runtime_context=runtime_context, channel=channel
+            )
+        else:
+            history = self._read_conversation_history(
+                runtime_context=runtime_context, channel=channel
+            )
         pending_record = self._read_pending_input(runtime_context, channel=channel)
         # Pending requests created before session binding are legacy state. They
         # must never capture a new Telegram/Hermes turn and redirect it to an
@@ -1636,6 +1747,16 @@ class HarnessSupervisor:
         if execute:
             self._record_session_intent(runtime_context, message, channel=channel)
         decision = self.classify(message)
+        if decision.workflow == "generic_assistant" and self._is_contextual_pipeline_confirmation(
+            message, runtime_context=runtime_context, channel=channel
+        ):
+            decision = self._decision(
+                "pipeline",
+                "pipeline",
+                "high",
+                "contextual_pipeline_confirmation",
+                parameters={"requested_steps": []},
+            )
         envelope: dict[str, Any] = {"status": "routed", "channel": channel, "message": original_message, "decision": decision.to_dict(), "executed": False}
         if selection:
             envelope["menu_selection"] = selection
@@ -1675,20 +1796,96 @@ class HarnessSupervisor:
                     request, runtime_context=runtime_context, channel=channel
                 )
                 envelope["result"] = request
+            elif workflow == "natural_application_route":
+                parameters = decision.parameters or {}
+                resolution = self._resolve_natural_application(
+                    message,
+                    runtime_context=runtime_context,
+                    intent=str(parameters.get("intent") or "analysis"),
+                    interpreted_parameters=parameters,
+                )
+                if resolution.get("status") != "resolved":
+                    if resolution.get("candidates"):
+                        self._write_pending_input(
+                            self._pending_request_for_context(
+                                {
+                                    "status": "awaiting_input",
+                                    "kind": "natural_application_selection",
+                                    "input_kind": "natural_application_selection",
+                                    "candidates": resolution.get("candidates") or [],
+                                    "display_text": resolution.get("display_text") or "",
+                                },
+                                runtime_context,
+                                channel=channel,
+                            ),
+                            runtime_context=runtime_context,
+                            channel=channel,
+                        )
+                    envelope["result"] = resolution
+                else:
+                    scoped_application_id = str(
+                        resolution.get("application_id") or ""
+                    ).strip()
+                    self._bind_session_to_application(
+                        runtime_context, scoped_application_id, channel=channel
+                    )
+                    self._record_natural_resolution_audit(
+                        resolution, message=message, runtime_context=runtime_context
+                    )
+                    envelope["result"] = self._execute_natural_application(
+                        message,
+                        resolution,
+                        model=model,
+                        variant=variant,
+                        runtime_context=runtime_context,
+                        channel=channel,
+                    )
             elif workflow == "resume":
                 resume_parameters = decision.parameters or {}
-                envelope["result"] = self._resume_and_continue(
+                scoped_application_id = str(
+                    resume_parameters.get("application_id")
+                    or self._session_application_id(runtime_context, channel=channel)
+                    or ""
+                ).strip()
+                recovered_resolution = None
+                if not scoped_application_id and self._is_explicit_resume_request(message):
+                    recovered_record = self._profile_recovery_application(runtime_context)
+                    if recovered_record is not None:
+                        recovered_resolution = self._natural_application_result(
+                            recovered_record,
+                            intent="resume",
+                            source="profile_recovery",
+                            message=message,
+                        )
+                        scoped_application_id = str(
+                            recovered_resolution.get("application_id") or ""
+                        ).strip()
+                        self._bind_session_to_application(
+                            runtime_context, scoped_application_id, channel=channel
+                        )
+                        self._record_natural_resolution_audit(
+                            recovered_resolution,
+                            message=message,
+                            runtime_context=runtime_context,
+                        )
+                resume_result = self._resume_and_continue(
                     message,
                     model=model,
                     variant=variant,
-                    application_id=str(
-                        resume_parameters.get("application_id")
-                        or self._session_application_id(runtime_context, channel=channel)
-                        or ""
-                    ),
+                    application_id=scoped_application_id,
                     run_id=str(resume_parameters.get("run_id") or ""),
                     repair_node=str(resume_parameters.get("repair_node") or ""),
                 )
+                if recovered_resolution:
+                    prior_text = str(resume_result.get("display_text") or "").strip()
+                    resume_result = {
+                        **resume_result,
+                        "resolution": recovered_resolution,
+                        "display_text": "\n\n".join(
+                            text for text in (recovered_resolution["display_text"], prior_text) if text
+                        ),
+                    }
+                envelope["result"] = resume_result
             elif workflow == "pipeline":
                 parameters = decision.parameters or {}
                 pipeline_application_id = str(parameters.get("application_id") or "").strip()
@@ -1778,6 +1975,13 @@ class HarnessSupervisor:
                 record_id = int((decision.parameters or {})["record_id"])
                 intake_result = agent_guard_service.evaluate_notion(record_id)
                 self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
+                self._audit_intake_resolution(
+                    intake_result,
+                    intent="analysis",
+                    source="explicit_notion_id",
+                    message=message,
+                    runtime_context=runtime_context,
+                )
                 envelope["result"] = self._pipeline_result(
                     intake=intake_result,
                     specialist=self.execute_specialist("fit-map", objective=f"Avaliar vaga Notion {record_id}", extras={"application_id": intake_result.get("application_id")}, model=model, variant=variant),
@@ -1871,6 +2075,13 @@ class HarnessSupervisor:
                 self._bind_session_to_intake(
                     runtime_context, intake_result, channel=channel
                 )
+                self._audit_intake_resolution(
+                    intake_result,
+                    intent="cv",
+                    source="explicit_notion_id",
+                    message=message,
+                    runtime_context=runtime_context,
+                )
                 envelope["result"] = self._execute_pipeline_request(
                     message,
                     requested_steps=["cv"],
@@ -1947,6 +2158,7 @@ class HarnessSupervisor:
                             (runtime_context or {}).get("application_id") or ""
                         ).strip()
                         or None,
+                        conversation_history=history,
                     )
             else:
                 envelope["status"] = "blocked"
@@ -2093,6 +2305,11 @@ class HarnessSupervisor:
                 "status": "blocked",
                 "blocker_reason": "explicit_application_scope_required",
                 "requested_steps": requested_steps,
+                "display_text": (
+                    "Não executei a solicitação porque não há uma candidatura "
+                    "vinculada a esta sessão. Informe o ID ou retome a conversa "
+                    "na sessão correta."
+                ),
             }
         try:
             resume = intake_service.resume(application_id=scoped_id, database=self.db)
@@ -2103,10 +2320,17 @@ class HarnessSupervisor:
                 "blocker_reason": "application_resume_failed",
                 "error": str(exc)[:500],
                 "requested_steps": requested_steps,
+                "display_text": (
+                    f"Não consegui retomar a candidatura {scoped_id}. "
+                    "A falha ocorreu ao consultar o estado canônico: "
+                    f"{str(exc)[:300]}"
+                ),
             }
         next_step = str(resume.get("next_required_step") or "")
         stages: list[dict[str, Any]] = []
-        if "fill_fit_map" in next_step or "draft" in next_step or next_step in {"fit_map", "analyze_fit"}:
+        if next_step in {"build_fit_map", "finalize_fit_map", "npm run fit-map:finalize"}:
+            stages.append(self._finalize_fit_map_pipeline(application_id=scoped_id))
+        elif "fill_fit_map" in next_step or "draft" in next_step or next_step in {"fit_map", "analyze_fit"}:
             stages.append(
                 self.execute_specialist(
                     "fit-map",
@@ -2116,7 +2340,16 @@ class HarnessSupervisor:
                     variant=variant,
                 )
             )
-        elif next_step in {"build_cv", "cv", "generate_cv"} and "cv" in requested_steps:
+        elif (
+            "cv" in requested_steps
+            and (
+                next_step in {"build_cv", "cv", "generate_cv"}
+                or (
+                    next_step in {"complete", "análise concluída", "analise concluida"}
+                    and self._can_reuse_completed_fit_map(scoped_id)
+                )
+            )
+        ):
             stages.append(
                 self.execute_specialist(
                     "cv",
@@ -2126,7 +2359,16 @@ class HarnessSupervisor:
                     variant=variant,
                 )
             )
-        elif next_step in {"deliver_cv_onedrive", "onedrive"} and "onedrive" in requested_steps:
+        elif (
+            "onedrive" in requested_steps
+            and (
+                next_step in {"deliver_cv_onedrive", "onedrive"}
+                or (
+                    next_step in {"complete", "análise concluída", "analise concluida"}
+                    and self._has_scoped_cv_artifact(scoped_id)
+                )
+            )
+        ):
             stages.append(self._deliver_scoped_cv(scoped_id))
         elif next_step in {"sync_notion", "notion"} and "notion" in requested_steps:
             stages.append(
@@ -2145,6 +2387,7 @@ class HarnessSupervisor:
                 )
             )
         else:
+            next_action = next_step or "consultar o estado canônico"
             return {
                 "status": "blocked",
                 "application_id": scoped_id,
@@ -2152,15 +2395,54 @@ class HarnessSupervisor:
                 "requested_steps": requested_steps,
                 "stages": [],
                 "blocker_reason": "no_pipeline_stage_executed",
+                "display_text": (
+                    f"Não executei nenhuma etapa para a candidatura {scoped_id}. "
+                    f"O estado canônico indica a próxima ação: {next_action}. "
+                    "Isso é um bloqueio de execução, não um timeout de transporte."
+                ),
             }
         stage_status = str(stages[-1].get("status") or "blocked") if stages else "blocked"
-        return {
+        result = {
             "status": "completed" if stage_status == "completed" else stage_status,
             "application_id": scoped_id,
             "resume": resume,
             "requested_steps": requested_steps,
             "stages": stages,
         }
+        if stage_status != "completed":
+            stage = stages[-1] if stages else {}
+            blocker = str(stage.get("blocker_reason") or "stage_execution_failed").strip()
+            result["blocker_reason"] = blocker
+            execution = stage.get("execution") if isinstance(stage, dict) else None
+            isolation = execution.get("isolation") if isinstance(execution, dict) else None
+            unauthorized = (
+                isolation.get("unauthorized_changes")
+                if isinstance(isolation, dict)
+                else None
+            )
+            if blocker == "specialist_isolation_failed":
+                details = ", ".join(str(path) for path in (unauthorized or []))
+                result["display_text"] = (
+                    f"A etapa da candidatura {scoped_id} foi bloqueada por falha "
+                    "de isolamento."
+                    + (f" Arquivos não autorizados: {details}." if details else "")
+                    + " O worker respondeu; isso não é timeout de transporte. "
+                    "Corrija o escopo de escrita e retome a etapa."
+                )
+            elif "preflight" in blocker or blocker == "specialist_runner_failed":
+                result["display_text"] = (
+                    f"A etapa da candidatura {scoped_id} não passou no preflight "
+                    f"ou no executor ({blocker}). O worker respondeu; isso não é "
+                    "timeout de transporte. Verifique o detalhe em `stages[0]` "
+                    "e retome depois da correção."
+                )
+            else:
+                result["display_text"] = (
+                    f"A etapa da candidatura {scoped_id} foi bloqueada ({blocker}). "
+                    "O worker respondeu; isso não é timeout de transporte. "
+                    "Consulte `stages[0]` para o detalhe e retome após corrigir."
+                )
+        return result
 
     @staticmethod
     def _is_serial_package_base_request(requested_steps: list[str]) -> bool:
@@ -2220,21 +2502,19 @@ class HarnessSupervisor:
         ``persisted run plan not found``).  A run is resumable here only when
         its local plan exists and has the expected identity.
 
-        The missing applications tree is kept permissive for lightweight
-        adapters/tests that inject a fake database and do not materialize a
-        filesystem workspace.  Real runtimes always create this tree during
-        intake, planning, or resume.
+        A missing applications tree is not evidence that the run belongs to
+        this workspace.  The control-plane index is shared by the bot
+        containers, so treating absence as local would allow one bot to
+        resume the other bot's run.  Planning must materialize the scoped tree
+        before a run can be resumed here.
         """
         scoped_id = str(application_id or "").strip()
         scoped_run_id = str(run_id or "").strip()
         if not scoped_id or not scoped_run_id or Path(scoped_run_id).name != scoped_run_id:
             return False
         applications_root = self.root / ".career-state" / "applications_v2"
-        # The plan lock creates ``applications_v2`` even for an injected test
-        # adapter before this check runs.  A real intake always creates the
-        # scoped application directory as well, so use that as the boundary.
-        if not (applications_root / scoped_id).exists():
-            return True
+        if not (applications_root / scoped_id).is_dir():
+            return False
         try:
             plan_path = application_context_service.paths_for(
                 scoped_id, root=applications_root
@@ -2501,25 +2781,12 @@ class HarnessSupervisor:
             application = ApplicationRepository(self.db).resolve(application_id=application_id)
         except ApplicationNotFoundError:
             return {"status": "blocked", "blocker_reason": "application_not_found", "application_id": application_id}
-        artifact_value = str(application.cv_path or "").strip()
-        if not artifact_value:
+        artifact = self._scoped_cv_artifact(application)
+        if artifact is None:
             return {
                 "status": "blocked",
                 "application_id": application_id,
                 "blocker_reason": "cv_artifact_missing",
-            }
-        artifact = Path(artifact_value)
-        if not artifact.is_absolute():
-            artifact = (self.root / artifact).resolve()
-        else:
-            artifact = artifact.resolve()
-        try:
-            artifact.relative_to((self.root / "outputs").resolve())
-        except ValueError:
-            return {
-                "status": "blocked",
-                "application_id": application_id,
-                "blocker_reason": "cv_artifact_outside_outputs",
             }
         command = [
             "npm", "run", "cv:deliver", "--",
@@ -2537,6 +2804,7 @@ class HarnessSupervisor:
         )
         return {
             "status": "completed" if completed.returncode == 0 else "blocked",
+            "step": "onedrive",
             "application_id": application_id,
             "artifact": str(artifact.relative_to(self.root)),
             "command": command,
@@ -2545,6 +2813,46 @@ class HarnessSupervisor:
             "stderr": completed.stderr[-4000:],
             **({"blocker_reason": "cv_delivery_failed"} if completed.returncode else {}),
         }
+
+    def _scoped_cv_artifact(self, application: Any) -> Path | None:
+        """Resolve a previously approved CV bound to this application."""
+        if not self.root:
+            return None
+        artifact_value = str(getattr(application, "cv_path", "") or "").strip()
+        if not artifact_value:
+            paths = application_context_service.paths_for(
+                str(application.application_id),
+                root=self.root / ".career-state" / "applications_v2",
+            )
+            try:
+                report = read_json(paths.cv_review_report) if paths.cv_review_report.is_file() else {}
+            except (OSError, TypeError, ValueError):
+                report = {}
+            if report.get("approved_for_delivery") is not True:
+                return None
+            artifact_value = str(report.get("artifact") or "").strip()
+        if not artifact_value:
+            return None
+        artifact = Path(artifact_value)
+        if not artifact.is_absolute():
+            artifact = (self.root / artifact).resolve()
+        else:
+            artifact = artifact.resolve()
+        try:
+            artifact.relative_to((self.root / "outputs").resolve())
+        except ValueError:
+            return None
+        return artifact if artifact.is_file() else None
+
+    def _has_scoped_cv_artifact(self, application_id: str) -> bool:
+        """Check for an existing CV without starting generation or analysis."""
+        if not self.root:
+            return False
+        try:
+            application = ApplicationRepository(self.db).resolve(application_id=application_id)
+        except ApplicationNotFoundError:
+            return False
+        return self._scoped_cv_artifact(application) is not None
 
     def _notion_duplicate_preflight(self, application_id: str | None) -> dict[str, Any]:
         """Check live Notion for an existing record before any write path."""
@@ -2610,9 +2918,473 @@ class HarnessSupervisor:
         )
         steps: list[str] = []
         for term, step in terms:
+            if not HarnessSupervisor._has_positive_term(lowered, term):
+                continue
+            if step == "notion" and not HarnessSupervisor._is_explicit_notion_write_request(lowered):
+                continue
             if term in lowered and step not in steps:
                 steps.append(step)
         return steps
+
+    @classmethod
+    def _is_cv_delivery_only_request(cls, message: str) -> bool:
+        """Recognize delivery of an existing CV as a single pipeline step."""
+        lowered = str(message or "").casefold()
+        if "?" in lowered:
+            return False
+        if not (
+            cls._has_positive_term(lowered, "cv")
+            and cls._has_positive_term(lowered, "onedrive")
+        ):
+            return False
+        delivery_terms = (
+            "envi", "mand", "entreg", "subi", "upload", "copi", "transf",
+        )
+        generation_terms = (
+            "ger", "cri", "produz", "mont", "adapt", "faz", "refaz", "reger",
+        )
+        return (
+            any(cls._has_positive_term(lowered, term) for term in delivery_terms)
+            and not any(cls._has_positive_term(lowered, term) for term in generation_terms)
+        )
+
+    @staticmethod
+    def _term_is_negated(message: str, start: int) -> bool:
+        prefix = str(message or "")[:start]
+        prefix = prefix[max(0, len(prefix) - 60) :]
+        return bool(
+            re.search(r"\b(?:não|nao|sem|nunca)\b(?:\s+\w+){0,4}\s*$", prefix)
+        )
+
+    @classmethod
+    def _positive_term_positions(cls, message: str, term: str) -> list[int]:
+        lowered = str(message or "").casefold()
+        return [
+            match.start()
+            for match in re.finditer(re.escape(str(term or "").casefold()), lowered)
+            if not cls._term_is_negated(lowered, match.start())
+        ]
+
+    @classmethod
+    def _has_positive_term(cls, message: str, term: str) -> bool:
+        return bool(cls._positive_term_positions(message, term))
+
+    @staticmethod
+    def _is_explicit_notion_write_request(message: str) -> bool:
+        """Distinguish Notion as an identity hint from Notion as a pipeline step."""
+        lowered = str(message or "").casefold()
+        write_terms = ("atualiz", "registr", "salv", "cri", "adicion")
+        notion_positions = HarnessSupervisor._positive_term_positions(lowered, "notion")
+        return any(
+            any(
+                abs(notion_position - write_position) <= 60
+                for notion_position in notion_positions
+            )
+            for write_term in write_terms
+            for write_position in HarnessSupervisor._positive_term_positions(
+                lowered, write_term
+            )
+        )
+
+    @staticmethod
+    def _deterministic_natural_application_parameters(message: str) -> dict[str, Any] | None:
+        """Extract only high-signal application hints from natural language.
+
+        This is intentionally not a fuzzy resolver.  It only announces a
+        resolution attempt when the user supplied an application context and
+        an operational intent; the canonical database decides the identity.
+        """
+        text = " ".join(str(message or "").split())
+        lowered = text.casefold()
+        application_context = any(
+            term in lowered
+            for term in ("vaga", "candidatura", "notion", "application_id", "application id")
+        )
+        if not application_context:
+            return None
+
+        if HarnessSupervisor._is_explicit_resume_request(text):
+            intent = "resume"
+        elif any(
+            HarnessSupervisor._has_positive_term(lowered, term)
+            for term in ("curriculo", "currículo", "gerar cv", "adaptar cv", "cv")
+        ):
+            intent = "cv"
+        elif any(
+            HarnessSupervisor._has_positive_term(lowered, term)
+            for term in (
+                "olhe", "olhar", "entend", "analis", "avali", "fit", "aderencia",
+                "aderência", "consult", "verific", "veja", "ver a candidatura",
+            )
+        ):
+            intent = "analysis"
+        else:
+            return None
+
+        parameters: dict[str, Any] = {"intent": intent}
+        notion_match = NOTION_ID_RE.search(text)
+        if notion_match:
+            parameters["record_id"] = int(notion_match.group(1))
+        elif not any(term in lowered for term in ("vaga", "candidatura")):
+            # A bare number or a mention of Notion is not enough to treat a
+            # number as an application identity.
+            return None
+        return parameters
+
+    @staticmethod
+    def _application_interpreter_candidate(message: str) -> bool:
+        """Return whether a bounded semantic parser is worth invoking.
+
+        The parser is not a general assistant fallback.  It is considered only
+        for an operational request that could refer to a job/application.  A
+        response without company, role or a contextually valid Notion ID is
+        discarded, so a model cannot turn an ordinary CV question into a
+        guessed application.
+        """
+        lowered = " ".join(str(message or "").split()).casefold()
+        intent_terms = (
+            "avali", "analis", "aderên", "aderenc", "fit", "olhe", "olhar", "olhad",
+            "veja", "ver ", "consult", "curricul", "cv", "retom", "continue",
+            "prossiga", "prepare", "gerar", "gere", "adapt",
+        )
+        return any(term in lowered for term in intent_terms)
+
+    def _natural_application_parameters(self, message: str) -> dict[str, Any] | None:
+        deterministic = self._deterministic_natural_application_parameters(message)
+        if deterministic:
+            return deterministic
+        if not self._application_interpreter_candidate(message):
+            return None
+
+        raw = self._interpret_natural_application(message)
+        if not isinstance(raw, dict):
+            return self._catalog_natural_application_parameters(message)
+        intent = str(raw.get("intent") or "").strip().casefold()
+        intent_aliases = {
+            "analyze": "analysis", "analisar": "analysis", "avaliar": "analysis",
+            "generate_cv": "cv", "gerar_cv": "cv", "curriculum": "cv",
+            "continue": "resume", "retomar": "resume",
+        }
+        intent = intent_aliases.get(intent, intent)
+        if intent not in {"analysis", "cv", "resume"}:
+            return self._catalog_natural_application_parameters(message)
+
+        parameters: dict[str, Any] = {"intent": intent}
+        for key in ("company", "role"):
+            value = " ".join(str(raw.get(key) or "").split()).strip()
+            if value and len(value) <= 160:
+                parameters[key] = value
+
+        # A model is not trusted to invent/choose an internal identity.  Even
+        # an extracted numeric ID is accepted only when the original message
+        # contains the explicit contextual syntax already guarded by the
+        # deterministic parser.
+        notion_match = NOTION_ID_RE.search(str(message or ""))
+        if notion_match:
+            parameters["record_id"] = int(notion_match.group(1))
+        if not any(key in parameters for key in ("company", "role", "record_id")):
+            return self._catalog_natural_application_parameters(message)
+        parameters["interpretation_source"] = "model"
+        return parameters
+
+    def _catalog_natural_application_parameters(self, message: str) -> dict[str, Any] | None:
+        """Use exact catalog phrases when the optional model is unavailable."""
+        intent = self._deterministic_natural_intent(message)
+        if not intent:
+            return None
+        records = self._natural_application_records()
+        companies = sorted({
+            str(record.company).strip()
+            for record in records
+            if self._natural_phrase_match(message, record.company)
+        })
+        roles = sorted({
+            str(record.role).strip()
+            for record in records
+            if self._natural_phrase_match(message, record.role, role=True)
+        })
+        if not companies and not roles:
+            return None
+        parameters: dict[str, Any] = {
+            "intent": intent,
+            "interpretation_source": "canonical_catalog",
+        }
+        if len(companies) == 1:
+            parameters["company"] = companies[0]
+        if len(roles) == 1:
+            parameters["role"] = roles[0]
+        return parameters
+
+    @staticmethod
+    def _deterministic_natural_intent(message: str) -> str | None:
+        text = " ".join(str(message or "").split())
+        lowered = text.casefold()
+        if HarnessSupervisor._is_explicit_resume_request(text):
+            return "resume"
+        if any(
+            HarnessSupervisor._has_positive_term(lowered, term)
+            for term in ("curriculo", "currículo", "gerar cv", "adaptar cv", "cv")
+        ):
+            return "cv"
+        if any(
+            HarnessSupervisor._has_positive_term(lowered, term)
+            for term in (
+                "olhe", "olhar", "olhad", "entend", "analis", "avali", "fit",
+                "aderencia", "aderência", "consult", "verific", "veja",
+                "posição", "posicao", "oportunidade", "cargo", "role",
+            )
+        ):
+            return "analysis"
+        return None
+
+    def _interpret_natural_application(self, message: str) -> dict[str, Any] | None:
+        interpreter = getattr(self, "application_interpreter", None)
+        if callable(interpreter):
+            try:
+                return interpreter(str(message or ""))
+            except Exception:
+                return None
+        return self._model_natural_application_interpretation(message)
+
+    def _model_natural_application_interpretation(self, message: str) -> dict[str, Any] | None:
+        """Extract application hints with a short, side-effect-free model call."""
+        if not self.root:
+            return None
+        model = str(os.environ.get("HARNESS_APPLICATION_INTERPRETER_MODEL") or "").strip()
+        prompt = (
+            "Atue somente como um extrator de referência de candidatura. "
+            "Não use ferramentas, não leia nem escreva arquivos e não execute ações. "
+            "Retorne exatamente um objeto JSON, sem markdown, com estas chaves: "
+            "intent (analysis, cv, resume ou null), company, role, notion_id. "
+            "Extraia company e role da mensagem; preserve o texto da mensagem e não "
+            "invente nomes. Só preencha notion_id quando a mensagem disser claramente "
+            "que o número é ID de vaga/candidatura/Notion. Se não houver referência "
+            "segura, retorne null nos campos.\n\nMensagem:\n<user_message>"
+            f"{str(message or '').strip()}\n</user_message>"
+        )
+        profile = str(os.environ.get("CAREER_HERMES_PROFILE_NAME") or "").strip()
+        try:
+            output = ContextualPlanner(
+                self.root,
+                command_resolver=resolve_hermes_command,
+            ).raw_output(
+                prompt,
+                profile_name=profile,
+                model=model,
+            )
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+        if not output:
+            return None
+        try:
+            parsed = json.loads(output)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", output, re.DOTALL)
+            if not match:
+                return None
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                return None
+        return parsed if isinstance(parsed, dict) else None
+
+    @staticmethod
+    def _natural_match_text(value: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
+        without_marks = "".join(char for char in decomposed if not unicodedata.combining(char))
+        return " ".join(re.findall(r"[a-z0-9]+", without_marks))
+
+    @classmethod
+    def _natural_phrase_match(cls, message: str, phrase: str, *, role: bool = False) -> bool:
+        normalized_phrase = cls._natural_match_text(phrase)
+        if not normalized_phrase:
+            return False
+        if role and len(normalized_phrase.split()) == 1 and len(normalized_phrase) < 8:
+            return False
+        normalized_message = cls._natural_match_text(message)
+        return f" {normalized_phrase} " in f" {normalized_message} "
+
+    def _natural_application_records(self) -> list[Any]:
+        repository = ApplicationRepository(self.db)
+        rows = self.db.fetch_all(
+            """SELECT id FROM applications
+                WHERE status IS NULL OR lower(status) NOT IN ('archived', 'deleted')"""
+        )
+        records = []
+        for row in rows:
+            try:
+                records.append(repository.resolve(application_id=str(row["id"])))
+            except ApplicationNotFoundError:
+                continue
+        return records
+
+    def _profile_recovery_application(
+        self, runtime_context: dict[str, Any] | None
+    ) -> Any | None:
+        context = runtime_context or {}
+        if str(context.get("runtime") or "").strip().casefold() != "hermes":
+            return None
+        profile_id = str(context.get("profile_id") or "").strip()
+        if not profile_id:
+            return None
+        row = self.db.fetch_one(
+            """SELECT application_id FROM profile_application_bindings
+                WHERE profile_id = ? AND status = 'active'
+                ORDER BY claimed_at DESC LIMIT 1""",
+            (profile_id,),
+        )
+        if not row:
+            return None
+        try:
+            return ApplicationRepository(self.db).resolve(
+                application_id=str(row["application_id"])
+            )
+        except ApplicationNotFoundError:
+            return None
+
+    def _resolve_natural_application(
+        self,
+        message: str,
+        *,
+        runtime_context: dict[str, Any] | None = None,
+        intent: str | None = None,
+        interpreted_parameters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Resolve a natural reference against canonical SQLite records."""
+        parameters = (
+            dict(interpreted_parameters)
+            if isinstance(interpreted_parameters, dict)
+            else self._natural_application_parameters(message) or {}
+        )
+        requested_intent = str(intent or parameters.get("intent") or "analysis")
+        records = self._natural_application_records()
+        record_id = parameters.get("record_id")
+        explicit_records = []
+        if record_id is not None:
+            explicit_records = [
+                record
+                for record in records
+                if str(record.notion_id or "") == str(record_id)
+                or record.application_id == f"notion_{record_id}"
+            ]
+
+        hinted_identity = " ".join(
+            str(parameters.get(key) or "").strip()
+            for key in ("company", "role")
+            if str(parameters.get(key) or "").strip()
+        )
+        identity_text = f"{message} {hinted_identity}".strip()
+        company_records = [
+            record
+            for record in records
+            if self._natural_phrase_match(identity_text, record.company)
+        ]
+        role_records = [
+            record
+            for record in records
+            if self._natural_phrase_match(identity_text, record.role, role=True)
+        ]
+        hinted_sets = [set(record.application_id for record in group) for group in (company_records, role_records) if group]
+        hinted_ids: set[str] = set()
+        if hinted_sets:
+            hinted_ids = hinted_sets[0]
+            for candidate_ids in hinted_sets[1:]:
+                intersection = hinted_ids & candidate_ids
+                hinted_ids = intersection or hinted_ids | candidate_ids
+
+        if explicit_records and hinted_ids:
+            candidate_records = [
+                record
+                for record in explicit_records
+                if record.application_id in hinted_ids
+            ]
+            if not candidate_records:
+                candidate_records = explicit_records + [
+                    record for record in records
+                    if record.application_id in hinted_ids
+                ]
+        elif explicit_records:
+            candidate_records = explicit_records
+        else:
+            candidate_records = [
+                record for record in records if record.application_id in hinted_ids
+            ]
+
+        source = "canonical_company_role"
+        if explicit_records:
+            source = "explicit_notion_id"
+        if not candidate_records:
+            recovered = None
+            if self._is_explicit_resume_request(message):
+                recovered = self._profile_recovery_application(runtime_context)
+            if recovered is not None:
+                return self._natural_application_result(
+                    recovered,
+                    intent=requested_intent,
+                    source="profile_recovery",
+                    message=message,
+                )
+            return {
+                "status": "awaiting_input",
+                "kind": "natural_application_resolution",
+                "blocker_reason": "natural_application_not_found",
+                "display_text": (
+                    "Não encontrei uma correspondência segura. Informe o ID do Notion "
+                    "ou a empresa e o cargo exatos da candidatura."
+                ),
+            }
+        if len(candidate_records) > 1:
+            candidates = [self._natural_candidate_payload(record) for record in candidate_records]
+            options = "\n".join(
+                f"{index}. vaga {item.get('notion_id') or item['application_id']} da {item['company']} — {item['role']}"
+                for index, item in enumerate(candidates, start=1)
+            )
+            return {
+                "status": "awaiting_input",
+                "kind": "natural_application_resolution",
+                "blocker_reason": "natural_application_ambiguous",
+                "candidates": candidates,
+                "display_text": (
+                    "Encontrei mais de uma candidatura. Não escolhi por similaridade fraca. "
+                    "Qual delas você quer?\n" + options
+                ),
+            }
+        return self._natural_application_result(
+            candidate_records[0],
+            intent=requested_intent,
+            source=source,
+            message=message,
+        )
+
+    @staticmethod
+    def _natural_candidate_payload(record: Any) -> dict[str, Any]:
+        return {
+            "application_id": record.application_id,
+            "notion_id": record.notion_id,
+            "company": record.company,
+            "role": record.role,
+            "fingerprint": record.fingerprint,
+            "stage": record.stage,
+        }
+
+    def _natural_application_result(
+        self, record: Any, *, intent: str, source: str, message: str
+    ) -> dict[str, Any]:
+        payload = self._natural_candidate_payload(record)
+        payload.update(
+            {
+                "status": "resolved",
+                "kind": "natural_application_resolution",
+                "intent": intent,
+                "source": source,
+                "display_text": (
+                    f"Entendi esta referência como a candidatura {record.application_id} "
+                    f"({record.company} | {record.role})"
+                    + (f", vaga {record.notion_id} no Notion." if record.notion_id else ".")
+                ),
+            }
+        )
+        return payload
 
     @staticmethod
     def _is_operational_message(message: str) -> bool:
@@ -2697,6 +3469,63 @@ class HarnessSupervisor:
             "prossiga", "continue", "retome", "retomar", "faça", "faca",
         )
         return any(term in lowered for term in action_terms) and "?" not in lowered
+
+    @staticmethod
+    def _is_short_pipeline_control(message: str) -> bool:
+        """Recognize terse confirmations as control of the bound pipeline.
+
+        These messages carry no new vacancy identity or authorization. Their
+        meaning comes from the session's persisted application and pipeline
+        intent, which the pipeline handler resolves before execution.
+        """
+        normalized = " ".join(str(message or "").casefold().split()).strip(" .!?;:")
+        return normalized in {
+            "continue",
+            "continuar",
+            "prossiga",
+            "finalize",
+            "finalizar",
+            "pode executar",
+            "pode prosseguir",
+            "pode seguir",
+            "pode finalizar",
+            "execute",
+            "executar",
+        }
+
+    def _is_contextual_pipeline_confirmation(
+        self,
+        message: str,
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> bool:
+        """Treat a terse affirmative as authorization only after our offer.
+
+        A bare ``sim`` is intentionally not a pipeline command on its own.
+        It becomes one only when the immediately preceding assistant turn in
+        this same bound session explicitly offered to execute or continue.
+        """
+        normalized = " ".join(str(message or "").casefold().split()).strip(" .!?;:")
+        if normalized not in {"sim", "s", "ok", "okay", "pode"}:
+            return False
+        if not self._session_application_id(runtime_context, channel=channel):
+            return False
+        history = self._read_conversation_history(
+            runtime_context=runtime_context, channel=channel
+        )
+        if not history or history[-1].get("role") != "assistant":
+            return False
+        last_reply = str(history[-1].get("content") or "").casefold()
+        execution_offers = (
+            "quer que eu prossiga",
+            "quer que eu execute",
+            "posso prosseguir",
+            "posso executar",
+            "quando quiser, eu rodo",
+            "quando quiser eu rodo",
+        )
+        return any(offer in last_reply for offer in execution_offers)
 
     @staticmethod
     def _is_process_application_request(message: str) -> bool:
@@ -2857,6 +3686,26 @@ class HarnessSupervisor:
                 session_id=session_id,
             ),
         )
+        if runtime == "hermes" and effective_profile:
+            now = utc_now_iso()
+            try:
+                with self.db.transaction(immediate=True) as conn:
+                    conn.execute(
+                        """INSERT INTO profile_application_bindings
+                           (profile_id, application_id, source, status, claimed_at, released_at)
+                           VALUES (?, ?, 'session_binding', 'active', ?, NULL)
+                           ON CONFLICT(profile_id) DO UPDATE SET
+                             application_id = excluded.application_id,
+                             source = excluded.source,
+                             status = excluded.status,
+                             claimed_at = excluded.claimed_at,
+                             released_at = NULL""",
+                        (effective_profile, application_id, now),
+                    )
+            except sqlite3.IntegrityError:
+                # A different bot/profile owns this application.  Preserve the
+                # isolation boundary; session binding remains valid locally.
+                pass
 
     def _pending_request_for_context(
         self,
@@ -2878,6 +3727,135 @@ class HarnessSupervisor:
         if turn_id:
             payload["turn_id"] = turn_id
         return payload
+
+    def _record_natural_resolution_audit(
+        self,
+        resolution: dict[str, Any],
+        *,
+        message: str,
+        runtime_context: dict[str, Any] | None,
+    ) -> None:
+        application_id = str(resolution.get("application_id") or "").strip()
+        if not application_id:
+            return
+        context = runtime_context or {}
+        WorkflowService(self.db).record_event(
+            application_id,
+            "natural_application_resolved",
+            fingerprint=str(resolution.get("fingerprint") or "").strip() or None,
+            metadata={
+                "understood_as": str(resolution.get("display_text") or "").strip(),
+                "source": str(resolution.get("source") or "").strip(),
+                "intent": str(resolution.get("intent") or "").strip(),
+                "message": str(message or "")[:500],
+                "runtime": str(context.get("runtime") or "").strip(),
+                "profile_id": str(context.get("profile_id") or "").strip(),
+                "session_id": str(context.get("session_id") or "").strip(),
+            },
+        )
+
+    def _audit_intake_resolution(
+        self,
+        intake_result: dict[str, Any],
+        *,
+        intent: str,
+        source: str,
+        message: str,
+        runtime_context: dict[str, Any] | None,
+    ) -> None:
+        application_id = str(intake_result.get("application_id") or "").strip()
+        if not application_id:
+            return
+        try:
+            record = ApplicationRepository(self.db).resolve(
+                application_id=application_id
+            )
+        except ApplicationNotFoundError:
+            return
+        self._record_natural_resolution_audit(
+            self._natural_application_result(
+                record,
+                intent=intent,
+                source=source,
+                message=message,
+            ),
+            message=message,
+            runtime_context=runtime_context,
+        )
+
+    def _execute_natural_application(
+        self,
+        message: str,
+        resolution: dict[str, Any],
+        *,
+        model: str | None,
+        variant: str | None,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> dict[str, Any]:
+        """Continue only after the canonical resolver has selected one app."""
+        from career.services import intake as intake_service
+
+        application_id = str(resolution.get("application_id") or "").strip()
+        intent = str(resolution.get("intent") or "analysis").strip()
+        notion_id = str(resolution.get("notion_id") or "").strip()
+        if intent == "resume":
+            return self._resume_and_continue(
+                message,
+                model=model,
+                variant=variant,
+                application_id=application_id,
+            )
+        if intent == "cv":
+            if notion_id.isdigit():
+                intake_result = intake_service.from_notion_record(
+                    int(notion_id), database=self.db
+                )
+                scoped_application_id = str(
+                    intake_result.get("application_id") or application_id
+                ).strip()
+                self._bind_session_to_intake(
+                    runtime_context, intake_result, channel=channel
+                )
+                return self._execute_pipeline_request(
+                    message,
+                    requested_steps=["cv"],
+                    application_id=scoped_application_id,
+                    model=model,
+                    variant=variant,
+                    runtime_context=runtime_context,
+                    channel=channel,
+                )
+            return self._execute_pipeline_request(
+                message,
+                requested_steps=["cv"],
+                application_id=application_id,
+                model=model,
+                variant=variant,
+                runtime_context=runtime_context,
+                channel=channel,
+            )
+        if notion_id.isdigit():
+            from career.services import agent_guard as agent_guard_service
+
+            intake_result = agent_guard_service.evaluate_notion(int(notion_id))
+            self._bind_session_to_intake(runtime_context, intake_result, channel=channel)
+            return self._pipeline_result(
+                intake=intake_result,
+                specialist=self.execute_specialist(
+                    "fit-map",
+                    objective=message,
+                    extras={"application_id": intake_result.get("application_id")},
+                    model=model,
+                    variant=variant,
+                ),
+            )
+        return self._resume_and_continue(
+            message,
+            model=model,
+            variant=variant,
+            application_id=application_id,
+        )
 
     def _resume_and_continue(
         self,
@@ -3043,16 +4021,26 @@ class HarnessSupervisor:
             return None
         runtime = str(runtime_context.get("runtime") or channel or "cli")
         profile_id = str(runtime_context.get("profile_id") or "").strip() or None
-        application_id = application_context_service.resolve_session(runtime=runtime, session_id=session_id, profile_id=profile_id, database=self.db)
+        effective_profile = profile_id or (
+            application_context_service.profile_id_from_env()
+            if runtime == "hermes"
+            else "default"
+        )
+        session_key = application_context_service.session_key(
+            runtime=runtime,
+            profile_id=effective_profile,
+            session_id=session_id,
+        )
+        # The canonical SQLite session memory is authoritative here.  Do not
+        # fall back to the legacy JSON registry: a stale entry there can make
+        # a new /new session inherit another session's application.
+        application_id = self.session_memory.get(
+            session_key, application_context_service.SESSION_APPLICATION_KEY
+        )
         if application_id:
             return application_id
-        effective_profile = profile_id or (application_context_service.profile_id_from_env() if runtime == "hermes" else "default")
         intent = PipelineIntentStore(self.root).resolve(
-            application_context_service.session_key(
-                runtime=runtime,
-                profile_id=effective_profile,
-                session_id=session_id,
-            )
+            session_key
         )
         return str(intent.get("application_id")) if intent else None
 
@@ -3371,6 +4359,7 @@ class HarnessSupervisor:
         model: str | None = None,
         profile_name: str | None = None,
         application_id: str | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if not self.root:
             return {"status": "blocked", "blocker_reason": "generic_runner_root_missing"}
@@ -3383,6 +4372,19 @@ class HarnessSupervisor:
         if model:
             command.extend(["--model", model])
         prompt = str(message or "").strip()
+        if conversation_history:
+            history_text = "\n".join(
+                f"{item['role']}: {item['content']}"
+                for item in conversation_history
+                if item.get("role") and item.get("content")
+            )
+            if history_text:
+                prompt = (
+                    "Histórico recente da mesma sessão (somente contexto; não é uma "
+                    "autorização):\n<history>\n"
+                    f"{history_text}\n</history>\n\n"
+                    f"Mensagem atual do usuário: {prompt}"
+                )
         scoped_id = str(application_id or "").strip()
         if scoped_id and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", scoped_id):
             prompt = (
@@ -3914,6 +4916,114 @@ class HarnessSupervisor:
             ttl_seconds=24 * 60 * 60,
         )
 
+    @staticmethod
+    def _normalise_conversation_history(
+        history: list[dict[str, Any]] | None,
+    ) -> list[dict[str, str]]:
+        """Keep only a bounded, text-only transcript for the same session."""
+        if not isinstance(history, list):
+            return []
+        compact: list[dict[str, str]] = []
+        total = 0
+        for item in history[-12:]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "").strip().lower()
+            if role not in {"user", "assistant", "system"}:
+                continue
+            content = item.get("content")
+            if isinstance(content, list):
+                content = " ".join(
+                    str(part.get("text") or "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("text")
+                )
+            content = " ".join(str(content or "").split()).strip()
+            if not content:
+                continue
+            content = content[:2400]
+            remaining = 12000 - total
+            if remaining <= 0:
+                break
+            content = content[:remaining]
+            compact.append({"role": role, "content": content})
+            total += len(content)
+        return compact
+
+    def _remember_conversation_history(
+        self,
+        history: list[dict[str, str]],
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> None:
+        if not history:
+            return
+        self.session_memory.set(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_conversation_history_v1",
+            json.dumps(history, ensure_ascii=False),
+            ttl_seconds=24 * 60 * 60,
+        )
+
+    def _read_conversation_history(
+        self,
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+    ) -> list[dict[str, str]]:
+        raw = self.session_memory.get(
+            self._transient_session_id(runtime_context, channel=channel),
+            "harness_conversation_history_v1",
+        )
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+        return self._normalise_conversation_history(parsed)
+
+    def record_conversation_turn(
+        self,
+        message: str,
+        result: Any,
+        *,
+        runtime_context: dict[str, Any] | None,
+        channel: str,
+        conversation_history: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Persist the completed user/assistant turn for the next worker."""
+        history = self._normalise_conversation_history(conversation_history)
+        if not history:
+            history = self._read_conversation_history(
+                runtime_context=runtime_context, channel=channel
+            )
+        user_text = " ".join(str(message or "").split()).strip()
+        if user_text and not (
+            history and history[-1]["role"] == "user" and history[-1]["content"] == user_text
+        ):
+            history.append({"role": "user", "content": user_text[:2400]})
+
+        assistant_text = ""
+        current: Any = result
+        for _ in range(5):
+            if not isinstance(current, dict):
+                break
+            assistant_text = str(
+                current.get("display_text") or current.get("reply_text") or ""
+            ).strip()
+            if assistant_text:
+                break
+            current = current.get("result")
+        if assistant_text:
+            history.append({"role": "assistant", "content": assistant_text[:2400]})
+        self._remember_conversation_history(
+            self._normalise_conversation_history(history),
+            runtime_context=runtime_context,
+            channel=channel,
+        )
+
     def _explain_last_result(
         self,
         *,
@@ -4026,6 +5136,36 @@ class HarnessSupervisor:
             record_ids = {int(item) for item in pending.get("record_ids") or []}
             if int(text) in record_ids:
                 resolved = f"avalie vaga Notion {text}"
+        elif input_kind == "natural_application_selection":
+            candidates = [
+                item for item in pending.get("candidates") or [] if isinstance(item, dict)
+            ]
+            selected = None
+            if re.fullmatch(r"\d+", text):
+                number = int(text)
+                notion_matches = [
+                    item for item in candidates
+                    if str(item.get("notion_id") or "") == str(number)
+                ]
+                selected = notion_matches[0] if len(notion_matches) == 1 else (
+                    candidates[number - 1] if 1 <= number <= len(candidates) else None
+                )
+            else:
+                selected = next(
+                    (
+                        item for item in candidates
+                        if text.casefold()
+                        in {
+                            str(item.get("application_id") or "").casefold(),
+                            str(item.get("company") or "").casefold(),
+                        }
+                    ),
+                    None,
+                )
+            if selected and selected.get("application_id"):
+                resolved = (
+                    f"retome o trabalho application_id={selected['application_id']}"
+                )
         elif input_kind == "notion_application_filter" and text:
             resolved = f"traga vagas com {text}"
         elif input_kind == "linkedin_job_url" and LINKEDIN_JOB_RE.search(text):
@@ -4047,7 +5187,19 @@ class HarnessSupervisor:
         if not pending:
             return None
         if str(pending.get("input_kind") or "") != "notion_record_selection":
-            return None
+            if str(pending.get("input_kind") or "") != "natural_application_selection":
+                return None
+            candidates = [
+                item for item in pending.get("candidates") or [] if isinstance(item, dict)
+            ]
+            if not re.fullmatch(r"\d+", str(message or "").strip()):
+                return None
+            number = int(str(message).strip())
+            if any(str(item.get("notion_id") or "") == str(number) for item in candidates):
+                return None
+            if 1 <= number <= len(candidates):
+                return None
+            return "natural_application_selection_not_found"
         record_ids = {int(item) for item in pending.get("record_ids") or []}
         return "notion_record_selection_not_found" if int(message) not in record_ids else None
 

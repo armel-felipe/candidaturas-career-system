@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from dataclasses import dataclass
-from typing import Any, Mapping
+from pathlib import Path
+from typing import Any, Callable, Mapping
+
+from career.services.agent_runner import resolve_hermes_command
 
 
 _INTENTS = frozenset(
@@ -151,6 +156,155 @@ class PolicyDecision:
     mode: str
     reason: str
     requires_approval: bool = False
+
+
+class ContextualPlanner:
+    """Ask a safe-mode model for language hints, never execution authority."""
+
+    _CANDIDATE_TERMS = (
+        "vaga",
+        "candidatura",
+        "fit map",
+        "fit_map",
+        "próximo passo",
+        "proximo passo",
+        "continue",
+        "continuar",
+        "retom",
+        "vai em frente",
+        "pode seguir",
+        "pode tocar",
+        "analisa",
+        "análise",
+        "analise",
+        "avali",
+        "gerar cv",
+        "currículo",
+        "curriculo",
+        "notion",
+        "onedrive",
+        "email",
+    )
+
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        output_provider: Callable[[str], str] | None = None,
+        command_resolver: Callable[[Path], tuple[list[str], Path | None]] | None = None,
+    ):
+        self.root = Path(root) if root is not None else None
+        self.output_provider = output_provider
+        self.command_resolver = command_resolver or resolve_hermes_command
+
+    def plan(
+        self,
+        message: str,
+        *,
+        history: list[dict[str, str]],
+        last_result: dict[str, Any] | None,
+        menu_context: dict[str, Any] | None,
+        profile_name: str | None,
+        model: str | None,
+    ) -> ContextualPlan | None:
+        text = " ".join(str(message or "").split()).strip()
+        if not text or not self._is_candidate(text):
+            return None
+        prompt = self._prompt(
+            text,
+            history=history,
+            last_result=last_result,
+            menu_context=menu_context,
+        )
+        try:
+            output = self.raw_output(prompt, profile_name=profile_name, model=model)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+        return parse_contextual_plan(output)
+
+    def raw_output(
+        self, prompt: str, *, profile_name: str | None, model: str | None
+    ) -> str:
+        if self.output_provider:
+            return str(self.output_provider(prompt) or "")
+        return self._run_model(prompt, profile_name=profile_name, model=model)
+
+    @classmethod
+    def _is_candidate(cls, message: str) -> bool:
+        lowered = str(message or "").casefold()
+        return any(term in lowered for term in cls._CANDIDATE_TERMS)
+
+    @staticmethod
+    def _prompt(
+        message: str,
+        *,
+        history: list[dict[str, str]],
+        last_result: dict[str, Any] | None,
+        menu_context: dict[str, Any] | None,
+    ) -> str:
+        bounded_history = [
+            {
+                "role": str(item.get("role") or "")[:20],
+                "content": " ".join(str(item.get("content") or "").split())[:1200],
+            }
+            for item in (history or [])[-12:]
+            if isinstance(item, dict) and item.get("role") and item.get("content")
+        ]
+        return (
+            "Atue somente como planejador de conversa para um sistema de candidaturas. "
+            "Não use ferramentas, não leia nem escreva arquivos e não execute ações. "
+            "Retorne exatamente um objeto JSON, sem markdown, com as chaves "
+            "intent, target_hints, requested_steps, authorization e confidence. "
+            "intent deve ser um dos valores: chat, inspect, intake, analyze, resume, "
+            "generate_cv, generate_cover_letter, update_notion, deliver_onedrive, "
+            "email_draft, process_package. target_hints aceita somente notion_id, "
+            "company, role, url e menu_index; use apenas pistas presentes na conversa. "
+            "Nunca invente identificador interno, caminho, comando ou aprovação. "
+            "authorization deve ser none, user_request, confirmation ou pending_approval; "
+            "confidence deve ser high, medium ou low.\n\n"
+            f"Histórico recente:\n{json.dumps(bounded_history, ensure_ascii=False)}\n"
+            f"Último resultado canônico:\n{json.dumps(last_result or {}, ensure_ascii=False)}\n"
+            f"Menu atual:\n{json.dumps(menu_context or {}, ensure_ascii=False)}\n"
+            f"Mensagem atual:\n{message}"
+        )
+
+    def _run_model(
+        self, prompt: str, *, profile_name: str | None, model: str | None
+    ) -> str:
+        if self.root is None:
+            return ""
+        command, _local_binary = self.command_resolver(self.root)
+        if command == ["hermes"]:
+            return ""
+        command = list(command)
+        effective_profile = str(profile_name or os.environ.get("CAREER_HERMES_PROFILE_NAME") or "").strip()
+        if effective_profile:
+            command.extend(["--profile", effective_profile])
+        command.extend(["--safe-mode", "--toolsets", "", "--accept-hooks"])
+        effective_model = str(model or os.environ.get("HARNESS_CONVERSATIONAL_PLANNER_MODEL") or "").strip()
+        if effective_model:
+            command.extend(["--model", effective_model])
+        command.extend(["-z", prompt])
+        completed = subprocess.run(
+            command,
+            cwd=self.root,
+            env={**os.environ, "CAREER_HARNESS_SUBAGENT": "1"},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(
+                5,
+                int(
+                    os.environ.get(
+                        "HARNESS_CONVERSATIONAL_PLANNER_TIMEOUT_SECONDS", "20"
+                    )
+                ),
+            ),
+        )
+        if completed.returncode != 0:
+            return ""
+        return (completed.stdout or "").strip()
 
 
 def evaluate_action_policy(

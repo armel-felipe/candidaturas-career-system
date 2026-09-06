@@ -4,6 +4,7 @@ import pytest
 
 from career.services.harness_conversation import (
     ContextualPlan,
+    ContextualPlanner,
     evaluate_action_policy,
     parse_contextual_plan,
 )
@@ -96,3 +97,57 @@ def test_action_policy_separates_autonomy_from_external_effects(
 
     assert decision.mode == mode
     assert decision.requires_approval is approval
+
+
+def test_contextual_planner_uses_bounded_history_without_internal_scope():
+    prompts = []
+    planner = ContextualPlanner(
+        output_provider=lambda prompt: prompts.append(prompt)
+        or (
+            '{"intent":"resume","target_hints":{"company":"Keeta"},'
+            '"requested_steps":[],"authorization":"user_request",'
+            '"confidence":"high"}'
+        )
+    )
+
+    result = planner.plan(
+        "faz o próximo passo desta candidatura",
+        history=[{"role": "assistant", "content": "O draft está pronto."}],
+        last_result={"status": "active_intake_ready", "next_step": "build_fit_map"},
+        menu_context=None,
+        profile_name="vagas_bot_01",
+        model=None,
+    )
+
+    assert result is not None
+    assert result.intent == "resume"
+    assert result.target_hints == {"company": "Keeta"}
+    assert "application_id" not in prompts[0]
+    assert "O draft está pronto." in prompts[0]
+
+
+def test_contextual_planner_discards_smalltalk_and_invalid_model_output():
+    planner = ContextualPlanner(output_provider=lambda _prompt: "not JSON")
+
+    assert (
+        planner.plan(
+            "olá",
+            history=[],
+            last_result=None,
+            menu_context=None,
+            profile_name="vagas_bot_01",
+            model=None,
+        )
+        is None
+    )
+    assert (
+        planner.plan(
+            "faz o próximo passo desta candidatura",
+            history=[],
+            last_result=None,
+            menu_context=None,
+            profile_name="vagas_bot_01",
+            model=None,
+        )
+        is None
+    )
