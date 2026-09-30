@@ -44,12 +44,12 @@
 - Entrada: especificação aprovada, conector no commit `d54a14683960e0848dc5cc8d3c0d5dd142ed006d`, OpenCode instalado no host.
 - Saída: checkout reproduzível, runtime Node isolado >=20, config contendo apenas `candidaturas`, autorização do usuário existente e `permissionControl: false`; comando `setup:check` aprovado.
 
-- [ ] Revisar no checkout fixado o código de configuração, autorização, roteamento SSE por diretório, comandos `/projects`/`/bind`/`/permissions`, persistência e dependências; registrar limitações e confirmar compatibilidade do endpoint OpenCode com a versão instalada.
-- [ ] Instalar Node.js LTS compatível em diretório isolado do conector, sem alterar `/usr/bin/node`, e registrar versão/checksum usado.
-- [ ] Instalar o checkout no caminho externo ao projeto e fixar dependências pelo lockfile existente; não publicar nem editar o código fonte upstream para a primeira instalação.
-- [ ] Criar configuração com um projeto `candidaturas`, caminho absoluto canônico, host `127.0.0.1`, porta dedicada, `autoStart: true`, modo background e `permissionControl: false`; não configurar aliases adicionais.
-- [ ] Criar arquivo de ambiente root-only usando as credenciais já existentes de bot02 sem exibir valores, incluindo um único `TELEGRAM_ALLOWED_USER_ID`; não copiar nem alterar segredos de bot01.
-- [ ] Executar o comando de diagnóstico suportado pelo conector (`setup:check`) e inspecionar permissões/arquivos; resultado esperado: config válida, usuário permitido definido, OpenCode e projeto resolvíveis, sem segredo impresso.
+- [x] Revisar no checkout fixado o código de configuração, autorização, roteamento SSE por diretório, comandos `/projects`/`/bind`/`/permissions`, persistência e dependências; confirmar compatibilidade do endpoint OpenCode 1.18.33 pela SDK local e `/session/status?directory=...`.
+- [x] Instalar Node.js 24.19.0 em `/opt/agent-services/node-v24.19.0`, verificar o SHA-256 contra o arquivo oficial e confirmar que `/usr/bin/node` continua em 18.19.1.
+- [x] Instalar o checkout em `/opt/agent-services/opencode-telegram-connector`, detached no commit fixado; não há dependências npm de runtime.
+- [x] Criar configuração com apenas `candidaturas`, caminho absoluto canônico, host `127.0.0.1`, porta 4196, `autoStart: true`, modo background e `permissionControl: false`.
+- [x] Criar arquivo de ambiente root-only para o ID autorizado e credential file systemd root-only para o token já existente de bot02; não copiar nem alterar segredos de bot01.
+- [x] Executar `setup:check`: 9 itens passaram e um aviso esperado informou que o servidor ainda estava parado; `getMe` confirmou a identidade do bot. O check não imprime nem grava segredos em arquivos do projeto.
 
 ### Task 2: Instalar serviço OpenCode Telegram
 
@@ -61,10 +61,10 @@
 - Consome: checkout e configuração validados na Task 1.
 - Produz: unit systemd única para conector e servidor OpenCode gerenciado, com reinício controlado, diretório de trabalho explícito e segredos lidos por `EnvironmentFile`.
 
-- [ ] Definir a unit com usuário de serviço existente apropriado, `WorkingDirectory` do projeto, `EnvironmentFile` externo, `ExecStart` apontando ao Node isolado/conector e dependência de rede; aplicar hardening systemd compatível sem retirar acesso RW canônico já exigido pelo projeto.
-- [ ] Definir lifecycle para que o conector encerre o `opencode serve` que iniciou ao parar a unit; porta do servidor fixa em loopback e não encaminhada pelo Docker/proxy.
-- [ ] Fazer `systemd-analyze verify` da unit e recarregar systemd; não iniciar Telegram ainda.
-- [ ] Confirmar estado inicial observado: unit instalada/parada, porta OpenCode sem listener exposto externamente, gateway bot02 ainda desligado.
+- [x] Definir a unit com `User=root` para preservar o binário e a autenticação OpenCode existentes, `WorkingDirectory` canônico, `EnvironmentFile` externo e `LoadCredential` para o token; o token não é herdado pelo `opencode serve`.
+- [x] Definir lifecycle sob systemd para o conector e seu processo OpenCode, porta configurada em loopback e sem publicação de porta.
+- [x] Fazer `systemd-analyze verify` e recarregar systemd. A unit ficou inicialmente desativada/parada antes do seletor executar a troca.
+- [x] Confirmar modo inicial observado: Hermes ativo, conector parado, porta 4196 sem listener e bot02 sem polling até a ativação pelo seletor.
 
 ### Task 3: Criar seletor de runtime mutuamente exclusivo
 
@@ -77,12 +77,12 @@
 - Consome: unit Hermes atual de bot01, unit OpenCode da Task 2, banco canônico de controle de runs celulares.
 - Produz: comandos `status`, `select hermes`, `select opencode`; status reflete units/processos observados e modo selecionado.
 
-- [ ] Mapear comandos reais e lifecycle atual de `hermes-vagas-bot-01`; identificar se bot01 depende de Compose ou systemd e preservar o estado atual até a troca explícita.
-- [ ] Implementar status que relata runtime selecionado, serviço ativo/inativo e servidor OpenCode; estados conflitantes/ambos ativos são reportados como erro operacional.
-- [ ] Antes da troca, recusar se o banco canônico contém run `running`/`reserved` ou se o OpenCode server reporta sessão ativa; falhar fechado se a checagem do banco/API não puder ser concluída.
-- [ ] Implementar troca ordenada: parar e confirmar o gateway atual, iniciar e confirmar somente o destino; em falha, parar o destino parcial, garantir que no máximo um gateway permaneça ativo e retornar comandos de recuperação.
-- [ ] Tornar seleções repetidas idempotentes e proteger operações concorrentes com lock externo à árvore de candidatura.
-- [ ] Executar verificação operacional do seletor nos estados ambos parados, Hermes ativo, OpenCode ativo, execução ativa e falha de start simulada sem enviar mensagens nem iniciar um segundo polling.
+- [x] Mapear o lifecycle: Hermes é container Docker `hermes-vagas-bot-01`; `candidaturas-compose.service` está desativado e o container usa restart policy Docker. O seletor ajusta a policy para não reiniciar Hermes no modo OpenCode.
+- [x] Implementar status com modo selecionado, unidades/processo observados e saúde do servidor; modos conflitantes ou inconsistentes retornam erro.
+- [x] Antes da troca, consultar runs celulares vigentes/reservas não expiradas e `/session/status` filtrado por diretório; falhar fechado se SQLite/API estiver indisponível. Registros anteriores ao início da geração atual são tratados como históricos, sem serem reescritos.
+- [x] Implementar parada confirmada do runtime atual, start/health do destino e rollback seguro para Hermes se a ativação OpenCode falhar.
+- [x] Tornar seleções já ativas idempotentes e serializar chamadas por `flock` em `/run/lock`.
+- [x] Verificar estado inicial, seleção OpenCode e status final; não simulei uma falha de start nem criei uma run artificial. O modo OpenCode ativo confirma somente um gateway.
 
 ### Task 4: Habilitar o bot02 e validar a conexão real
 
@@ -94,11 +94,11 @@
 - Consome: serviços instalados e seletor com status confiável.
 - Produz: modo OpenCode selecionável após reboot, bot02 autorizado e conectado ao único projeto preconfigurado.
 
-- [ ] Inspecionar status e atividade do bot01 antes da janela de ativação; se houver run ativa, manter serviços sem troca até o fluxo terminar.
-- [ ] Selecionar `opencode`; confirmar bot01 parado, unit do conector ativa, servidor acessível apenas em loopback e conexão Telegram autorizada.
-- [ ] Confirmar com uma mensagem controlada do usuário autorizado que Telegram cria/usa sessão cujo diretório é `/opt/agent-projects/candidaturas`; verificar que eventos sem diretório ou de outro projeto não são encaminhados.
-- [ ] No SSH do VS Code, usar `opencode attach` com URL local e diretório/sessão retornados pelo conector; confirmar que terminal e Telegram veem a mesma sessão.
-- [ ] Reiniciar/recarregar a unit e confirmar recuperação sem duplicar polling; confirmar que segredo não aparece em logs/status e que nenhum arquivo de candidatura/skill foi alterado pela instalação.
+- [x] Inspecionar status: runs registradas tinham última atualização em 10/09, anteriores ao container atual (11/09), nenhuma reserva vigente e nenhum log Hermes nos últimos 10 minutos; elas foram preservadas.
+- [x] Selecionar `opencode`; bot01 foi parado antes de bot02 iniciar, unit ativa e `opencode serve` saudável apenas em `127.0.0.1:4196`.
+- [ ] Aguardar o usuário autorizado enviar o primeiro turno para confirmar sessão Telegram no diretório canônico; connector `getMe` validou a identidade e polling iniciou, mas um bot não pode simular a mensagem do usuário.
+- [ ] Anexar do SSH com `opencode attach` à sessão exibida pelo bot e confirmar a sessão compartilhada.
+- [x] Habilitar `candidaturas-runtime.service` para restaurar o modo salvo no boot; estado Telegram persistente fora do projeto, token fora do ambiente herdado e fora de logs/status. Nenhum arquivo de candidatura ou skill foi alterado pela instalação.
 
 ### Task 5: Atualizar documentação operacional e modo ativo
 
@@ -112,11 +112,11 @@
 - Consome: nomes finais de units, seletor, paths externos, porta, comandos e diagnóstico.
 - Produz: instruções atuais coerentes e histórico do runtime anterior preservado.
 
-- [ ] Documentar status, seleção Hermes/OpenCode, bloqueio durante runs, attach SSH, logs e recuperação de cada falha de transição.
-- [ ] Atualizar `AGENTS.md` para descrever o modo configurado depois da ativação e os limites de diretório/runtime; remover proibições que conflitem com a decisão aprovada sem enfraquecer regras do projeto não relacionadas.
-- [ ] Acrescentar entrada de roadmap que supersede a decisão bot01-only de 2026-09-06, preservando a linha histórica e vinculando esta especificação/plano.
-- [ ] Atualizar README/runbook onde descrevem a operação corrente para diferenciar o modo selecionável da arquitetura antiga, sem apagar procedimentos históricos úteis.
-- [ ] Revisar `git diff` e status para confirmar que só arquivos do escopo foram incluídos e nenhum arquivo de segredo/dado/skill foi staged.
+- [x] Documentar status, seleção Hermes/OpenCode, bloqueio durante runs, attach SSH, logs e recuperação de falhas de transição.
+- [x] Atualizar `AGENTS.md` com os modos e limites, preservando as regras de skills canônicas.
+- [x] Acrescentar RUNTIME-037 e registrar a decisão atual em roadmap sem apagar o histórico.
+- [x] Atualizar o runbook Telegram/Harness como histórico e apontar para as instruções correntes.
+- [ ] Revisar o diff e aplicar os arquivos de escopo no checkout operacional sem sobrescrever as alterações sujas já existentes.
 
 ## Handoff checks
 

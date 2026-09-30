@@ -2,6 +2,25 @@
 
 Sistema local de candidatura executiva. Toda tarefa relacionada a vaga, CV, pitch, carta, Gupy ou networking é executada pelas skills deste projeto.
 
+## Modo operacional do Telegram
+
+O seletor `candidaturas-runtime` mantém um único gateway Telegram ativo por vez:
+
+- `hermes`: `vagas_bot_01` atende pelo Hermes.
+- `opencode`: `vagas_bot_02` atende pelo conector OpenCode no projeto canônico `/opt/agent-projects/candidaturas`.
+
+Consultar o modo com `sudo python3 scripts/agent_runtime_select.py status` e
+trocar somente com `sudo python3 scripts/agent_runtime_select.py select hermes`
+ou `sudo python3 scripts/agent_runtime_select.py select opencode`. Não iniciar
+o container Hermes ou o conector diretamente enquanto o outro runtime estiver
+selecionado. O seletor recusa mudanças durante runs celulares vigentes,
+atividade recente do Hermes ou sessões OpenCode ocupadas.
+
+No modo OpenCode, o terminal SSH deve usar `opencode attach` no servidor local
+existente, para continuar a mesma sessão do Telegram. Não iniciar outra
+instância OpenCode independente nesse projeto. O alias Telegram `candidaturas`
+é o único diretório configurado no conector.
+
 ## Governança das skills
 
 Fonte canônica de manutenção: `.agents/skills/{skill}/SKILL.md`.

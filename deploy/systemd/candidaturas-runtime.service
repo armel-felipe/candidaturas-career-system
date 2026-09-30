@@ -1,0 +1,19 @@
+[Unit]
+Description=Mutually exclusive Hermes/OpenCode runtime for candidaturas
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+Environment=HOME=/root
+ExecStart=/usr/local/sbin/candidaturas-runtime restore
+ExecStop=/usr/local/sbin/candidaturas-runtime shutdown
+TimeoutStartSec=120
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

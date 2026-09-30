@@ -1,0 +1,25 @@
+[Unit]
+Description=Telegram connector for OpenCode candidaturas
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/agent-projects/candidaturas
+Environment=HOME=/root
+Environment=PATH=/opt/agent-services/node-v24.19.0/bin:/root/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/etc/opencode-telegram-connector.env
+LoadCredential=telegram_bot_token:/etc/opencode-telegram-connector/telegram_bot_token
+ExecStart=/opt/agent-services/node-v24.19.0/bin/node /opt/agent-services/opencode-telegram-connector/src/cli.js --env-file /etc/opencode-telegram-connector.env --config-file /opt/agent-services/opencode-telegram-connector/connector.config.mjs --state-file /var/lib/opencode-telegram-connector/state.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

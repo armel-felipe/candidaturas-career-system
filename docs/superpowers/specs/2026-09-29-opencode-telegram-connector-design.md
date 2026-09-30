@@ -18,11 +18,12 @@ based on the earlier ownership hypothesis.
 
 Use the community project
 [`Tah10n/opencode-telegram-connector`](https://github.com/Tah10n/opencode-telegram-connector),
-pinned to commit `d54a14683960e0848dc5cc8d3c0d5dd142ed006d` pending final source
-review. It is a Telegram connector that uses OpenCode's server API, not an
-official OpenCode plugin. It supports configured project aliases, an authorized
-Telegram user ID, directory-aware event routing, and attaching a terminal to the
-same OpenCode session.
+pinned to commit `d54a14683960e0848dc5cc8d3c0d5dd142ed006d` after source review.
+It is a Telegram connector that uses OpenCode's server API, not an official
+OpenCode plugin. Its source uses Node built-ins and internal modules; the
+lockfile has no runtime package dependencies. It supports configured project
+aliases, an authorized Telegram user ID, directory-aware event routing, and
+attaching a terminal to the same OpenCode session.
 
 The alternative `agentjoey/opencode-remote-control` is a true in-process plugin,
 but its installer adds a global plugin and writes bot credentials to the source
@@ -41,12 +42,14 @@ requires a pinned source install and review.
 - Telegram authorization is restricted to the existing owner ID for
   `vagas_bot_02`. Connector permission-profile editing is disabled so Telegram
   cannot rewrite the project's `opencode.json` through `/permissions`.
-- Run the connector under a dedicated systemd unit. Keep its source/config and
-  persistent Telegram/session state outside the project tree; keep credentials
-  in a root-readable service environment file, never in Git or command output.
-- The host currently has Node.js 18.19.1, while this connector requires Node.js
-  20 or newer. Install a pinned compatible Node runtime isolated to the
-  connector; do not replace the host's system Node.
+- Run the connector under a dedicated systemd unit as root, preserving the
+  existing OpenCode binary and provider auth context in `/root`. Keep its
+  source/config and persistent Telegram/session state outside the project tree;
+  keep the user ID in a root-only environment file and the bot token in a
+  root-only systemd credential file, never in Git, child process environments,
+  or service output.
+- The host's system Node.js is 18.19.1, while this connector requires Node.js 20
+  or newer. Use the isolated Node.js 24.19.0 runtime; do not replace system Node.
 - In OpenCode mode, stop the `vagas_bot_01` Hermes gateway before starting
   `vagas_bot_02` with the connector. In Hermes mode, stop the connector and its
   managed OpenCode server before starting `vagas_bot_01`. The selector must
@@ -64,7 +67,9 @@ requires a pinned source install and review.
   `opencode.json` loads `AGENTS.md` and the project's established instructions.
 - The connector config exposes only the `candidaturas` alias. It does not
   provide a Telegram route to add arbitrary project paths.
-- Use a fixed server port on `127.0.0.1` and no public reverse proxy or tunnel.
+- Use OpenCode server port `4196` on `127.0.0.1`; the selector checks
+  `/session/status?directory=...` before switching away from OpenCode. No public
+  reverse proxy or tunnel is configured.
 - Preserve the project's current OpenCode permissions and skill governance.
   Disable only the connector's command for editing permission profiles.
 - Reuse the existing `vagas_bot_02` token and authorized Telegram user ID
@@ -122,7 +127,15 @@ instructions and roadmap also describe a bot01-only deployment, so the approved
 implementation must update the active-mode documentation and supersede that
 deployment decision without erasing historical runtime state.
 
-No integration has been installed by this design document. Before deployment,
-review the pinned connector source and dependency lockfile, confirm its
-compatibility with the installed OpenCode server API, and use the existing
-bot02 credentials locally without exposing them.
+## Deployment record — 2026-09-30
+
+The pinned source was reviewed and installed outside the project at
+`/opt/agent-services/opencode-telegram-connector`. OpenCode 1.18.33's local SDK
+provides `/session/status?directory=...`; the connector setup check confirmed
+the existing `vagas_bot_02` token and its single authorized user, with one
+expected warning because OpenCode was not yet running. Node.js 24.19.0 was
+installed from the official checksum-verified binary archive. The selector
+service was activated in `opencode` mode after stale database statuses were
+correlated with the bot01 container restart time; those records were not
+rewritten. The remaining end-to-end handoff is the user's first Telegram turn
+and SSH attach to that same session.

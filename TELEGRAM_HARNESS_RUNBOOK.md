@@ -1,6 +1,12 @@
-# Telegram via Harness
+# Histórico: Telegram via Harness (Hermes)
 
-## Estado atual
+> Este documento registra o fluxo Telegram/Hermes anterior. A operação atual
+> usa um runtime por vez: consulte
+> [`docs/runbooks/opencode-telegram-connector.md`](docs/runbooks/opencode-telegram-connector.md)
+> para selecionar Hermes (`vagas_bot_01`) ou OpenCode (`vagas_bot_02`). Não siga
+> os comandos de instalação/restart abaixo sem selecionar Hermes primeiro.
+
+## Estado registrado neste fluxo
 
 O gateway Hermes do perfil `candidaturas` recebe mensagens Telegram diretamente. Para
 fazer todas as mensagens passarem pelo supervisor, use o hook `pre_llm_call` deste projeto.

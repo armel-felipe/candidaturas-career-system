@@ -48,6 +48,7 @@ Antes de encerrar:
 
 | ID | Estado | Prioridade | Item | Plano relacionado | Critério de saída |
 |---|---|---|---|---|---|
+| `RUNTIME-037` | `IN_PROGRESS` | P1 | Habilitar seleção mutuamente exclusiva entre Hermes (`vagas_bot_01`) e OpenCode via Telegram (`vagas_bot_02`), mantendo o conector restrito ao projeto canônico. | `2026-09-29-opencode-telegram-connector` | Conector no commit `d54a14683960e0848dc5cc8d3c0d5dd142ed006d`, Node `v24.19.0` isolado, diagnóstico Telegram aprovado, unit OpenCode ativa em `127.0.0.1:4196`, gateway Hermes parado e seletor persistente instalado. Falta confirmar um turno enviado pelo usuário autorizado e o attach SSH à mesma sessão; não editar runs antigas para liberar troca. |
 | `RUNTIME-OBS-001` | `DONE` | P1 | Encerrar a janela de observação da Fase 8 e decidir o arquivamento do JSON legado. | `2026-08-18-runtime-unification` | Janela encerrada em 2026-09-05 com evidência: inventário de persistência (`25.859` JSONs, `190` divergências de projeção, `2` serviços Hermes), `runtime:diagnose` concluído e suíte de fechamento `46 passed`. Decisão explícita: preservar os JSONs de compatibilidade nos caminhos atuais para rollback/exportação; `sqlite_only` não os usa como autoridade e nenhum arquivo foi apagado ou movido. |
 | `HARNESS-019` | `DONE` | P0 | O dispatcher, o worker e o supervisor ainda podiam interpretar estado de conversa em arquivos distintos, permitindo bloqueio, reuso de escopo ou conclusão divergente após reinício. | `2026-09-02-harness-command-executor` | Comando idempotente no SQLite com claim/resultado transacionais; menu, confirmação e intenção em `session_memory`; worker comanda a execução e encerra exceções no banco; JSON legado não seleciona candidatura nem decide status; 820 testes passaram, `validate:structure`, `runtime:verify -- --strict`, imports nos dois containers e recriação dos dois serviços concluíram em 2026-09-02. |
 | `HARNESS-020` | `DONE` | P0 | Regressões pós-análise: “processar a vaga?” caía no fallback e podia terminar `completed` sem resposta; atualização válida do Notion era rejeitada como FIT_MAP ausente porque o request não materializava o contexto SQLite; confirmações não retomavam a ação aprovada e “por quê?” perdia o motivo do bloqueio. | `2026-09-02-harness-post-analysis-continuity` | Roteamento explícito do pacote CV → OneDrive → Notion; validação do `notion-update` com `fit_map_seed` da candidatura; confirmação persistida por sessão e retomada via `ApprovalStore`; resultado sem resposta nunca é aceito como `completed`; 825 testes passaram, `validate:structure`, `runtime:verify -- --strict`, `git diff --check`, smoke final nos dois containers e restart controlado concluíram em 2026-09-02. Em ambos: `process_route=pipeline`, `why_route=explain_last_result`, `notion_624_validation=ok`, `stale_fit_map=False`. |
@@ -262,6 +263,7 @@ verde.
 
 | Plano | Escopo | Itens do roadmap | Estado |
 |---|---|---|---|
+| `2026-09-29-opencode-telegram-connector` | Instalar o conector Telegram/OpenCode fixado, alternar os gateways Hermes/OpenCode com exclusividade, persistir o modo e documentar o attach SSH. | `RUNTIME-037` | Parcialmente implantado em 2026-09-30: runtime isolado e serviços instalados; aguarda confirmação de uma mensagem Telegram e attach à sessão. |
 | `2026-08-18-runtime-unification` | Unificação de runtime, SQLite, cutover e canários. | `RUNTIME-OBS-001`; validação dos testes relacionados à Fase 8. | Concluído em 2026-09-05; janela encerrada, JSONs de compatibilidade preservados explicitamente para rollback/exportação e SQLite mantido como única autoridade de runtime. |
 | `2026-08-21-cv-renderer-and-gates` | Renderer DOCX, reviewer de formatação, hashes e receipts. | `CV-001`, `CV-002`, `CV-003`, `TEST-002`, `TEST-006`. | Concluído; suíte focada verde. Naquele corte, a suíte ampla ainda conservava falhas antigas; `TEST-003` e `TEST-004` foram resolvidos pelo plano de 2026-08-24. |
 | `2026-08-24-harness-continuity-approvals` | Continuidade de sessão/intenção, fronteira de aprovação do supervisor, handoff de storage e reparo de schema pré-ledger. | `HARNESS-001`, `HARNESS-002`, `TEST-003`, `TEST-004`; revalidação relacionada a `RUNTIME-006` e `RUNTIME-OBS-001`. | Concluído; 73 testes focados, `validate:structure` e `runtime:verify -- --strict` aprovados em 2026-08-24. A observação operacional relacionada foi encerrada por `RUNTIME-OBS-001` em 2026-09-05. |
@@ -295,6 +297,13 @@ verde.
 | `2026-09-06-harness-conversational-autonomy` | Ampliar a liberdade conversacional dos bots sem relaxar o firewall de identidade, a autoridade SQLite, a validação de estado ou a aprovação de efeitos externos. Separar planner contextual, resolvedor determinístico de candidatura, política de autorização e executor scoped; aceitar paráfrases e confirmações naturais somente com contexto suficiente e registrar a decisão interpretada. | `HARNESS-036`; integra com `HARNESS-032`, `HARNESS-033` e `HARNESS-035` | Concluído em 2026-09-06. Planner, resolução/política, auditoria, isolamento de sessão/perfil e gate de OneDrive aprovados. Suíte focada local `175 passed`; ambos containers `6 passed` nos testes contextuais. `runtime:verify -- --strict` sem blockers. O warning de cache somente leitura nos containers é ambiental e não afeta o resultado dos testes. |
 
 ## Histórico de decisões
+
+- 2026-09-30 — Instalado o conector Telegram/OpenCode fixado e ativado
+  `vagas_bot_02` como runtime selecionado. `vagas_bot_01` permaneceu configurado
+  para Hermes e foi parado antes da ativação do novo gateway. O seletor
+  `candidaturas-runtime` impede a troca durante runs/sessões ativos e restaura
+  o modo salvo no boot; `RUNTIME-037` aguarda apenas o primeiro turno real e o
+  attach SSH à mesma sessão.
 
 - 2026-09-05 — A tomada de evidência dentro dos dois containers confirmou que
   o banco canônico montado é o mesmo, mas a projeção física de estado diverge:
