@@ -77,11 +77,13 @@
 - Consome: unit Hermes atual de bot01, unit OpenCode da Task 2, banco canônico de controle de runs celulares.
 - Produz: comandos `status`, `select hermes`, `select opencode`; status reflete units/processos observados e modo selecionado.
 
-- [x] Mapear o lifecycle: Hermes é container Docker `hermes-vagas-bot-01`; `candidaturas-compose.service` está desativado e o container usa restart policy Docker. O seletor ajusta a policy para não reiniciar Hermes no modo OpenCode.
+- [x] Mapear o lifecycle: Hermes é container Docker `hermes-vagas-bot-01`; `candidaturas-compose.service` está desativado. A unit dedicada `candidaturas-hermes-bot.service` controla somente `vagas_bot_01`.
 - [x] Implementar status com modo selecionado, unidades/processo observados e saúde do servidor; modos conflitantes ou inconsistentes retornam erro.
 - [x] Antes da troca, consultar runs celulares vigentes/reservas não expiradas e `/session/status` filtrado por diretório; falhar fechado se SQLite/API estiver indisponível. Registros anteriores ao início da geração atual são tratados como históricos, sem serem reescritos.
 - [x] Implementar parada confirmada do runtime atual, start/health do destino e rollback seguro para Hermes se a ativação OpenCode falhar.
 - [x] Tornar seleções já ativas idempotentes e serializar chamadas por `flock` em `/run/lock`.
+- [x] Falhar fechado em estados desconhecidos do systemd/Docker e em schema SQLite incompleto; proteger inícios das units com `Conflicts=` e prechecks de gateway.
+- [x] Revisão independente encontrou e corrigiu deadlock entre o lock do seletor e `ExecStartPre`; os comandos de precheck são despachados antes do lock. Docker direto continua fora da proteção das units.
 - [x] Verificar estado inicial, seleção OpenCode e status final; não simulei uma falha de start nem criei uma run artificial. O modo OpenCode ativo confirma somente um gateway.
 
 ### Task 4: Habilitar o bot02 e validar a conexão real
@@ -116,7 +118,7 @@
 - [x] Atualizar `AGENTS.md` com os modos e limites, preservando as regras de skills canônicas.
 - [x] Acrescentar RUNTIME-037 e registrar a decisão atual em roadmap sem apagar o histórico.
 - [x] Atualizar o runbook Telegram/Harness como histórico e apontar para as instruções correntes.
-- [ ] Revisar o diff e aplicar os arquivos de escopo no checkout operacional sem sobrescrever as alterações sujas já existentes.
+- [x] Revisar o diff e sincronizar os arquivos de escopo no checkout operacional sem sobrescrever as alterações sujas já existentes; roadmap marca `RUNTIME-037` parcialmente implantado.
 
 ## Handoff checks
 

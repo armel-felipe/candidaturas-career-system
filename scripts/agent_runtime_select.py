@@ -44,12 +44,20 @@ def _command(args: list[str], *, check: bool = True) -> subprocess.CompletedProc
 
 
 def _unit_active(unit: str) -> bool:
-    return _command(["systemctl", "is-active", "--quiet", unit], check=False).returncode == 0
+    result = _command(["systemctl", "show", "--property=ActiveState", "--value", unit], check=False)
+    state = result.stdout.strip()
+    if result.returncode or state not in {"active", "inactive"}:
+        raise RuntimeErrorSafe(f"systemd_state_unknown:{unit}")
+    return state == "active"
 
 
 def _hermes_active() -> bool:
     result = _command(["docker", "inspect", "-f", "{{.State.Running}}", HERMES_CONTAINER], check=False)
-    return result.returncode == 0 and result.stdout.strip().lower() == "true"
+    if result.returncode == 0 and result.stdout.strip().lower() in {"true", "false"}:
+        return result.stdout.strip().lower() == "true"
+    if result.returncode and "no such object" in result.stderr.lower():
+        return False
+    raise RuntimeErrorSafe("hermes_container_state_unknown")
 
 
 def _mode() -> str | None:
@@ -108,16 +116,17 @@ def _active_cell_runs() -> dict[str, int]:
         db = sqlite3.connect(f"file:{DATABASE}?mode=ro", uri=True, timeout=5)
         db.row_factory = sqlite3.Row
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        required = {"application_runs", "cell_nodes"}
+        if not required.issubset(tables):
+            raise RuntimeErrorSafe("control_database_schema_incomplete; refusing runtime switch")
         since = _started_at().astimezone(timezone.utc).isoformat()
         active = {"application_runs": 0, "cell_nodes": 0}
-        if "application_runs" in tables:
-            active["application_runs"] = db.execute(
+        active["application_runs"] = db.execute(
                 "SELECT count(*) FROM application_runs "
                 "WHERE lower(status) IN ('running','reserved') AND updated_at >= ?",
                 (since,),
             ).fetchone()[0]
-        if "cell_nodes" in tables:
-            active["cell_nodes"] = db.execute(
+        active["cell_nodes"] = db.execute(
                 "SELECT count(*) FROM cell_nodes "
                 "WHERE lower(status) IN ('running','reserved') "
                 "AND (updated_at >= ? OR (reservation_expires_at IS NOT NULL AND reservation_expires_at > ?))",
@@ -133,8 +142,14 @@ def _assert_no_active_work(*, current_mode: str | None) -> None:
     runs = _active_cell_runs()
     if any(runs.values()):
         raise RuntimeErrorSafe(f"active_cell_runs:{runs}; refusing runtime switch")
-    if current_mode == "opencode" and _unit_active(CONNECTOR_SERVICE):
-        sessions = _active_project_sessions()
+    connector_active = _unit_active(CONNECTOR_SERVICE)
+    if connector_active or current_mode == "opencode":
+        try:
+            sessions = _active_project_sessions()
+        except RuntimeErrorSafe:
+            if connector_active or _opencode_healthy():
+                raise
+            sessions = []
         if sessions:
             raise RuntimeErrorSafe(f"active_opencode_sessions:{len(sessions)}; refusing runtime switch")
     if current_mode == "hermes" and _hermes_active():
@@ -154,8 +169,25 @@ def _opencode_healthy() -> bool:
         return False
 
 
+def assert_opencode_start() -> int:
+    if _hermes_active():
+        raise RuntimeErrorSafe("hermes_gateway_active; refusing OpenCode connector start")
+    return 0
+
+
+def assert_hermes_start() -> int:
+    if _unit_active(CONNECTOR_SERVICE) or _opencode_healthy():
+        raise RuntimeErrorSafe("opencode_gateway_active; refusing Hermes start")
+    return 0
+
+
 def _stop_hermes() -> None:
     if not _hermes_active():
+        return
+    if _unit_active("candidaturas-hermes-bot.service"):
+        _command(["systemctl", "stop", "candidaturas-hermes-bot.service"])
+        if _hermes_active():
+            raise RuntimeErrorSafe("hermes_gateway_did_not_stop")
         return
     _command(["docker", "update", "--restart=no", HERMES_CONTAINER])
     _command(["docker", "stop", "--time", "30", HERMES_CONTAINER])
@@ -164,8 +196,7 @@ def _stop_hermes() -> None:
 
 
 def _start_hermes() -> None:
-    _command(["docker", "update", "--restart=unless-stopped", HERMES_CONTAINER], check=False)
-    _command(["docker", "compose", "-f", str(PROJECT / "compose.yaml"), "up", "-d", "vagas_bot_01"])
+    _command(["systemctl", "start", "candidaturas-hermes-bot.service"])
     if not _hermes_active():
         raise RuntimeErrorSafe("hermes_gateway_did_not_start")
 
@@ -192,7 +223,7 @@ def status() -> int:
     return 0
 
 
-def select(mode: str, *, restore: bool = False) -> int:
+def select(mode: str) -> int:
     if mode not in {"hermes", "opencode"}:
         raise RuntimeErrorSafe("usage: candidaturas-runtime select hermes|opencode")
     current = _mode()
@@ -239,6 +270,12 @@ def shutdown() -> int:
 
 def main(argv: list[str]) -> int:
     STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # ExecStartPre invokes these read-only guards while the selector itself may
+    # hold the transition lock across systemctl start. They must not reacquire it.
+    if argv == ["assert-opencode-start"]:
+        return assert_opencode_start()
+    if argv == ["assert-hermes-start"]:
+        return assert_hermes_start()
     LOCK_FILE.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
     with LOCK_FILE.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
@@ -250,7 +287,7 @@ def main(argv: list[str]) -> int:
             # can still be executing. Rebase stale database statuses to this
             # gateway generation before restoring its selected mode.
             _write_state(restored_mode)
-            return select(restored_mode, restore=True)
+            return select(restored_mode)
         if argv == ["shutdown"]:
             return shutdown()
         if len(argv) == 2 and argv[0] == "select":

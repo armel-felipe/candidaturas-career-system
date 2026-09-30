@@ -1,0 +1,23 @@
+[Unit]
+Description=Hermes Telegram bot for candidaturas
+Requires=docker.service
+After=docker.service network-online.target
+Conflicts=opencode-telegram-connector.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+WorkingDirectory=/opt/agent-projects/candidaturas
+ExecStartPre=/usr/local/sbin/candidaturas-runtime assert-hermes-start
+ExecStart=/usr/bin/docker update --restart=unless-stopped hermes-vagas-bot-01
+ExecStart=/usr/bin/docker compose -f /opt/agent-projects/candidaturas/compose.yaml up -d vagas_bot_01
+ExecStop=/usr/bin/docker update --restart=no hermes-vagas-bot-01
+ExecStop=/usr/bin/docker compose -f /opt/agent-projects/candidaturas/compose.yaml stop -t 30 vagas_bot_01
+TimeoutStartSec=120
+TimeoutStopSec=45
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

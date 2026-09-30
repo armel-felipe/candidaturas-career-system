@@ -17,14 +17,17 @@ python3 scripts/agent_runtime_select.py select opencode
 python3 scripts/agent_runtime_select.py select hermes
 ```
 
-O seletor verifica o serviço observado, o banco SQLite de runs celulares, o
-estado de sessão do OpenCode e atividade recente do Hermes. Se a checagem não
-for conclusiva ou uma run estiver ativa, ele se recusa a trocar. Uma falha ao
-iniciar OpenCode para o conector e tenta restaurar Hermes, nunca mantém os dois
-gateways Telegram ativos intencionalmente.
+O seletor verifica o serviço observado, o schema e os registros do banco SQLite
+de runs celulares, o estado de sessão do OpenCode e atividade recente do Hermes.
+Estados desconhecidos ou uma run ativa impedem a troca. As units
+`opencode-telegram-connector` e `candidaturas-hermes-bot` também verificam o
+gateway oposto antes de iniciar. Uma falha ao iniciar OpenCode para o conector
+e tenta restaurar Hermes.
 
-Não iniciar manualmente o container `hermes-vagas-bot-01`, o serviço do
-conector ou outro `opencode serve` enquanto um runtime estiver selecionado.
+Use somente `candidaturas-runtime select ...` para alternar. Inícios via
+systemd das duas units são guardados contra o gateway oposto ativo. Comandos
+Docker diretos e outros processos `opencode serve` não passam por esses guards;
+não os use enquanto um runtime estiver selecionado.
 Para verificar após reboot, use `systemctl status candidaturas-runtime` e o
 comando `status` acima.
 
